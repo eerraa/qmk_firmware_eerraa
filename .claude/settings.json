@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "PowerShell(git reset --hard:*)",
+      "Bash(git checkout --:*)",
+      "PowerShell(git checkout --:*)",
+      "Bash(git restore:*)",
+      "PowerShell(git restore:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep|PowerShell|Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$(git rev-parse --show-toplevel)/hooks/era_pretooluse.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

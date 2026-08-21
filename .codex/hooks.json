@@ -1,0 +1,19 @@
+{
+  "description": "ERA shared PreToolUse gate. The script decides; this file only calls it.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$(git rev-parse --show-toplevel)/hooks/era_pretooluse.py\"",
+            "commandWindows": "python \"$(git rev-parse --show-toplevel)/hooks/era_pretooluse.py\"",
+            "statusMessage": "ERA pre-tool gate",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

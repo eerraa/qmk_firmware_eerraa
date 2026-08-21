@@ -1,0 +1,227 @@
+# ERA QMK Fork Ledger
+
+Status: active
+Genre: manual
+Canonical for: every ERA edit to a QMK core file outside the matrix boundary,
+the selector or gate each one rides, the un-narrated remainder, and how the
+whole set is re-derived against pristine upstream
+Read when: editing a QMK core file, or preparing an upstream rebase
+
+ERA edits QMK core outside the matrix files, and this ledger is the one thing
+that makes an upstream rebase possible. `era_invariants.md` constrains only
+`quantum/matrix.c` and `quantum/matrix_common.c`; every other core edit is
+recorded here, and per-file ERA ownership is `era_source_map.md`'s.
+**The authoritative enumeration of the ERA core surface is the diff between the
+vendored upstream commit `c93ef27143` and this repository's tip**, restricted to
+the five directories the derivation at the end of this document names. That
+commit is pristine upstream QMK carrying no ERA content in any of them, so that
+diff *is* the fork surface and needs no list to be trusted.
+
+**Which name resolves depends on which tree you are holding, and both are given
+because neither works on the other.** On a development branch, QMK's whole
+history is present and `git rev-list --max-parents=0 HEAD` returns six roots —
+every one a 2010–2017 QMK or subtree-squash root, and a diff against any of them
+is 1200 files wide and answers a different question — so the base is
+`c93ef27143` **by name**. On the shipped four-commit orphan that commit object is
+absent, `git rev-list --max-parents=0 HEAD` returns exactly one root, and that
+root **is** the base: its tree is byte-identical to `c93ef27143`'s, checked by
+`git rev-parse <root>^{tree}`.
+
+The table narrates the load-bearing subset and is **not** the full set: the
+un-narrated remainder is listed after it rather than left silently missing.
+`drivers/sensors/cirque_pinnacle.c` matches a naive `ERA_` grep but is Cirque's
+own Extended Register Access API, not ERA.
+
+Live, present in the tomak79h:via cflags:
+
+| File | ERA edit | Gate |
+| --- | --- | --- |
+| `quantum/eeconfig.h` | deferred-write coalescing for eeconfig datablocks | `ERA_STORAGE_QUIET_DEFER_MS` (500) |
+| `quantum/rgb_matrix/rgb_matrix.[ch]` | seven edits, enumerated in **The RGB Matrix Edits** below — this cell carried a stale count of its own once, which is why it names the section instead of a subset | `ERA_STORAGE_QUIET_DEFER_MS`; `RGB_MATRIX_RENDER_POLICY_ENABLE` with its three sub-options and `RGB_MATRIX_IDLE_GATE_ENABLE`, all emitted from `system/era_rgb_matrix_rules.mk`; `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; and three that are ungated |
+| `quantum/mousekey.[ch]` | three edits. **The idle guard**: `mousekey_task()` returns at its head while x, y, v and h are all zero. **Ungated, and the argument is the whole of the edit**: with those four zero the two movement blocks are gated away, `has_mouse_report_changed()` reduces to comparing `buttons` between a struct and its own copy, `should_mousekey_report_send()` is the disjunction of the same zeros, and the trailing memcpy restores bytes that never moved — so the body provably leaves `mouse_report` byte-identical and calls nothing. Nor can it swallow a release: `quantum/action.c` sends the report from the key event itself. Data flow rather than timing, so it holds on every platform. **It was 2.35 µs of a 20.21 µs scan pass and recovers 86.7 % of that on both halves** (device 2026-08-17); the 0.31 µs residual is the `bl`, the six-register `push` and its `pop` rather than the guard, so removing it would mean not calling the function. `MOUSEKEY_INERTIA` is excluded by `#ifndef` — its first block is gated on `mousekey_frame` rather than on the report — and the separate `MK_3_SPEED` `mousekey_task()` is another function, left alone. **Two declarations** in `quantum/mousekey.h`: `mk_wheel_delay` and `mk_wheel_interval` are defined in `quantum/mousekey.c` and were never declared anywhere. They are declared upstream-side rather than in an ERA header because `mk_wheel_interval`'s type is mode-dependent — `uint16_t` under `MK_KINETIC_SPEED`, `uint8_t` otherwise — and a cross-declaration that guessed wrong is undefined behaviour the linker cannot catch; `mk_wheel_delay` is unconditionally `uint8_t` and carries no such trap, and goes in the same edit because the two are one omission. **The per-event step sizes**: `MOUSEKEY_MOVE_DELTA` and `MOUSEKEY_WHEEL_DELTA` become variables initialised from the macros, upstream's own idiom at the eight defined beside them, at the six use sites each inside the default accelerated `move_unit()`/`wheel_unit()`. The other modes' arms keep the macros, which is what the header's mode refusal makes safe rather than accidental | the guard: none — ungated, so it owes the two things the RGB row names: an off-layer build check (2026-08-17: `3keyecosystem/2key2` and `adm42/rev4` on AVR, `0xcb/splaytoraid` and `1upkeyboards/pi40/mit_v1_0` on ARM, all clean) and an argument that holds on every platform, which the cell beside this one is. The declarations: none — declaring a definition that already exists adds no object and changes no build, and a keyboard that names neither symbol compiles what it did. **Their whole risk is the conditional type, so it is compiled rather than argued**: 2026-08-18, one keyboard per non-default mode — `ducky/one2mini` (`MK_3_SPEED`), `yoichiro/lunakey_macro` (`MK_COMBINED`), `pablojimenezmateo/classic48` (`MK_KINETIC_SPEED`) — plus the guard's own four off-layer boards, all clean. The step sizes: `ERA_MOUSEKEY_RUNTIME_DELTA`, emitted from `era_common_qmk_rules.mk` beside the `SRC` line for `keyboards/era/common/features/era_mousekey.c`, which is the only writer. **Gated where the guard is not, and the asymmetry is the whole argument**: the guard's case is universal and costs nothing, while a variable costs every other keyboard in the fork a byte of RAM for a value it has no way to change. With the gate undefined both names are `#define`d back to the macros and the object is unchanged, so this edit does not owe the off-layer build check an ungated one does. The header refuses the gate under `MK_3_SPEED`, `MK_COMBINED`, `MK_KINETIC_SPEED` and `MOUSEKEY_INERTIA` by name, because the ERA page's controls name values only the default accelerated mode reads |
+| `quantum/via.c` | deferred write participation | `ERA_STORAGE_QUIET_DEFER_MS` |
+| `platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c` | the interrupt mask around `backing_store_erase()` and `backing_store_write_bulk()` becomes conditional. The mask covers one hazard — the SSI leaves XIP to issue the command sequence, so flash-fetched code must not run — and an image with no flash-resident code does not have it. Both windows are gated together because it is one argument; the whole-store erase is the one that mattered, masking core0 for ~381 ms inside the CLEAN boot's enumeration window. **The erase is also decomposed per sector** on the same gate: one `flash_range_erase()` per `FLASH_SECTOR_SIZE` with `wear_leveling_backing_erase_yield()` after each, the last one included. The flash work is unchanged — this range is not 64 KB-aligned, so the bootrom already erased it as twelve sector commands — and what the loop buys is twelve points at which core0 is somewhere else. The final yield is the one that is easy to leave out and must not be: `wear_leveling_consolidate_force()` programs 24 KB the instant this returns, so without it the twelfth erase and that program are one unbroken ~102 ms span and the worst case lands back on the limit the slice exists to get under. Both commit entry points also ask `backing_store_commit_blocked_kb()` first, which is where the gap's contract stops being a rule and becomes a check | `ERA_SRAM_RESIDENT_IMAGE`, set in `system/era_sram_resident_rules.mk`. Any board that does not include that file is an XIP build and keeps the mask, which is why this is a gate and not a deletion — today that is every keyboard in the fork outside `keyboards/era`, plus `sirind/brick65`, which is not RP2040 and reaches none of this. **It said "every non-split ERA board" until 2026-08-18**, which stopped being true on 2026-08-11 when copy-to-RAM became the policy for every ERA RP2040 board rather than an adoption the split family had; the gate itself never changed, only the set it happens to exclude. One include moves a board across both at once, which is the point of the marker. The decomposition takes the same gate for the same reason rather than by convenience: handing control to the keyboard with interrupts masked is not handing it anywhere, so the yield is only sound where the mask is already gone. What holds the premise up is checked, not asserted: the `.vectors` gate in `era_performance_gates.md` |
+| `quantum/wear_leveling/wear_leveling.c`, `wear_leveling.h` | the reentrancy interlock a sliced erase needs, the weak `backing_store_erase_yield_kb()` hook it runs, and the weak `backing_store_commit_blocked_kb()` predicate a slicing backing store asks before it commits — the check that holds the gap's contract where the interlock cannot reach, refused rather than counted because past that interlock there is no lossless option left. For the width of a gap the store is partly erased, so a write arriving from the gap updates the cache and returns without touching the backing store, and a nested erase is refused. Cache-only is durable rather than a concession: both callers of `backing_store_erase()` make the cache authoritative immediately afterwards — `wear_leveling_consolidate_force()` writes the whole cache to the consolidated area, and `wear_leveling_erase()` clears it — so the skipped log entry carries nothing either one loses. The alternatives are worse and are named at the definition | `ERA_SRAM_RESIDENT_IMAGE`. The hook is weak and no-op by default, so a backing store may slice without a board supplying a pass — and telling that build apart from a fixed one is what the `sl`/`sy` pair in `era_capture_reading.md` is for |
+| `quantum/keyboard.c`, `quantum/keyboard.h` | two edits. **`matrix_task()` loses `static` and gains a declaration.** It is the scan-and-process half of `keyboard_task()` — scan, difference against `matrix_previous`, `action_exec()` the result — and the ERA flash gap runs exactly it rather than a copy. **The reason it is the whole pass and not the scan** is that the scan alone bounds `scan_hz` and changes nothing a typist feels: the differencing is what turns a scan into a keystroke, and twelve samples nobody differences leave a press-and-release inside the window as lost as it is today. `quantum/basic_profiling.h` already calls this symbol unqualified, so upstream expects it visible. **Five pass-phase marks**: five of the twelve segments that tile one pass end inside this file, and each closes at a named call — after the difference walk, after `matrix_task()` returns, after `quantum_task()`, after `rgb_matrix_task()`, and at the end of `keyboard_task()`. Named entry points rather than one function taking an id, and declared in the file rather than included, because `keyboards/era` is not on core's include path (`quantum/action_layer.c`'s precedent) and a declaration cannot carry the segment ids without giving them a second home. The RGB mark sits outside `RGB_MATRIX_ENABLE` on purpose: the twelve have to tile the pass on a board that renders nothing | the `static` removal: none — the file already exported the symbol by name through `basic_profiling.h`, so a gate would guard nothing. The marks: `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`, which only the `qwin_phase` rung sets, so every shipping image and every other board compiles the calls and the unit away together — proved by `uf2_sha256` identity across all four profiles at the commit that added them. A build defining the macro without `system/era_pass_phase_diagnostics.c` fails the link by name |
+| `platforms/chibios/bootloaders/rp2040.c`, plus the prototypes it needs in `platforms/bootloader.h` | non-blocking double-tap bootloader window: the pre-copy hook supplies CLEAR/ARMED/REQUEST, `__late_init()` trusts that classification and returns instead of busy-waiting the timeout, `rp2040_bootloader_double_tap_reset_task()` clears an armed window from the keyboard loop, and both `mcu_reset()` and `bootloader_jump()` disarm first so a software reset or deliberate bootloader jump cannot leave a false second tap behind. The first-task timestamp has a separate BSS started bit because zero is a valid timer value; disarm clears the bit, timestamp, and magic together | `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING`, set in `era_common_qmk_rules.mk`. Every board outside that common layer keeps the upstream blocking wait, which is what the selector is for: the window is closed by a caller, and a board with no caller would never close it |
+| `platforms/chibios/bootloaders/rp2040.c`, `platforms/bootloader.h`, and `system/era_boot_core1_halt.c` | the window's *start* is ahead of crt0's copy loops. The magic word has CLEAR/ARMED/REQUEST states, is global so the pinned pre-copy writer can reach it, and `__late_init()` compares against REQUEST instead of ARMED — it keeps the jump and gives up the arming. The pre-copy hook admits only exact physical RUN, holds the first tap clear through the bounded stable-release guard, and writes the scratch survival marker. The state table and why the jump cannot move with the arm are in `bootloader.h` | `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_PRE_COPY_ARM`, set in `system/era_sram_resident_rules.mk` next to the `SRC` line for the writer, because the two are one fact. **Residency-scoped, not split-scoped**: a non-split board that takes the bundle takes this. What is verified about the gain is narrow and stays narrow — the window opens **later by exactly `sizeof(.sram_image) - sizeof(.data)` of copying** on a resident image, which is why the arm was built for that image. Do not add the claim that an XIP build has no dead zone to fix: the ERA dead zone was never measured and cannot be (`era_sram_residency_contract.md`), no XIP board has been measured either, and the crt0 steps an XIP build still runs ahead of `__late_init()` — bootrom, boot2, the stack fill, the `.data` copy, a `.bss` clear — are not nothing at the reset ROSC |
+| `quantum/action_layer.c` | the DUAL-HOST peer's layer contribution OR-composed into `layer_switch_get_layer()`'s existing `layer_state \| default_layer_state`, reached once per key event from `store_or_get_action()`. It cannot merge into `layer_state` itself: local `layer_off`/`layer_invert` compose on that variable, so peer bits would be cleared by ordinary local operations and a lost release frame would strand the peer's layer with nothing to clear it. The accessor is declared in the file rather than included, because `split` is not on QMK core's include path and widening it to reach one symbol would couple the whole core to the split layer for a single edit | `ERA_SPLIT_PEER_LAYER_MERGE_ENABLE`, set in `era_split_qmk_rules.mk` beside the `SRC` line for `era_split_peer_layer.c`. The two are one fact: the selector is what makes this file reach the accessor, and setting it without the writer fails the link on an undefined symbol rather than resolving to nothing |
+| `quantum/action_tapping.c` | the action-tapping seam: one edit family, two halves — the speculative-layer arm and the cross-half judgment calls. **The Action-Tapping Seam**, below | `SPECULATIVE_HOLD` + `ERA_SPECULATIVE_LAYER_ENABLE` (the speculative half) and `ERA_SPLIT_TAP_ACTIVITY_ENABLE` (the cross-half half and the counter sink), all set in `era_split_qmk_rules.mk` beside the `SRC` line for `era_split_tap_activity.c` — one block, one fact, and any selector without the unit fails the link. Split-only: a non-split board keeps exact single-keyboard tap-hold semantics, and every non-ERA board in the fork compiles the upstream file unchanged because no selector is defined |
+| `drivers/eeprom/eeprom_wear_leveling.c`, plus the declarations in `drivers/eeprom/eeprom_driver.h` | the weak `eeprom_driver_write_begin_kb()`/`eeprom_driver_write_end_kb()` commit-window hooks bracketing every wear-leveling write and format — the pair `era_split_transport_scheduler.c` overrides to record `fwg` and `max_ms` and to bracket the `stall_ms` spans; a begin returning false skips the write, which is the refusal path `backing_store_commit_blocked_kb()` rides | none — weak, no-op by default, so behavior is unchanged where ERA does not override |
+| `quantum/nvm/eeprom/nvm_dynamic_keymap.c`, `quantum/nvm/eeprom/nvm_eeconfig.c` | two edits, and the larger one is not an instrument. **The changed-run write engine**: `nvm_eeprom_update_changed_byte/word/dword/block()` and `nvm_dynamic_keymap_update_changed_runs()` replace every upstream `eeprom_update_*` call site in both files, reading and comparing before writing and coalescing adjacent changed bytes into one run. Riding it, the weak `nvm_eeprom_changed_kb()` reports the moved span and the weak `nvm_eeprom_write_begin_kb()`/`nvm_eeprom_write_end_kb()` bracket the write. `nvm_eeprom_changed_kb()` is the one that is load-bearing: it is what tells ERA storage which domain moved, and `split/era_host_peer_storage.c` overrides it. **Beside them the write-profile instrument** (`NVM_EEPROM_WRITE_PROFILE_*` flags, the weak `nvm_eeprom_write_profile_kb()` hook), the write-side seam a flash-write investigation measures beside. A rebase that carries only the instrument drops the notification path the storage engine's dirty marking depends on | three, and they differ. The changed-run engine: none — unconditional, and behaviour-preserving byte for byte, since it skips only writes that would have stored what is already there. `nvm_eeprom_changed_kb()`: weak no-op by default, overridden wherever `ERA_HOST_PEER_STORAGE_V1_ENABLE` links `era_host_peer_storage.c`. The `write_begin_kb`/`write_end_kb` pair and `nvm_eeprom_write_profile_kb()`: weak, no-op, and overridden by no consumer anywhere in this tree — do not confuse them with the `eeprom_driver_write_begin_kb()`/`_end_kb()` pair in the row above, which is a different seam and *is* overridden |
+| `quantum/rgblight/rgblight.c` | the twinkle effect's three `rand()` calls become `RGBLIGHT_TWINKLE_RAND()`, defined once above the helper as lib8tion's `random8()` where lib8tion is linked and newlib `rand()` otherwise. `rand()`'s reent form drags in `malloc`, and no ERA image may link an allocator. This is the RGBLIGHT instance of the substitution `digital_rain_anim.h` already carries. It stayed reachable because the allocator gate ran only through the TOMAK79H launcher, so an RGBLIGHT board could link `malloc` and `chCoreAllocFromBaseI` unobserved — which is the argument for running the gate per board. **The predicate is `LIB8TION_ENABLE`, not an ERA marker**, so a keyboard outside the ERA layer keeps exactly the generator it had | `LIB8TION_ENABLE`, which `era_common_qmk_rules.mk` sets for every ERA board. An RGB Matrix board already had it; an RGBLIGHT board did not |
+| `builddefs/common_features.mk` | `LIB8TION_ENABLE` emits `-DLIB8TION_ENABLE` beside the `SRC` line it already had. One line, so C can ask whether lib8tion is in the build instead of a caller guessing from a feature switch that implies it | none -- it is inside the existing `ifeq`, so a build without lib8tion is unchanged |
+| `quantum/sync_timer.[ch]` | the master-guard in every sync-timer function becomes the weak predicate `sync_timer_is_time_source()`, defaulting to `is_keyboard_master()`. The guard's job is naming the one half whose local clock is the shared clock, and USB mastery cannot name it in DUAL-HOST, where both halves are masters — device-measured: the anchor's applying half discarded every write while its reads bypassed the stored offset, leaving the apply inert. `era_split_transport_scheduler.c` overrides the predicate with the committed wire role — the responder is the time source, the initiator adopts — which is the role the anchor actually follows in both relations. The header's non-split branch defines the predicate `true` | none — weak, upstream-defaulted; only a board linking the ERA split scheduler gets the override, and every other board in the fork keeps mastery semantics unchanged |
+| `quantum/matrix.h` | declares the two scan-diagnostics hooks: `matrix_scan_raw_diagnostics_kb(uint32_t raw_read_us)` under `MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE` and `matrix_scan_count_diagnostics_kb(void)` under `MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE`. Each has a weak definition and a call in `quantum/matrix.c` for stock-matrix boards and its own pair in `era_rp2040_matrix_core.c` for the ERA engine, with the strong override in `split/diagnostics/`; the header is what makes one name serve all three and what cross-checks their signatures, since the fork sets `-Wstrict-prototypes` and not `-Wmissing-prototypes`. The count hook went undeclared until 2026-08-18. `era_invariants.md` constrains `quantum/matrix.c`/`matrix_common.c` and not this file, which is why the header owes a row here | Each declaration sits under its own selector. `MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE` is emitted from `era_split_qmk_rules.mk` inside the wire-diagnostics block and only when `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` is off; `MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE` from the same file, inside the `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` block that also pulls in the unit holding the strong override — so the two hooks are mutually exclusive by construction: the raw one is the wire profile's, the count one is qwin's. A release image defines neither, so both declarations and every definition compile away |
+| `platforms/chibios/timer.c` | `timer_read32()` answers from a once-per-millisecond cache: two words — the system tick at which the cached millisecond began, and the millisecond — published under a sequence word by the slow path, which keeps upstream's conversion, lock and overflow adjust exactly and now runs once per millisecond instead of once per call; `timer_clear()`/`timer_restore()` invalidate the pair because they move the epoch. A cached read is one counter read, one comparison and **the same value the conversion would have returned** — same offsets, same `TIME_I2MS` rounding — so every consumer, `sync_timer` and the split scheduler's deadline arithmetic included, sees an unchanged clock at about a tenth of the cost. Value identity is host-proved rather than argued: the file was compiled with and without the marker, fed one tick sequence, and agreed on every read, including across a millisecond boundary and across an overflow adjust. The harness itself was not kept, so re-proving it means writing it again — which is cheap, and cheaper than trusting a sentence. Why a fork edit: on RP2040 each conversion is a system lock, a 64-bit multiply and a 64-bit divide, ~2 µs measured, asked three to four times per matrix scan pass — the split scheduler's housekeeping-due gate and `rgb_matrix_task()`'s frame timers — for a value that moves 1000 times a second: 16 % of core0 at 22 kHz. **That count is what the edit was made against and is not a current reading**: the RGB and scheduler per-pass conversions have since gone (`era_route_contract.md`), so it is the reason the cache exists rather than a figure to compare anything to. Answering at the platform rather than at each caller is what leaves one clock and no ±1 ms epoch between callers | `ERA_TIMER_MS_CACHE`, emitted unconditionally in `era_common_qmk_rules.mk` — a fact about the ERA image and not a selector, so no manifest row and no off state; the `#else` arm is upstream unchanged, and every board outside that layer keeps it. The fast path `#error`s on a platform whose tick is not 32-bit or not a whole number of ticks per millisecond |
+| `tmk_core/protocol/chibios/usb_report_handling.c` | two edits. **`usb_get_report_cb()` zero-fills its static report before `get_report()`**: a `GET_REPORT` for a report the endpoint does not store leaves `get_report()` writing nothing, and without the fill the control transfer answered with whatever the previous request left in the static — a length and bytes from another report. **`usb_idle_task()` is paced to once per millisecond**: after its own `run_idle_task` early-out (so a host that asked for report-on-change still costs nothing) it returns unless the cached `timer_read32()` has moved since its last walk. The walk takes a lock pair per IN report and a 64-bit time conversion per idle report, on every matrix scan pass, whenever a host has set a nonzero idle rate — a per-pass cost the host switches on, and the one per-pass conversion the clock cache did not reach. An idle rate is a whole number of milliseconds (SET_IDLE counts in 4 ms), so evaluating it once per millisecond changes no decision: a resend lands at most one millisecond after the pass that would first have seen it due, on a period of at least four | the zero-fill: none — unconditional, and behaviour-neutral for any host that asks only for reports the endpoint stores. The pacing: `ERA_TIMER_MS_CACHE`, the clock-cache marker, because the pacing read is only free under it; a build without the marker keeps upstream's per-pass walk |
+
+Un-narrated ERA-surface files, live at HEAD, each owed a narrated row in the
+same change that next touches it:
+`platforms/chibios/drivers/serial_protocol.h`, `serial_usart.c` and
+`platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` — an
+upstream-shaped *extension*, not a reduction, and one **the ERA PIO backend
+does not ride**: what is left of it is a `serial_transport_receive_timeout()`
+form that upstream's own `serial_transport_receive()` calls in both drivers, and
+no file under `keyboards/era` names `serial_transport` at all. A
+`serial_transport_receive_cancel()` seam sat beside it from `8fa3662023` until
+2026-08-18 with no caller in any commit on any branch, and was deleted. `SPLIT_TRANSPORT = custom`,
+which every ERA split board sets, keeps `serial_protocol.c` and
+`serial_$(SERIAL_DRIVER).c` out of `QUANTUM_LIB_SRC` entirely
+(`builddefs/common_features.mk`), so no ERA board compiles these units. The ERA
+backend is `split/era_split_transaction_backend_rp2040.c` and reaches the PIO
+directly; `quantum/split_common/split_util.[ch]`
+(the custom-transport seam);
+`quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h` and `nvm_via.c`
+(portable-domain accessors); `tmk_core/protocol/usb_descriptor.[ch]` (the ERA
+USB identity, whose overrides `split/era_split_usb_identity.c` supplies);
+`tmk_core/protocol/chibios/usb_driver.c` — a different edit from the descriptor
+pair beside it and written on its own line for that reason: two
+`USB_ACTIVE` tests that escape an unbounded IN-endpoint retry when the device
+leaves `USB_ACTIVE` mid-write or is not active when `usb_endpoint_in_flush()`
+is entered, plus the now-unused `#include "util.h"` removal. It is behavioural
+and ungated, so every ChibiOS keyboard in the fork takes it
+(`usb_report_handling.c` left this list for its own row above);
+`quantum/rgb_matrix/animations/digital_rain_anim.h` (named in the placement
+note above).
+
+Three more files differ from upstream and are neither narrated above nor in the
+list: `quantum/quantum.c` and `quantum/process_keycode/process_tap_dance.[ch]`.
+Each owes a row in the change that next touches it. They are named here rather
+than left to the derivation because a file nobody has written a row for is
+exactly the one a rebase re-applies wrongly.
+
+**Re-derive the whole set with `git diff --name-only c93ef27143 HEAD -- tmk_core
+quantum platforms drivers builddefs`.** The predicate is *differs from pristine
+upstream at HEAD*, and `c93ef27143` is that pristine tree. It is also a commit in
+`qmk/qmk_firmware`, so the vendored tree can be checked against upstream
+independently of anything here. A `git grep -i "tomak\|era_split\|ERA_RP2040"`
+over those directories returns nothing at it. It returns **41 files**
+(`| wc -l`), a figure that moves with the surface and is here so that a
+reconciliation knows how many rows it owes.
+
+**`builddefs` is the fifth directory and it was missing**: the command scanned
+four, so the one row that names `builddefs/common_features.mk` could never
+appear in its own derivation, and the reconcile-both-ways rule below could not
+confirm or refute it. A directory absent from the command is invisible in
+exactly the direction that paragraph calls the harder one to notice.
+
+**The derivation returns files, and this document returns reasons — reconcile
+them both ways.** A file in the diff with no row is an unrecorded fork edit. A
+file with a row that is no longer in the diff is the same defect pointed the
+other way and is harder to notice, because it costs the next reconciliation a
+search for an edit that is not there. `quantum/matrix_common.c`,
+`tmk_core/protocol/chibios/usb_main.[ch]`, `tmk_core/protocol/host.c`,
+`quantum/split_common/transactions.c` and `transport.c` are byte-identical to
+upstream and owe nothing; they are named so that finding them absent from the
+diff reads as confirmation rather than as a gap.
+
+`quantum/split_common/split_util.[ch]` is the whole of the custom-transport
+seam that survives: it keeps the `split_hand_pin_is_left()` extraction the ERA
+authority reducer reads. `transactions.c` and `transport.c` are byte-identical
+to pristine upstream at HEAD and owe nothing.
+
+**One ERA core edit is outside every derivation above, and is recorded here for
+exactly that reason.** `lib/chibios` is pinned to the branch
+`custom/qmk-rp-usb`, whose HEAD `1107d32bf` — *"usb: expose remote wake status
+hook"* — sits one commit above upstream `stable_21.11.x` and adds the
+`usb_lld_status_write_hook` seam to `os/hal/src/hal_usb.c`, gated on
+`RP_USB_SYNC_SUSPEND_AFTER_REMOTE_WAKEUP_SET`. `lib/chibios-contrib` is pinned
+to a branch of the same name. The derivation command scans tracked files under
+five directories and cannot see a submodule pin, so resetting either submodule
+to upstream during a rebase drops this edit **silently** — what would remain is
+`era_split_usb_sleep_rules.mk` emitting a macro nothing reads. Re-derive it with
+`git submodule status` against the pinned branch, not with the diff above.
+
+**`.gitmodules` names that branch for both, and it did not always.** Each entry
+read `branch = master` while its pin sat on `custom/qmk-rp-usb`, so one
+`git submodule update --remote` would have moved both submodules onto a branch
+with no ERA edit on it and lost the seam above in exactly the silent way this
+paragraph warns about. The entries now name the pinned branch; a clone that
+resolves either submodule to a `master` tip is reading a `.gitmodules` older
+than this line.
+
+Rule: any ERA edit to a QMK core file must appear in this table in the same
+change. A fork edit nobody records is a fork edit nobody can retire.
+
+## The RGB Matrix Edits
+
+What each of the row's seven edits is. It sits here rather than in the
+cell because it is prose about a mechanism, and a table entry that has to
+be read as a paragraph is no longer answering the question the table asks.
+The row above says the cell "carried a stale count of its own once, which is
+why it names the section instead of a subset" — and the stale count then landed
+here, where this line read "six" against the row's "seven" and against the
+seven this section enumerates. Naming the section did not retire the count; it
+moved it.
+
+**Three of the seven are ungated, and that is the fact to read first.** The
+deferred flush, the render policy, the pass-phase marks and the idle gate each
+sit behind a macro no keyboard outside this layer defines. The other three — the
+flush hook reporting every push, the single clock reading, and the decay walk's
+guard — **compile into every keyboard in this fork**, AVR and ARM alike. So each
+of them owes two things a gated edit does not:
+
+- **A build check off the ERA layer**, run on four boards outside it:
+  `3keyecosystem/2key2` and `adm42/rev4` (atmega32u4), `0xcb/splaytoraid`
+  and `1upkeyboards/pi40/mit_v1_0` (ARM, non-ERA) all compile clean. None of the
+  three adds a symbol, a header or a macro dependency, which is why a build
+  check is sufficient here rather than a per-board argument.
+- **An argument that holds on every platform, not just this one.** The decay
+  guard's does: `deltaTime` is milliseconds and the tick array is `uint16_t`
+  everywhere, so with no millisecond passed the expiry test is false for every
+  representable tick and the body adds zero — both branches are no-ops on any
+  MCU. The single clock reading's does too, and more strongly on a slower one:
+  `sync_timer_elapsed32(x)` reduces to `sync_timer_read32() - x` on both arms of
+  its own predicate and on the non-split branch as well, so merging the pair is
+  exact, and the gap it removes between two readings of one instant is *wider*
+  on a 16 MHz part than on this one.
+
+**Why these are not a private ERA copy of the file.** A forked
+`rgb_matrix.c` under `keyboards/era` would leave this ledger with nothing to
+re-apply: the whole point of the enumeration is that an upstream rebase has a
+finite set, and a shadow copy is outside it forever. It would also have to
+shadow a file that is not a leaf — the animation `.inc` set, the driver layer,
+the generated `g_led_config`, VIA and eeconfig all reach into it. And two of
+these three edits are upstream-quality rather than ERA-specific: one removes a
+walk that provably did nothing, the other repairs a frame timer that measured
+its epoch and its elapsed from different instants. The place for an ERA-owned
+render implementation is a replacement behind a selector, not a second copy of
+the upstream file.
+
+seven edits. The seventh is **the idle arm behind a one-millisecond raw gate**.
+In `quantum/rgb_matrix/rgb_matrix.c`, `rgb_matrix_task()` returns
+before `rgb_task_timers()` when the
+state machine is in `SYNCING` and the RP2040 raw microsecond counter
+(`timer_hw->timerawl`) has not advanced `RGB_MATRIX_IDLE_GATE_US` since the last
+pass that reached the state machine. **Both facts the SYNCING arm decides are
+millisecond facts** — `rgb_task_sync()` compares a millisecond clock against the
+millisecond frame limit, and `eeconfig_flush_rgb_matrix_deferred_task()` is a
+millisecond timer — so a millisecond sample reads what a forty-times-a-
+millisecond one reads, and the arm's own 1.42 µs a pass (the timer head's clock
+reading plus its body, measured on the `qwin_phase` rung) is spent once a
+millisecond instead of once a pass. **The three working arms are untouched and
+still run on every pass**, which is the whole difference between this and a gate
+over the task: the longest pass this task can produce does not move. Nothing
+outside the task leaves the machine in `SYNCING` waiting to be served — mode,
+toggle, enable and disable all write `STARTING`, which the gate does not test —
+so the only behavioural residue is where a frame starts: the 16 ms limit is
+observed a millisecond late on some frames, because the gate stamps at the pass
+that opens it and its period is therefore a pass longer than the millisecond it
+samples. **Measured 2026-08-17 at 62.34 frames a second against 62.50**, −0.26 %,
+about four frames in a hundred. Nothing accumulates, `rgb_task_start()`
+re-reading the epoch from the clock each frame, and nothing visible moves —
+effect phase comes from `g_rgb_timer`, the real millisecond clock, so frame
+*starts* changed and animation speed did not
+(`era_performance_gates.md`, Fixed Baselines). Gated twice, on `RGB_MATRIX_IDLE_GATE_ENABLE`
+and on `MCU_RP`, because the counter is the RP2040's and there is no portable
+arm; the period is a rule-2 `#ifndef` in this file, its only reader. It also
+moves what the pass-phase instrument means: a gated pass stamps neither the head
+nor an arm, so `rgbn`'s four arm counts no longer sum to `ph`
+(`era_capture_reading.md`, and the header comment at the ids).
+
+The fifth is **five pass-phase marks**, one after the timer head and one in each state-machine arm, declared in the file rather than included for the reason `quantum/keyboard.c`'s marks are. Their gate is `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`, which only the `qwin_phase` rung sets — proved by `uf2_sha256` identity on release, wire and qwin at the commit that added them — and the call collapses to `((void)0)` everywhere else, so a board outside that rung compiles the same instructions it did. They exist because `mx[RGB]` reports one number for four arms and the render arm's own cost is what a core1 chunk bound is set from. The sixth is **the reactive hit-tracker's decay walk skipped whole when no millisecond has passed**: `deltaTime` is in milliseconds and `rgb_task_timers()` runs at the matrix scan rate, so it is zero on about thirty-nine of every forty passes — and with it zero the expiry test is `UINT16_MAX < tick[i]`, false for every `uint16_t` there is, and the body is `tick[i] += 0`. **The walk already did nothing; it did it at about four microseconds per live entry per pass.** Measured 0.87 µs a pass with three live entries, and an entry lives 65,535 ms after the key that made it — so a keyboard being typed on carries the full eight and paid about 2.3 µs a pass. It is also the whole of the `seg=` step every qwin window has shown since that field existed: a window opens on a keypress, so its first sixty-five seconds ran this walk and the rest did not. Behaviour-identical by the arithmetic above, not by argument. The fourth is **`rgb_task_timers()` and `rgb_task_sync()` no longer reading the clock twice a pass between them** — the sync arm now compares against the reading the timer head already took, which is also the *more* correct comparison, because `rgb_task_start()` sets the frame epoch from that same reading and `sync_timer_elapsed32()` was measuring the frame from a different instant: `sync_timer_elapsed32(x)` is `sync_timer_read32() - x` on both arms of its own predicate, so the pair took two readings of one instant — and the two could straddle a millisecond boundary, leaving `deltaTime` computed against a different instant than the one stored. One reading is both the cheaper and the more correct of the two, which is why it is unconditional rather than gated: it is a correctness fix that happens to be faster. What made it worth finding is the price — the pass-phase instrument put `timer_read32()` at about 0.42 µs even from its millisecond cache, and this task asked for it on every matrix scan pass against a 16 ms frame. The removed call also took `sync_timer_elapsed32()` and two `sync_timer_is_time_source()` frames with it. The other three: **the deferred RGB config flush**, **the ERA render policy** — the whole `rgb_matrix_task_render_with_policy()` (`quantum/rgb_matrix/rgb_matrix.c`) path, the policy struct with its four weak `_kb`/`_user` hooks, the render domain, and the independent/when-disabled indicator arms — and **the flush hook reports every PWM push, zero-flag frames included**: `rgb_task_flush()` calls `rgb_matrix_render_policy_flush_kb(rgb_render_frame_flags)` unconditionally rather than behind `flags != 0`. The hook is where a board keeps its held-STATUS-frame proof and where the EEPROM SYNC indicator's LED truth is stamped, and a push the hook did not see was a repaint that proof silently survived — an `RGB_MATRIX_NONE` transition black-fills the buffer and flushes with no flag set, which stranded a receiving half's panel dark mid-era until the field's era ended (device-measured). Zero-flag pushes are rare by construction, so the unconditional call adds one hook call per such frame and nothing per ordinary effect frame. A board that overrides none of the hooks gets the stock behaviour through the policy path, which is what makes the four selectors safe to default on: `rgb_matrix_render_policy_defaults()` sets `INDICATORS_ENABLE` only for a real effect and nothing sets `ALLOW_DISABLED`, so with RGB off or the board suspended the policy path renders exactly what the stock path did. `rgb_matrix_set_color_raw()` lives inside `#if defined(RGB_MATRIX_SPLIT)`: it is the split arm's private helper, because only a split board cannot use the driver's `set_color_all`, and outside that guard it has no caller at all — invisible while every board with the policy is a split board, and `-Werror=unused-function` on the first non-split one. The deferred flush runs from `rgb_task_sync()` on every `ERA_STORAGE_QUIET_DEFER_MS` build: the `..._DEFERRED_FLUSH_HOUSEKEEPING_ENABLE` relocation retired with the RAM-island premise it served. **Two of the three sub-options once could not be turned off at all**: `rgb_matrix_render_policy_led_allowed()` and `rgb_matrix_indicators_advanced_range()` were each defined one guard wider than their only call site, so the sub-option's off state left them unreferenced and `-Werror=unused-function` failed the build. Each definition now carries its caller's guard — a preprocessor-only correction, byte-identical on the shipping configuration
+
+## The Action-Tapping Seam
+
+the action-tapping seam: one edit family, two halves. **The speculative-layer half** is the layer-tap arm of Speculative Hold, beside upstream's mod-tap arm: an armed LT activates its layer at press; the revert runs at the top of `process_record()` through `speculative_key_settled()` for **both** settlements, because the record's action lookup runs after that hook — the tap resolves its keycode on the un-speculated layers, and the hold re-registers through the ordinary `ACT_LAYER_TAP` path microseconds later, invisible to the latest-state INPUT section. Guards mirror the mod-tap arm (already-active layer, non-speculated buffered events); the waiting-buffer overflow clear reverts every tracked layer because `clear_keyboard()` drops mods but not layers. Arming is the same `get_speculative_hold()` callback both arms consult, overridden in `era_tapping.c` to the hold-on-other-key-press bridge value — derived, default off, no VIA control (owner decision). **GUI/Alt mod-taps do not speculate**, because the family's rule is that a revert must be invisible outside the firmware: a layer revert is firmware-local and a bare Ctrl/Shift down-up is OS-inert, but a bare GUI/Alt down-up is an OS action — the narrowing `era_performance_gates.md`'s mod arm reads as an accepted result rather than a failed leg. One recorded divergence from upstream's interaction table: a tracked LT hold press confirms only itself and cancels no mod-tap speculation, where upstream's mod-only code canceled on any non-MT press; a tracked LT tap press still falls through to that cancel, so speculated mods never reach an emitted tap keycode. **The cross-half half** contributes exactly two calls into the split layer: the judgment-window derivation at the end of every `action_tapping_process()` pass — the engine's in-flight fact read off the state machine at one site instead of instrumenting every `tapping_key` assignment — and the cross-half judgment consult at the top of the in-flight region, before the tick early-return because ticks are its main carrier and before the local settle branches so a shared-clock-ordered peer press wins the tapping key's own release. A judged hold settles through the local HOLD_ON_OTHER_KEY_PRESS block's exact shape. Everything else — the window, the peer cache, the ordering, retro cancellation — is `era_split_tap_activity.c`'s, declared in the file rather than included (the `action_layer.c` precedent), as is the speculative counter sink

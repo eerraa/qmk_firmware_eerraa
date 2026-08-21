@@ -1,0 +1,323 @@
+﻿======================================================================
+ERA VIA Keycode Quick Reference
+======================================================================
+
+이 문서는 VIA의 TAPDANCE 입력창에 넣기 좋은 keycode 예시입니다.
+QMK 펌웨어 소스에서 쓸 수 있는 모든 표현이 VIA 입력창에서 그대로
+인식되는 것은 아닙니다.
+
+특히 VIA는 최신 QMK에서 바뀐 keycode 이름을 바로 따라오지 못하는
+경우가 있습니다. 이 문서는 최신 QMK source 이름보다 VIA 입력창에서
+인식될 가능성이 높은 구버전/호환 표기를 우선합니다.
+
+기본 원칙:
+
+- 대문자 QMK keycode를 사용합니다. 예: KC_A, KC_ESC, KC_SPC
+- 공백 없이 입력하는 편이 안전합니다. 예: MT(MOD_LSFT,KC_A)
+- 짧은 alias보다 원형 문법을 우선합니다.
+- 전체 QMK 목록은 참고용입니다: https://docs.qmk.fm/keycodes
+  최신 QMK 문서의 이름이 VIA에서 인식되지 않을 수 있습니다.
+- 마우스 키는 MS_DOWN, MS_BTN1, MS_WHLU 같은 최신 이름 대신
+  KC_MS_DOWN, KC_MS_BTN1, KC_MS_WH_UP 같은 구버전 표기를 사용하세요.
+
+----------------------------------------------------------------------
+TAPDANCE 입력 위치
+----------------------------------------------------------------------
+
+VIA CONFIGURE -> TAPDANCE에서 아래 칸에 keycode를 입력합니다.
+
+- On Tap
+- On Hold
+- On Double Tap
+- Tap+Hold
+
+예를 들어 TD0을 다음처럼 설정할 수 있습니다.
+
+- On Tap        KC_ESC
+- On Hold       MO(1)
+- On Double Tap KC_CAPS
+- Tap+Hold      KC_NO
+
+설정 후 VIA KEYMAP 탭의 CUSTOM 영역에서 TD0 키를 실제 위치에
+배치해야 동작합니다.
+
+----------------------------------------------------------------------
+기본 키
+----------------------------------------------------------------------
+
+문자:
+
+KC_A        KC_B        KC_C        KC_D        KC_E        KC_F
+KC_G        KC_H        KC_I        KC_J        KC_K        KC_L
+KC_M        KC_N        KC_O        KC_P        KC_Q        KC_R
+KC_S        KC_T        KC_U        KC_V        KC_W        KC_X
+KC_Y        KC_Z
+
+숫자:
+
+KC_1        KC_2        KC_3        KC_4        KC_5
+KC_6        KC_7        KC_8        KC_9        KC_0
+
+자주 쓰는 키:
+
+KC_ESC      Escape
+KC_TAB      Tab
+KC_ENT      Enter
+KC_SPC      Space
+KC_BSPC     Backspace
+KC_DEL      Delete
+KC_INS      Insert
+KC_CAPS     Caps Lock
+
+커서/편집:
+
+KC_LEFT     Left Arrow
+KC_DOWN     Down Arrow
+KC_UP       Up Arrow
+KC_RGHT     Right Arrow
+KC_HOME     Home
+KC_END      End
+KC_PGUP     Page Up
+KC_PGDN     Page Down
+
+기능키:
+
+KC_F1       KC_F2       KC_F3       KC_F4       KC_F5       KC_F6
+KC_F7       KC_F8       KC_F9       KC_F10      KC_F11      KC_F12
+KC_F13      KC_F14      KC_F15      KC_F16      KC_F17      KC_F18
+KC_F19      KC_F20      KC_F21      KC_F22      KC_F23      KC_F24
+
+구두점:
+
+KC_MINS     - _
+KC_EQL      = +
+KC_LBRC     [ {
+KC_RBRC     ] }
+KC_BSLS     \ |
+KC_SCLN     ; :
+KC_QUOT     ' "
+KC_GRV      ` ~
+KC_COMM     , <
+KC_DOT      . >
+KC_SLSH     / ?
+
+주의:
+QMK keycode는 키보드의 물리적인 키 위치 기준입니다. OS 입력 언어나
+키보드 레이아웃이 다르면 실제로 입력되는 문자가 다를 수 있습니다.
+
+----------------------------------------------------------------------
+비워두기 / 투명키
+----------------------------------------------------------------------
+
+KC_NO       아무 동작도 하지 않음
+KC_TRNS     키맵에서 아래 레이어의 키를 통과시킴
+
+TAPDANCE의 빈 동작에는 보통 KC_NO를 사용합니다.
+KC_TRNS는 주로 일반 키맵의 투명키로 쓰며, TAPDANCE 동작 칸에는
+대부분 필요하지 않습니다.
+
+----------------------------------------------------------------------
+모디파이어
+----------------------------------------------------------------------
+
+왼쪽 모디파이어:
+
+KC_LCTL     Left Control
+KC_LSFT     Left Shift
+KC_LALT     Left Alt / Option
+KC_LGUI     Left GUI / Windows / Command
+
+오른쪽 모디파이어:
+
+KC_RCTL     Right Control
+KC_RSFT     Right Shift
+KC_RALT     Right Alt / AltGr / Option
+KC_RGUI     Right GUI / Windows / Command
+
+TAPDANCE의 On Hold에 KC_LSFT, KC_LCTL 같은 모디파이어를 넣으면
+그 키를 누르고 있는 동안 해당 모디파이어를 누른 상태로 유지합니다.
+
+----------------------------------------------------------------------
+모디파이어 조합
+----------------------------------------------------------------------
+
+자주 쓰는 단축키:
+
+LCTL(KC_C)          Ctrl+C
+LCTL(KC_V)          Ctrl+V
+LCTL(KC_X)          Ctrl+X
+LCTL(KC_Z)          Ctrl+Z
+LCTL(KC_Y)          Ctrl+Y
+LCTL(KC_A)          Ctrl+A
+LSFT(KC_TAB)        Shift+Tab
+LALT(KC_F4)         Alt+F4
+LGUI(KC_D)          Windows+D / Command+D
+
+특수문자를 직접 넣고 싶을 때:
+
+LSFT(KC_1)          !
+LSFT(KC_2)          @
+LSFT(KC_3)          #
+LSFT(KC_4)          $
+LSFT(KC_5)          %
+LSFT(KC_6)          ^
+LSFT(KC_7)          &
+LSFT(KC_8)          *
+LSFT(KC_9)          (
+LSFT(KC_0)          )
+
+여러 모디파이어가 필요한 경우:
+
+LCS(KC_ESC)         Left Ctrl+Shift+Esc
+LCA(KC_DEL)         Left Ctrl+Alt+Delete
+LGUI(LSFT(KC_S))    Windows+Shift+S
+
+짧은 alias인 C(KC_C), S(KC_1), A(KC_F4) 같은 표현은 VIA에서
+인식되지 않을 수 있습니다. 먼저 LCTL(), LSFT(), LALT(), LGUI()처럼
+긴 형태를 사용하세요.
+
+----------------------------------------------------------------------
+레이어 키
+----------------------------------------------------------------------
+
+MO(1)       누르고 있는 동안 Layer 1 사용
+TG(1)       Layer 1 켜기/끄기
+TO(1)       Layer 1로 이동
+DF(1)       기본 레이어를 Layer 1로 변경
+
+TAPDANCE 예시:
+
+- On Tap  KC_ESC
+- On Hold MO(1)
+
+이렇게 설정하면 짧게 누를 때 Escape, 길게 누를 때 Fn 레이어처럼
+사용할 수 있습니다.
+
+----------------------------------------------------------------------
+Mod-Tap / Layer-Tap
+----------------------------------------------------------------------
+
+VIA에서는 일부 QMK alias가 인식되지 않을 수 있으므로 원형 문법을
+우선 사용하세요.
+
+권장:
+
+MT(MOD_LCTL,KC_ESC)             탭하면 Escape, 길게 누르면 Left Ctrl
+MT(MOD_LSFT,KC_A)               탭하면 A, 길게 누르면 Left Shift
+MT(MOD_LALT,KC_SPC)             탭하면 Space, 길게 누르면 Left Alt
+MT(MOD_LGUI,KC_TAB)             탭하면 Tab, 길게 누르면 Left GUI
+MT(MOD_LCTL|MOD_LSFT,KC_ESC)    탭하면 Escape, 길게 누르면 Ctrl+Shift
+
+피하거나 대체할 표현:
+
+SFT_T(KC_A)        -> MT(MOD_LSFT,KC_A)
+CTL_T(KC_ESC)      -> MT(MOD_LCTL,KC_ESC)
+ALT_T(KC_SPC)      -> MT(MOD_LALT,KC_SPC)
+GUI_T(KC_TAB)      -> MT(MOD_LGUI,KC_TAB)
+LSFT_T(KC_A)       -> MT(MOD_LSFT,KC_A)
+LCTL_T(KC_ESC)     -> MT(MOD_LCTL,KC_ESC)
+
+Layer-Tap:
+
+LT(1,KC_SPC)       탭하면 Space, 길게 누르면 Layer 1
+LT(2,KC_ENT)       탭하면 Enter, 길게 누르면 Layer 2
+
+제한:
+
+- MT()와 LT()의 tap 쪽 keycode는 KC_A, KC_ESC, KC_SPC 같은 기본 키를
+  사용하세요.
+- MT(MOD_LSFT,LCTL(KC_C))처럼 tap 쪽에 조합 키를 넣는 구성은 피하세요.
+- LT()나 MO()의 layer 번호는 이 키보드에 실제로 있는 레이어 안에서만
+  쓰세요. TOMAK은 레이어 0~3, 네 개입니다. 없는 레이어를 지정하면 그 키를
+  누르고 있는 동안 키보드 전체가 입력되지 않습니다.
+
+----------------------------------------------------------------------
+미디어 키
+----------------------------------------------------------------------
+
+KC_MPLY     Play / Pause
+KC_MNXT     Next Track
+KC_MPRV     Previous Track
+KC_MSTP     Stop
+KC_MUTE     Mute
+KC_VOLU     Volume Up
+KC_VOLD     Volume Down
+
+운영체제나 앱에 따라 일부 미디어 키는 다르게 동작할 수 있습니다.
+
+----------------------------------------------------------------------
+마우스 키
+----------------------------------------------------------------------
+
+VIA 호환을 위해 구버전 KC_MS_* 표기를 사용합니다.
+MS_UP, MS_DOWN, MS_BTN1, MS_WHLU 같은 최신 QMK 이름은 VIA 입력창에서
+인식되지 않을 수 있습니다.
+
+KC_MS_UP       Mouse Up
+KC_MS_DOWN     Mouse Down
+KC_MS_LEFT     Mouse Left
+KC_MS_RIGHT    Mouse Right
+KC_MS_BTN1     Mouse Button 1
+KC_MS_BTN2     Mouse Button 2
+KC_MS_WH_UP    Wheel Up
+KC_MS_WH_DOWN  Wheel Down
+
+짧은 alias가 필요한 경우:
+
+KC_MS_U        Mouse Up
+KC_MS_D        Mouse Down
+KC_MS_L        Mouse Left
+KC_MS_R        Mouse Right
+KC_BTN1        Mouse Button 1
+KC_BTN2        Mouse Button 2
+KC_WH_U        Wheel Up
+KC_WH_D        Wheel Down
+
+마우스 키는 키보드로 마우스 커서나 버튼을 제어하는 기능입니다.
+
+----------------------------------------------------------------------
+RGB / 조명 키
+----------------------------------------------------------------------
+
+TOMAK의 RGB는 VIA CONFIGURE -> LIGHTING 메뉴에서 조정하는 것을
+권장합니다. RGB 관련 keycode는 VIA 버전과 QMK 버전 차이에 특히 민감해서
+TAPDANCE 입력창에 직접 넣으면 저장되지 않거나 KC_NO로 바뀔 수 있습니다.
+
+예를 들어 최신 QMK source나 기본 키맵에서 쓰이는 RM_TOGG, RM_NEXT 같은
+RGB Matrix 이름, 또는 RGB_TOG 같은 RGB 계열 이름은 VIA 입력창에서
+인식되지 않을 수 있습니다. 조명 제어는 TAPDANCE에 넣기보다 VIA의
+LIGHTING 메뉴나 기본 키맵에 이미 배치된 조명 키를 사용하세요.
+
+----------------------------------------------------------------------
+TAPDANCE에서 피하는 것이 좋은 입력
+----------------------------------------------------------------------
+
+다음은 VIA에서 인식되지 않거나, 인식되어도 TAPDANCE 동작으로 쓰기
+어려울 수 있습니다.
+
+- SFT_T(), CTL_T(), ALT_T(), GUI_T() 같은 짧은 Mod-Tap alias
+- MS_DOWN, MS_BTN1, MS_WHLU 같은 최신 QMK 마우스 키 이름
+- RGB_TOG, RM_TOGG, UG_TOGG 같은 RGB/조명 keycode 직접 입력
+- 사용자 정의 keycode 이름
+- TD(0), TD(1)처럼 TAPDANCE 안에서 다시 TAPDANCE를 호출하는 구성
+- 매크로, 콤보, 복잡한 커스텀 기능 keycode
+
+TAPDANCE를 처음 설정할 때는 KC_ESC, KC_SPC, KC_CAPS, MO(1)처럼
+단순한 keycode로 먼저 확인한 뒤 필요한 기능을 추가하는 것을 권장합니다.
+
+----------------------------------------------------------------------
+문제가 있을 때
+----------------------------------------------------------------------
+
+VIA가 keycode를 받지 않거나 KC_NO로 바꾸는 경우:
+
+- 공백을 제거합니다. 예: MT(MOD_LSFT,KC_A)
+- alias를 원형 문법으로 바꿉니다. 예: SFT_T(KC_A) -> MT(MOD_LSFT,KC_A)
+- 최신 QMK 이름을 구버전 이름으로 바꿉니다. 예: MS_DOWN -> KC_MS_DOWN
+- 먼저 KC_A, KC_ESC, MO(1)처럼 단순한 값으로 저장되는지 확인합니다.
+
+저장되었지만 동작하지 않는 경우:
+
+- VIA KEYMAP 탭에 TD0~TD7 키가 실제 위치에 배치되어 있는지 확인합니다.
+- TAPDANCE 슬롯 번호와 KEYMAP에 배치한 TD 번호가 같은지 확인합니다.
+- On Tap과 On Hold만 설정한 단순 구성으로 먼저 테스트합니다.

@@ -1,0 +1,166 @@
+@AGENTS.md
+@keyboards/era/common/docs/era_active_index.md
+
+## Claude Code adapter
+
+The adapter layer defined in AGENTS.md "Agent Layer Ownership": mechanism and
+environment only.
+
+The imports above are the mechanism for the AGENTS.md Startup Read
+Policy: the whole startup chain loads deterministically at session start
+instead of relying on the session remembering to read it. Canon is unchanged;
+other tools follow the policy as written.
+
+### Read routing
+
+- `.claude/rules/*.md` mirror the Task Read Matrix as path-scoped rules: when
+  a session touches a file in a task area, the matching rule loads and names
+  that area's canonical read set. The matrix in `era_active_index.md` stays
+  the authority; the rules only route to it.
+- The shared gate (`hooks/era_pretooluse.py`) runs
+  `keyboards/era/common/tools/era_doc_refs.py` on any commit touching what that
+  script reads — the agent-document layer, or a `.c`/`.h`/`.mk` under
+  `keyboards/era` or under one of the QMK core roots that carry ERA comments
+  (`quantum/`, `platforms/`, `tmk_core/`, `drivers/`, `builddefs/`) — and
+  reminds about that script's `--homeless` deletion
+  safety net when doc lines are deleted. The check is armed whole: every
+  finding it reports is a fact about the tree — a path, a line address, a
+  heading, a header — so there is no evidence-for-a-reader half to hold back.
+  The script is tool-neutral and runnable by hand; the hook only decides when
+  it must run. Claude reaches the gate from `.claude/settings.json`; the two
+  files under `.claude/hooks/` are shims for older Claude settings.
+
+### graphify
+
+Policy, scope, authority ordering, and the update rule are in the Graphify
+section of AGENTS.md (imported above). Adapter mechanism:
+
+- The same gate enforces graphify-first navigation: the session's first raw
+  read of an indexed **source** file is blocked until one
+  `graphify query "<question>"` has run. The agent document layer
+  (`keyboards/era/common/docs/`, `AGENTS.md`, `CLAUDE.md`, `.claude/`) is
+  exempt — the Startup Read Policy mandates those reads first, and canon
+  outranks the gate. Hook reminders after the first query are informational.
+  Regenerating the graph resets the gate, so a second query may be required
+  mid-session.
+- The search arm matches Grep and a shell search (`rg`, `grep`, …).
+- Include the graphify-first rule in every subagent prompt that explores code.
+
+### Push
+
+`permissions.deny` no longer lists `git push` (owner decision 2026-07-28, on
+the first push this repository actually wanted). The rule it mechanized is
+unchanged and canonical in `AGENTS.md`: do not push either branch
+unless the user explicitly requests it. The destructive-restore denies
+(`reset --hard`, `checkout --`, `restore`) stay.
+
+**The two paragraphs below describe the repository this firmware is developed
+in, and a clone of the published one has neither branch.** They are kept
+because a session on the development tree needs them, and scoped because a
+session anywhere else would otherwise run commands that resolve to nothing.
+
+`main` is a curated completion branch, not a merge target: its commits are
+development checkpoint trees replayed in order with `read-tree`, never
+hand-split diffs, so a `git merge` from a development branch is the wrong
+operation there and every `main` tree equals some development commit's tree
+exactly.
+
+`release/clean-repo` is a four-commit orphan whose **tip tree must equal the
+working branch's HEAD tree exactly**, so any change to the tree invalidates it
+and it is rebuilt with `read-tree`/`commit-tree` rather than merged into. Check
+it before believing it: `git rev-parse release/clean-repo^{tree}` against
+`git rev-parse HEAD^{tree}`.
+
+### Machine setup
+
+**Install graphify before the first session, not after it.** The hooks below
+run `python -m graphify` on the first `Bash`, `Grep` or `Read` of the session,
+so a checkout without it fails at the first tool call rather than at the first
+query:
+
+- `python -m pip install graphifyy==0.9.20` — PyPI distribution `graphifyy`,
+  import and CLI name `graphify`. Install into the interpreter that `python`
+  resolves to, because the hooks invoke `python -m graphify`. Add pip's
+  Scripts directory to PATH if the bare `graphify` CLI is wanted.
+
+- On Windows, set `core.autocrlf=true` in each submodule config so the
+  submodules read clean. `git config core.longpaths true` is also worth setting
+  before cloning, but **this tree does not demonstrate the need**: measured
+  2026-08-18, the longest path in a complete checkout including submodules is
+  160 characters relative to the repository root, which leaves a hundred
+  characters of headroom against Windows' 260. Re-derive with
+  `find . -path ./.git -prune -o -type f -print | awk '{print length($0)-2}' | sort -rn | head -1`.
+  A `--recursive` clone that pulls `lib/chibios-contrib/ext/mcux-sdk` is the
+  case that plausibly needs it, and that submodule is not checked out here.
+
+### WSL2 build environment
+
+Firmware is built in WSL2 Ubuntu, not on Windows. Editing happens in the
+Windows checkout at `D:\Engineering\qmk_firmware_eerraa`; the WSL clone at
+`~/projects/qmk_firmware_eerraa` is a build tree only. Both produce a
+byte-identical UF2 from the same commit, so artifacts are interchangeable.
+
+**This section describes one machine, and it does not install itself.** The
+scripts are versioned at `.claude/tools/era-sync.sh` and `era-build.sh`;
+`~/bin/era-sync` and `~/bin/era-build` are symlinks to them. The links point at
+the **edit** tree's copy deliberately — `era-sync` resets the build tree, and a
+link into that tree would have the script rewritten under itself mid-run. Each
+file carries its machine-specific paths in one marked block at the top, and
+that block plus a WSL install is the whole of what a new machine needs.
+
+None of it installs automatically. So when `era-build` is not found, when WSL
+is not installed, or when a path here does not resolve, **stop and tell the
+user which one failed**. Copying `.claude/tools/` into place and editing the
+marked block is a decision for the user to make, not a step to take on the way
+to a build. Do not install a toolchain, and above all do not fall back to
+building on Windows — that is the failure the launcher refuses, and reaching it
+by improvisation is the same wrong answer arrived at more slowly. The rule this
+serves is in `era_performance_gates.md`.
+
+- The `qmk` CLI installs and injects its own ARM toolchain at
+  `~/.local/share/qmk/bin`. Ubuntu separately ships `arm-none-eabi-*` 13.2.1 in
+  `/usr/bin`, which shadows it for everything that is not `qmk compile` —
+  including the `arm-none-eabi-size`/`nm` calls the gate launcher makes.
+  `~/.profile` puts the qmk toolchain first; confirm with
+  `arm-none-eabi-gcc --version` reporting 15.2.0.
+- `era-sync` guarantees one thing: after it returns, the build tree matches
+  the edit tree. It converges on the edit tree's commit when the heads differ,
+  replays the uncommitted delta whole-tree, and ends by comparing the two
+  trees' `git status` and failing on any difference — that equality is the
+  check, not the file count. How it does each of those, and why, is commented
+  in `.claude/tools/era-sync.sh`; do not restate it here. `git remote windows`
+  points at the `/mnt/d` checkout.
+- `~/.profile` exports
+  `ERA_EDIT_TREE=/mnt/d/Engineering/qmk_firmware_eerraa`. The gate launcher
+  reads it to stop a build whose tree is stale against the edit tree, and
+  records the outcome as `edit_tree_check=` in the manifest. The rule this
+  serves is canonical in `era_performance_gates.md`; only the path is
+  Claude-and-machine specific.
+- `era-build` is the whole loop in one command, runnable from the Windows side:
+
+  ```powershell
+  wsl -d Ubuntu -e bash -lc 'era-build'        # all four profiles
+  wsl -d Ubuntu -e bash -lc 'era-build wire'   # one
+  ```
+
+  It syncs, runs the gate launcher per profile, copies the artifacts back to
+  the Windows `.era-artifacts/`, and prints each build's `worktree_dirty`,
+  `edit_tree_check`, and free-ram0 beside its UF2 name. The sync is not
+  optional and runs first every time, because skipping it is this setup's one
+  silent failure. Four profiles end to end take about 25 s.
+- Read each manifest path from the launcher's own `Manifest:` line rather than
+  globbing `.era-artifacts/`. One commit's clean and `_dirty` artifacts differ
+  only by a suffix, so a glob happily reports a previous run's file.
+- Flashing stays on Windows: UF2 is a file copy to the RPI-RP2 mass-storage
+  device.
+
+## Compact instructions
+
+When compacting, preserve in this order: the current task's decision blocks
+and constraints from the prompt that started it; the exact position in the
+work (branch, last commit hash and message, what is staged, what remains);
+and any evidence or failure output not yet acted on. Do not preserve the
+content of files in the repository — the agent-document layer and source
+reload from disk, and the startup chain re-imports itself — and do not
+preserve tool outputs already reflected in a commit. A summary that keeps
+run state and drops re-readable content loses nothing.
