@@ -165,6 +165,48 @@ static struct __attribute__((__aligned__(BACKING_STORE_WRITE_SIZE))) {
     bool                                                           unlocked;
 } wear_leveling;
 
+#if defined(ERA_SRAM_RESIDENT_IMAGE)
+/**
+ * ERA: the reentrancy interlock for a sliced backing-store erase.
+ *
+ * A backing store that decomposes its erase hands control back between sectors
+ * (wear_leveling_rp2040_flash.c). For the width of that gap the store is
+ * partly erased and the cache is the only trustworthy copy of logical data,
+ * so anything the gap runs that writes EEPROM must be defined here rather than
+ * left to arrive at a half-erased log.
+ *
+ * It is defined by writing the cache and nothing else, and that is durable
+ * rather than a concession. Both callers of backing_store_erase() make the
+ * cache authoritative immediately afterwards: wear_leveling_consolidate_force()
+ * writes the whole cache to the consolidated area, so a value that landed in
+ * the cache during the erase is persisted by the very next step; and
+ * wear_leveling_erase() clears the cache, which is what erasing means. The log
+ * entry this skips would carry no information either one of them loses.
+ *
+ * The alternative shapes are worse and were considered. Appending to the log
+ * writes into a region that is either about to be erased or was erased and
+ * cannot hold the bits; refusing the write drops a user's keymap edit silently;
+ * and deferring it needs a queue whose bound is the erase, which is the async
+ * rung and a different slice.
+ */
+static bool wear_leveling_erase_yielding;
+
+__attribute__((weak)) void backing_store_erase_yield_kb(void) {}
+
+__attribute__((weak)) bool backing_store_commit_blocked_kb(void) {
+    return false;
+}
+
+void wear_leveling_backing_erase_yield(void) {
+    if (wear_leveling_erase_yielding) {
+        return;
+    }
+    wear_leveling_erase_yielding = true;
+    backing_store_erase_yield_kb();
+    wear_leveling_erase_yielding = false;
+}
+#endif
+
 /**
  * Locking helper: status
  */
@@ -653,6 +695,17 @@ wear_leveling_status_t wear_leveling_init(void) {
 wear_leveling_status_t wear_leveling_erase(void) {
     wl_dprintf("Erase\n");
 
+#if defined(ERA_SRAM_RESIDENT_IMAGE)
+    // ERA: an erase reached from inside a sliced erase's own gap. There is no
+    // cache-only equivalent of this operation - it destroys the store the outer
+    // erase is halfway through - so it is refused rather than nested. The only
+    // caller that can reach here is a QK_CLEAR_EEPROM-class keycode pressed in
+    // the gap; the ERA EEPROM CLEAN path is a VIA confirm that cannot.
+    if (wear_leveling_erase_yielding) {
+        return WEAR_LEVELING_FAILED;
+    }
+#endif
+
     // Unlock the backing store
     backing_store_lock_status_t lock_status = wear_leveling_unlock();
     if (lock_status == STATUS_FAILURE) {
@@ -691,6 +744,15 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
 
     // Update the cache before writing to the backing store -- if we hit the end of the backing store during writes to the log then we'll force a consolidation in-line
     memcpy(&wear_leveling.cache[address], value, length);
+
+#if defined(ERA_SRAM_RESIDENT_IMAGE)
+    // ERA: inside a sliced erase's gap the cache above is the whole write. The
+    // reasoning is at the interlock's definition; the placement is load-bearing
+    // and is after the cache update and before the backing store is touched.
+    if (wear_leveling_erase_yielding) {
+        return WEAR_LEVELING_SUCCESS;
+    }
+#endif
 
     // Unlock the backing store
     backing_store_lock_status_t lock_status = wear_leveling_unlock();

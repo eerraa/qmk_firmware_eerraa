@@ -735,7 +735,11 @@ void via_qmk_rgb_matrix_set_value(uint8_t *data) {
 }
 
 void via_qmk_rgb_matrix_save(void) {
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+    eeconfig_defer_flush_rgb_matrix();
+#else
     eeconfig_force_flush_rgb_matrix();
+#endif
 }
 
 #endif // RGB_MATRIX_ENABLE

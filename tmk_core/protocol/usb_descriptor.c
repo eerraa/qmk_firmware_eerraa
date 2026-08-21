@@ -524,6 +524,14 @@ const USB_Descriptor_Device_t PROGMEM DeviceDescriptor = {
     .NumberOfConfigurations     = FIXED_NUM_CONFIGURATIONS
 };
 
+#if defined(USB_DEVICE_DESCRIPTOR_OVERRIDE_ENABLE)
+__attribute__((weak)) bool usb_descriptor_device_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize) {
+    (void)DescriptorAddress;
+    (void)DescriptorSize;
+    return false;
+}
+#endif
+
 #ifndef USB_MAX_POWER_CONSUMPTION
 #    define USB_MAX_POWER_CONSUMPTION 500
 #endif
@@ -1130,6 +1138,22 @@ const USB_Descriptor_String_t PROGMEM ProductString = {
     .UnicodeString              = USBSTR(PRODUCT)
 };
 
+#if defined(USB_PRODUCT_STRING_OVERRIDE_ENABLE)
+__attribute__((weak)) bool usb_descriptor_product_string_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize) {
+    (void)DescriptorAddress;
+    (void)DescriptorSize;
+    return false;
+}
+#endif
+
+#if defined(USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE)
+__attribute__((weak)) bool usb_descriptor_serial_number_string_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize) {
+    (void)DescriptorAddress;
+    (void)DescriptorSize;
+    return false;
+}
+#endif
+
 // clang-format on
 
 #if defined(SERIAL_NUMBER)
@@ -1203,6 +1227,11 @@ uint16_t get_usb_descriptor(const uint16_t wValue, const uint16_t wIndex, const 
 
     switch (DescriptorType) {
         case DTYPE_Device:
+#if defined(USB_DEVICE_DESCRIPTOR_OVERRIDE_ENABLE)
+            if (usb_descriptor_device_override(&Address, &Size)) {
+                break;
+            }
+#endif
             Address = &DeviceDescriptor;
             Size    = sizeof(USB_Descriptor_Device_t);
 
@@ -1225,12 +1254,22 @@ uint16_t get_usb_descriptor(const uint16_t wValue, const uint16_t wIndex, const 
 
                     break;
                 case 0x02:
+#if defined(USB_PRODUCT_STRING_OVERRIDE_ENABLE)
+                    if (usb_descriptor_product_string_override(&Address, &Size)) {
+                        break;
+                    }
+#endif
                     Address = &ProductString;
                     Size    = pgm_read_byte(&ProductString.Header.Size);
 
                     break;
 #ifdef HAS_SERIAL_NUMBER
                 case 0x03:
+#    if defined(USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE)
+                    if (usb_descriptor_serial_number_string_override(&Address, &Size)) {
+                        break;
+                    }
+#    endif
                     Address = (const USB_Descriptor_String_t*)&SerialNumberString;
 #    if defined(SERIAL_NUMBER)
                     Size = pgm_read_byte(&SerialNumberString.Header.Size);

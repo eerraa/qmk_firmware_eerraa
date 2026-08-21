@@ -21,6 +21,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "matrix.h"
 #include "debounce.h"
 #include "atomic_util.h"
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+#    ifdef PROTOCOL_CHIBIOS
+#        include "ch.h"
+#    else
+#        include "timer.h"
+#    endif
+#endif
 
 #ifdef SPLIT_KEYBOARD
 #    include "split_common/split_util.h"
@@ -316,8 +323,46 @@ __attribute__((weak)) bool transport_master_if_connected(matrix_row_t master_mat
 }
 #endif
 
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+__attribute__((weak)) void matrix_scan_raw_diagnostics_kb(uint32_t raw_read_us) {
+    (void)raw_read_us;
+}
+#endif
+
+#ifdef MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE
+__attribute__((weak)) void matrix_scan_count_diagnostics_kb(void) {}
+#endif
+
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+#    ifdef PROTOCOL_CHIBIOS
+typedef systime_t matrix_scan_raw_diagnostics_time_t;
+
+static matrix_scan_raw_diagnostics_time_t matrix_scan_raw_diagnostics_time_read(void) {
+    return chVTGetSystemTimeX();
+}
+
+static uint32_t matrix_scan_raw_diagnostics_elapsed_us(matrix_scan_raw_diagnostics_time_t start) {
+    return (uint32_t)TIME_I2US(chTimeDiffX(start, chVTGetSystemTimeX()));
+}
+#    else
+typedef uint32_t matrix_scan_raw_diagnostics_time_t;
+
+static matrix_scan_raw_diagnostics_time_t matrix_scan_raw_diagnostics_time_read(void) {
+    return timer_read32();
+}
+
+static uint32_t matrix_scan_raw_diagnostics_elapsed_us(matrix_scan_raw_diagnostics_time_t start) {
+    return (timer_read32() - start) * 1000UL;
+}
+#    endif
+#endif
+
 uint8_t matrix_scan(void) {
     matrix_row_t curr_matrix[MATRIX_ROWS] = {0};
+
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+    matrix_scan_raw_diagnostics_time_t raw_scan_start = matrix_scan_raw_diagnostics_time_read();
+#endif
 
 #if defined(DIRECT_PINS) || (DIODE_DIRECTION == COL2ROW)
     // Set row, read cols
@@ -332,11 +377,23 @@ uint8_t matrix_scan(void) {
     }
 #endif
 
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+    uint32_t raw_read_us = matrix_scan_raw_diagnostics_elapsed_us(raw_scan_start);
+#endif
+#ifdef MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE
+    matrix_scan_count_diagnostics_kb();
+#endif
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+    matrix_scan_raw_diagnostics_kb(raw_read_us);
+#endif
+
     bool changed = memcmp(raw_matrix, curr_matrix, sizeof(curr_matrix)) != 0;
     if (changed) memcpy(raw_matrix, curr_matrix, sizeof(curr_matrix));
 
 #ifdef SPLIT_KEYBOARD
-    changed = debounce(raw_matrix, matrix + thisHand, changed) | matrix_post_scan();
+    bool debounce_changed  = debounce(raw_matrix, matrix + thisHand, changed);
+    bool post_scan_changed = matrix_post_scan();
+    changed                = debounce_changed | post_scan_changed;
 #else
     changed = debounce(raw_matrix, matrix, changed);
     matrix_scan_kb();

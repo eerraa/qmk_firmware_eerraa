@@ -3,6 +3,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h> // offsetof
 
 #include "compiler_support.h"
@@ -61,3 +62,12 @@ typedef struct PACKED {
 #define EECONFIG_SIZE ((EECONFIG_BASE_SIZE) + (EECONFIG_KB_DATA_SIZE) + (EECONFIG_USER_DATA_SIZE))
 
 STATIC_ASSERT((intptr_t)EECONFIG_HANDEDNESS == 14, "EEPROM handedness offset is incorrect");
+
+void nvm_eeprom_changed_kb(uint16_t offset, uint16_t length);
+void nvm_eeprom_write_begin_kb(uint16_t offset, uint16_t length);
+void nvm_eeprom_write_end_kb(uint16_t offset, uint16_t length);
+void nvm_eeprom_write_profile_kb(uint16_t offset, uint16_t requested_length, uint16_t compared_length, uint16_t written_length, uint16_t write_calls, uint16_t elapsed_ms, uint8_t flags);
+bool nvm_eeprom_update_changed_byte(uint8_t *addr, uint8_t value);
+bool nvm_eeprom_update_changed_word(uint16_t *addr, uint16_t value);
+bool nvm_eeprom_update_changed_dword(uint32_t *addr, uint32_t value);
+uint16_t nvm_eeprom_update_changed_block(const void *buf, void *addr, uint16_t length, uint16_t *changed_offset, uint16_t *changed_length);

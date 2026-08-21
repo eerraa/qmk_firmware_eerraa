@@ -1362,6 +1362,21 @@ typedef struct PACKED {
 
 static TwinkleState led_twinkle_state[RGBLIGHT_LED_COUNT];
 
+/* ERA: lib8tion random8 where lib8tion is linked, newlib rand() otherwise.
+   rand()'s reent path drags in malloc, and no ERA image may link an allocator
+   (era_invariants.md, the Source Gate). This is the RGBLIGHT instance of the
+   substitution the RGB Matrix side already took in digital_rain_anim.h; it
+   went unfixed until 2026-08-11 because no ERA board on RGBLIGHT had ever been
+   run through the allocator gate, and newone/odessey60s had been shipping the
+   violation since it went copy-to-RAM. The predicate is whether lib8tion is in
+   the build rather than an ERA marker, so a keyboard outside this fork's ERA
+   layer keeps exactly what it had. lib8tion.h is already included above. */
+#if defined(LIB8TION_ENABLE)
+#    define RGBLIGHT_TWINKLE_RAND() random8()
+#else
+#    define RGBLIGHT_TWINKLE_RAND() ((uint8_t)rand())
+#endif
+
 void rgblight_effect_twinkle(animation_status_t *anim) {
     const bool random_color = anim->delta / 3;
     const bool restart      = anim->pos == 0;
@@ -1397,11 +1412,11 @@ void rgblight_effect_twinkle(animation_status_t *anim) {
             t->life--;
             uint8_t unscaled = frac(breathe_calc(frac(t->life, t->max_life)) - bottom, top - bottom);
             c->v             = scale(rgblight_config.val, unscaled);
-        } else if ((rand() % 0xFF) < trigger) {
+        } else if ((RGBLIGHT_TWINKLE_RAND() % 0xFF) < trigger) {
             // This LED is off, but was randomly selected to start brightening
             if (random_color) {
-                c->h = rand() % 0xFF;
-                c->s = (rand() % (rgblight_config.sat / 2)) + (rgblight_config.sat / 2);
+                c->h = RGBLIGHT_TWINKLE_RAND() % 0xFF;
+                c->s = (RGBLIGHT_TWINKLE_RAND() % (rgblight_config.sat / 2)) + (rgblight_config.sat / 2);
             }
             c->v        = 0;
             t->max_life = MAX(20, MIN(RGBLIGHT_EFFECT_TWINKLE_LIFE, rgblight_config.val));

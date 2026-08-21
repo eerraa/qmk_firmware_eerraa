@@ -81,6 +81,19 @@ void matrix_scan_kb(void);
 void matrix_init_user(void);
 void matrix_scan_user(void);
 
+#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
+void matrix_scan_raw_diagnostics_kb(uint32_t raw_read_us);
+#endif
+
+#ifdef MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE
+/* Declared for the same reason as the raw hook beside it, and it had been the
+   one of the two without a prototype: this name has a weak definition in each
+   of two matrix implementations and a strong override in a third translation
+   unit, and with no declaration nothing cross-checked the three signatures --
+   the fork sets -Wstrict-prototypes but not -Wmissing-prototypes. */
+void matrix_scan_count_diagnostics_kb(void);
+#endif
+
 #ifdef SPLIT_KEYBOARD
 bool matrix_post_scan(void);
 void matrix_slave_scan_kb(void);

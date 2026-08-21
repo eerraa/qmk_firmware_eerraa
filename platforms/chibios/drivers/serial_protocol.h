@@ -33,6 +33,14 @@ void serial_transport_driver_master_init(void);
 bool __attribute__((nonnull, hot)) serial_transport_receive(uint8_t* destination, const size_t size);
 
 /**
+ * @brief Blocking receive of size * bytes with an explicit timeout in ms.
+ *
+ * @return true Receive success.
+ * @return false Receive failed, e.g. by timeout or bit errors.
+ */
+bool __attribute__((nonnull, hot)) serial_transport_receive_timeout(uint8_t* destination, const size_t size, uint16_t timeout_ms);
+
+/**
  * @brief Blocking receive of size * bytes with an implicitly defined timeout.
  *
  * @return true Receive success.

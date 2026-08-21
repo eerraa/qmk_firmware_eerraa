@@ -12,6 +12,7 @@
 # Build artifacts
 .clang_complete
 .build/
+/.era-artifacts/
 *.elf
 *.log
 *.lss
@@ -126,5 +127,22 @@ compile_commands.json
 
 # VIA(L) files that don't belong in QMK repo
 via*.json
-/keyboards/**/keymaps/via/*
+!/keyboards/**/keymaps/via/
+!/keyboards/**/keymaps/via/**
 /keyboards/**/keymaps/vial/*
+
+# Graphify runtime caches (machine-local; committed graph assets stay tracked).
+# The whole cache directory, not four of its members: `cache/semantic/` was the
+# one part still tracked, and what it held was an extraction of a document tree
+# this repository deleted -- 54 of its 73 source paths named `docs/active/` or
+# `docs/reference/`. `graphify query` answers from `graph.json` without it.
+#
+# The four tracked graph assets are named by exception below, so a run that
+# leaves new scratch behind cannot add it to the tree by accident: a bare
+# `git add graphify-out/` used to pick up whatever intermediate files the last
+# pipeline stage happened to leave.
+/graphify-out/*
+!/graphify-out/graph.json
+!/graphify-out/GRAPH_REPORT.md
+!/graphify-out/manifest.json
+!/graphify-out/.graphify_labels.json

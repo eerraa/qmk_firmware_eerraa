@@ -29,32 +29,38 @@ SOFTWARE.
 #if defined(SPLIT_KEYBOARD) && !defined(DISABLE_SYNC_TIMER)
 volatile int32_t sync_timer_ms;
 
+/* The half whose local clock is the shared clock; every other half adopts
+   the source's time through sync_timer_update(). */
+__attribute__((weak)) bool sync_timer_is_time_source(void) {
+    return is_keyboard_master();
+}
+
 void sync_timer_init(void) {
     sync_timer_ms = 0;
 }
 
 void sync_timer_update(uint32_t time) {
-    if (is_keyboard_master()) return;
+    if (sync_timer_is_time_source()) return;
     sync_timer_ms = time - timer_read32();
 }
 
 uint16_t sync_timer_read(void) {
-    if (is_keyboard_master()) return timer_read();
+    if (sync_timer_is_time_source()) return timer_read();
     return sync_timer_read32();
 }
 
 uint32_t sync_timer_read32(void) {
-    if (is_keyboard_master()) return timer_read32();
+    if (sync_timer_is_time_source()) return timer_read32();
     return sync_timer_ms + timer_read32();
 }
 
 uint16_t sync_timer_elapsed(uint16_t last) {
-    if (is_keyboard_master()) return timer_elapsed(last);
+    if (sync_timer_is_time_source()) return timer_elapsed(last);
     return TIMER_DIFF_16(sync_timer_read(), last);
 }
 
 uint32_t sync_timer_elapsed32(uint32_t last) {
-    if (is_keyboard_master()) return timer_elapsed32(last);
+    if (sync_timer_is_time_source()) return timer_elapsed32(last);
     return TIMER_DIFF_32(sync_timer_read32(), last);
 }
 #endif

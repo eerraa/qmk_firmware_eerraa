@@ -7,6 +7,10 @@
 
 extern volatile bool isLeftHand;
 
+#if defined(SPLIT_HAND_PIN)
+bool split_hand_pin_is_left(void);
+#endif
+
 void split_pre_init(void);
 void split_post_init(void);
 

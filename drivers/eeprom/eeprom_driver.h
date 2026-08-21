@@ -22,3 +22,5 @@
 void eeprom_driver_init(void);
 void eeprom_driver_format(bool erase);
 void eeprom_driver_erase(void);
+bool eeprom_driver_write_begin_kb(uint32_t address, size_t length);
+void eeprom_driver_write_end_kb(uint32_t address, size_t length);

@@ -19,6 +19,7 @@
 *.html   text eol=lf
 *.inc    text eol=lf
 *.ini    text eol=crlf
+*.ld     text eol=lf
 *.js     text eol=lf
 *.jsx    text eol=lf
 *.json   text eol=lf
@@ -66,6 +67,14 @@ NEWS         text eol=lf
 readme       text eol=lf
 *README*     text eol=lf
 TODO         text eol=lf
+
+# The owner-facing guides ship beside the firmware and are opened directly in
+# Windows Notepad. These paths moved out of keyboards/era/sirind/common/docs/
+# and the rule did not follow, so all three had been checking out LF; a third
+# file joined them when the one-piece and split guides were separated.
+keyboards/era/common/docs/user/readme.txt         text eol=crlf
+keyboards/era/common/docs/user/readme_split.txt   text eol=crlf
+keyboards/era/common/docs/user/via_keycodes.txt   text eol=crlf
 
 GRAPHICS
 *.ai   binary

@@ -730,6 +730,10 @@ ifeq ($(strip $(LIB8TION_ENABLE)), yes)
         OPT_DEFS += -DLIB8_ATTINY
     endif
     OPT_DEFS += -DFASTLED_SCALE8_FIXED=1 -DFASTLED_BLEND_FIXED=1
+    # ERA: say so in C as well. Code that would otherwise reach for newlib
+    # rand() can then use lib8tion's generator where it is already linked, which
+    # matters because rand()'s reent path drags in malloc.
+    OPT_DEFS += -DLIB8TION_ENABLE
     SRC += $(LIB_PATH)/lib8tion/lib8tion.c
 endif
 
