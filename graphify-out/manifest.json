@@ -3675,8 +3675,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/user/readme.txt": {
-    "mtime": 1787029694.2023165,
-    "ast_hash": "d0266bcd938d561d751823dec4119d01",
+    "mtime": 1787288758.8204074,
+    "ast_hash": "1d85448cb75a076e7687e3ffcea218af",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/user/via_keycodes.txt": {
@@ -4175,8 +4175,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/user/readme_split.txt": {
-    "mtime": 1787230843.660233,
-    "ast_hash": "1c27e1f06cc034ef1689a117af825c53",
+    "mtime": 1787288758.8204074,
+    "ast_hash": "44ad8c1e1ed1360efaccd0c2c2c1ce57",
     "semantic_hash": ""
   },
   "keyboards/era/common/features/era_backlight.c": {

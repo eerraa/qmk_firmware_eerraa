@@ -1,9 +1,16 @@
 ======================================================================
-ERA Firmware Quick Guide - 일체형 키보드
+Firmware Quick Guide
 ======================================================================
 
-이 문서는 ERA 펌웨어를 쓰는 일체형 키보드용 안내입니다.
-분리형(스플릿) 키보드 - TOMAK 시리즈 - 는 readme_split.txt를 보십시오.
+----------------------------------------------------------------------
+펌웨어
+----------------------------------------------------------------------
+
+수정 QMK 펌웨어입니다. RP2040 기반 키보드는 매트릭스 스캔에
+PIO/DMA 구조를 도입하여 스캔 성능을 약 4 kHz에서 48 kHz 수준으로
+높였고, 조명 효과가 스캔레이트에 미치는 영향도 줄였습니다. 그 밖에
+TAPDANCE, SOCD, Anti-Ghosting(꾹보드), DEBOUNCE, TAPPING, MOUSE,
+NKRO, 조명·인디케이터, EEPROM 초기화 기능을 추가했습니다.
 
 
 ----------------------------------------------------------------------
@@ -63,143 +70,42 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
 ----------------------------------------------------------------------
 
 ■ TAPDANCE
-   한 키를 짧게 누르기, 길게 누르기, 두 번 누르기, 두 번 누른 뒤
-   길게 누르기처럼 여러 동작으로 나누어 쓰는 기능입니다.
-
-   예: Tap = Esc, Hold = Fn 레이어, Double Tap = Caps Lock
-
-   사용:
-   - VIA CONFIGURE -> TAPDANCE에서 TD0~TD7 슬롯 설정
-   - On Tap / On Hold 등에 keycode 직접 입력
-   - keycode 예시는 via_keycodes.txt 참고
-   - 키맵에 TD0~TD7 키를 실제 위치에 배치
-
-   TD 슬롯을 설정만 하고 키맵에 TD 키를 배치하지 않으면 동작하지 않습니다.
-   TD0~TD7은 VIA의 KEYMAP -> CUSTOM 목록에 있습니다.
+   한 키에 Tap, Hold, Double Tap, Tap+Hold 동작을 지정합니다.
+   VIA CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정하고, KEYMAP -> CUSTOM의
+   같은 TD 키를 원하는 위치에 배치하십시오. 입력 예시는
+   via_keycodes.txt에 있습니다.
 
 ■ SOCD
-   서로 반대되는 방향키가 동시에 눌렸을 때 어떤 입력을 남길지 정합니다.
-   ERA 펌웨어는 Last Input Wins 방식입니다. 즉, 마지막에 누른 키가 이깁니다.
-
-   예: A를 누른 상태에서 D를 누르면 D만 입력됩니다.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> SOCD
-   - Left/Right 또는 Up/Down Enable
-   - A/D, W/S, 방향키처럼 사용할 키 지정
-
-   SOCD는 Street Fighter 6, Tekken 8 같은 격투게임을 키보드나
-   레버리스 컨트롤러로 플레이하는 유저들이 신경 쓰는 기능입니다.
-   경쟁 환경에서는 게임/랭크/대회 규칙을 먼저 확인하세요.
+   반대 방향키가 함께 눌리면 마지막 입력만 남기는 Last Input Wins
+   기능입니다. VIA CONFIGURE -> FEATURE -> SOCD에서 사용할 키 조합을
+   지정하십시오. 경쟁 환경에서는 게임과 대회 규칙을 먼저 확인하세요.
 
 ■ Anti-Ghosting (KKUK / 꾹보드 보정)
-   여기서의 Anti-Ghosting은 물리 회로를 바꾸는 기능이 아니라,
-   여러 키를 계속 누르고 있을 때 눌린 키 상태를 주기적으로 새로
-   보고하는 보정 기능입니다.
-
-   국내에서는 비슷한 동시입력 반복 보정을 "꾹보드" 또는 "KKUK"이라고
-   부르는 경우가 있습니다. 메이플스토리 일부 유저처럼 두 키를 오래
-   누른 상태의 반복 입력감을 중요하게 보는 유저가 이 계열 기능을 찾습니다.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> Anti-Ghosting
-   - Enable 켜기
-   - First Delay Time / Repeat Time은 기본값 근처에서 조금씩 조정
-
-   SOCD에 지정한 키는 이 보정에서 제외됩니다.
+   오래 누른 키 상태를 주기적으로 다시 보고하는 꾹보드 보정입니다.
+   VIA CONFIGURE -> FEATURE -> Anti-Ghosting에서 켜고 Delay/Repeat 값을
+   조정하십시오. SOCD에 지정한 키는 제외됩니다.
 
 ■ DEBOUNCE
-   스위치 채터링을 정리하는 기능입니다.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> DEBOUNCE
-   - 기본값: Balanced, 5 ms
-   - 채터링이 보이면 시간을 늘리고, 반응을 빠르게 하고 싶으면 줄입니다.
+   VIA CONFIGURE -> FEATURE -> DEBOUNCE에서 스위치 채터링을 조정합니다.
+   기본값은 Balanced, 5 ms이며 채터링이 보일 때만 조금씩 늘리십시오.
 
 ■ TAPPING
-   Mod-Tap, Layer-Tap처럼 짧게 누름과 길게 누름을 구분하는 시간을
-   조정합니다.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> TAPPING
-   - Global Tapping Term 기본값: 200 ms
-   - 짧게 눌렀는데 Hold가 되면 시간을 늘리고, 길게 눌렀는데 Tap이 되면
-     시간을 줄입니다.
+   VIA CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap과 Layer-Tap의
+   짧게/길게 누름 판정 시간을 조정합니다. 기본값은 200 ms입니다.
 
 ■ MOUSE (마우스 키)
-   마우스 키(MS_LEFT, MS_UP 등)로 움직이는 커서와 휠의 속도를 정합니다.
-   키맵에 마우스 키를 넣지 않았다면 아무 영향이 없습니다.
-
-   커서 속도는 "한 번에 몇 px" 과 "초당 몇 걸음" 의 곱입니다. 둘을 따로
-   두는 이유는, 같은 속도라도 한 걸음이 크면 움직임이 뚝뚝 끊겨 보이기
-   때문입니다 — 부드럽게 하려면 걸음을 줄이고 초당 걸음 수를 올리십시오.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> MOUSE
-   - Cursor Acceleration: Off 로 두면 누르고 있는 내내 같은 속도이고,
-     0.5~2.0 s 는 Start Speed 에서 Top Speed 까지 올라가는 데 걸리는
-     시간입니다. 기본값 1.0 s
-   - Cursor Speed (가속이 Off 일 때만 보입니다): 그 등속 속도.
-   - Cursor Start Speed / Cursor Top Speed (가속이 켜져 있을 때만 보입니다):
-     누른 직후의 한 걸음과, 끝까지 올라갔을 때의 한 걸음.
-     기본값 4 px / 16 px
-   - Cursor Steps Per Second: 커서가 1초에 몇 걸음 내딛는지. 가속의 세기가
-     아니라 빈도입니다. 기본값 100 /s
-   - Wheel Rate / Wheel Acceleration: 휠 쪽의 같은 두 가지.
-     기본값 13 /s, Strong
-
-   화면 크기에 맞추기:
-   기본값은 2560x1440 근처를 겨냥했습니다. 정밀도에 해당하는 값들 — 등속
-   Cursor Speed, Start Speed, 가속 시간 — 은 화면이 커져도 그대로 쓸 수
-   있습니다. 버튼 하나는 어느 해상도에서도 같은 픽셀 수이기 때문입니다.
-   화면 폭을 타는 것은 Top Speed 하나뿐이고, 화면을 가로지르는 데 1.5~2.5초
-   걸리게 맞추면 대체로 편합니다.
-
-     1920 폭    Top  8 px      2560 폭    Top 16 px
-     3840 폭    Top 24 px      5120 폭    Top 32 px
-
-   위 표는 초당 걸음 수 100 /s 기준입니다. 그 값을 바꾸면 두 숫자가 곱해지는
-   관계라 Top 도 같은 비율로 조정해야 합니다.
-
-   키보드가 보내는 것은 픽셀이 아니라 상대 이동량이라, OS 의 포인터 속도
-   설정이 이 위에 배율로 더 곱해집니다 — 같은 설정도 PC 마다 조금씩 다르게
-   느껴집니다.
+   VIA CONFIGURE -> FEATURE -> MOUSE에서 마우스 키의 커서·휠 속도와
+   가속을 조정합니다. 기본값으로 먼저 사용한 뒤 느리거나 빠를 때만
+   조금씩 바꾸십시오. 키맵에 마우스 키가 없으면 아무 영향이 없습니다.
 
 ■ NKRO
-   동시에 누른 키를 몇 개까지 PC에 보고할지 정합니다. 켜면 개수 제한이
-   사실상 없어지고, 끄면 일반적인 6키 방식으로 보고합니다.
-
-   사용:
-   - VIA CONFIGURE -> FEATURE -> NKRO -> Enable
-   - 타이핑 중에 바꿔도 안전합니다. 전환 순간 눌려 있던 키는 펌웨어가
-     정리하므로 키가 눌린 채로 남지 않습니다.
-   - 아주 오래된 PC의 BIOS나 부팅 메뉴에서 키보드가 안 먹으면 꺼 보세요.
+   VIA CONFIGURE -> FEATURE -> NKRO에서 무제한 동시입력을 켭니다.
+   오래된 BIOS나 부팅 메뉴에서 입력되지 않을 때는 끄십시오.
 
 ■ LIGHTING (조명)
-   조명 메뉴는 키보드마다 다릅니다. 아래 중 그 키보드가 가진 것만 보입니다.
-
-   - Backlight
-     단색 백라이트의 밝기와 효과를 정합니다. 효과는 None / Breathing /
-     Blink-Out on Keypress / Blink-In on Keypress 네 가지이고, Breathing을
-     고르면 주기가, Blink를 고르면 속도가 함께 나타납니다.
-     Blink-Out은 평소 켜져 있다가 키를 누르면 잠깐 꺼지고, Blink-In은 평소
-     꺼져 있다가 키를 누르면 잠깐 켜집니다.
-
-     백라이트가 락 표시등만 밝히는 키보드에는 이 메뉴가 없습니다. 그 키보드의
-     백라이트는 조명이 아니라 락 표시등의 전원이라서 끌 수 있으면 안 되고,
-     그래서 조절 항목도 조명 키코드도 제공하지 않습니다.
-
-   - RGB Matrix / Underglow
-     밝기, 효과, 효과 속도, 색을 정합니다.
-
-   - INDICATOR
-     락 표시등입니다. Caps Lock / Scroll Lock / Num Lock 중 무엇을 표시할지,
-     그리고 그 밝기와 색을 정합니다. 표시등이 두 개인 키보드는 1번과 2번을
-     따로 정합니다. Off를 고르면 그 LED는 표시등을 그만두고 보통 RGB LED로
-     돌아갑니다.
-
-     Indicator Enable 토글이 있는 키보드에서는 그 토글 하나로 표시등 전체를
-     껐다 켤 수 있고, 끄면 해당 LED들이 모두 보통 RGB LED로 돌아갑니다.
+   VIA CONFIGURE -> LIGHTING에서 밝기, 효과, 속도와 색을 조정합니다.
+   키보드에 따라 Backlight, RGB Matrix, Underglow, INDICATOR 중 지원하는
+   메뉴만 보입니다. INDICATOR는 Caps/Scroll/Num Lock 표시를 지정합니다.
 
 ■ EEPROM CLEAN
    저장된 키맵과 설정을 모두 지우고 공장 기본값으로 되돌립니다.
@@ -215,11 +121,18 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
 
 
 ======================================================================
-ERA Firmware Quick Guide - Non-Split Keyboards
+Firmware Quick Guide
 ======================================================================
 
-This guide covers ERA firmware on a one-piece keyboard. For a split
-keyboard - the TOMAK series - see readme_split.txt.
+----------------------------------------------------------------------
+Firmware
+----------------------------------------------------------------------
+
+This is modified QMK firmware. RP2040-based keyboards use a PIO/DMA matrix
+scanner to raise performance from about 4 kHz to around 48 kHz, with further
+optimization to reduce the scan-rate impact of lighting effects. It also adds
+TAPDANCE, SOCD, Anti-Ghosting (held-key refresh), DEBOUNCE, TAPPING, MOUSE,
+NKRO, lighting and indicator controls, and EEPROM reset.
 
 
 ----------------------------------------------------------------------
@@ -277,116 +190,41 @@ Key Features
 ----------------------------------------------------------------------
 
 ■ TAPDANCE
-   One key can do different actions for tap, hold, double tap, or tap-hold.
-
-   Example: Tap = Esc, Hold = Fn layer, Double Tap = Caps Lock
-
-   Use VIA CONFIGURE -> TAPDANCE to set TD0~TD7 and enter keycodes directly,
-   then place the matching TD0~TD7 key in the keymap. TD0~TD7 are in VIA's
-   KEYMAP -> CUSTOM list.
-   See via_keycodes.txt for VIA-compatible keycode examples.
+   Assign Tap, Hold, Double Tap, and Tap+Hold actions to one key. Configure
+   TD0~TD7 in VIA CONFIGURE -> TAPDANCE, then place the matching TD key from
+   KEYMAP -> CUSTOM. See via_keycodes.txt for input examples.
 
 ■ SOCD
-   Handles opposite direction keys. ERA firmware uses Last Input Wins.
-   Example: hold A, then press D -> only D is sent.
-
-   Set it in VIA CONFIGURE -> FEATURE -> SOCD.
-   SOCD is relevant to keyboard/leverless fighting-game players, including
-   Street Fighter 6 and Tekken 8 users. Check game and tournament rules first.
+   Keeps only the latest input when opposite directions are held together.
+   Assign the key pairs in VIA CONFIGURE -> FEATURE -> SOCD. Check game and
+   tournament rules before using it competitively.
 
 ■ Anti-Ghosting (KKUK / held-key refresh)
-   This is a held-key report refresh helper, not a physical matrix change.
-   Some Korean users call this behavior KKUK or kkuk-board. MapleStory users,
-   for example, may care about long held-key repeat behavior.
-
-   Set it in VIA CONFIGURE -> FEATURE -> Anti-Ghosting.
-   Start near the defaults for First Delay Time and Repeat Time.
-   Keys assigned to an enabled SOCD pair are excluded from this refresh.
+   Periodically refreshes held-key reports. Enable it in VIA CONFIGURE ->
+   FEATURE -> Anti-Ghosting and adjust Delay/Repeat as needed. Enabled SOCD
+   keys are excluded.
 
 ■ DEBOUNCE
-   Cleans switch chatter. Default: Balanced, 5 ms.
-   Increase time for chatter; decrease it for faster response.
+   Adjust switch chatter filtering in VIA CONFIGURE -> FEATURE -> DEBOUNCE.
+   The default is Balanced, 5 ms; increase it only when chatter appears.
 
 ■ TAPPING
-   Adjusts tap-hold decision time for Mod-Tap and Layer-Tap keys.
-   Default Global Tapping Term: 200 ms.
+   Adjust Mod-Tap and Layer-Tap timing in VIA CONFIGURE -> FEATURE ->
+   TAPPING. The default is 200 ms.
 
 ■ MOUSE
-   Sets cursor and wheel speed for the mouse keys (MS_LEFT, MS_UP and the
-   rest). It changes nothing if your keymap has no mouse keys on it.
-
-   Cursor speed is "how many px at a time" times "how many steps a second".
-   They are separate controls because the same speed made of larger steps
-   looks like the cursor is jumping rather than moving -- for smoother motion,
-   use a smaller step and raise the steps per second.
-
-   Set it in VIA CONFIGURE -> FEATURE -> MOUSE.
-   Cursor Acceleration set to Off holds one speed for as long as the key is
-   down; 0.5 to 2.0 s is how long a held key takes to climb from the start
-   speed to the top speed (default 1.0 s). Cursor Speed appears only with
-   acceleration off and is that one constant speed. Cursor Start Speed and
-   Cursor Top Speed appear only with it on, and are the step taken right after
-   the press and the step reached at the top of the climb (defaults 4 px and
-   16 px). Cursor Steps Per Second is how many steps a second the cursor takes
-   -- a frequency, not an acceleration strength (default 100 /s). Wheel Rate
-   and Wheel Acceleration are the same two for the wheel (defaults 13 /s and
-   Strong).
-
-   Matching your screen:
-   The defaults aim at about 2560x1440. The precision settings -- the constant
-   Cursor Speed, the start speed and the climb -- carry over to any screen,
-   because a button is the same number of pixels at any resolution. Only the
-   top speed follows screen width, and aiming for one and a half to two and a
-   half seconds to cross the screen is comfortable for most people.
-
-     1920 wide    Top  8 px      2560 wide    Top 16 px
-     3840 wide    Top 24 px      5120 wide    Top 32 px
-
-   Those rows assume 100 steps a second. The two multiply, so changing the
-   steps per second means moving the top speed by the same factor.
-
-   The keyboard sends relative motion rather than pixels, so your operating
-   system's pointer speed multiplies on top of this -- the same setting feels a
-   little different per PC.
+   Adjust mouse-key cursor and wheel speed or acceleration in VIA CONFIGURE ->
+   FEATURE -> MOUSE. Try the defaults first, then make small changes if they
+   feel slow or fast. It has no effect unless mouse keys are in your keymap.
 
 ■ NKRO
-   Sets how many simultaneously held keys are reported to the PC. On, the
-   count is effectively unlimited; off, the keyboard reports the usual six.
-
-   Set it in VIA CONFIGURE -> FEATURE -> NKRO -> Enable.
-   It is safe to change while typing: the firmware clears whatever was held
-   across the switch, so no key is left stuck down.
-   If a very old PC's BIOS or boot menu does not see the keyboard, try
-   turning it off.
+   Enable effectively unlimited simultaneous key input in VIA CONFIGURE ->
+   FEATURE -> NKRO. Turn it off for an old BIOS or boot menu that cannot read it.
 
 ■ LIGHTING
-   The lighting menus differ per keyboard. You see only the ones your keyboard
-   has.
-
-   - Backlight
-     Brightness and effect for a single-colour backlight. The effects are None,
-     Breathing, Blink-Out on Keypress and Blink-In on Keypress; Breathing adds
-     a period and either Blink adds a speed.
-     Blink-Out is normally lit and goes dark for a moment on a keypress;
-     Blink-In is normally dark and lights for a moment.
-
-     Keyboards whose backlight lights nothing but the lock indicators do not
-     have this menu. There the backlight is the indicators' power rather than
-     lighting, so it must not be switchable off, and no control and no lighting
-     keycode is offered for it.
-
-   - RGB Matrix / Underglow
-     Brightness, effect, effect speed and colour.
-
-   - INDICATOR
-     The lock indicators. Choose which of Caps Lock, Scroll Lock or Num Lock
-     each one shows, and its brightness and colour; a keyboard with two of them
-     sets 1 and 2 separately. Choosing Off stops that LED being an indicator
-     and returns it to being an ordinary RGB LED.
-
-     Where an Indicator Enable toggle is present, it switches the whole
-     indicator role off in one place and those LEDs go back to being ordinary
-     RGB LEDs.
+   Adjust brightness, effects, speed, and colour in VIA CONFIGURE -> LIGHTING.
+   Only the supported Backlight, RGB Matrix, Underglow, and INDICATOR menus
+   appear. INDICATOR assigns Caps, Scroll, or Num Lock status LEDs.
 
 ■ EEPROM CLEAN
    Erases the stored keymap and settings and returns the keyboard to its
