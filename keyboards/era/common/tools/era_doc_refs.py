@@ -171,8 +171,8 @@ def submodule_tails():
         if base.is_dir():
             for f in base.rglob("*"):
                 if f.is_file():
-                    _submodule_tails.setdefault(
-                        f.name, str(f.relative_to(REPO)).replace("\\", "/"))
+                    _submodule_tails.setdefault(f.name, []).append(
+                        str(f.relative_to(REPO)).replace("\\", "/"))
     return _submodule_tails
 
 
@@ -214,9 +214,14 @@ def resolve(token, origin):
         if len(hits) == 1 or ("/" not in bare and hits):
             return hits[0]
         tail = bare.rsplit("/", 1)[-1]
-        found = submodule_tails().get(tail)
-        if found and (("/" not in bare) or found.endswith("/" + bare)):
-            return found
+        found = submodule_tails().get(tail, [])
+        matching = [
+            path
+            for path in found
+            if ("/" not in bare) or path.endswith("/" + bare)
+        ]
+        if matching:
+            return matching[0]
     return None
 
 

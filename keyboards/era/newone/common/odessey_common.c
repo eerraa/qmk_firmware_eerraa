@@ -3,6 +3,7 @@
 
 #include "odessey_common.h"
 
+#include <string.h>
 #include "quantum.h"
 #include "keycode_config.h"
 #include "rgblight.h"
@@ -139,6 +140,8 @@ void era_board_config_reset(void) {
 }
 
 #ifdef VIA_ENABLE
+#include "../../common/system/era_state_sync.h"
+
 static void odessey_set_color(HSV *color, const uint8_t *data) {
     color->h = data[0];
     color->s = data[1];
@@ -179,6 +182,8 @@ bool era_board_via_get_value(uint8_t *data) {
 bool era_board_via_set_value(uint8_t *data) {
     uint8_t *value_id   = &data[0];
     uint8_t *value_data = &data[1];
+    odessey_config_t previous = g_odessey_config;
+    bool             runtime_changed = false;
 
     switch (*value_id) {
         case id_custom_indicator_select:
@@ -194,6 +199,7 @@ bool era_board_via_set_value(uint8_t *data) {
 #if defined(VELOCIKEY_ENABLE)
             if ((value_data[0] != 0) != rgblight_velocikey_enabled()) {
                 rgblight_velocikey_toggle();
+                runtime_changed = true;
             }
             value_data[0] = rgblight_velocikey_enabled() ? 1 : 0;
             break;
@@ -204,7 +210,13 @@ bool era_board_via_set_value(uint8_t *data) {
             return false;
     }
 
-    odessey_apply_indicator();
+    bool config_changed = memcmp(&previous, &g_odessey_config, sizeof(previous)) != 0;
+    if (config_changed) {
+        odessey_apply_indicator();
+    }
+    if (runtime_changed || config_changed) {
+        era_state_sync_note_config_semantic_commit(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, sizeof(g_odessey_config));
+    }
     return true;
 }
 

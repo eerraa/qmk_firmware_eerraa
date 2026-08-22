@@ -41,7 +41,7 @@ static bool era_socd_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t
             return era_socd_set_enabled(pair, value_data[0] != 0);
         case ERA_SOCD_VIA_VALUE_KEYCODE_0:
         case ERA_SOCD_VIA_VALUE_KEYCODE_1:
-            return era_socd_set_keycode(pair, value_id - ERA_SOCD_VIA_VALUE_KEYCODE_0, ((uint16_t)value_data[0] << 8) | value_data[1]);
+            return era_socd_set_keycode(pair, value_id - ERA_SOCD_VIA_VALUE_KEYCODE_0, era_common_via_get_u16_be(value_data));
         case ERA_SOCD_VIA_VALUE_MODE:
             return era_socd_set_mode(pair, ERA_SOCD_MODE_LAST_INPUT_WINS);
         default:
@@ -61,8 +61,7 @@ static bool era_socd_via_get_value(uint8_t channel_id, uint8_t value_id, uint8_t
         case ERA_SOCD_VIA_VALUE_KEYCODE_0:
         case ERA_SOCD_VIA_VALUE_KEYCODE_1: {
             uint16_t keycode = era_socd_get_keycode(pair, value_id - ERA_SOCD_VIA_VALUE_KEYCODE_0);
-            value_data[0] = keycode >> 8;
-            value_data[1] = keycode & 0xFF;
+            era_common_via_put_u16_be(value_data, keycode);
             return true;
         }
         case ERA_SOCD_VIA_VALUE_MODE:

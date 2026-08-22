@@ -9,6 +9,7 @@
 #include "usb_device_state.h"
 #ifdef VIA_ENABLE
 #    include "via.h"
+#    include "../../common/system/era_state_sync.h"
 #endif
 #include <string.h>
 #include "../../common/storage/era_eeprom_storage.h"
@@ -841,6 +842,7 @@ bool era_board_via_set_value(uint8_t *data) {
     // data = [ value_id, value_data ]
     uint8_t *value_id   = &(data[0]);
     uint8_t *value_data = &(data[1]);
+    tomak_config_t previous = g_tomak_config;
 
     switch (*value_id) {
         case id_custom_indicator_toggle:
@@ -865,7 +867,10 @@ bool era_board_via_set_value(uint8_t *data) {
             return false;
     }
 
-    tomak_note_local_config_changed();
+    if (memcmp(&previous, &g_tomak_config, sizeof(previous)) != 0) {
+        tomak_note_local_config_changed();
+        era_state_sync_note_config_semantic_commit(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, sizeof(g_tomak_config));
+    }
     return true;
 }
 

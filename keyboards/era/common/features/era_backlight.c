@@ -50,6 +50,9 @@
 #include "ch.h"
 #include "backlight.h"
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 enum {
     /* Blink speed is 1..10 with 10 the fastest, which is the range the shipped
@@ -242,6 +245,9 @@ void era_backlight_set_effect(uint8_t effect) {
     chVTReset(&backlight_blink_vt);
     backlight_config_era.effect = effect;
     backlight_apply_due         = true;
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, sizeof(backlight_config_era));
+#endif
 }
 
 uint8_t era_backlight_get_breathing_period(void) {
@@ -249,8 +255,15 @@ uint8_t era_backlight_get_breathing_period(void) {
 }
 
 void era_backlight_set_breathing_period(uint8_t period) {
-    backlight_config_era.breathing_period = era_backlight_clamp(period, ERA_BACKLIGHT_PERIOD_MIN, ERA_BACKLIGHT_PERIOD_MAX);
+    uint8_t next = era_backlight_clamp(period, ERA_BACKLIGHT_PERIOD_MIN, ERA_BACKLIGHT_PERIOD_MAX);
+    if (backlight_config_era.breathing_period == next) {
+        return;
+    }
+    backlight_config_era.breathing_period = next;
     backlight_apply_due                   = true;
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, sizeof(backlight_config_era));
+#endif
 }
 
 uint8_t era_backlight_get_blink_speed(void) {
@@ -260,5 +273,12 @@ uint8_t era_backlight_get_blink_speed(void) {
 void era_backlight_set_blink_speed(uint8_t speed) {
     /* No apply: the next blink reads the new speed, and a blink already in
        flight keeps the interval it was armed with. */
-    backlight_config_era.blink_speed = era_backlight_clamp(speed, ERA_BACKLIGHT_SPEED_MIN, ERA_BACKLIGHT_SPEED_MAX);
+    uint8_t next = era_backlight_clamp(speed, ERA_BACKLIGHT_SPEED_MIN, ERA_BACKLIGHT_SPEED_MAX);
+    if (backlight_config_era.blink_speed == next) {
+        return;
+    }
+    backlight_config_era.blink_speed = next;
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, sizeof(backlight_config_era));
+#endif
 }

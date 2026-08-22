@@ -6,6 +6,9 @@
 #include <string.h>
 #include "action_util.h"
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 typedef struct __attribute__((packed)) {
     uint8_t  enable;
@@ -179,8 +182,15 @@ bool era_socd_set_enabled(uint8_t pair, bool enabled) {
     if (pair >= ERA_SOCD_PAIR_COUNT) {
         return false;
     }
-    socd_config[pair].enable = enabled ? 1 : 0;
+    uint8_t next = enabled ? 1 : 0;
+    if (socd_config[pair].enable == next) {
+        return true;
+    }
+    socd_config[pair].enable = next;
     era_socd_reset_pair_state(pair);
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(era_socd_config_offset(pair), sizeof(socd_config[pair]));
+#endif
     return true;
 }
 
@@ -195,8 +205,14 @@ bool era_socd_set_keycode(uint8_t pair, uint8_t key_index, uint16_t keycode) {
     if (pair >= ERA_SOCD_PAIR_COUNT || key_index >= ERA_SOCD_PAIR_KEY_COUNT) {
         return false;
     }
+    if (socd_config[pair].keycode[key_index] == keycode) {
+        return true;
+    }
     socd_config[pair].keycode[key_index] = keycode;
     era_socd_reset_pair_state(pair);
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(era_socd_config_offset(pair), sizeof(socd_config[pair]));
+#endif
     return true;
 }
 
@@ -211,8 +227,14 @@ bool era_socd_set_mode(uint8_t pair, uint8_t mode) {
     if (pair >= ERA_SOCD_PAIR_COUNT || mode != ERA_SOCD_MODE_LAST_INPUT_WINS) {
         return false;
     }
+    if (socd_config[pair].mode == ERA_SOCD_MODE_LAST_INPUT_WINS) {
+        return true;
+    }
     socd_config[pair].mode = ERA_SOCD_MODE_LAST_INPUT_WINS;
     era_socd_reset_pair_state(pair);
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(era_socd_config_offset(pair), sizeof(socd_config[pair]));
+#endif
     return true;
 }
 

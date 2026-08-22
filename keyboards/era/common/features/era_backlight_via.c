@@ -7,6 +7,8 @@
 #include "quantum.h"
 #include "via.h"
 #include "era_backlight.h"
+#include "../storage/era_eeprom_layout.h"
+#include "../system/era_state_sync.h"
 
 /* Not on `era_common_via.h`'s shared value-command rail, and the reason is the
  * rail's own: it answers a set by calling the setter and then the getter, and
@@ -46,13 +48,18 @@ static bool era_backlight_via_set_value(uint8_t *value_id_and_data) {
     uint8_t *value_data = &value_id_and_data[1];
 
     switch (*value_id) {
-        case ERA_VIA_BACKLIGHT_BRIGHTNESS_VALUE_ID:
+        case ERA_VIA_BACKLIGHT_BRIGHTNESS_VALUE_ID: {
             /* `_noeeprom`, with the write deferred to the save arm below, for
                the reason VIA's own backlight handler does the same: a client
                dragging the slider sends a set per step, and the eeprom-writing
                form would put a flash write behind each one. */
+            uint8_t previous = get_backlight_level();
             backlight_level_noeeprom(value_data[0]);
+            if (previous != get_backlight_level()) {
+                era_state_sync_note_config_semantic_commit(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, ERA_EEPROM_BACKLIGHT_CONFIG_SIZE);
+            }
             return true;
+        }
         case ERA_VIA_BACKLIGHT_EFFECT_VALUE_ID:
             era_backlight_set_effect(value_data[0]);
             /* Echo what the effect became. An unsupported entry -- breathing on

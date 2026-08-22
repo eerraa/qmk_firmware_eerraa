@@ -19,6 +19,8 @@ void     nvm_dynamic_keymap_update_encoder(uint8_t layer, uint8_t encoder_id, bo
 void nvm_dynamic_keymap_read_buffer(uint32_t offset, uint32_t size, uint8_t *data);
 void nvm_dynamic_keymap_update_buffer(uint32_t offset, uint32_t size, uint8_t *data);
 
+uint32_t nvm_dynamic_keymap_eeprom_address(void);
+uint32_t nvm_dynamic_keymap_macro_eeprom_address(void);
 uint32_t nvm_dynamic_keymap_macro_size(void);
 
 void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_t *data);

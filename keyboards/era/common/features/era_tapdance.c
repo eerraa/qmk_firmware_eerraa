@@ -12,11 +12,15 @@
 #include "timer.h"
 #include "wait.h"
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 #define ERA_TAP_DANCE_SIGNATURE       0x4E414454UL
 #define ERA_TAP_DANCE_VERSION         1U
-#define ERA_TAP_DANCE_TERM_MIN_MS     100U
-#define ERA_TAP_DANCE_TERM_MAX_MS     500U
+#define ERA_TAP_DANCE_TERM_MIN_MS        100U
+#define ERA_TAP_DANCE_TERM_MAX_MS        500U
+#define ERA_TAP_DANCE_TERM_EXACT_MIN_MS  1U
 #define ERA_TAP_DANCE_TERM_STEP_MS    20U
 #define ERA_TAP_DANCE_TERM_DEFAULT_MS 200U
 
@@ -89,7 +93,7 @@ static bool era_tapdance_storage_is_valid(void) {
         return false;
     }
     for (uint8_t i = 0; i < ERA_TAP_DANCE_SLOT_COUNT; i++) {
-        if (tapdance_storage.slots[i].term_ms < ERA_TAP_DANCE_TERM_MIN_MS || tapdance_storage.slots[i].term_ms > ERA_TAP_DANCE_TERM_MAX_MS) {
+        if (tapdance_storage.slots[i].term_ms < ERA_TAP_DANCE_TERM_EXACT_MIN_MS) {
             return false;
         }
     }
@@ -110,8 +114,7 @@ static void era_tapdance_sync_state_from_storage(void) {
         for (uint8_t a = 0; a < ERA_TAP_DANCE_ACTION_COUNT; a++) {
             tapdance_state[i].actions[a] = tapdance_storage.slots[i].actions[a];
         }
-        tapdance_state[i].term_ms = era_tapdance_normalize_term(tapdance_storage.slots[i].term_ms);
-        tapdance_storage.slots[i].term_ms = tapdance_state[i].term_ms;
+        tapdance_state[i].term_ms         = tapdance_storage.slots[i].term_ms;
     }
 }
 
@@ -149,18 +152,30 @@ uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record) {
 }
 
 uint16_t tap_dance_remap_keycode(uint16_t keycode) {
+    /* Official VIA customKeycodes TD0–TD7 and custom-app tapdanceKeycodes both
+       assign QK_KB_n at ERA_TAP_DANCE_KEYCODE_BASE. */
     if (keycode >= ERA_TAP_DANCE_KEYCODE_BASE && keycode < ERA_TAP_DANCE_KEYCODE_BASE + ERA_TAP_DANCE_SLOT_COUNT) {
         return TD(keycode - ERA_TAP_DANCE_KEYCODE_BASE);
     }
     return keycode;
 }
 
+static void era_tapdance_note_runtime_change(void) {
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_TAP_DANCE_CONFIG_OFFSET, sizeof(tapdance_storage));
+#endif
+}
+
 bool era_tapdance_set_action(uint8_t slot_index, uint8_t action_index, uint16_t keycode) {
     if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT || action_index >= ERA_TAP_DANCE_ACTION_COUNT) {
         return false;
     }
+    if (tapdance_storage.slots[slot_index].actions[action_index] == keycode) {
+        return true;
+    }
     tapdance_storage.slots[slot_index].actions[action_index] = keycode;
-    era_tapdance_sync_state_from_storage();
+    tapdance_state[slot_index].actions[action_index]         = keycode;
+    era_tapdance_note_runtime_change();
     return true;
 }
 
@@ -168,8 +183,29 @@ bool era_tapdance_set_slot_term_ms(uint8_t slot_index, uint16_t term_ms) {
     if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
         return false;
     }
-    tapdance_storage.slots[slot_index].term_ms = era_tapdance_normalize_term(term_ms);
-    era_tapdance_sync_state_from_storage();
+    uint16_t next = era_tapdance_normalize_term(term_ms);
+    if (tapdance_storage.slots[slot_index].term_ms == next) {
+        return true;
+    }
+    tapdance_storage.slots[slot_index].term_ms = next;
+    tapdance_state[slot_index].term_ms         = next;
+    era_tapdance_note_runtime_change();
+    return true;
+}
+
+bool era_tapdance_set_slot_term_ms_exact(uint8_t slot_index, uint16_t term_ms) {
+    if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
+        return false;
+    }
+    if (term_ms < ERA_TAP_DANCE_TERM_EXACT_MIN_MS) {
+        return false;
+    }
+    if (tapdance_storage.slots[slot_index].term_ms == term_ms) {
+        return true;
+    }
+    tapdance_storage.slots[slot_index].term_ms = term_ms;
+    tapdance_state[slot_index].term_ms         = term_ms;
+    era_tapdance_note_runtime_change();
     return true;
 }
 

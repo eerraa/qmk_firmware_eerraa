@@ -71,6 +71,14 @@ STATIC_ASSERT((int64_t)(DYNAMIC_KEYMAP_EEPROM_MAX_ADDR) - (int64_t)(DYNAMIC_KEYM
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+uint32_t nvm_dynamic_keymap_eeprom_address(void) {
+    return DYNAMIC_KEYMAP_EEPROM_ADDR;
+}
+
+uint32_t nvm_dynamic_keymap_macro_eeprom_address(void) {
+    return DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR;
+}
+
 void nvm_dynamic_keymap_erase(void) {
     // No-op, nvm_eeconfig_erase() will have already erased EEPROM if necessary.
 }

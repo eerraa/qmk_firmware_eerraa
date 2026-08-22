@@ -275,6 +275,9 @@ change.** A fork edit nobody records is a fork edit nobody can retire.
   VIA adapters.
 - `system/era_common_features.[ch]`: feature init/reload/task facade.
 - `system/era_common_via.[ch]`: VIA command router.
+- `system/era_state_sync.[ch]`: RAM KEYMAP/MACRO/CONFIG revisions and the
+  `GET_KEYBOARD_VALUE` `0x06` envelope. Increment is O(1); the GET path does
+  not read EEPROM, CRC, or snapshots.
 
 ## Source Editing Rules
 

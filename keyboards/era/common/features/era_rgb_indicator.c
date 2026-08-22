@@ -36,6 +36,9 @@
 #include <string.h>
 #include "rgb_matrix.h"
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 _Static_assert(ERA_RGB_INDICATOR_1_LED < RGB_MATRIX_LED_COUNT, "ERA_RGB_INDICATOR_1_LED is outside this board's RGB Matrix.");
 #if ERA_RGB_INDICATOR_SLOT_COUNT > 1
@@ -224,12 +227,19 @@ bool era_rgb_indicator_get_enabled(void) {
 }
 
 void era_rgb_indicator_set_enabled(bool enabled) {
+    uint8_t previous = rgb_indicator_config.flags;
     if (enabled) {
         rgb_indicator_config.flags |= ERA_RGB_INDICATOR_FLAG_ENABLED;
     } else {
         rgb_indicator_config.flags &= (uint8_t)~ERA_RGB_INDICATOR_FLAG_ENABLED;
     }
+    if (previous == rgb_indicator_config.flags) {
+        return;
+    }
     era_rgb_indicator_mark_dirty();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, sizeof(rgb_indicator_config));
+#endif
 }
 
 uint8_t era_rgb_indicator_get_source(uint8_t slot) {
@@ -237,8 +247,15 @@ uint8_t era_rgb_indicator_get_source(uint8_t slot) {
 }
 
 void era_rgb_indicator_set_source(uint8_t slot, uint8_t source) {
+    uint8_t previous = era_rgb_indicator_source_of(slot);
     era_rgb_indicator_store_source(slot, source);
+    if (previous == era_rgb_indicator_source_of(slot)) {
+        return;
+    }
     era_rgb_indicator_mark_dirty();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, sizeof(rgb_indicator_config));
+#endif
 }
 
 uint8_t era_rgb_indicator_get_brightness(uint8_t slot) {
@@ -246,8 +263,14 @@ uint8_t era_rgb_indicator_get_brightness(uint8_t slot) {
 }
 
 void era_rgb_indicator_set_brightness(uint8_t slot, uint8_t brightness) {
+    if (rgb_indicator_config.hsv[slot][2] == brightness) {
+        return;
+    }
     rgb_indicator_config.hsv[slot][2] = brightness;
     era_rgb_indicator_mark_dirty();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, sizeof(rgb_indicator_config));
+#endif
 }
 
 void era_rgb_indicator_get_color(uint8_t slot, uint8_t *hue_sat) {
@@ -256,9 +279,15 @@ void era_rgb_indicator_get_color(uint8_t slot, uint8_t *hue_sat) {
 }
 
 void era_rgb_indicator_set_color(uint8_t slot, const uint8_t *hue_sat) {
+    if (rgb_indicator_config.hsv[slot][0] == hue_sat[0] && rgb_indicator_config.hsv[slot][1] == hue_sat[1]) {
+        return;
+    }
     rgb_indicator_config.hsv[slot][0] = hue_sat[0];
     rgb_indicator_config.hsv[slot][1] = hue_sat[1];
     era_rgb_indicator_mark_dirty();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, sizeof(rgb_indicator_config));
+#endif
 }
 
 /* --- The QMK hooks this feature owns ------------------------------------- */

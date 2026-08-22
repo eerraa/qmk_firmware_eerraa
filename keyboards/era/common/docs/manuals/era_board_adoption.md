@@ -421,8 +421,9 @@ What a new ERA board needs, whole:
   includes under it, and for a split board that wants EEPROM sync the storage
   adoption bundle among them (**Storage Adoption** above);
 - a `via` keymap;
-- the owner-authored `*-VIA.json` definition, which is product content and is
-  not part of the firmware (below);
+- the owner-authored `*-VIA.json` definition, which is firmware-local
+  release/manual-upload product content and is not part of the firmware
+  (below);
 - **optionally** a board `.c`, for genuine product behaviour only, and
   **optionally** a board `.h` naming the tap-dance slots for a source keymap;
 - the residency gate on both keymap builds, and the device first-run.
@@ -460,12 +461,20 @@ class's six hooks itself and re-acquires the hazard, which is why the reason
 now lives at that selector's declaration.
 
 **What a `via` keymap does not bring is the VIA definition JSON.** That file is
-product content — key positions and the custom menu layout — and is
-owner-authored; the firmware is complete without it, and the VIA app needs it
-before it can show the menus. **Every board in the tree has one** — a split
+firmware-local product content — key positions and the custom menu layout — and
+is owner-authored; the firmware compile does not consume it. The release/user
+workflow may supply it for manual **Load Draft Definition** as described in
+`docs/user/readme_split.txt`, but its presence does not make it an application
+lookup source or an official VIA definition. The app's bundled ERA source is
+`the-via-eerraa/era-definitions/custom/v3`; official ownership is
+`the-via/keyboards/v3`. QMK-local `*-VIA.json` files are the original
+usevia.app-compatible Draft Definitions: do not add Custom VIA-only controls or
+reshape them for the Custom app. Custom VIA JSON is maintained in the app
+repository and is not copied into QMK. **Every board in the tree has a local
+copy** — a split
 board has two, one per half — and they sit beside the `via` keymap as
 `<BOARD>-VIA.json`, so a count against the boards is the check. This is a
-requirement on a *new* board rather than an open gap.
+release/adoption requirement on a *new* board rather than an open firmware gap.
 
 Re-proving the non-split path is one command on any eligible board, and is
 worth running after any change to the guard boundary:

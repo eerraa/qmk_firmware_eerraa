@@ -27,6 +27,9 @@
 #include <string.h>
 #include "mousekey.h"
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 /* No apostrophe in the message: the preprocessor lexes the text of a skipped
    group, so one reads as an unterminated character constant and -Werror stops
@@ -212,6 +215,16 @@ static void era_mousekey_apply_runtime(void) {
     mk_wheel_delta       = mousekey_config.wheel_delta;
 }
 
+static void era_mousekey_publish_if_changed(const era_mousekey_config_t *previous) {
+#ifdef VIA_ENABLE
+    if (memcmp(previous, &mousekey_config, sizeof(*previous)) != 0) {
+        era_state_sync_note_config_semantic_commit(ERA_EEPROM_MOUSEKEY_CONFIG_OFFSET, sizeof(mousekey_config));
+    }
+#else
+    (void)previous;
+#endif
+}
+
 void era_mousekey_save_config(void) {
     era_eeprom_update_config(&mousekey_config, ERA_EEPROM_MOUSEKEY_CONFIG_OFFSET, sizeof(mousekey_config));
 }
@@ -269,6 +282,7 @@ static uint8_t era_mousekey_speed_ratio(uint8_t target_unit, uint8_t step) {
 }
 
 void era_mousekey_set_cursor_min_speed(uint8_t pixels) {
+    era_mousekey_config_t previous = mousekey_config;
     uint8_t target = era_mousekey_effective_max_speed();
 
     mousekey_config.move_delta = era_mousekey_clamp(pixels, 1, ERA_MOUSEKEY_UNIT_MAX);
@@ -277,6 +291,7 @@ void era_mousekey_set_cursor_min_speed(uint8_t pixels) {
        drag the top one with it. */
     mousekey_config.max_speed = era_mousekey_speed_ratio(target, mousekey_config.move_delta);
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 /* **The top speed is the one control that does not transfer between users, and
@@ -292,10 +307,12 @@ void era_mousekey_set_cursor_min_speed(uint8_t pixels) {
    which is the range the list spans -- and the update rate fills between its
    entries, because the two multiply. */
 void era_mousekey_set_cursor_max_speed(uint8_t pixels) {
+    era_mousekey_config_t previous = mousekey_config;
     uint8_t target = era_mousekey_clamp(pixels, mousekey_config.move_delta, ERA_MOUSEKEY_UNIT_MAX);
 
     mousekey_config.max_speed = era_mousekey_speed_ratio(target, mousekey_config.move_delta);
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 uint8_t era_mousekey_get_cursor_min_speed(void) {
@@ -344,8 +361,10 @@ static void era_mousekey_hold_ramp_ms(uint16_t ramp_ms) {
 }
 
 void era_mousekey_set_cursor_acceleration(uint8_t ramp_units) {
+    era_mousekey_config_t previous = mousekey_config;
     era_mousekey_hold_ramp_ms((uint16_t)ramp_units * (uint16_t)ERA_MOUSEKEY_RAMP_UNIT_MS);
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 uint8_t era_mousekey_get_cursor_acceleration(void) {
@@ -357,6 +376,7 @@ uint8_t era_mousekey_get_cursor_acceleration(void) {
 }
 
 void era_mousekey_set_cursor_interval_ms(uint8_t interval_ms) {
+    era_mousekey_config_t previous = mousekey_config;
     /* Read the climb before the rate moves, and restate it after: the rate is
        then the one control that changes only how finely the motion is cut. */
     uint16_t ramp_ms = era_mousekey_ramp_ms();
@@ -364,6 +384,7 @@ void era_mousekey_set_cursor_interval_ms(uint8_t interval_ms) {
     mousekey_config.interval = era_mousekey_clamp(interval_ms, ERA_MOUSEKEY_INTERVAL_MIN_MS, UINT8_MAX);
     era_mousekey_hold_ramp_ms(ramp_ms);
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 uint8_t era_mousekey_get_cursor_interval_ms(void) {
@@ -371,8 +392,10 @@ uint8_t era_mousekey_get_cursor_interval_ms(void) {
 }
 
 void era_mousekey_set_wheel_interval_ms(uint8_t interval_ms) {
+    era_mousekey_config_t previous = mousekey_config;
     mousekey_config.wheel_interval = era_mousekey_clamp(interval_ms, ERA_MOUSEKEY_INTERVAL_MIN_MS, UINT8_MAX);
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 uint8_t era_mousekey_get_wheel_interval_ms(void) {
@@ -380,12 +403,14 @@ uint8_t era_mousekey_get_wheel_interval_ms(void) {
 }
 
 void era_mousekey_set_wheel_acceleration(uint8_t level) {
+    era_mousekey_config_t previous = mousekey_config;
     if (level >= ERA_MOUSEKEY_WHEEL_ACCEL_COUNT) {
         level = ERA_MOUSEKEY_WHEEL_ACCEL_STRONG;
     }
     mousekey_config.wheel_max_speed   = era_mousekey_wheel_accel[level].max_speed;
     mousekey_config.wheel_time_to_max = era_mousekey_wheel_accel[level].time_to_max;
     era_mousekey_apply_runtime();
+    era_mousekey_publish_if_changed(&previous);
 }
 
 /* Derived from the stored speed rather than kept as a second field, so a value

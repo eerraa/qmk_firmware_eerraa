@@ -10,21 +10,28 @@
 
 #if defined(ERA_TAP_DANCE_ENABLE)
 
-#define ERA_TAP_DANCE_TERM_UNIT_MS 10U
-
 enum {
-    ERA_TAP_DANCE_VIA_VALUE_ID_BASE   = 32,
-    ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE = 5,
-    ERA_TAP_DANCE_FIELD_TERM          = 4,
+    ERA_TAP_DANCE_VIA_VALUE_ID_BASE       = 32,
+    ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE     = 5,
+    ERA_TAP_DANCE_FIELD_TERM              = 4,
+    ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE = 72,
 };
 
 #define ERA_TAP_DANCE_VIA_VALUE_ID_MAX (ERA_TAP_DANCE_VIA_VALUE_ID_BASE + (ERA_TAP_DANCE_SLOT_COUNT * ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE) - 1)
-
+#define ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_MAX (ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE + ERA_TAP_DANCE_SLOT_COUNT - 1)
 bool era_tapdance_is_value_id(uint8_t value_id) {
-    return value_id >= ERA_TAP_DANCE_VIA_VALUE_ID_BASE && value_id <= ERA_TAP_DANCE_VIA_VALUE_ID_MAX;
+    return (value_id >= ERA_TAP_DANCE_VIA_VALUE_ID_BASE && value_id <= ERA_TAP_DANCE_VIA_VALUE_ID_MAX) ||
+           (value_id >= ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE && value_id <= ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_MAX);
+}
+
+static bool era_tapdance_is_exact_term_id(uint8_t value_id) {
+    return value_id >= ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE && value_id <= ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_MAX;
 }
 
 static uint8_t era_tapdance_via_slot_index(uint8_t value_id) {
+    if (era_tapdance_is_exact_term_id(value_id)) {
+        return (uint8_t)(value_id - ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE);
+    }
     if (!era_tapdance_is_value_id(value_id)) {
         return ERA_TAP_DANCE_SLOT_COUNT;
     }
@@ -42,26 +49,28 @@ static void era_tapdance_via_save(uint8_t channel_id) {
 
 static bool era_tapdance_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
-    uint8_t slot_index  = era_tapdance_via_slot_index(value_id);
-    uint8_t field_index = era_tapdance_via_field_index(value_id);
+    uint8_t slot_index = era_tapdance_via_slot_index(value_id);
 
     if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
         return false;
     }
 
+    if (era_tapdance_is_exact_term_id(value_id)) {
+        return era_tapdance_set_slot_term_ms_exact(slot_index, era_common_via_get_u16_be(value_data));
+    }
+    uint8_t field_index = era_tapdance_via_field_index(value_id);
     if (field_index < ERA_TAP_DANCE_ACTION_COUNT) {
-        return era_tapdance_set_action(slot_index, field_index, ((uint16_t)value_data[0] << 8) | value_data[1]);
+        return era_tapdance_set_action(slot_index, field_index, era_common_via_get_u16_be(value_data));
     }
     if (field_index == ERA_TAP_DANCE_FIELD_TERM) {
-        return era_tapdance_set_slot_term_ms(slot_index, (uint16_t)value_data[0] * ERA_TAP_DANCE_TERM_UNIT_MS);
+        return era_tapdance_set_slot_term_ms(slot_index, era_common_via_legacy_term_ms(value_data[0]));
     }
     return false;
 }
 
 static bool era_tapdance_via_get_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
-    uint8_t slot_index  = era_tapdance_via_slot_index(value_id);
-    uint8_t field_index = era_tapdance_via_field_index(value_id);
+    uint8_t slot_index = era_tapdance_via_slot_index(value_id);
 
     value_data[0] = 0;
     value_data[1] = 0;
@@ -70,14 +79,17 @@ static bool era_tapdance_via_get_value(uint8_t channel_id, uint8_t value_id, uin
         return false;
     }
 
+    if (era_tapdance_is_exact_term_id(value_id)) {
+        era_common_via_put_u16_be(value_data, era_tapdance_get_slot_term_ms(slot_index));
+        return true;
+    }
+    uint8_t field_index = era_tapdance_via_field_index(value_id);
     if (field_index < ERA_TAP_DANCE_ACTION_COUNT) {
-        uint16_t keycode = era_tapdance_get_action(slot_index, field_index);
-        value_data[0] = keycode >> 8;
-        value_data[1] = keycode & 0xFF;
+        era_common_via_put_u16_be(value_data, era_tapdance_get_action(slot_index, field_index));
         return true;
     }
     if (field_index == ERA_TAP_DANCE_FIELD_TERM) {
-        value_data[0] = era_tapdance_get_slot_term_ms(slot_index) / ERA_TAP_DANCE_TERM_UNIT_MS;
+        value_data[0] = era_common_via_legacy_term_units(era_tapdance_get_slot_term_ms(slot_index));
         return true;
     }
     return false;

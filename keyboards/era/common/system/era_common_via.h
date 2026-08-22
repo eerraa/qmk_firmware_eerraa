@@ -45,11 +45,13 @@
    (`tmk_core/protocol/chibios/usb_main.c`) declares `uint8_t buffer[RAW_EPSIZE]`
    and calls `raw_hid_receive(buffer, sizeof(buffer))` -- `sizeof`, a
    compile-time constant, not the number of bytes the host actually sent. So
-   every ERA VIA callback is entered with `length == RAW_EPSIZE == 32`, always,
-   and `quantum/via.c` passes it down unchanged.
+   every ERA custom-value callback is entered with
+   `length == RAW_EPSIZE == 32`, always, and `quantum/via.c` passes it down
+   unchanged. State Sync's separate fixed-envelope command still validates the
+   full 32-byte envelope before reading it (`system/era_state_sync.c`).
 
-   ERA carried 33 `length` tests across this surface and not one of them could
-   fire. They are gone, and none of them is coming back on a short-packet
+   ERA carried 33 `length` tests across the custom-value surface and not one of
+   them could fire. They are gone, and none of them is coming back on a short-packet
    argument: a short OUT packet still arrives as 32 with the tail of an
    uninitialised stack buffer behind it, so a length test never saw the case a
    reader assumes it guards. Upstream agrees by construction -- neither
@@ -70,6 +72,36 @@
    finds this paragraph. */
 typedef bool (*era_common_via_value_fn_t)(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length);
 typedef void (*era_common_via_save_fn_t)(uint8_t channel_id);
+
+enum {
+    ERA_COMMON_VIA_LEGACY_TERM_UNIT_MS = 10,
+    ERA_COMMON_VIA_LEGACY_TERM_STEP_MS = 20,
+    ERA_COMMON_VIA_LEGACY_TERM_MIN_MS  = 100,
+    ERA_COMMON_VIA_LEGACY_TERM_MAX_MS  = 500,
+};
+
+static inline uint16_t era_common_via_get_u16_be(const uint8_t *data) {
+    return ((uint16_t)data[0] << 8) | data[1];
+}
+
+static inline void era_common_via_put_u16_be(uint8_t *data, uint16_t value) {
+    data[0] = (uint8_t)(value >> 8);
+    data[1] = (uint8_t)value;
+}
+
+static inline uint16_t era_common_via_legacy_term_ms(uint8_t units) {
+    return (uint16_t)units * ERA_COMMON_VIA_LEGACY_TERM_UNIT_MS;
+}
+
+static inline uint8_t era_common_via_legacy_term_units(uint16_t term_ms) {
+    if (term_ms < ERA_COMMON_VIA_LEGACY_TERM_MIN_MS) {
+        term_ms = ERA_COMMON_VIA_LEGACY_TERM_MIN_MS;
+    } else if (term_ms > ERA_COMMON_VIA_LEGACY_TERM_MAX_MS) {
+        term_ms = ERA_COMMON_VIA_LEGACY_TERM_MAX_MS;
+    }
+    uint16_t projected = ERA_COMMON_VIA_LEGACY_TERM_MIN_MS + (((term_ms - ERA_COMMON_VIA_LEGACY_TERM_MIN_MS) / ERA_COMMON_VIA_LEGACY_TERM_STEP_MS) * ERA_COMMON_VIA_LEGACY_TERM_STEP_MS);
+    return (uint8_t)(projected / ERA_COMMON_VIA_LEGACY_TERM_UNIT_MS);
+}
 
 static inline bool era_common_via_value_command(uint8_t *data, uint8_t length, era_common_via_save_fn_t save, era_common_via_value_fn_t set, era_common_via_value_fn_t get) {
     uint8_t *command_id = &data[0];

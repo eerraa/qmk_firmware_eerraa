@@ -21,6 +21,9 @@ static inline bool era_socd_is_bound_keycode(uint16_t keycode) {
 }
 #endif
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 enum {
     ERA_KKUK_TIME_UNIT_MS        = 10,
@@ -238,25 +241,47 @@ bool era_kkuk_process_record(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
-void era_kkuk_set_enabled(bool enabled) {
-    kkuk_config.enable = enabled ? 1 : 0;
+static void era_kkuk_publish_runtime_change(void) {
     era_kkuk_reset_runtime();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_KKUK_CONFIG_OFFSET, sizeof(kkuk_config));
+#endif
+}
+
+void era_kkuk_set_enabled(bool enabled) {
+    uint8_t next = enabled ? 1 : 0;
+    if (kkuk_config.enable == next) {
+        return;
+    }
+    kkuk_config.enable = next;
+    era_kkuk_publish_runtime_change();
 }
 
 void era_kkuk_set_delay_ticks(uint8_t delay_ticks) {
-    kkuk_config.delay_time = era_kkuk_clamp_ticks(delay_ticks, ERA_KKUK_DELAY_TICKS_MIN, ERA_KKUK_DELAY_TICKS_MAX);
-    era_kkuk_reset_runtime();
+    uint8_t next = era_kkuk_clamp_ticks(delay_ticks, ERA_KKUK_DELAY_TICKS_MIN, ERA_KKUK_DELAY_TICKS_MAX);
+    if (kkuk_config.delay_time == next) {
+        return;
+    }
+    kkuk_config.delay_time = next;
+    era_kkuk_publish_runtime_change();
 }
 
 void era_kkuk_set_repeat_ticks(uint8_t repeat_ticks) {
-    kkuk_config.repeat_time = era_kkuk_clamp_ticks(repeat_ticks, ERA_KKUK_REPEAT_TICKS_MIN, ERA_KKUK_REPEAT_TICKS_MAX);
-    era_kkuk_reset_runtime();
+    uint8_t next = era_kkuk_clamp_ticks(repeat_ticks, ERA_KKUK_REPEAT_TICKS_MIN, ERA_KKUK_REPEAT_TICKS_MAX);
+    if (kkuk_config.repeat_time == next) {
+        return;
+    }
+    kkuk_config.repeat_time = next;
+    era_kkuk_publish_runtime_change();
 }
 
 void era_kkuk_set_mode(uint8_t mode) {
     if (mode == ERA_KKUK_MODE_REPORT_PULSE) {
+        if (kkuk_config.mode == ERA_KKUK_MODE_REPORT_PULSE) {
+            return;
+        }
         kkuk_config.mode = ERA_KKUK_MODE_REPORT_PULSE;
-        era_kkuk_reset_runtime();
+        era_kkuk_publish_runtime_change();
     }
 }
 

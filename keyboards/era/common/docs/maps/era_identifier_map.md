@@ -114,6 +114,7 @@ the board's (`system/era_board_hooks.c`).
 | `5` | the NKRO toggle (`features/era_nkro_via.h`) |
 | `6..12` | the RGB Matrix lock-indicator slots — a master role switch, then a source, a brightness and a colour per slot (`features/era_rgb_indicator_via.h`), only where `ERA_RGB_INDICATOR_ENABLE` is on. A one-slot board answers `6..9` and declines the rest |
 | `32..71` | the eight tap-dance slots, five ids each (`features/era_tapdance_via.c`) |
+| `72..79` | exact-ms tap-dance terms for TD0–TD7, additive, 2-byte big-endian milliseconds (`features/era_tapdance_via.c`) |
 
 **The `0..3` overlap is real and is held apart by the selector, not by the
 numbers.** The backlight ids are not chosen: they are what the shipped
@@ -132,6 +133,17 @@ shipped definition, they were free to start above the contested band, and a
 board that later grows both its own handler and this feature gives up neither.
 **A new claimant on this channel checks the whole table above, not the band it
 was aiming at.**
+
+`72..79` is the G1-approved exact-ms term band. It does not reuse the legacy
+term field ids `36,41,46,51,56,61,66,71`. Channel 15 value id `5` is the matching
+exact global tapping term (`features/era_tapping_via.c`); ids `1..4` on that
+channel stay the legacy 1-byte/10 ms global term and the three booleans.
+
+## VIA GET_KEYBOARD_VALUE selectors
+
+Command `0x02`. VIA uses `0x01..0x04` on GET and `0x05` on SET. ERA's
+polling-first revision query is selector **`0x06`**
+(`system/era_state_sync.c`). It is not a custom-channel value id.
 
 ## VIA Feature Channels
 

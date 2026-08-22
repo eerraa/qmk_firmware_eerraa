@@ -5,13 +5,17 @@
 
 #include <string.h>
 #include "../storage/era_eeprom_storage.h"
+#ifdef VIA_ENABLE
+#    include "../system/era_state_sync.h"
+#endif
 
 #define ERA_TAPPING_SIGNATURE       0x50415447UL
 #define ERA_TAPPING_VERSION         1U
-#define ERA_TAPPING_TERM_MIN_MS     100U
-#define ERA_TAPPING_TERM_MAX_MS     500U
-#define ERA_TAPPING_TERM_STEP_MS    20U
-#define ERA_TAPPING_TERM_DEFAULT_MS 200U
+#define ERA_TAPPING_TERM_MIN_MS        100U
+#define ERA_TAPPING_TERM_MAX_MS        500U
+#define ERA_TAPPING_TERM_EXACT_MIN_MS  1U
+#define ERA_TAPPING_TERM_STEP_MS       20U
+#define ERA_TAPPING_TERM_DEFAULT_MS    200U
 
 typedef struct __attribute__((packed)) {
     uint16_t tapping_term_ms;
@@ -49,7 +53,7 @@ static bool era_tapping_config_is_valid(const era_tapping_config_t *config) {
     if (!config || config->signature != ERA_TAPPING_SIGNATURE || config->version != ERA_TAPPING_VERSION) {
         return false;
     }
-    if (config->tapping_term_ms < ERA_TAPPING_TERM_MIN_MS || config->tapping_term_ms > ERA_TAPPING_TERM_MAX_MS) {
+    if (config->tapping_term_ms < ERA_TAPPING_TERM_EXACT_MIN_MS) {
         return false;
     }
     return config->permissive_hold <= 1 && config->hold_on_other_key_press <= 1 && config->retro_tapping <= 1;
@@ -63,7 +67,7 @@ static void era_tapping_apply_defaults(void) {
 }
 
 static void era_tapping_sync_state_from_config(void) {
-    tapping_state.tapping_term_ms         = era_tapping_normalize_term(tapping_config.tapping_term_ms);
+    tapping_state.tapping_term_ms         = tapping_config.tapping_term_ms;
     tapping_state.permissive_hold         = tapping_config.permissive_hold != 0;
     tapping_state.hold_on_other_key_press = tapping_config.hold_on_other_key_press != 0;
     tapping_state.retro_tapping           = tapping_config.retro_tapping != 0;
@@ -156,24 +160,59 @@ bool get_speculative_hold(uint16_t keycode, keyrecord_t *record) {
 }
 #endif
 
-void era_tapping_set_term_ms(uint16_t term_ms) {
-    tapping_config.tapping_term_ms = era_tapping_normalize_term(term_ms);
+static void era_tapping_publish_runtime_change(void) {
     era_tapping_sync_state_from_config();
+#ifdef VIA_ENABLE
+    era_state_sync_note_config_semantic_commit(ERA_EEPROM_TAPPING_CONFIG_OFFSET, sizeof(tapping_config));
+#endif
+}
+
+void era_tapping_set_term_ms(uint16_t term_ms) {
+    uint16_t next = era_tapping_normalize_term(term_ms);
+    if (tapping_config.tapping_term_ms == next) {
+        return;
+    }
+    tapping_config.tapping_term_ms = next;
+    era_tapping_publish_runtime_change();
+}
+
+bool era_tapping_set_term_ms_exact(uint16_t term_ms) {
+    if (term_ms < ERA_TAPPING_TERM_EXACT_MIN_MS) {
+        return false;
+    }
+    if (tapping_config.tapping_term_ms == term_ms) {
+        return true;
+    }
+    tapping_config.tapping_term_ms = term_ms;
+    era_tapping_publish_runtime_change();
+    return true;
 }
 
 void era_tapping_set_permissive_hold(bool enabled) {
-    tapping_config.permissive_hold = enabled ? 1 : 0;
-    era_tapping_sync_state_from_config();
+    uint8_t next = enabled ? 1 : 0;
+    if (tapping_config.permissive_hold == next) {
+        return;
+    }
+    tapping_config.permissive_hold = next;
+    era_tapping_publish_runtime_change();
 }
 
 void era_tapping_set_hold_on_other_key_press(bool enabled) {
-    tapping_config.hold_on_other_key_press = enabled ? 1 : 0;
-    era_tapping_sync_state_from_config();
+    uint8_t next = enabled ? 1 : 0;
+    if (tapping_config.hold_on_other_key_press == next) {
+        return;
+    }
+    tapping_config.hold_on_other_key_press = next;
+    era_tapping_publish_runtime_change();
 }
 
 void era_tapping_set_retro_tapping(bool enabled) {
-    tapping_config.retro_tapping = enabled ? 1 : 0;
-    era_tapping_sync_state_from_config();
+    uint8_t next = enabled ? 1 : 0;
+    if (tapping_config.retro_tapping == next) {
+        return;
+    }
+    tapping_config.retro_tapping = next;
+    era_tapping_publish_runtime_change();
 }
 
 uint16_t era_tapping_get_term_ms(void) {

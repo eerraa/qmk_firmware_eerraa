@@ -34,6 +34,7 @@ void     era_tapdance_reload_from_eeprom(void);
 void     era_tapdance_save_config(void);
 bool     era_tapdance_set_action(uint8_t slot_index, uint8_t action_index, uint16_t keycode);
 bool     era_tapdance_set_slot_term_ms(uint8_t slot_index, uint16_t term_ms);
+bool     era_tapdance_set_slot_term_ms_exact(uint8_t slot_index, uint16_t term_ms);
 uint16_t era_tapdance_get_action(uint8_t slot_index, uint8_t action_index);
 uint16_t era_tapdance_get_slot_term_ms(uint8_t slot_index);
 void     era_tapdance_on_each_tap(tap_dance_state_t *state, void *user_data);

@@ -20,6 +20,7 @@
 #include "rgb_matrix.h"
 #include "timer.h"
 #include "via.h"
+#include "../system/era_state_sync.h"
 #include "../storage/era_eeprom_config_io.h"
 #include "../storage/era_eeprom_layout.h"
 #include "era_split_sync_storage.h"
@@ -1114,6 +1115,10 @@ void nvm_eeprom_changed_kb(uint16_t offset, uint16_t length) {
         return;
     }
 
+#ifdef VIA_ENABLE
+    era_state_sync_note_eeprom_span(offset, length);
+#endif
+
     for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
         if (era_host_peer_storage_range_overlaps(offset, length, &g_era_host_peer_storage_domains[domain])) {
             era_host_peer_storage_note_domain_dirty((era_split_eeprom_sync_domain_t)domain, ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS);
@@ -2093,6 +2098,9 @@ static bool era_host_peer_storage_apply_write_finish(const era_host_peer_storage
         /* Reload even on the deferred-abort path: the read-back matched the
          * validated image, so the runtime never keeps diverging state. */
         era_split_eeprom_sync_reload_domain_kb(domain);
+#ifdef VIA_ENABLE
+        era_state_sync_note_storage_domain((uint8_t)domain);
+#endif
     } else {
         g_era_host_peer_storage_local.image_valid             = 0;
         g_era_host_peer_storage_local.image_stale             = 1;
@@ -2154,6 +2162,9 @@ static bool era_host_peer_storage_push_apply_finish(const era_host_peer_storage_
         /* Reload even on the deferred-abort path: the read-back matched the
          * validated image, so the runtime never keeps diverging state. */
         era_split_eeprom_sync_reload_domain_kb(domain);
+#ifdef VIA_ENABLE
+        era_state_sync_note_storage_domain((uint8_t)domain);
+#endif
     } else {
         g_era_host_peer_storage_local.image_valid = 0;
         g_era_host_peer_storage_local.image_stale = 1;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_via_system.h"
+#include "era_state_sync.h"
 
 #include "eeprom.h"
 /* EECONFIG_MAGIC, whose address is the core NVM eeprom backend's to state. ERA
@@ -97,8 +98,9 @@ static uint32_t via_last_raw_hid_ms;
 
 /* QMK declares this hook nowhere: via.c defines it weak and calls it at the top
  * of raw_hid_receive() for every report, taking `true` as "fully handled,
- * response already sent". This override handles nothing -- it records the
- * arrival and hands the report straight back to the VIA dispatcher.
+ * response already sent". This override stamps the arrival and fully handles
+ * only GET_KEYBOARD_VALUE selector 0x06 (state-sync revisions). Every other
+ * report returns false so the VIA dispatcher keeps ownership.
  *
  * "Raw HID" is exact. The stamp is taken in via_command_kb(), the first call
  * raw_hid_receive() makes for every report on the RAW OUT endpoint, which is
@@ -108,10 +110,8 @@ static uint32_t via_last_raw_hid_ms;
  * rate leaves both gates exactly as quiet as a release build. */
 bool via_command_kb(uint8_t *data, uint8_t length);
 bool via_command_kb(uint8_t *data, uint8_t length) {
-    (void)data;
-    (void)length;
     via_last_raw_hid_ms = timer_read32();
-    return false;
+    return era_state_sync_via_command(data, length);
 }
 
 uint32_t era_via_system_raw_hid_quiet_ms(void) {

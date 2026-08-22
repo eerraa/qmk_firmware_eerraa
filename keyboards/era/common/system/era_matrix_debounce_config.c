@@ -8,6 +8,9 @@
 #include "debounce.h"
 #include "../storage/era_eeprom_storage.h"
 #include "era_matrix_debounce_runtime.h"
+#ifdef VIA_ENABLE
+#    include "era_state_sync.h"
+#endif
 
 #define ERA_MATRIX_DEBOUNCE_CONFIG_SIGNATURE 0x434E4244UL
 #define ERA_MATRIX_DEBOUNCE_CONFIG_VERSION   1U
@@ -119,12 +122,25 @@ void era_matrix_debounce_config_reload_from_eeprom(void) {
     era_matrix_debounce_config_load_from_eeprom(false);
 }
 
+#ifdef VIA_ENABLE
+static void era_matrix_debounce_publish_if_changed(const era_matrix_debounce_storage_config_t *previous) {
+    if (memcmp(previous, &debounce_config, sizeof(*previous)) != 0) {
+        era_state_sync_note_config_semantic_commit(ERA_EEPROM_DEBOUNCE_CONFIG_OFFSET, sizeof(debounce_config));
+    }
+}
+#else
+static void era_matrix_debounce_publish_if_changed(const era_matrix_debounce_storage_config_t *previous) {
+    (void)previous;
+}
+#endif
+
 bool era_matrix_debounce_config_set_mode(uint8_t mode) {
     if (mode >= ERA_MATRIX_DEBOUNCE_PROFILE_COUNT) {
         return false;
     }
 
     era_matrix_debounce_config_ensure_loaded();
+    era_matrix_debounce_storage_config_t previous = debounce_config;
     debounce_config.mode = mode;
     if (mode == ERA_MATRIX_DEBOUNCE_PROFILE_BALANCED) {
         debounce_config.pre_ms  = era_matrix_debounce_clamp_delay(debounce_config.pre_ms);
@@ -136,6 +152,7 @@ bool era_matrix_debounce_config_set_mode(uint8_t mode) {
         debounce_config.post_ms = era_matrix_debounce_clamp_delay(debounce_config.post_ms);
     }
     era_matrix_debounce_config_apply_runtime();
+    era_matrix_debounce_publish_if_changed(&previous);
     return true;
 }
 
@@ -145,9 +162,11 @@ bool era_matrix_debounce_config_set_single_delay(uint8_t delay_ms) {
         return false;
     }
 
+    era_matrix_debounce_storage_config_t previous = debounce_config;
     debounce_config.pre_ms  = era_matrix_debounce_clamp_delay(delay_ms);
     debounce_config.post_ms = debounce_config.pre_ms;
     era_matrix_debounce_config_apply_runtime();
+    era_matrix_debounce_publish_if_changed(&previous);
     return true;
 }
 
@@ -157,8 +176,10 @@ bool era_matrix_debounce_config_set_press_delay(uint8_t delay_ms) {
         return false;
     }
 
+    era_matrix_debounce_storage_config_t previous = debounce_config;
     debounce_config.pre_ms = era_matrix_debounce_clamp_delay(delay_ms);
     era_matrix_debounce_config_apply_runtime();
+    era_matrix_debounce_publish_if_changed(&previous);
     return true;
 }
 
@@ -168,8 +189,10 @@ bool era_matrix_debounce_config_set_release_delay(uint8_t delay_ms) {
         return false;
     }
 
+    era_matrix_debounce_storage_config_t previous = debounce_config;
     debounce_config.post_ms = era_matrix_debounce_clamp_delay(delay_ms);
     era_matrix_debounce_config_apply_runtime();
+    era_matrix_debounce_publish_if_changed(&previous);
     return true;
 }
 
