@@ -179,6 +179,55 @@ void eeconfig_update_rgblight_current(void) {
     eeconfig_update_rgblight(&rgblight_config);
 }
 
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+/* ERA: the VIA underglow menu's quiet write gate.
+ *
+ * `via_qmk_rgblight_save()` wrote here directly, and a VIA client pairs a save
+ * with every set -- so dragging Underglow Brightness, Effect Speed or the
+ * colour wheel put one flash write behind every step of the drag, each with a
+ * different value. This is the same shape `quantum/rgb_matrix/rgb_matrix.c`
+ * already carries through `EECONFIG_QUIET_DEBOUNCE_HELPER`, written out here
+ * instead of instantiated because that macro hardcodes `eeconfig_update_##name`
+ * and this module's save primitive is `eeconfig_update_rgblight_current()` --
+ * the one that runs `rgblight_check_config()` first. Taking the macro would
+ * silently drop that clamp.
+ *
+ * The arm is the save and only the save. The ~15 internal callers of
+ * `eeconfig_update_rgblight()` -- the eeprom-writing keycode helpers, the
+ * defaults writer, the split sync apply -- are untouched and still write
+ * immediately, because each of them is either its own approval or a path that
+ * must be durable before the next statement runs.
+ *
+ * Nothing is added to `rgblight_task()`. The flush runs from the ERA
+ * once-per-millisecond housekeeping tick (`keyboards/era/common/system/
+ * era_board_hooks.c`), which is where the keyboard channel's gate already runs,
+ * so a keyboard outside that layer compiles nothing new into any per-pass path
+ * -- and no board defines this marker except an ERA one.
+ */
+static bool     rgblight_deferred_pending;
+static uint16_t rgblight_deferred_timer;
+
+void eeconfig_defer_flush_rgblight(void) {
+    rgblight_deferred_pending = true;
+    rgblight_deferred_timer   = timer_read();
+}
+
+/* Cleared before the write for the reason the ERA gate's own commit states: the
+ * write can be sliced, and a sliced erase runs the keyboard pass in its gaps,
+ * so this cadence is reachable from inside the call below. */
+static void rgblight_deferred_commit(void) {
+    rgblight_deferred_pending = false;
+    eeconfig_update_rgblight_current();
+}
+
+void eeconfig_flush_rgblight_deferred_task(void) {
+    if (!rgblight_deferred_pending || timer_elapsed(rgblight_deferred_timer) <= ERA_STORAGE_QUIET_DEFER_MS) {
+        return;
+    }
+    rgblight_deferred_commit();
+}
+#endif
+
 void eeconfig_update_rgblight_default(void) {
     rgblight_config.enable    = RGBLIGHT_DEFAULT_ON;
     rgblight_config.velocikey = 0;

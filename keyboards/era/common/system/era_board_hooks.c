@@ -131,6 +131,15 @@ void era_board_housekeeping_tick(void) {
 #ifdef VIA_ENABLE
     era_board_keyboard_channel_save_task();
 #endif
+#if defined(RGBLIGHT_ENABLE) && defined(ERA_STORAGE_QUIET_DEFER_MS)
+    /* The underglow domain's own gate, run from the same cadence and not from
+       `rgblight_task()`: keeping the call here is what leaves every keyboard in
+       the fork outside this layer with an unchanged per-pass path. It is not on
+       the keyboard channel and cannot ride the gate above -- VIA answers
+       channel 2 inside `quantum/via.c` and returns -- so the two are separate
+       gates over separate eeconfig blocks, and a drag arms exactly one. */
+    eeconfig_flush_rgblight_deferred_task();
+#endif
     era_board_housekeeping_task();
 }
 

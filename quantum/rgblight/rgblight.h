@@ -369,6 +369,12 @@ void     rgblight_wakeup(void);
 uint64_t rgblight_read_qword(void);
 void     rgblight_update_qword(uint64_t qword);
 void     eeconfig_update_rgblight_current(void);
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+/* ERA: arm and commit the VIA save's quiet write gate. The definitions carry
+   why the module has one and why it is not `EECONFIG_QUIET_DEBOUNCE_HELPER`. */
+void eeconfig_defer_flush_rgblight(void);
+void eeconfig_flush_rgblight_deferred_task(void);
+#endif
 void     eeconfig_update_rgblight_default(void);
 void     eeconfig_debug_rgblight(void);
 

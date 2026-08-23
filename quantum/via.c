@@ -647,7 +647,14 @@ void via_qmk_rgblight_set_value(uint8_t *data) {
 }
 
 void via_qmk_rgblight_save(void) {
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+    /* ERA: arm the module's quiet gate rather than writing here, exactly as
+       `via_qmk_rgb_matrix_save()` below does for its own domain. The client
+       sends one of these per slider step. */
+    eeconfig_defer_flush_rgblight();
+#else
     eeconfig_update_rgblight_current();
+#endif
 }
 
 #endif // QMK_RGBLIGHT_ENABLE
