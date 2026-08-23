@@ -56,7 +56,6 @@ static uint8_t             kkuk_previous_count;
 static uint8_t             kkuk_pulse_state;
 static uint32_t            kkuk_last_pulse_ms;
 static bool                kkuk_pulse_gap_active;
-static report_keyboard_t   kkuk_last_report;
 
 static uint8_t era_kkuk_clamp_ticks(uint8_t value, uint8_t min, uint8_t max) {
     if (value < min) {
@@ -103,8 +102,10 @@ static bool era_kkuk_normalize_config(era_kkuk_config_t *config) {
 }
 
 static void era_kkuk_reset_runtime(void) {
-    bool restore_pending = kkuk_pulse_state == ERA_KKUK_PULSE_RESTORE;
-
+    /* `kkuk_pulse_state` is deliberately left alone. A pulse that has already
+       sent the empty report owes the host its restore whatever the config
+       change was, and the state has only IDLE and RESTORE in it -- so there is
+       nothing here for a config change to set it to that it is not already. */
     kkuk_repeat_requested = false;
     kkuk_mode_active      = false;
     kkuk_repeat_timer     = timer_read32();
@@ -113,11 +114,6 @@ static void era_kkuk_reset_runtime(void) {
     kkuk_previous_count   = 0;
     kkuk_last_pulse_ms    = 0;
     kkuk_pulse_gap_active = false;
-
-    if (!restore_pending) {
-        kkuk_pulse_state = ERA_KKUK_PULSE_IDLE;
-        memset(&kkuk_last_report, 0, sizeof(kkuk_last_report));
-    }
 }
 
 void era_kkuk_save_config(void) {
@@ -149,12 +145,37 @@ static bool era_kkuk_can_start_pulse(uint16_t repeat_ms) {
     return !kkuk_pulse_gap_active || timer_elapsed32(kkuk_last_pulse_ms) >= repeat_ms;
 }
 
+/* The pulse has to snapshot whichever report `clear_keys()` is about to empty,
+   and that is not always the 6KRO one: `clear_keys_from_report()`
+   (`tmk_core/protocol/report.c`) clears `nkro_report->bits` while NKRO is
+   negotiated and `keyboard_report->keys` otherwise. A 6KRO-only snapshot left
+   the NKRO restore with nothing to put back, and `send_nkro_report()`
+   (`quantum/action_util.c`) then dropped that restore as unchanged against the
+   empty report the pulse had just sent -- so every held key stayed released at
+   the host until it was pressed again.
+
+   Both formats are saved rather than the active one, because the predicate is
+   QMK's and a second copy of it here could disagree with the copy
+   `clear_keys()` reads. Writing back the format that was not cleared restores
+   its own bytes and changes nothing. Only the key arrays move: `clear_keys()`
+   leaves mods alone and every send recomputes them. */
 static void era_kkuk_start_empty_pulse(void) {
-    memcpy(&kkuk_last_report, keyboard_report, sizeof(kkuk_last_report));
+    uint8_t saved_keys[KEYBOARD_REPORT_KEYS];
+    memcpy(saved_keys, keyboard_report->keys, sizeof(saved_keys));
+#ifdef NKRO_ENABLE
+    uint8_t saved_bits[NKRO_REPORT_BITS];
+    memcpy(saved_bits, nkro_report->bits, sizeof(saved_bits));
+#endif
+
     clear_keys();
     send_keyboard_report();
-    // Keep QMK's internal report current; only the host restore is deferred.
-    memcpy(keyboard_report, &kkuk_last_report, sizeof(kkuk_last_report));
+
+    /* Keep QMK's internal report current; only the host restore is deferred. */
+    memcpy(keyboard_report->keys, saved_keys, sizeof(saved_keys));
+#ifdef NKRO_ENABLE
+    memcpy(nkro_report->bits, saved_bits, sizeof(saved_bits));
+#endif
+
     kkuk_pulse_state = ERA_KKUK_PULSE_RESTORE;
 }
 
