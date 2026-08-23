@@ -100,6 +100,13 @@ static void era_board_keyboard_channel_save_task(void) {
     }
     era_board_keyboard_channel_save_commit();
 }
+
+static void era_board_keyboard_channel_save_now(void) {
+    if (!era_board_keyboard_save_pending) {
+        return;
+    }
+    era_board_keyboard_channel_save_commit();
+}
 #    else
 static void era_board_keyboard_channel_save_arm(void) {
     era_common_via_keyboard_channel_save();
@@ -107,6 +114,7 @@ static void era_board_keyboard_channel_save_arm(void) {
 }
 
 static void era_board_keyboard_channel_save_task(void) {}
+static void era_board_keyboard_channel_save_now(void) {}
 #    endif
 #endif
 
@@ -141,6 +149,65 @@ void era_board_housekeeping_tick(void) {
     eeconfig_flush_rgblight_deferred_task();
 #endif
     era_board_housekeeping_task();
+}
+
+/* --- Committing a pending write before the window that would lose it ------ */
+
+/* **A quiet gate holds an approved write for up to half a second, and two
+   events inside that window are not ordinary time passing.**
+
+   *A controlled reset* throws the window away. `reset_keyboard()` (the VIA
+   bootloader toggle, `QK_BOOT`) and `soft_reset_keyboard()` (`QK_REBOOT`, the
+   EEPROM CLEAN, the agreed restart) both pass through `shutdown_quantum()`
+   (`quantum/quantum.c`), which calls `shutdown_kb()` and then jumps or resets
+   with nothing between -- so a save approved 300 ms earlier is simply lost. That
+   is the whole set a software hook can see, and it is the set this closes;
+   an SWD reset, a watchdog and a power cut keep the exposure the quiet interval
+   has always had, which is the trade a deferral is.
+
+   *A suspend* is worse than losing it, because the host going away is not a
+   persist approval and yet it rewrites the very objects a pending flush would
+   serialise: `suspend_power_down_quantum()` calls `backlight_level_noeeprom(0)`
+   and `rgblight_suspend()`, and both write the live config object -- level and
+   `enable` to zero. The housekeeping cadence keeps running while suspended, so
+   a gate armed 400 ms before the host slept would fire 100 ms after it and
+   store the darkness as the user's setting. The suspend caller is
+   `suspend_power_down_kb()` in `system/era_usb_session.c`, which
+   `suspend_power_down_quantum()` runs *before* either of those writes.
+
+   **Nothing is written for a gate that holds nothing**, which is what makes
+   both callers safe rather than merely early. `eeconfig_force_flush_rgb_matrix()`
+   would have been the obvious call for the RGB Matrix domain and is the wrong
+   one: it writes whether or not anything was approved.
+
+   The RGB Matrix arm is outside `VIA_ENABLE` on purpose -- `eeconfig_flag_rgb_
+   matrix(true)` arms that gate from the lighting keycodes too, so it is live on
+   a build with no VIA at all. */
+void era_board_persistence_flush_pending(void) {
+#ifdef VIA_ENABLE
+    era_board_keyboard_channel_save_now();
+#endif
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+#    ifdef RGB_MATRIX_ENABLE
+    eeconfig_flush_rgb_matrix_deferred_now();
+#    endif
+#    ifdef RGBLIGHT_ENABLE
+    eeconfig_flush_rgblight_deferred_now();
+#    endif
+#endif
+}
+
+/* Strongly here rather than left weak, and this is the one QMK hook this unit
+   takes that is not an era_board_hooks.h default. It is here for the same
+   reason the keyboard-channel answer above is: one copy for both class
+   skeletons, in the unit that owns the gate it commits. `shutdown_user()` still
+   runs and still decides the return value, so a keymap keeps the seam upstream
+   gives it; a board wanting its own `shutdown_kb()` would fail the link by
+   name, which is the loud failure rather than the silent one, and the fix then
+   is a hook in era_board_hooks.h. No ERA board defines one today. */
+bool shutdown_kb(bool jump_to_bootloader) {
+    era_board_persistence_flush_pending();
+    return shutdown_user(jump_to_bootloader);
 }
 
 __attribute__((weak)) bool era_board_process_record(uint16_t keycode, keyrecord_t *record) {

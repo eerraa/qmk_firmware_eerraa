@@ -290,6 +290,24 @@ void eeconfig_defer_flush_rgb_matrix(void) {
 void eeconfig_flush_rgb_matrix_deferred_task(void) {
     eeconfig_run_deferred_flush_rgb_matrix();
 }
+
+/* Commit an approved-but-unwritten config now, ignoring the quiet timer, and
+ * write nothing when none is pending. That last half is what separates this
+ * from eeconfig_force_flush_rgb_matrix(), which writes unconditionally -- the
+ * callers of this one are the controlled-reset and suspend paths, where writing
+ * a config nobody approved would persist whatever a suspend routine had just
+ * put in the live object.
+ *
+ * Clearing `deferred` is how the timer is bypassed rather than a second
+ * predicate: with it clear eeconfig_deferred_ready_rgb_matrix() answers true,
+ * so the flush below runs on `dirty` alone -- which is exactly "a save was
+ * approved and has not landed yet". The statics are this translation unit's,
+ * declared by the helper macro instantiated above.
+ */
+void eeconfig_flush_rgb_matrix_deferred_now(void) {
+    deferred_rgb_matrix = false;
+    eeconfig_run_deferred_flush_rgb_matrix();
+}
 #endif
 
 void eeconfig_update_rgb_matrix_default(void) {

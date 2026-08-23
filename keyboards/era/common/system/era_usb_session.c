@@ -64,6 +64,7 @@
 
 #include "era_usb_session.h"
 
+#include "era_board_hooks.h" /* era_board_persistence_flush_pending(), for the suspend hook below */
 #include "quantum.h"
 #include "suspend.h"
 #include "timer.h"
@@ -321,6 +322,23 @@ bool era_usb_session_frames_lost(void) {
  * their own, and a future non-split board that wants them will fail the link
  * rather than silently lose one of these assignments. */
 void suspend_power_down_kb(void) {
+    /* Ahead of everything suspend_power_down_quantum() is about to do, which is
+     * the only ordering this call needs and the reason it is here rather than
+     * on the wake side: that function writes `backlight_level_noeeprom(0)` and
+     * runs `rgblight_suspend()` a few statements below this hook, and both put
+     * a zero into a live config object without approving persistence. A quiet
+     * gate still holding an approved write would serialise that zero half a
+     * second later, because the housekeeping cadence keeps running while the
+     * host is asleep. Committing first is what keeps a suspend from rewriting
+     * the setting the user just made.
+     *
+     * Non-split only, like the rest of this block, and that is scoped rather
+     * than partial: the split class compiles neither of those two writers --
+     * the three boards in it are RGB Matrix, whose suspend touches a separate
+     * flag and not `rgb_matrix_config` -- so the only gate live there holds a
+     * record suspend cannot reach. A split board that ever gained a backlight
+     * or an underglow surface would need this call on that side too. */
+    era_board_persistence_flush_pending();
     era_usb_session_applied = true;
     suspend_power_down_user();
 }

@@ -374,6 +374,7 @@ void     eeconfig_update_rgblight_current(void);
    why the module has one and why it is not `EECONFIG_QUIET_DEBOUNCE_HELPER`. */
 void eeconfig_defer_flush_rgblight(void);
 void eeconfig_flush_rgblight_deferred_task(void);
+void eeconfig_flush_rgblight_deferred_now(void);
 #endif
 void     eeconfig_update_rgblight_default(void);
 void     eeconfig_debug_rgblight(void);

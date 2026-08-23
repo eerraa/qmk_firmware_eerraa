@@ -181,6 +181,10 @@ void eeconfig_force_flush_rgb_matrix(void);
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
 void eeconfig_defer_flush_rgb_matrix(void);
 void eeconfig_flush_rgb_matrix_deferred_task(void);
+/* ERA: commit a pending deferred flush now and write nothing when none is
+   pending -- not the same as the unconditional force above. The definition
+   carries why the difference matters to its callers. */
+void eeconfig_flush_rgb_matrix_deferred_now(void);
 #endif
 
 uint8_t rgb_matrix_map_row_column_to_led_kb(uint8_t row, uint8_t column, uint8_t *led_i);

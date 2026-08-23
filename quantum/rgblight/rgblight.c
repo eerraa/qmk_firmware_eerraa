@@ -226,6 +226,26 @@ void eeconfig_flush_rgblight_deferred_task(void) {
     }
     rgblight_deferred_commit();
 }
+
+/* Commit now, ignoring the quiet timer, and write nothing when nothing is
+ * pending. The second half is load-bearing here and not a tidy: `rgblight_
+ * suspend()` writes `rgblight_config.enable = 0` into the live object without
+ * approving persistence, so an unconditional write from a suspend or reset path
+ * would store the suspend's darkness as the user's setting. `RGBLIGHT_SLEEP` is
+ * on for three of the five ERA boards that ship an underglow menu, so that is a
+ * configuration in the tree rather than a hypothesis.
+ *
+ * The callers are the controlled-reset and suspend hooks in
+ * `keyboards/era/common/system/`, and the suspend one runs from
+ * `suspend_power_down_kb()` -- ahead of everything `suspend_power_down_quantum()`
+ * does to the live lighting objects, which is what makes the ordering hold.
+ */
+void eeconfig_flush_rgblight_deferred_now(void) {
+    if (!rgblight_deferred_pending) {
+        return;
+    }
+    rgblight_deferred_commit();
+}
 #endif
 
 void eeconfig_update_rgblight_default(void) {

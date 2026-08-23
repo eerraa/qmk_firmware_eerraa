@@ -39,6 +39,14 @@
 void era_board_housekeeping_task(void);
 void era_board_housekeeping_tick(void);
 
+/* Commit every quiet persistence gate that is holding an approved write, now,
+   ignoring its timer -- and write nothing for a gate that holds none. Called
+   from the two points where the pending window would otherwise be lost or
+   poisoned: this unit's own `shutdown_kb()`, and the non-split suspend hook in
+   `system/era_usb_session.c`. The definition carries which gates and why each
+   of the two callers needs it. */
+void era_board_persistence_flush_pending(void);
+
 /* Board keycodes. Returns false to stop the record, the same contract
    process_record_kb itself has. The skeleton calls it after the ERA feature
    layer and before process_record_user(). */
