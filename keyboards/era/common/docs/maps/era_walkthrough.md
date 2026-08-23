@@ -146,11 +146,20 @@ loses the relation runs standalone on its last durable image.
    (`split/era_split_board.c`); it routes the system channel, then the keyboard
    channel, then the feature channel (`system/era_common_via.c`,
    `split/era_split_via_sync.c`).
-2. **The feature module applies the value** and asks for a persist. ERA's
-   eeconfig edit coalesces writes: the fork's deferred-write layer
-   (`quantum/eeconfig.h`, gated on `ERA_STORAGE_QUIET_DEFER_MS`) holds the block
-   until the value has been quiet for 500 ms, so dragging a VIA slider costs one
-   flash write and not fifty.
+2. **The feature module applies the value** and the save that follows it
+   *schedules* a persist rather than performing one. **Which mechanism holds
+   it depends on which save event the client sent**, and there are three,
+   one per burst-prone persistence range: `quantum/eeconfig.h`'s deferred-write
+   layer for the RGB Matrix eeconfig block (instantiated in
+   `quantum/rgb_matrix/rgb_matrix.c`), a gate of the same shape in
+   `quantum/rgblight/rgblight.c` for the underglow block, and the keyboard
+   channel's gate in `system/era_board_hooks.c` for the ERA backlight, the ERA
+   RGB indicator and the board's own config record. All three take the same
+   number, `ERA_STORAGE_QUIET_DEFER_MS`, and all three are armed by the save
+   and never by the set, so dragging a VIA slider costs one flash write and
+   not fifty. Nothing else on the keyboard channel is deferred -- tap dance,
+   SOCD, debounce, tapping, mousekey and the sync policy write at their save,
+   which is correct because none of them has a continuous control.
 3. **The storage engine captures at the cold boundary.**
    `era_host_peer_storage_task()` (`split/era_host_peer_storage.c`) runs from
    housekeeping, takes a settled capture of the seven portable domains, CRCs

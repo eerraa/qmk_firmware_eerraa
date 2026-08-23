@@ -374,6 +374,44 @@ Three exceptions are structural rather than gaps.
   one band on this channel that was chosen, which is why they were chosen to
   overlap nothing (`era_identifier_map.md`).
 
+  **A continuous lighting control's persistence is deferred by the gate that
+  owns its save event, and a new one is covered by joining a list rather than
+  by growing a timer.** The rule, in four parts: the number is
+  `ERA_STORAGE_QUIET_DEFER_MS` and there is no second one; the arm is the VIA
+  save and never the set, which is what the `_noeeprom` discipline on every
+  setter is for; there is no maximum-age flush beside the quiet timer, because
+  a user holding a slider produces a continuous stream of approvals and a
+  max-age flush would write flash during exactly the drag the gate removes; and
+  **one persistence range has one gate**. Three exist, one per save event —
+  VIA's RGB-matrix channel (`quantum/eeconfig.h`'s helper, instantiated in
+  `quantum/rgb_matrix/rgb_matrix.c`), VIA's RGBLIGHT channel
+  (`quantum/rgblight/rgblight.c`), and the keyboard channel
+  (`system/era_board_hooks.c`) — and a keyboard-channel claimant joins the
+  third by being added to `era_common_via_keyboard_channel_save()`
+  (`system/era_common_via.c`), which is the same list the save arm already
+  requires it to be added to. A board that instead writes a timer of its own
+  behind that gate has built the double defer the tomak family carried until
+  2026-08-24.
+
+  **A discrete control keeps its immediate write**, and that is a
+  classification rather than an oversight: tap dance, SOCD, the debounce,
+  tapping and mousekey pages and the NKRO toggle ship no `range` and no
+  `color`, so a save there is one deliberate user action and can never burst.
+  A discrete control that *shares* a config record with a continuous one rides
+  that record's gate and gets no timer of its own.
+
+  **Two discrete controls persist at the *set* rather than at the save, and
+  both are toggles**: the NKRO bit (`features/era_nkro_via.c`, QMK's
+  `eeconfig_update_keymap()`) and odessey's Velocikey
+  (`newone/common/odessey_common.c`, through QMK's own
+  `rgblight_velocikey_toggle()`, which is an eeprom-writing function by
+  design). Both compare first and write nothing when the bit already holds the
+  requested value, so neither can burst, and neither is a counter-example to
+  the arm rule above — that rule is about the *continuous* controls, whose
+  setters are `_noeeprom` without exception. Read as a property of the whole
+  surface it would be false, which is why it is written here with its two
+  exceptions rather than as "no ERA setter reaches EEPROM".
+
   **A common lighting unit takes QMK's weak render hooks strongly**, which the
   board-hook route does not: `era_rgb_indicator.c` defines
   `rgb_matrix_indicators_kb`, `rgb_matrix_indicators_advanced_kb`,

@@ -509,8 +509,9 @@ Turning EEPROM SYNC off leaves a VIA save's flash episode and its core0 outage
 byte-identical — the bit is a statement about the wire, never about the main
 loop.
 
-Read with it: a VIA lighting *change* runs no EEPROM setter of its own (the
-channel's setters are the `_noeeprom` variants) but still reaches flash,
+Read with it: a VIA lighting *change* runs no EEPROM setter of its own (every
+continuous control's setter is a `_noeeprom` variant; the two toggles that do
+write at the set are named in `era_board_adoption.md`) but still reaches flash,
 because **the VIA application pairs `id_custom_save` with every
 `id_custom_set_value`** — there is no user-initiated save. That save
 *schedules* the write `ERA_STORAGE_QUIET_DEFER_MS` after the last one rather
