@@ -130,6 +130,13 @@ static inline bool era_common_via_value_command(uint8_t *data, uint8_t length, e
 }
 #endif
 
+/* The keyboard channel's deferred save fan-out, called by the quiet gate in
+   system/era_board_hooks.c and by nothing else. It is separate from the router
+   below because a VIA save carries no value id: the router has to answer the
+   command, and the gate has to be able to run the same list half a second
+   later. */
+void era_common_via_keyboard_channel_save(void);
+
 bool era_common_via_handle_system_command(uint8_t *data, uint8_t length);
 bool era_common_via_handle_feature_command(uint8_t *data, uint8_t length);
 bool era_common_via_handle_keyboard_channel_command(uint8_t *data, uint8_t length);

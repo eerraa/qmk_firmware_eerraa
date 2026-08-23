@@ -115,24 +115,43 @@ bool era_common_via_handle_feature_command(uint8_t *data, uint8_t length) {
     return false;
 }
 
+/* **Everything on this channel whose persistence the quiet gate owns.** A VIA
+   save carries no value id, so it cannot be routed by one: every claimant of
+   this channel that holds state has to be listed, here or at the save arm
+   below, and a new one is covered by being added to whichever list it belongs
+   in. The gate that calls this lives in system/era_board_hooks.c and states why
+   one timer serves the whole channel.
+
+   The two here are the continuous ones: both ship `range` controls -- backlight
+   brightness, breathing period and blink speed; indicator brightness and colour
+   -- and a client dragging any of them sends a save per step. */
+void era_common_via_keyboard_channel_save(void) {
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+    era_backlight_via_save();
+#endif
+#ifdef ERA_RGB_INDICATOR_ENABLE
+    era_rgb_indicator_via_save();
+#endif
+}
+
 bool era_common_via_handle_keyboard_channel_command(uint8_t *data, uint8_t length) {
     if (!data || data[1] != id_custom_channel) {
         return false;
     }
 
     /* Persist and then return false on purpose, so a board with its own
-       keyboard-channel config can save beside these. A VIA save carries no
-       value id, so it cannot be routed by one: every claimant of this channel
-       that holds state has to be listed here. */
+       keyboard-channel config can save beside these. What persists *here* is
+       only what the quiet gate does not own; the rest is armed by the caller
+       (system/era_board_hooks.c) and runs from the list above. */
     if (data[0] == id_custom_save) {
 #ifdef ERA_TAP_DANCE_ENABLE
+        /* Immediate, and it is the one claimant on this channel that stays so.
+           Tap dance has no continuous control -- its VIA surface is keycode
+           pickers, dropdowns and exact terms, so a save is one deliberate user
+           action and never a drag -- and its 88-byte block is the largest here,
+           so deferring it would buy nothing and put the largest write behind a
+           timer. */
         era_tapdance_handle_via_command(data, length);
-#endif
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-        era_backlight_via_save();
-#endif
-#ifdef ERA_RGB_INDICATOR_ENABLE
-        era_rgb_indicator_via_save();
 #endif
         return false;
     }

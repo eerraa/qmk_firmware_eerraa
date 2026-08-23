@@ -46,9 +46,6 @@ static RGB       tomak_cached_indicator_rgb;
 static bool      tomak_indicator_rgb_valid;
 static bool      tomak_indicator_dirty = true;
 static bool      tomak_indicator_clear_when_off;
-static bool      tomak_config_save_pending;
-static uint16_t  tomak_config_save_timer;
-
 static led_t     tomak_host_led_state;
 static led_t     tomak_usb_led_state;
 
@@ -158,24 +155,6 @@ static void tomak_write_config_to_era_eeprom(const tomak_config_t *config) {
     tomak_era_keyboard_config_t storage;
     tomak_build_era_keyboard_storage(config, &storage);
     era_eeprom_update_config(&storage, ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, sizeof(storage));
-}
-
-void tomak_schedule_config_save_to_era_eeprom(void) {
-    tomak_config_save_pending = true;
-    tomak_config_save_timer = timer_read();
-}
-
-static void tomak_config_save_deferred_task(void) {
-    if (!tomak_config_save_pending || timer_elapsed(tomak_config_save_timer) <= ERA_STORAGE_QUIET_DEFER_MS) {
-        return;
-    }
-
-    tomak_config_save_pending = false;
-    tomak_write_config_to_era_eeprom(&g_tomak_config);
-    /* No presenter note here since the 2026-08-14 redesign: the write above
-       reaches the storage engine's own dirty intake through the NVM changed
-       hook, and the engine's pending fact is what lights the lamp — at this
-       same instant, for every domain, not just this one. */
 }
 
 static void tomak_read_config_from_era_eeprom(tomak_config_t *config) {
@@ -769,7 +748,6 @@ void era_board_housekeeping_task(void) {
 #if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
     tomak_eeprom_sync_status_visibility_task();
 #endif
-    tomak_config_save_deferred_task();
 }
 
 void eeconfig_init_kb(void) {
@@ -875,7 +853,17 @@ bool era_board_via_set_value(uint8_t *data) {
 }
 
 void era_board_via_save(void) {
-    tomak_schedule_config_save_to_era_eeprom();
+    /* The write itself, run from behind the keyboard channel's quiet gate
+       (common/system/era_board_hooks.c) rather than at the save that armed it.
+
+       This family carried its own 500 ms timer until that gate existed, and the
+       timer was deleted in the same change: it deferred this one record while
+       the odessey twin of this very surface -- same value ids, same control
+       types -- and the two common lighting units wrote at every save, so the
+       policy was a per-board accident rather than an architecture. One gate on
+       the save event covers all four, and leaving this one behind it would have
+       made a badge drag wait two quiet intervals instead of one. */
+    tomak_write_config_to_era_eeprom(&g_tomak_config);
 }
 
 #endif
