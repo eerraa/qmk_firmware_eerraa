@@ -199,6 +199,11 @@ void     eeconfig_init_user_datablock(void);
     }
 
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
+/* Consume the pending approval before the synchronous update. The update path
+ * reports no completion status; consuming first lets a new approval re-arm the
+ * pair without the old flush clearing it on return. The flash-gap re-entry path
+ * is canonical in keyboards/era/common/docs/contracts/era_invariants.md. */
+// clang-format off
 #    define EECONFIG_QUIET_DEBOUNCE_HELPER_CHECKED(name, config)           \
         static uint8_t  dirty_##name = false;                              \
         static uint8_t  deferred_##name = false;                           \
@@ -225,10 +230,10 @@ void     eeconfig_init_user_datablock(void);
         }                                                                  \
         static inline void eeconfig_flush_##name(bool force) {             \
             if (force || (dirty_##name && eeconfig_deferred_ready_##name())) { \
-                eeconfig_update_##name(&config);                           \
-                eeconfig_post_flush_##name();                              \
                 dirty_##name = false;                                      \
                 deferred_##name = false;                                   \
+                eeconfig_update_##name(&config);                           \
+                eeconfig_post_flush_##name();                              \
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name##_task(uint16_t timeout) { \
@@ -252,6 +257,7 @@ void     eeconfig_init_user_datablock(void);
                 eeconfig_flag_##name(true);                                \
             }                                                              \
         }
+// clang-format on
 #endif
 
 #define EECONFIG_DEBOUNCE_HELPER(name, config)     \
