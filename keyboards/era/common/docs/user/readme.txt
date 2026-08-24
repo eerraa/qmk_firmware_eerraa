@@ -71,14 +71,14 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
 
 ■ TAPDANCE
    한 키에 Tap, Hold, Double Tap, Tap+Hold 동작을 지정합니다.
-   VIA CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정하고, KEYMAP -> CUSTOM의
+   VIA CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정하고, KEYMAP -> TAPDANCE의
    같은 TD 키를 원하는 위치에 배치하십시오. 입력 예시는
    via_keycodes.txt에 있습니다.
 
 ■ SOCD
    반대 방향키가 함께 눌리면 마지막 입력만 남기는 Last Input Wins
    기능입니다. VIA CONFIGURE -> FEATURE -> SOCD에서 사용할 키 조합을
-   지정하십시오. 경쟁 환경에서는 게임과 대회 규칙을 먼저 확인하세요.
+   지정하십시오.
 
 ■ KKUK (꾹보드)   ※ 이전 이름: Anti-Ghosting
    기본 키 두 개 이상을 가만히 누르고 있으면 그 묶음 전체를 주기적으로
@@ -96,13 +96,23 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    짧게/길게 누름 판정 시간을 조정합니다. 기본값은 200 ms입니다.
 
 ■ MOUSE (마우스 키)
-   VIA CONFIGURE -> FEATURE -> MOUSE에서 마우스 키의 커서·휠 속도와
-   가속을 조정합니다. 기본값으로 먼저 사용한 뒤 느리거나 빠를 때만
-   조금씩 바꾸십시오. 키맵에 마우스 키가 없으면 아무 영향이 없습니다.
+   VIA CONFIGURE -> FEATURE -> MOUSE에서 조정합니다. 키맵에 마우스 키가
+   없으면 아무 영향이 없습니다.
+
+   - Cursor Acceleration   시작 속도에서 최고 속도까지 걸리는 시간.
+                           Off면 시작 속도로 고정됩니다.
+   - Cursor Start Speed    키를 누른 직후 한 스텝의 이동 거리.
+   - Cursor Top Speed      가속이 끝난 뒤 한 스텝의 이동 거리.
+   - Cursor Speed          가속이 Off일 때의 한 스텝 이동 거리.
+   - Cursor Steps Per Second  초당 이동 스텝 수. 클수록 부드러워지고
+                           가속 시간은 그대로입니다.
+   - Wheel Rate            초당 스크롤 스텝 수.
+   - Wheel Acceleration    누르고 있는 동안 스크롤이 빨라지는 정도.
 
 ■ NKRO
-   VIA CONFIGURE -> FEATURE -> NKRO에서 무제한 동시입력을 켭니다.
-   오래된 BIOS나 부팅 메뉴에서 입력되지 않을 때는 끄십시오.
+   동시입력 키 수 제한을 없앱니다. 오래된 시스템의 BIOS나 KVM 스위치가
+   입력을 받지 못한다면 VIA CONFIGURE -> FEATURE -> NKRO에서 끄십시오.
+   끄면 6KRO로 동작해 최대 6키까지 동시입력됩니다.
 
 ■ LIGHTING (조명)
    VIA CONFIGURE -> LIGHTING에서 밝기, 효과, 속도와 색을 조정합니다.
@@ -110,16 +120,13 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    메뉴만 보입니다. INDICATOR는 Caps/Scroll/Num Lock 표시를 지정합니다.
 
 ■ EEPROM CLEAN
-   저장된 키맵과 설정을 모두 지우고 공장 기본값으로 되돌립니다.
+   키맵과 모든 설정을 초기화합니다.
 
-   사용:
-   - VIA CONFIGURE -> SYSTEM -> EEPROM에서 확인 토글 세 개를 모두
-     켜면 EEPROM을 초기화하고 재부팅합니다.
-   - 세 개는 첫 토글을 켠 뒤 10초 안에 모두 켜야 합니다. 시간이 지나면
-     켜 두었던 토글이 전부 풀리고, 처음부터 다시 켜면 됩니다.
-   - 켜 둔 토글을 다시 끄면 그 자리에서 취소됩니다.
+   VIA CONFIGURE -> SYSTEM -> EEPROM에서 10초 안에 확인 토글 세 개를 모두
+   켜면 실행됩니다. 저장된 모든 데이터가 초기화되고 키보드가 재시작됩니다.
+   10초를 넘기면 켜 둔 토글이 저절로 풀립니다.
 
-   EEPROM 초기화 전에는 키맵 백업을 권장합니다.
+   실행 전 SAVE + LOAD에서 키맵을 백업하십시오.
 
 
 ======================================================================
@@ -194,12 +201,11 @@ Key Features
 ■ TAPDANCE
    Assign Tap, Hold, Double Tap, and Tap+Hold actions to one key. Configure
    TD0~TD7 in VIA CONFIGURE -> TAPDANCE, then place the matching TD key from
-   KEYMAP -> CUSTOM. See via_keycodes.txt for input examples.
+   KEYMAP -> TAPDANCE. See via_keycodes.txt for input examples.
 
 ■ SOCD
    Keeps only the latest input when opposite directions are held together.
-   Assign the key pairs in VIA CONFIGURE -> FEATURE -> SOCD. Check game and
-   tournament rules before using it competitively.
+   Assign the key pairs in VIA CONFIGURE -> FEATURE -> SOCD.
 
 ■ KKUK   (formerly named Anti-Ghosting)
    Hold two or more basic keys still and the whole group is released and
@@ -217,13 +223,23 @@ Key Features
    TAPPING. The default is 200 ms.
 
 ■ MOUSE
-   Adjust mouse-key cursor and wheel speed or acceleration in VIA CONFIGURE ->
-   FEATURE -> MOUSE. Try the defaults first, then make small changes if they
-   feel slow or fast. It has no effect unless mouse keys are in your keymap.
+   Set it in VIA CONFIGURE -> FEATURE -> MOUSE. It has no effect unless mouse
+   keys are in your keymap.
+
+   - Cursor Acceleration   Time from start speed to top speed. Off holds the
+                           start speed.
+   - Cursor Start Speed    Distance per step the instant you press the key.
+   - Cursor Top Speed      Distance per step once acceleration has finished.
+   - Cursor Speed          Distance per step while acceleration is Off.
+   - Cursor Steps Per Second  Move steps per second. Higher is smoother and
+                           does not change the acceleration time.
+   - Wheel Rate            Scroll steps per second.
+   - Wheel Acceleration    How much scrolling speeds up while you hold.
 
 ■ NKRO
-   Enable effectively unlimited simultaneous key input in VIA CONFIGURE ->
-   FEATURE -> NKRO. Turn it off for an old BIOS or boot menu that cannot read it.
+   Removes the limit on how many keys register at once. Turn it off in VIA
+   CONFIGURE -> FEATURE -> NKRO if an old BIOS or a KVM switch cannot see your
+   typing; off, the keyboard falls back to 6KRO and registers six keys at once.
 
 ■ LIGHTING
    Adjust brightness, effects, speed, and colour in VIA CONFIGURE -> LIGHTING.
@@ -231,13 +247,10 @@ Key Features
    appear. INDICATOR assigns Caps, Scroll, or Num Lock status LEDs.
 
 ■ EEPROM CLEAN
-   Erases the stored keymap and settings and returns the keyboard to its
-   defaults.
+   Erases the keymap and every setting.
 
-   Turn on all three confirm toggles in VIA CONFIGURE -> SYSTEM -> EEPROM and
-   the keyboard erases EEPROM and reboots. All three have to be on within 10
-   seconds of the first one. After that the ones already on are released and
-   you start over. Turning a toggle back off cancels.
+   Switch all three confirm toggles in VIA CONFIGURE -> SYSTEM -> EEPROM within
+   ten seconds to run it. Everything stored is erased and the keyboard restarts.
+   Miss the ten seconds and the toggles you switched clear themselves.
 
-   Back up your keymap from SAVE + LOAD before you clean the EEPROM — CLEAN
-   erases it too.
+   Back up your keymap from SAVE + LOAD first.
