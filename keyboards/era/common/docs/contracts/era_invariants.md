@@ -357,6 +357,19 @@ Read when: every ERA split implementation or review session
   next, and the CLEAN erase clears it — and any future widening of what the gap
   runs inherits that rule rather than replacing it.
 
+  A reset-class key press reached by that nested pass MUST NOT prevent the
+  caller's next step. The two class process-record seams
+  (`system/era_nonsplit_board.c`, `split/era_split_board.c`) run the user hook
+  first, then consume and latch `QK_BOOTLOADER`, `QK_REBOOT` or
+  `QK_CLEAR_EEPROM` while `era_flash_slice_in_yield()` is true. Their
+  top-level `housekeeping_task_kb()` drains the first action only after the
+  main loop's current keyboard, protocol, raw-HID and deferred-exec calls have
+  returned, by replaying the original keycode through `process_quantum()`
+  (`system/era_flash_slice.c`). The whole QK action is deferred — CLEAN may not
+  disable EEPROM in the gap and defer only its reset — and the latch is cleared
+  before dispatch so one press produces one action even on a reset primitive
+  that returns in a host test.
+
   **Two guards hold the reachable paths and a check holds the rest.** The
   wear-leveling interlock takes every writer arriving through
   `wear_leveling_write()` (`quantum/wear_leveling/wear_leveling.c`) and the transport skip keeps the wire out; both are
