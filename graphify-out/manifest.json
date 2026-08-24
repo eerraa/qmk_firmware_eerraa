@@ -1105,9 +1105,9 @@
     "semantic_hash": "fe60ea7cb1ef81cb29c7b6b781a2c9a4"
   },
   "quantum/eeconfig.h": {
-    "mtime": 1785003957.8652356,
-    "ast_hash": "cb90ab46bcd3154e8866ff240d665cef",
-    "semantic_hash": "cb90ab46bcd3154e8866ff240d665cef"
+    "mtime": 1787550556.701033,
+    "ast_hash": "64f292c280ee6ca86736c43de5f12dbf",
+    "semantic_hash": ""
   },
   "quantum/encoder.h": {
     "mtime": 1784443393.4992745,
