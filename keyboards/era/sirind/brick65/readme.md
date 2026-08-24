@@ -29,6 +29,6 @@ See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_to
 
 Brick65 is the one board under `keyboards/era/` that is atmega32u4, and it
 takes none of the ERA common layer: it has no `post_rules.mk`, so SOCD,
-Anti-Ghosting, DEBOUNCE, TAPPING, NKRO, the ERA TAPDANCE surface and EEPROM
+KKUK, DEBOUNCE, TAPPING, NKRO, the ERA TAPDANCE surface and EEPROM
 CLEAN are not built for it and the ERA owner guides do not describe it. What it
 runs is stock QMK with VIA.

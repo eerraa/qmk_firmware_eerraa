@@ -9,7 +9,7 @@ Firmware Quick Guide
 수정 QMK 펌웨어입니다. RP2040 기반 키보드는 매트릭스 스캔에
 PIO/DMA 구조를 도입하여 스캔 성능을 약 4 kHz에서 48 kHz 수준으로
 높였고, 조명 효과가 스캔레이트에 미치는 영향도 줄였습니다. 그 밖에
-TAPDANCE, SOCD, Anti-Ghosting(꾹보드), DEBOUNCE, TAPPING, MOUSE,
+TAPDANCE, SOCD, KKUK(꾹보드), DEBOUNCE, TAPPING, MOUSE,
 NKRO, 조명·인디케이터, EEPROM 초기화 기능을 추가했습니다.
 
 
@@ -80,10 +80,12 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    기능입니다. VIA CONFIGURE -> FEATURE -> SOCD에서 사용할 키 조합을
    지정하십시오. 경쟁 환경에서는 게임과 대회 규칙을 먼저 확인하세요.
 
-■ Anti-Ghosting (KKUK / 꾹보드 보정)
-   오래 누른 키 상태를 주기적으로 다시 보고하는 꾹보드 보정입니다.
-   VIA CONFIGURE -> FEATURE -> Anti-Ghosting에서 켜고 Delay/Repeat 값을
-   조정하십시오. SOCD에 지정한 키는 제외됩니다.
+■ KKUK (꾹보드)   ※ 이전 이름: Anti-Ghosting
+   기본 키 두 개 이상을 가만히 누르고 있으면 그 묶음 전체를 주기적으로
+   뗐다가 다시 눌러 줍니다. asd를 누르고 있으면 asddddd가 아니라
+   asdasdasd가 입력됩니다. 매트릭스 고스팅 방지와는 무관해 이름을
+   바꿨습니다. VIA CONFIGURE -> FEATURE -> KKUK에서 켜고 Delay/Repeat
+   값을 조정하십시오. SOCD에 지정한 키는 제외됩니다.
 
 ■ DEBOUNCE
    VIA CONFIGURE -> FEATURE -> DEBOUNCE에서 스위치 채터링을 조정합니다.
@@ -131,7 +133,7 @@ Firmware
 This is modified QMK firmware. RP2040-based keyboards use a PIO/DMA matrix
 scanner to raise performance from about 4 kHz to around 48 kHz, with further
 optimization to reduce the scan-rate impact of lighting effects. It also adds
-TAPDANCE, SOCD, Anti-Ghosting (held-key refresh), DEBOUNCE, TAPPING, MOUSE,
+TAPDANCE, SOCD, KKUK (hold-and-cycle), DEBOUNCE, TAPPING, MOUSE,
 NKRO, lighting and indicator controls, and EEPROM reset.
 
 
@@ -199,10 +201,12 @@ Key Features
    Assign the key pairs in VIA CONFIGURE -> FEATURE -> SOCD. Check game and
    tournament rules before using it competitively.
 
-■ Anti-Ghosting (KKUK / held-key refresh)
-   Periodically refreshes held-key reports. Enable it in VIA CONFIGURE ->
-   FEATURE -> Anti-Ghosting and adjust Delay/Repeat as needed. Enabled SOCD
-   keys are excluded.
+■ KKUK   (formerly named Anti-Ghosting)
+   Hold two or more basic keys still and the whole group is released and
+   pressed again on a timer: holding a, s and d types asdasdasd, not asddddd.
+   It has nothing to do with matrix ghosting, hence the new name. Enable it in
+   VIA CONFIGURE -> FEATURE -> KKUK and adjust Delay/Repeat as needed. Enabled
+   SOCD keys are excluded.
 
 ■ DEBOUNCE
    Adjust switch chatter filtering in VIA CONFIGURE -> FEATURE -> DEBOUNCE.
