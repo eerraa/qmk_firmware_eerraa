@@ -35,8 +35,11 @@ __attribute__((weak)) void era_board_housekeeping_task(void) {}
    no value id, so it arms every claimant of the channel at the same instant,
    always -- three per-domain timers here would hold identical values for their
    whole lives, at three times the state. What arms it is a save and never a
-   set: every VIA setter in this tree writes runtime only, so "quiet is measured
-   from the last persist approval" holds by construction rather than by care.
+   set: every continuous VIA setter this gate covers writes runtime only, so
+   "quiet is measured from the last persist approval" holds by construction
+   rather than by care. The NKRO and odessey Velocikey toggles are the two
+   discrete set-time persistence exceptions (`era_board_adoption.md`); neither
+   rides this gate.
 
    **What it buys is the drag.** The ERA backlight menu, the ERA RGB indicator
    and both board indicator surfaces ship `range` and `color` controls, and a
@@ -77,12 +80,12 @@ static void era_board_keyboard_channel_save_arm(void) {
     era_board_keyboard_save_timer   = timer_read();
 }
 
-/* The pending flag is cleared before the write and not after. The write reaches
-   the storage engine's dirty intake through the NVM changed hook and can be
-   sliced, and a sliced erase runs the keyboard pass in its gaps
-   (`era_invariants.md`) -- so the housekeeping cadence is reachable from inside
-   this call, and a flag still standing there would schedule a second identical
-   write.
+/* The pending flag is consumed before the synchronous write and not after.
+   Every shipped ERA EEPROM begin hook admits the write, and the QMK wrapper
+   reports no later failure to retry. A sliced erase can run `matrix_task()`
+   inside this call, but a reset key reached there is latched by
+   `era_flash_slice.c` and drained only from top-level housekeeping after this
+   write has returned; it therefore cannot re-enter this commit.
 
    No presenter note here either, since the 2026-08-14 redesign: the write below
    reaches that same intake, and the storage engine's pending fact is what
@@ -200,14 +203,19 @@ void era_board_persistence_flush_pending(void) {
 /* Strongly here rather than left weak, and this is the one QMK hook this unit
    takes that is not an era_board_hooks.h default. It is here for the same
    reason the keyboard-channel answer above is: one copy for both class
-   skeletons, in the unit that owns the gate it commits. `shutdown_user()` still
-   runs and still decides the return value, so a keymap keeps the seam upstream
-   gives it; a board wanting its own `shutdown_kb()` would fail the link by
-   name, which is the loud failure rather than the silent one, and the fix then
-   is a hook in era_board_hooks.h. No ERA board defines one today. */
+   skeletons, in the unit that owns the gate it commits. QMK's hook contract is
+   order as well as presence: `shutdown_user()` runs first, false vetoes every
+   keyboard-level action below it, and true lets this unit commit even a save
+   the user hook just armed. A board wanting its own `shutdown_kb()` would fail
+   the link by name, which is the loud failure rather than the silent one, and
+   the fix then is a hook in era_board_hooks.h. No ERA board defines one today. */
 bool shutdown_kb(bool jump_to_bootloader) {
+    if (!shutdown_user(jump_to_bootloader)) {
+        return false;
+    }
+
     era_board_persistence_flush_pending();
-    return shutdown_user(jump_to_bootloader);
+    return true;
 }
 
 __attribute__((weak)) bool era_board_process_record(uint16_t keycode, keyrecord_t *record) {

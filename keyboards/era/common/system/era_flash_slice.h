@@ -29,9 +29,23 @@
 void era_flash_slice_arm(void);
 
 /* True only while control is inside the pass below. The matrix engine reads it
-   to skip the transport step (`era_rp2040_matrix_core.c`); nothing else may
-   depend on it. */
+   to skip the transport step (`era_rp2040_matrix_core.c`), and the reset-action
+   interceptor below reads it to keep a controlled reset from abandoning the
+   outer erase before its cache is durable. */
 bool era_flash_slice_in_yield(void);
+
+/* Called after the keyboard and user process-record hooks but before QMK's
+   `process_quantum()`. A reset-class key press reached from the sliced erase's
+   nested matrix pass is consumed and latched; every other record continues.
+   The first reset press wins because without the defer it would have reset the
+   MCU before a second press could exist. */
+bool era_flash_slice_defer_reset_action(uint16_t keycode, bool pressed);
+
+/* Drain that one action from the ERA class skeleton's top-level housekeeping
+   hook. That hook is reached only after the main loop's current keyboard,
+   protocol, raw-HID and deferred-exec calls -- including the outer EEPROM
+   operation whose gap latched the action -- have returned. */
+void era_flash_slice_deferred_reset_task(void);
 
 /* The core0 flash window, opened and closed by whoever owns the EEPROM commit
    hooks. Distinct from that hook's own `max_ms`, which measures the whole
@@ -53,6 +67,12 @@ static inline void era_flash_slice_arm(void) {}
 static inline bool era_flash_slice_in_yield(void) {
     return false;
 }
+static inline bool era_flash_slice_defer_reset_action(uint16_t keycode, bool pressed) {
+    (void)keycode;
+    (void)pressed;
+    return true;
+}
+static inline void era_flash_slice_deferred_reset_task(void) {}
 static inline void era_flash_slice_note_window_begin(void) {}
 static inline void era_flash_slice_note_window_end(void) {}
 

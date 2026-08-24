@@ -212,9 +212,10 @@ void eeconfig_defer_flush_rgblight(void) {
     rgblight_deferred_timer   = timer_read();
 }
 
-/* Cleared before the write for the reason the ERA gate's own commit states: the
- * write can be sliced, and a sliced erase runs the keyboard pass in its gaps,
- * so this cadence is reachable from inside the call below. */
+/* Consumed before the synchronous write for the reason the ERA gate's own
+ * commit states. A sliced erase can run `matrix_task()` inside this call, but
+ * reset actions reached there are held until top-level housekeeping after the
+ * write returns; the gate task itself is not re-entered from the gap. */
 static void rgblight_deferred_commit(void) {
     rgblight_deferred_pending = false;
     eeconfig_update_rgblight_current();

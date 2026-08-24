@@ -6,6 +6,7 @@
 #if defined(ERA_SRAM_RESIDENT_IMAGE)
 
 #    include "keyboard.h"
+#    include "process_keycode/process_quantum.h"
 #    include "timer.h"
 #    include "wear_leveling.h"
 
@@ -30,14 +31,13 @@
    built for; re-entering the storage state machine from inside its own EEPROM
    write is not a case at all.
 
-   Two omissions are deliberate and neither is free. `last_matrix_activity_
+   One omission is deliberate and not free. `last_matrix_activity_
    trigger()` is a keyboard.c internal with no declaration anywhere, so a key
    pressed in the gap does not refresh the RGB/OLED idle timers until the next
-   ordinary pass a few milliseconds later. And a keycode that resets the MCU
-   (QK_BOOT, QK_REBOOT) is now reachable mid-erase, which widens the existing
-   power-loss window wear_leveling_consolidate_force() already documents; the
-   store recovers through its own checksum-mismatch path, losing the log, as it
-   does for a power cut in the same place. */
+   ordinary pass a few milliseconds later. Reset-class keycodes are reachable
+   too, but they may not execute here: the class process-record seams latch them
+   below and top-level housekeeping replays the original QMK action only after
+   the outer storage call returns (`era_invariants.md`). */
 
 static struct {
     bool     armed;
@@ -48,6 +48,7 @@ static struct {
     uint32_t slice_count;
     uint32_t scan_count;
     uint32_t cross_count;
+    uint16_t deferred_reset_keycode;
 } g_era_flash_slice;
 
 /* The gap's contract, held by a check rather than by the rule that states it.
@@ -92,6 +93,49 @@ void era_flash_slice_arm(void) {
 
 bool era_flash_slice_in_yield(void) {
     return g_era_flash_slice.in_yield;
+}
+
+static bool era_flash_slice_is_deferred_reset_keycode(uint16_t keycode) {
+    switch (keycode) {
+        case QK_BOOTLOADER:
+        case QK_REBOOT:
+        case QK_CLEAR_EEPROM:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool era_flash_slice_defer_reset_action(uint16_t keycode, bool pressed) {
+    if (!pressed || !g_era_flash_slice.in_yield || !era_flash_slice_is_deferred_reset_keycode(keycode)) {
+        return true;
+    }
+
+    /* First wins. In the ordinary path this press resets the MCU before a
+       second reset action can exist, so replacing it while deferred would
+       create an ordering the non-sliced firmware never has. Every later reset
+       press is still consumed while the first is pending. */
+    if (g_era_flash_slice.deferred_reset_keycode == KC_NO) {
+        g_era_flash_slice.deferred_reset_keycode = keycode;
+    }
+    return false;
+}
+
+void era_flash_slice_deferred_reset_task(void) {
+    uint16_t keycode = g_era_flash_slice.deferred_reset_keycode;
+    if (keycode == KC_NO) {
+        return;
+    }
+
+    /* Clear before dispatch so the TEST platform, whose reset primitives
+       return, proves exactly-once behaviour too. On-device none of the three
+       actions returns past its reset or bootloader jump. Calling QMK's handler
+       preserves QK_CLEAR_EEPROM as one disable-plus-reset action rather than
+       reproducing either half here. */
+    g_era_flash_slice.deferred_reset_keycode = KC_NO;
+    keyrecord_t record                       = {0};
+    record.event.pressed                     = true;
+    (void)process_quantum(keycode, &record);
 }
 
 /* The span, and the operation that owns it, are two different brackets.
