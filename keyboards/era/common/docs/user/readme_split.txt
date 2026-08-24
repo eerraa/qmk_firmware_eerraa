@@ -13,7 +13,7 @@ Firmware Quick Guide - 분리형 키보드 (TOMAK 시리즈)
 PIO/DMA 구조를 도입하여 스캔 성능을 약 4 kHz에서 48 kHz 수준으로
 높였고, 조명 효과가 스캔레이트에 미치는 영향도 줄였습니다. 통신 전용
 코어를 도입하여 스플릿 케이블 연결 여부에 따른 스캔 성능 편차도
-최소화했습니다. 그 밖에 TAPDANCE, SOCD, KKUK(꾹보드),
+최소화했습니다. 그 밖에 TAPDANCE, SOCD, KKUK,
 DEBOUNCE, TAPPING, MOUSE, NKRO와 스플릿 전용 듀얼 호스트,
 EEPROM/INPUT/RGB SYNC, LINK SPEED, 빨간색 상태 알림 기능을 추가했습니다.
 
@@ -102,7 +102,14 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
 ----------------------------------------------------------------------
 
 ■ TAPDANCE
-   한 키에 Tap, Hold, Double Tap, Tap+Hold 동작을 지정합니다.
+   한 키에 네 가지 동작을 담습니다.
+
+   - On Tap         짧게 눌림으로 판정됐을 때 입력되는 키코드.
+   - On Hold        길게 눌림으로 판정됐을 때 입력되는 키코드.
+   - On Double Tap  Term 안에 두 번 탭했을 때 입력되는 키코드.
+   - Tap+Hold       한 번 탭한 뒤 이어서 길게 눌렀을 때 입력되는 키코드.
+   - Term (ms)      어느 동작인지 판단하기까지 기다리는 시간.
+
    VIA CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정하고, KEYMAP -> TAPDANCE의
    같은 TD 키를 원하는 위치에 배치하십시오. 입력 예시는
    via_keycodes.txt에 있습니다.
@@ -112,7 +119,7 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    기능입니다. VIA CONFIGURE -> FEATURE -> SOCD에서 사용할 키 조합을
    지정하십시오.
 
-■ KKUK (꾹보드)   ※ 이전 이름: Anti-Ghosting
+■ KKUK   ※ 이전 이름: Anti-Ghosting
    기본 키 두 개 이상을 가만히 누르고 있으면 그 묶음 전체를 주기적으로
    뗐다가 다시 눌러 줍니다. asd를 누르고 있으면 asddddd가 아니라
    asdasdasd가 입력됩니다. 매트릭스 고스팅 방지와는 무관해 이름을
@@ -142,7 +149,7 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    - Wheel Acceleration    누르고 있는 동안 스크롤이 빨라지는 정도.
 
 ■ NKRO
-   동시입력 키 수 제한을 없앱니다. 오래된 시스템의 BIOS나 KVM 스위치가
+   동시 입력 키를 무제한으로 확장합니다. 오래된 시스템의 BIOS나 KVM 스위치가
    입력을 받지 못한다면 VIA CONFIGURE -> FEATURE -> NKRO에서 끄십시오.
    끄면 6KRO로 동작해 최대 6키까지 동시입력됩니다.
 
@@ -283,7 +290,15 @@ Key Features
 ----------------------------------------------------------------------
 
 ■ TAPDANCE
-   Assign Tap, Hold, Double Tap, and Tap+Hold actions to one key. Configure
+   Four actions on one key.
+
+   - On Tap         Keycode sent when the press is judged a short one.
+   - On Hold        Keycode sent when the press is judged a long one.
+   - On Double Tap  Keycode sent when the key is tapped twice inside Term.
+   - Tap+Hold       Keycode sent when a tap is followed by holding the key.
+   - Term (ms)      How long the keyboard waits before deciding which one.
+
+   Configure
    TD0~TD7 in VIA CONFIGURE -> TAPDANCE, then place the matching TD key from
    KEYMAP -> TAPDANCE. See via_keycodes.txt for input examples.
 
@@ -321,7 +336,7 @@ Key Features
    - Wheel Acceleration    How much scrolling speeds up while you hold.
 
 ■ NKRO
-   Removes the limit on how many keys register at once. Turn it off in VIA
+   Expands simultaneous key input without a limit. Turn it off in VIA
    CONFIGURE -> FEATURE -> NKRO if an old BIOS or a KVM switch cannot see your
    typing; off, the keyboard falls back to 6KRO and registers six keys at once.
 
