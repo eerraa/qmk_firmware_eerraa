@@ -1,6 +1,7 @@
 // Copyright 2022 Nick Brassel (@tzarc)
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -42,6 +43,56 @@ wear_leveling_status_t wear_leveling_erase(void);
  * @return Status of the request
  */
 wear_leveling_status_t wear_leveling_write(uint32_t address, const void* value, size_t length);
+
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
+/**
+ * Returns whether the logical cache, physical backing image/log, and append
+ * cursor are one canonical state. A false value is an O(1) publication gate;
+ * reads may still be needed by ERA's bounded rollback facade.
+ */
+bool wear_leveling_is_healthy(void);
+
+/**
+ * ERA CLEAN: writes one word and proves the next boot will replay that word.
+ *
+ * The proof reloads the cache exclusively from the physical backing store by
+ * running the ordinary initialization/playback path. One bounded retry is
+ * allowed after that path repairs a non-canonical log. This operation refuses
+ * a sliced-erase yield, where a normal write is intentionally cache-only.
+ *
+ * @param address[in] the logical address to write
+ * @param value[in] the word to write
+ * @return Status of the request
+ */
+wear_leveling_status_t wear_leveling_write_word_reboot_checked(uint32_t address, uint16_t value);
+#endif
+
+#if defined(ERA_DYNAMIC_MACRO_TRANSACTION_ENABLE)
+/**
+ * ERA: updates only the logical RAM cache.
+ *
+ * This is the staging primitive for QMK's dynamic-macro valid-marker
+ * transaction. No backing-store operation occurs; the caller must follow a
+ * completed image with wear_leveling_commit_cache().
+ *
+ * @param address[in] the logical address to update
+ * @param value[in] pointer to the source buffer
+ * @param length[in] length of the data
+ * @return Status of the request
+ */
+wear_leveling_status_t wear_leveling_write_cache(uint32_t address, const void* value, size_t length);
+
+/**
+ * ERA: durably writes the current logical RAM cache in one consolidation.
+ *
+ * Used only after the dynamic-macro valid marker returns to zero. This avoids
+ * appending one flash log episode for every VIA RAW HID packet while retaining
+ * the existing wear-leveling recovery and consolidated-image format.
+ *
+ * @return Status of the request
+ */
+wear_leveling_status_t wear_leveling_commit_cache(void);
+#endif
 
 /**
  * Reads logical data from the cache.

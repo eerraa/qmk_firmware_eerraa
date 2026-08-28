@@ -70,6 +70,43 @@ TEST_F(WearLevelingGeneral, SameValue_SingleBackingWrite) {
 }
 
 /**
+ * ERA's dynamic-macro staging must be visible to logical reads without
+ * touching flash, must disappear across a reset before commit, and must
+ * survive a reset after the one explicit cache commit.
+ */
+TEST_F(WearLevelingGeneral, CacheTransaction_StagesThenCommitsOnce) {
+    auto& inst = MockBackingStore::Instance();
+
+    uint8_t durable = 0x14;
+    uint8_t staged  = 0x39;
+    uint8_t actual  = 0;
+    EXPECT_EQ(wear_leveling_write(0x02, &durable, sizeof(durable)), WEAR_LEVELING_SUCCESS);
+
+    uint64_t erase_count = inst.erase_invoke_count();
+    uint64_t write_count = inst.write_invoke_count();
+    EXPECT_EQ(wear_leveling_write_cache(0x02, &staged, sizeof(staged)), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(inst.erase_invoke_count(), erase_count);
+    EXPECT_EQ(inst.write_invoke_count(), write_count);
+    EXPECT_EQ(wear_leveling_read(0x02, &actual, sizeof(actual)), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(actual, staged);
+
+    // Reinitialisation models power loss before the final valid-marker write:
+    // only the preceding complete image may return.
+    EXPECT_EQ(wear_leveling_init(), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(wear_leveling_read(0x02, &actual, sizeof(actual)), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(actual, durable);
+
+    EXPECT_EQ(wear_leveling_write_cache(0x02, &staged, sizeof(staged)), WEAR_LEVELING_SUCCESS);
+    erase_count = inst.erase_invoke_count();
+    EXPECT_EQ(wear_leveling_commit_cache(), WEAR_LEVELING_CONSOLIDATED);
+    EXPECT_EQ(inst.erase_invoke_count(), erase_count + 1);
+
+    EXPECT_EQ(wear_leveling_init(), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(wear_leveling_read(0x02, &actual, sizeof(actual)), WEAR_LEVELING_SUCCESS);
+    EXPECT_EQ(actual, staged);
+}
+
+/**
  * This test verifies that no other invocations occur if `backing_store_init()` fails.
  */
 TEST_F(WearLevelingGeneral, InitFailure) {

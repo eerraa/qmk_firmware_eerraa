@@ -173,20 +173,19 @@ static void __no_inline_not_in_flash_func(pico_program_bulk)(uint32_t flash_addr
 // masked core0 for ~381 ms, which since the boot-master poll was deleted lands
 // inside the USB enumeration window on an EEPROM CLEAN boot.
 //
-// This is a gate and not a deletion. Every other keyboard in this fork is an
-// XIP build where the mask is still load-bearing, and so is every ERA board
-// that has not included keyboards/era/common/system/era_sram_resident_rules.mk
-// -- which today is every non-split one. That set is expected to shrink to
-// none, and the gate is what makes shrinking it safe: a board arrives here
-// masked and stops being masked by the same include that stops it being XIP,
-// with no third place to keep in step.
+// This is a gate and not a deletion. Every keyboard outside ERA remains an XIP
+// build where the mask is still load-bearing; every ERA RP2040 board includes
+// keyboards/era/common/system/era_sram_resident_rules.mk and crosses both
+// decisions together. sirind/brick65 is the permanent AVR exception and never
+// reaches this RP2040 backend. The marker is the one place that keeps residency
+// and the interrupt-mask decision in step.
 //
 // The residency claim is checked rather than argued. era_vector_defaults.c
 // supplies the strong SRAM handlers, and the .vectors gate in
-// keyboards/era/common/tools/era_tomak79h_build.sh reads the linked table's
-// bytes on every profile, so a slot that falls back to the flash-resident
-// ChibiOS default fails the build instead of quietly reintroducing the hazard
-// this mask was covering.
+// keyboards/era/common/tools/era_residency_gate.sh reads the linked table's
+// bytes on every automated UF2 build, so a slot that falls back to the
+// flash-resident ChibiOS default fails the build instead of quietly
+// reintroducing the hazard this mask was covering.
 //
 // Both windows are gated, not just the erase. Slice 8.3 already stopped halting
 // core1 across ordinary commits, so core1 runs through both of these today at a
@@ -202,6 +201,32 @@ static void __no_inline_not_in_flash_func(pico_program_bulk)(uint32_t flash_addr
 static int interrupts;
 #    define ERA_FLASH_COMMIT_MASK_ENTER() (interrupts = save_and_disable_interrupts())
 #    define ERA_FLASH_COMMIT_MASK_EXIT() restore_interrupts(interrupts)
+#endif
+
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
+static bool backing_store_physical_range_matches(uint32_t flash_offset, const backing_store_int_t *values,
+                                                 size_t item_count) {
+    volatile const backing_store_int_t *physical =
+        (volatile const backing_store_int_t *)((XIP_BASE) + flash_offset);
+    for (size_t i = 0; i < item_count; ++i) {
+        if (physical[i] != (backing_store_int_t)~values[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool backing_store_physical_range_erased(void) {
+    volatile const backing_store_int_t *physical =
+        (volatile const backing_store_int_t *)((XIP_BASE) + (WEAR_LEVELING_RP2040_FLASH_BASE));
+    const size_t count = (WEAR_LEVELING_BACKING_SIZE) / sizeof(backing_store_int_t);
+    for (size_t i = 0; i < count; ++i) {
+        if (physical[i] != (backing_store_int_t)~(backing_store_int_t)0) {
+            return false;
+        }
+    }
+    return true;
+}
 #endif
 
 bool backing_store_init(void) {
@@ -278,7 +303,11 @@ bool backing_store_erase(void) {
 #endif
 
     bs_dprintf("Backing store erase took %ldms to complete\n", ((long)(timer_read32() - start)));
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
+    return backing_store_physical_range_erased();
+#else
     return true;
+#endif
 }
 
 bool backing_store_write(uint32_t address, backing_store_int_t value) {
@@ -300,7 +329,11 @@ bool backing_store_write_bulk(uint32_t address, backing_store_int_t *values, siz
     ERA_FLASH_COMMIT_MASK_ENTER();
     pico_program_bulk(offset, values, item_count);
     ERA_FLASH_COMMIT_MASK_EXIT();
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
+    return backing_store_physical_range_matches(offset, values, item_count);
+#else
     return true;
+#endif
 }
 
 bool backing_store_lock(void) {
