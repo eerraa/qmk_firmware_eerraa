@@ -62,7 +62,7 @@ Apply in order; the first rule that matches wins.
    boards run RGB Matrix and nine of them carry the key: `sirind/brick65` is
    the atmega32u4 exception and states none of it. A build still overrides it, because the generated
    `info_config.h` wraps every schema value in `#ifndef` and GCC processes each
-   `-D` first, so a build profile overrides one without a second declaration
+   `-D` first, so a build-time override changes one without a second declaration
    site — which is what let the in-place batch bisect its own chunk size from a
    rung rather than by editing nine board files twice.
 5. **Is it not a choice at all, but a fact about what an ERA build *is*?** → no
@@ -166,17 +166,25 @@ distinction survives the rule above rather than being replaced by it:
 
 ## The selectors
 
-**Every one in the table below is declared in
+**Every firmware selector in the table below is declared in
 `keyboards/era/era_build_options.mk`** — one file, and the file a person edits.
-Three selectors are declared elsewhere and each for an ordering reason rather
-than by drift; they are named in **Two are declared in
-`era_split_qmk_rules.mk` instead** after the table. Each ERA `.mk` fragment includes it as its first line,
+The three firmware-inert automated-build controls, `ERA_BUILD_VARIANT`,
+`ERA_SHOW_OPTIONS`, and the launcher's internal
+`ERA_BUILD_IDENTITY_REPORT`, are declared in
+`keyboards/era/era_build_identity_options.mk`
+so Brick65 can adopt the same artifact identity without importing an RP2040
+firmware default. Two derived values are declared elsewhere for ordering rather
+than by drift; they are named after the table. Each ERA firmware `.mk` fragment
+includes its declaration file as its first line,
 so a fragment cannot run without its declarations; a board assigns above the
-`include` that reads it and wins, and a build profile assigns later and wins over
-both, which is why every line there is `?=`.
+`include` that reads it and wins for ordinary firmware options. A selected
+build variant is different: every one of its five diagnostic axes is an
+`override :=` assignment, so command-line values, `MAKEFLAGS`, exported
+environment, and `make -e` cannot mutate the tuple beneath its name.
 
 | Selector | Default | Notes |
 | --- | --- | --- |
+| `ERA_BUILD_VARIANT` | `standard` | board-independent automated-build identity. `standard`, `wire`, `qwin`, `cause`, `stale` and `qwin_phase` are defined once in `common/build_variants/`; `era_build_variant_rules.mk` applies the selected immutable five-axis tuple to every target and rejects split-only variants on a non-split target, while each diagnostic selector's existing dependency refusal decides whether the selected split board/keymap can build the variant. `sirind/brick65/post_rules.mk` includes that make-time validator and the option printer but no ERA firmware rule, so its only valid identity is firmware-inert `standard`. The launcher requires make's printed tuple to match link-visible ELF witnesses before the resolved name can reach an artifact or manifest; configuration identity is not release approval |
 | `ERA_BOARD_COMMON_ENABLE` | `yes` | the class skeleton. Which class a board gets is not this line's decision: `era_common_qmk_rules.mk` adds the non-split unit when `SPLIT_KEYBOARD` is not `yes`, `era_split_qmk_rules.mk` adds the split one, and both add `era_board_hooks.c`. `no` returns a board to writing those QMK hooks itself, and to the double-tap hazard the skeleton retires |
 | `ERA_RP2040_MATRIX_ENABLE` | `yes` | Every RP2040 board under `keyboards/era` runs the engine and states `yes` in its own `post_rules.mk`, so what the default decides is what a board saying nothing gets. There is no stock-matrix exception. The engine's raw backend is not a second selector: it is the PIO+DMA sampler alone — `system/era_rp2040_matrix_pio.c`, row drive, settle and column read on a PIO1 state machine, samples DMA'd into a ring, core0 fetching one frame per pass — and `RP_DMA_REQUIRED=TRUE` is emitted beside its `SRC` line as a rule-5 fact, because the sampler takes its two DMA channels from the ChibiOS DMA allocator the ws2812 vendor driver uses and that LLD compiles only under the marker (the platform emits it for `WS2812_DRIVER=vendor` alone; the four ERA boards with no addressable LED need it from here). **There is no second raw backend and no off state.** The alternative was a CPU bit-bang scan, and tuning inside one is duplicated investment by owner decision, so a build cannot select away from the sampler and no selector offers it |
 | `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` | `128` | the engine's one sub-knob, and its only one: the sampler's settle, in PIO cycles at the CPU clock, read only when the engine is on. The value is a fixed baseline (`era_performance_gates.md`), measured on the scan implementation that preceded the sampler and carried over to it unchanged, so it is rejected downward on device evidence rather than on caution |
@@ -191,12 +199,34 @@ both, which is why every line there is `?=`.
 | `RGB_MATRIX_RENDER_POLICY_ENABLE`, `RGB_MATRIX_RENDER_DOMAIN_ENABLE`, `RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE`, `RGB_MATRIX_INDICATORS_WHEN_DISABLED_ENABLE` | `yes` | declared only on an `RGB_MATRIX_ENABLE` board; the three sub-options are refused with the policy off |
 | `RGB_MATRIX_IDLE_GATE_ENABLE` | `yes` | `rgb_matrix_task()`'s `SYNCING` arm is evaluated once a millisecond on the RP2040 raw microsecond counter instead of once a scan pass. **Rule 1's tie-break case** — a behaviour switch inside a unit compiled either way, emitted as a `-D` and tested with `#if defined`; it inherits that seat from the retired `ERA_SPLIT_INITIATOR_WFE_ENABLE`. Not a policy sub-option and refused by neither of the policy blocks — it gates when the task's own state machine is asked, not what a render does. `no` is the per-pass evaluation the task ran until then. The C side asks for `MCU_RP` as well, so a non-RP2040 board defining it compiles what it did. Its period, `RGB_MATRIX_IDLE_GATE_US` (1000), is rule 2 in `quantum/rgb_matrix/rgb_matrix.c`, its only reader — and one of the two rule-2 knobs the `grep -rn "#ifndef ERA_"` below cannot find, because a core file's macro carries QMK's naming rather than the `ERA_` prefix |
 | `ERA_SPLIT_SERIAL_USART_SPEED` | `460800` | **the High link level, not the only one.** The wire runs at one of three levels chosen by the owner and agreed over the wire, and Medium and Low are this value halved and quartered rather than stated separately, so the set stays coherent under a build that moves it. What does not move with it is the SYSTEM page's labels, which name the three rates in text — so `era_split_via_link.c` carries an `#error` refusing a speed those labels were not written for. Both halves still run the identical image, which is the rule the old "flashed with the same value" note was an instance of. **A build that moves it also moves the wire scale**, which the backend derives as `ceil(ERA_SPLIT_SERIAL_USART_SPEED / baud)` — a ceiling, so a value the three levels do not divide rounds toward more window margin rather than less |
-| `ERA_SPLIT_EEPROM_SYNC_ENABLE` | `no` | TOMAK79H sets `yes` for any keymap with VIA. Requires `VIA_ENABLE` and `RGB_MATRIX_ENABLE`, refused by name in make. `ERA_HOST_PEER_STORAGE_V1_ENABLE` is derived from it — the condition for the storage engine is this feature, never a board identity |
+| `ERA_SPLIT_EEPROM_SYNC_ENABLE` | `no` | TOMAK_TKL, TOMAK79H and TOMAK79S set `yes` for any keymap with VIA. Requires `VIA_ENABLE` and `RGB_MATRIX_ENABLE`, refused by name in make. `ERA_HOST_PEER_STORAGE_V1_ENABLE` is derived from it — the condition for the storage engine is this feature, never a board identity |
 | `ERA_SPLIT_RP_USB_SLEEP_SYNC` | `1` | also accepts the `RP_USB_SYNC_SUSPEND_AFTER_REMOTE_WAKEUP_SET` spelling, the generic name the ChibiOS delta reads |
-| `ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE`, `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` | `no` | console images; the `wire`/`cause`/`stale` and `qwin` profiles set them. `era_split_qmk_rules.mk` derives `ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE` from either — core1's park instrument (parks and microseconds asleep, two timer reads a park) is wanted on every diagnostic image and must not reach the release image — so that macro is not a selector and is declared nowhere |
-| `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE` | `no` | the pass itemised into twelve contiguous segments, printed on the qwin line as `ph=`/`us=`. `era_split_qmk_rules.mk` refuses it without `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` by name, because that is the line it prints on. **Its own axis rather than a rider on the two diagnostics selectors**, which is the difference between it and `ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE` below: twelve raw counter reads per pass cost scan rate — **measured at 4.13 µs a pass, −14.3 %** — so putting it inside `qwin` would move the comparison point instead of measuring against it. The `qwin_phase` profile is the only thing that sets it, and it also carries the per-segment and whole-pass maxima, which is the half of the instrument a decision about where rendering runs actually uses |
-| `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE`, `ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE` | `no` | each has its preconditions refused by name |
+| `ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE`, `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` | `no` | console images; the `wire`/`cause`/`stale` and `qwin` variants set them. `era_split_qmk_rules.mk` derives `ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE` from either — core1's park instrument (parks and microseconds asleep, two timer reads a park) is wanted on every diagnostic image and must not reach the standard image — so that macro is not a selector and is declared nowhere |
+| `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE` | `no` | the pass itemised into twelve contiguous segments, printed on the qwin line as `ph=`/`us=`. `era_split_qmk_rules.mk` refuses it without `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` by name, because that is the line it prints on. **Its own axis rather than a rider on the two diagnostics selectors**, which is the difference between it and `ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE` below: twelve raw counter reads per pass cost scan rate — **measured at 4.13 µs a pass, −14.3 %** — so putting it inside `qwin` would move the comparison point instead of measuring against it. The `qwin_phase` variant is the only thing that sets it, and it also carries the per-segment and whole-pass maxima, which is the half of the instrument a decision about where rendering runs actually uses |
+| `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE`, `ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE` | `no` | each has its preconditions refused by name. The first is the `cause` variant's complete storage-cause instrument: storage phase and edge timelines, indicator edges, and dynamic-macro RAW-HID request/response timing; it is one diagnostic selector rather than separate choices for observations that must share a snapshot boundary |
 | the seven split timing knobs | empty | see **The values whose default lives in C** below |
+
+The five axes are ordered `wire,qwin,phase,cause,stale`; the mapping is fixed:
+
+| Variant | Immutable tuple |
+| --- | --- |
+| `standard` | `no,no,no,no,no` |
+| `wire` | `yes,no,no,no,no` |
+| `qwin` | `no,yes,no,no,no` |
+| `cause` | `yes,no,no,yes,no` |
+| `stale` | `yes,no,no,no,yes` |
+| `qwin_phase` | `no,yes,yes,no,no` |
+
+The make layer prints the resolved name and labelled tuple only when the
+firmware-inert `ERA_BUILD_IDENTITY_REPORT=yes` handshake is requested. The
+launcher derives the compiled tuple independently from one link-visible
+production witness per axis and refuses any mismatch. The stale axis uses a
+zero-storage absolute symbol emitted inside its guarded arm in
+`split/era_split_transaction_engine.c`; a callable constant-return witness was
+LTO-folded and then removed by `gc-sections`, which is exactly the divergence
+this check must expose. Direct option overrides, `MAKEFLAGS`, exported variables
+and `make -e` are test inputs, not supported ways to create a seventh
+combination.
 
 The performance-batch instruments carry four rule-2 knobs, each an `#ifndef`
 in the file that reads it and none in the manifest:
@@ -205,17 +235,15 @@ in the file that reads it and none in the manifest:
 `ERA_SPLIT_QWIN_SEGMENT_MS` (10000) and `ERA_SPLIT_QWIN_SETTLE_MS` (0) in
 `diagnostics/era_split_qwin_diagnostics.c`.
 
-**Two are declared in `era_split_qmk_rules.mk` instead, and both for ordering**
-rather than filing. `ERA_HOST_PEER_STORAGE_V1_ENABLE` is *derived* from
+**Two derived values live in `era_split_qmk_rules.mk`, both for ordering rather
+than filing.** `ERA_HOST_PEER_STORAGE_V1_ENABLE` is *derived* from
 `ERA_SPLIT_EEPROM_SYNC_ENABLE` (`era_split_qmk_rules.mk:16-28`, which also
 carries the `$(error)` refusing the storage engine without the sync feature),
 and its two-step derivation has to run after a board has set the selector it
 derives from, which is after the manifest.
 `ERA_SPLIT_COMMUNICATION_CORE_STAGE` accepts exactly `CORE1_FULL` and sits
 beside the `$(error)` that says so — it exists to reject a stale board or
-profile, not to be chosen. `ERA_TOMAK79H_BUILD_PROFILE` is a third: a
-board-owned axis validated against a board-owned list, declared in that board's
-`post_rules.mk`.
+variant, not to be chosen.
 
 **The names in the RGB rows have no `ERA_` prefix on purpose.** The macro and
 the make variable are one name so a single grep finds the switch and every
@@ -277,20 +305,22 @@ surface back in.
 
 | File | Its job |
 | --- | --- |
-| `keyboards/era/era_build_options.mk` | **every declaration.** The one file to edit |
+| `keyboards/era/era_build_identity_options.mk` | the three firmware-inert controls every ERA target shares: `ERA_BUILD_VARIANT`, `ERA_SHOW_OPTIONS`, and the internal `ERA_BUILD_IDENTITY_REPORT` handshake. It must contain no QMK feature switch or ERA firmware selector, because Brick65 includes it without adopting the firmware layer |
+| `keyboards/era/era_build_options.mk` | **every firmware selector declaration.** The one file to edit for firmware configuration |
 | `system/era_common_qmk_rules.mk` | the phase guard, and the `ifeq`/`SRC`/`-D` for the matrix engine, the feature selectors, the VIA surface, and the non-split class skeleton with the `SPLIT_KEYBOARD` test that keeps a split board off it. The count is deliberately not written: it read *four* from before the backlight feature landed until 2026-08-18, when a second lighting feature would have made it six |
+| `system/era_build_variant_rules.mk` | the common variant name validation, the refusal of split-only variants on non-split targets, the single include that applies a selected complete combination before any diagnostic selector is consumed, and the machine-readable resolved identity line |
+| `common/build_variants/*.mk` | the complete diagnostic-selector combination for `standard`, `wire`, `qwin`, `cause`, `stale` and `qwin_phase`. Each file states all five axes with `override :=`, so direct assignments, `MAKEFLAGS`, environment and `make -e` cannot produce a differently instrumented artifact under the same name |
+| `tools/era_qmk_build.sh` | the WSL-local launcher: requests the make identity line, rejects a requested/resolved mismatch, derives the five compiled axes from the ELF, rejects a resolved/compiled mismatch, and only then names and records the artifact from the resolved variant |
 | `split/era_split_qmk_rules.mk` | the split relation's `SRC` block, its `$(error)` refusals, the storage derivation and the stage |
 | `features/era_tapdance_rules.mk` | the tap-dance units and the ERA surface derived from QMK's switch |
 | `system/era_rgb_matrix_rules.mk` | the RGB render policy emissions and their refusal |
 | `split/era_split_usb_sleep_rules.mk` | the RP USB sleep sync emission |
 | `system/era_sram_resident_rules.mk` | nothing declarable — the copy-to-RAM bundle is an include and deliberately not a variable, because a partial adoption has to fail the link |
 | `storage/era_storage_adoption_rules.mk` | nothing declarable either, and for the sibling reason — the EEPROM adoption bundle is an include because its parts fail as a set and one of its values is a macro rather than a number. Its only make-visible product is the marker `era_split_qmk_rules.mk` refuses EEPROM sync without (**Storage Adoption**) |
-| each board's `post_rules.mk` | **the feature set that board ships, written out explicitly** — every feature option at its value, above the includes that read them (owner decision): a maintainer opening a board file should see which features exist and which can be turned off, without first knowing that an unstated option has a default somewhere else. The diagnostics and timing axes are deliberately not in it — they are not features, and on TOMAK79H the diagnostics belong to the build profiles |
-| `sirind/tomak79h/post_rules.mk` | additionally the board's own facts, its profile axis, and the two options that are set for a VIA build only |
-| `sirind/tomak79h/build_profiles/*.mk` | per-profile `:=` overrides. One of them is a rung rather than a profile in its own right — `qwin_phase` (qwin plus the pass-phase itemisation) — outside the default sweep, accepted by name by the launcher and by `era-build`, retiring when every segment it splits has an owner. Five rungs have come and gone this way, each retiring with the question it bisected: `qwin_piooff` and `qwin_wfeoff` (performance batch 1), `qwin_gateoff` and `qwin_limit20` (the in-place batch), and `qwin_mkoff` (`MOUSEKEY_ENABLE=no`, which priced `mousekey_task()` at 2.35 µs a pass before the guard that recovered 86.7 % of it was written). **`qwin_limit20` is worth one line of its own** — it was the only rung that was not a `:=`, because the value it moved is schema-owned, so it rode an `OPT_DEFS += -D` over the `#ifndef` the generated header wraps it in. Rule 4's "nowhere else" survived it, because a command-line override is not a declaration |
+| each board's `post_rules.mk` | **the feature set that board ships, written out explicitly** — every feature option at its value, above the includes that read them (owner decision): a maintainer opening a board file should see which features exist and which can be turned off, without first knowing that an unstated option has a default somewhere else. Diagnostics and timing axes are deliberately absent: they are per-build instruments, not board features |
 | `system/era_show_options.mk` | the printer below |
 
-**Two places hold a value, and they are not two authorities.** The manifest
+**Two places hold a value, and they are not two authorities.** The declaration
 declares with `?=` — the name, the documentation, and the value a board gets if
 it says nothing. A board `post_rules.mk` states with `=` what that board
 actually ships, and the board wins: the file a person opens to change one board
@@ -299,12 +329,15 @@ places, and the check is the printer below rather than a rule anyone has to
 remember — a board whose list is short next to what the printer reports has an
 option it never stated.
 
-**`qmk compile -kb <board> -km <keymap> -e ERA_SHOW_OPTIONS=yes`** prints every
+**`era-build --show-options <board>:<keymap>`** prints every
 ERA option with its value and its origin — `file` for a default or a board
 line, `command line` for a `-e`, `environment` for an exported variable — and
 then builds normally. It answers *what did this build actually use*, which the
-manifest cannot: a profile's `:=` and a `-e` both end up in the image and
-neither is written on the page that declares the option. Its set is derived
+artifact manifest answers only at the canonical variant boundary: the manifest
+records `requested_variant=`, resolved `variant=`, `resolved_tuple=`,
+`compiled_tuple=`, and the exact `-e ERA_BUILD_VARIANT=...` command, while this
+printer expands that variant into its resolved selector values. Artifact naming
+also uses the resolved variant. Its set is derived
 from make's own variable list rather than enumerated, so a new option appears
 automatically and a new non-option matching the pattern appears until it is
 excluded — it can show something that is not an option, and **it cannot

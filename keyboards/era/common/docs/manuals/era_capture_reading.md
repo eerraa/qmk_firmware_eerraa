@@ -180,6 +180,34 @@ relation, no traffic" when it means "not this relation at all". **Read `rel=` on
 the `wire pc` line for the current mode**; that is the authority. DUAL-HOST owns
 an era block; `LOCAL_NO_LINK` (0) owns none.
 
+### The live CLEAN phase line
+
+`wire clean ev=… t=… i=… l=… lp=… pp=… pa=… ap=… dl=… cq=… hs=…` is the
+diagnostic-build-only transition signature from
+`split/era_split_restart_agreement.c`. Unlike a `WIRE_DIAG` snapshot, it prints
+at the transition so the controlled reset cannot erase the evidence first.
+`t` is the local timer, `i` is local-initiator, `l` is local-Left, `lp` is this
+half's reboot-durable PREPARED fact, `pp` is an exact peer AUTHORITY/PREPARED match,
+`pa` is the cached peer phase, `ap` is the current RESTART_ARM phase (`0` idle,
+`1` PREPARE, `2` COMMIT), and `dl` is the candidate or adopted shared deadline.
+`cq=claim/tx/rx/publish/fail/request-claim/result-claim/result-ready` is the
+dedicated Core1 initiator-lane signature; `hs=xfer/apply/complete/abort/timeout/active`
+is the storage-runtime signature. These are boot-cumulative values and need not
+start at zero. On each half, all eight `cq` values and all six `hs` values must
+remain unchanged from its event 4 through its last observable pre-reset event;
+the three generation fields and `active` must already be zero at event 4.
+
+The event ids are `1` REQUEST advertised, `2` initiator selection/PREPARE,
+`3` responder PREPARE receipt, `4` reboot-durable local PREPARED, `5` prepare
+failure, `6` initiator COMMIT publication, `7` responder COMMIT adoption,
+`8` initiator COMMIT_ARMED echo adoption, `9` unanswered-COMMIT disarm, and
+`10` reset commit. Event 10 may remain buffered at reset and is corroboration,
+not a required witness; events 4/6/7/8 occur before the deadline and carry the
+ordering proof. A healthy serviced CLEAN has event 4 on both halves before any
+event 6; the initiator then sees 6 followed by 8, while the responder sees 7.
+Event 5 is a terminal failure for that boot: no event 6–10 may follow, and
+storage remains quarantined.
+
 ## The Relation's Own Counters
 
 `wire dh era valid=%u mode=%u io=tx/rx/miss/bad/fail stor=open/close/xfer
@@ -277,27 +305,40 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   confirmed relation**: a responder capture reading `0` while the relation is
   confirmed is the storage lane not running, not the expected quiet.
 - `open/close/abort/restart`: storage episode lifecycle counts. `restart` is
-  Core1 restart around a durable apply, not a failure — the cause timeline orders
-  `CORE1_RESTART` immediately after `EEPROM_END`. Judge it against `apply`, and
-  read `qfail` and `abort` for whether the restarts succeeded.
+  Core1 restart around a durable apply, not a failure. The cause timeline in
+  `split/era_host_peer_storage.c` records the pull applier's `CORE1_RESTART`
+  after `EEPROM_END` and before its public flip; a push responder declares
+  durable, delivers `COMPLETE`, and records the later restart only then. Judge
+  it against `apply`, and read `qfail` and `abort` for whether the restarts
+  succeeded.
 - **`close + abort == open` is an initiator invariant and does not hold on the
   responder.** A responder opens no episode for a summary-family exchange but
   does count the `ABORT_REQ` that aborts one, so a contended window reads more
   aborts than opens. Check it on the initiator; on the responder read `abort`
   against the initiator's summary count.
-- `proof/match/xfer`: storage proof results. **`proof` counts different things
-  on the two sides of one relation**, and comparing them across halves without
-  this rule manufactures a phantom loss. The PEER counts every `PROOF_RSP` it
-  receives, including the unpinned `BUSY`; the HOST counts only the ones it
-  answered with data. A `BUSY` is not a failure — it is how an episode opens.
-  Core1 may not read EEPROM, so the first probe for a domain cannot carry a
-  proof; answering `BUSY` is what tells core0 which domain to capture and pin.
-  One sweep of the seven domains therefore reads `proof=14 match=7 retry=7` on
-  the PEER and `proof=7 match=7 retry=0` on the HOST. The invariant to check is
-  `+7 retry per PEER sweep`, never more; the `core cl/tx/rx/pub` counters exist
-  to prove that handoff stays one-shot.
+- `proof/match/xfer`: storage proof results. **`proof` counts `PROOF_RSP`, not
+  relation-open sweeps**, and comparing it across halves or directions without
+  this rule manufactures a phantom loss. In `split/era_host_peer_storage.c`, a
+  pull-domain initiator counts the unpinned `BUSY` and the later proof, while
+  its responder counts only the proof it answered with data: one seven-domain
+  all-pull sweep therefore reads `proof=14 match=7 retry=7` on the initiator
+  and `proof=7 match=7 retry=0` on the responder. A push-domain opens through
+  `PUSH_CTL`/`PUSH_RSP` instead, so an all-push sweep reads `proof=0 match=7`
+  on both halves and `retry=7` only on the initiator. A mixed sweep is the sum
+  of those per-domain shapes. `BUSY` is not a failure — Core1 may not read
+  EEPROM, so it asks core0 to capture and pin the domain. The invariant is one
+  initiator retry per unpinned domain; `core cl/tx/rx/pub` proves that handoff
+  stays one-shot.
 - `chunk/dup/retry/timeout`: chunk and retry progress.
-- `apply/complete`: transfer-ready apply and durable-completion counts.
+- `apply/complete`: successful public publication and pair-visible durable
+  completion counts. Candidate slices, raw verification and rollback do not
+  increment `apply`; a failed Apply therefore leaves both counters unchanged.
+  Runtime states `10` (`PEER_APPLY_WRITE`) and `14`
+  (`HOST_PUSH_APPLY_WRITE`) cover forward write, verify, rollback and
+  repair-required alike — the private slice phase is deliberately not another
+  diagnostic field. A state stuck at 10/14 with no `apply` advance and an
+  integrity/abort result is consistent with fail-closed repair, but a console
+  capture cannot by itself prove which internal slice phase is held.
 - `stale/full=i/r`: generation reject and distinct PEER initiator / HOST
   responder dedicated result-capacity failure. Since the complete-poll
   reservation carve-out (`era_host_peer_storage_contract.md`, Capacity And
@@ -309,8 +350,10 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   `SOURCE_CHANGED` proof/apply/abort responses and a local target-dirty abort;
   it is separate from wire `timeout`, `integrity` and relation-stale failures.
 - `integrity/version/domain`: exact image/schema/domain rejects.
-- `qfail`: Core1 quiesce/restart failure preventing target write or bounded
-  pending-timeout recovery.
+- `qfail`: Core1 quiesce/restart failure preventing publication/identity
+  rotation or bounded pending-timeout recovery. When it follows a complete raw
+  candidate but precedes the public flip, Apply rolls back; it is not evidence
+  that candidate content became public.
 - `news/probe`: this half's storage news value and the current initiator pending
   probe mask, read from cold core0 state. `news=` here is one value; `news=` on
   `csp` is a different field on a different line, a valid/value pair, and neither
@@ -375,13 +418,18 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   pair the two match; a persistent difference is the finding, and it means one
   side's delivery is not arriving rather than that a particular domain is stuck.
   The value carries no domain identity.
-- `recency ok/chg/cnt/arb/psh/cfl`: the persisted recency layer and the
-  arbitration view, read cold at print time from EEPROM plus the cached state.
+- `recency ok/chg/cnt/arb/psh/cfl/prv/cfm`: the persisted recency layer,
+  arbitration view and display provenance, read cold at print time from EEPROM
+  plus the cached state.
   `ok` is baseline-record guard validity, `chg` is the per-domain changed mask
   (current manifest CRC differs from its persisted baseline; all-ones while
   `ok=0`, the conservative degradation), `cnt` is the seven divergence counters
   in domain id order, `arb` is the arbitration flags and the peer's last declared
-  changed mask, and `psh`/`cfl` are the push and conflict cell queues. Rules are
+  changed mask, and `psh`/`cfl` are the push and conflict cell queues. `prv` is
+  `local-changed/relation-cell`: bits that still originate only in missing
+  baseline knowledge and are therefore excluded from the indicator, never from
+  arbitration. `cfm=1` means an actual `TRANSFER` or retry fault promoted the
+  initiator round, so its remaining provisional gaps are visible. Rules are
   canonical in `era_host_peer_storage_contract.md`.
 - `arb` flag bits, and **only `0x01`, `0x02` and `0x04` have a writer**: `0x01`
   summary-done, `0x02` summary-pending, `0x04` the **round** is the
@@ -430,7 +478,10 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   floor). `pnd`/`mir`/`gate` are the fact's arms — the local pending arm, the
   peer's advertised mirror, and the cached serviceability-and-policy gate — so
   one capture says which arm holds a lit lamp and whether a dark one is gated or
-  genuinely idle. `spans` counts rising edges of the pending fact; `rise`/`fall`
+  genuinely idle. `pnd` is already the display-filtered local fact: raw
+  `chg`/cell bits covered by `prv` do not raise it until `cfm=1` or a transfer
+  retires the active domain's provisional bit. `spans` counts rising edges of
+  the pending fact; `rise`/`fall`
   are local-uptime ms of the latest span's first and last pending pass.
 
   There is no bridge arithmetic to check: the two halves' `rise` and `fall`
@@ -479,15 +530,19 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
 - `slp=count@ms`: rising edges of the resolved lighting-sleep decision since
   boot, with the last rise's local ms — the one mid-operation writer that can
   raise RGB suspend. Read it against `brk`: a `slp` rise at `brkms` convicts the
-  sleep predicate's frame-age arm for that breaker; `slp=0` across a
-  breaker-showing operation excludes the sleep path entirely and leaves the
-  config/effect writers. An idle pair reads `slp=0`.
+  sleep predicate's frame-age arm for that breaker. The field is cumulative,
+  so boot or an earlier link Apply may leave an idle pair at a nonzero count;
+  `delta slp=0` across a breaker-showing operation excludes the sleep path and
+  leaves the config/effect writers.
 
 **The lamp is one per operator action, not one per transfer, and it cannot be
 counted to infer transfers.** The pending fact holds across settle, per-domain
-grants, inter-episode gaps and the durable apply's identity rotation, so an
-EEPROM CLEAN or layout load that moves several domains shows one span rather than
-one per gap. Read transfers from `xfer`/`complete` on `wire storage`.
+grants, inter-episode gaps and the durable apply's identity rotation, so a
+layout load that moves several domains shows one span rather than one per gap.
+A CLEAN/fresh first audit whose seven domains all close `MATCH` shows no span;
+if it decides any transfer, `cfm` rises and the actual operation shows one span
+through the remaining drain. Read transfers from `xfer`/`complete` on `wire
+storage`.
 
 **The lamp follows unfinished pair work, not route exclusivity and not the
 transfer alone.** An abort takes the wire for its `ABORT_REQ` and moves nothing;
@@ -501,7 +556,7 @@ ending at transfer-verified rather than a broken flag: it covers the chunk strea
 (and an abort's wire priority) and clears at each role's transfer-verified
 boundary, so a capture taken mid-apply reads `excl=0` with `st=` in an apply
 state. To read traffic during an apply, bracket the apply era with the cause
-timeline's `EEPROM_BEGIN`/`EEPROM_END` (cause profile) or the `wire edge burst`
+timeline's `EEPROM_BEGIN`/`EEPROM_END` (`cause` variant) or the `wire edge burst`
 bracket, and read the matrix (`sp`/`cache`), runtime (`rt`/`io`) and section
 counters across it — inside that window they move. **Those windows are narrow,
 and the width is measured**: almost the whole save bracket sits inside EEPROM
@@ -518,6 +573,45 @@ operations, leaving a few percent of it to read traffic in. Both figures are in
   last Core1 initiator boundary without reading live EEPROM/QMK state. Probe
   stages are `NONE=0`, `CLAIM=1`, `BEGIN=2`, `ENCODE=3`, `TX=4`, `RX=5`,
   `CONTRACT=6`, `PUBLISH=7`.
+- `flast=stage/result/failure/op/status/class/access` is the most recent failed
+  boundary and, unlike `last`, survives every later success. `result` is
+  `NONE/OK/MISS/BAD/FAIL=0..4`; `failure` is
+  `NONE/QUEUE_EXPIRED/OWNER/EPOCH/CANCEL/RESET/PIO/SEND_TIMEOUT/RESPONSE_TIMEOUT/PARTIAL/IO/DECODE/RESPONSE_CONTRACT=0..12`.
+  Request classification is
+  `INVALID/READY/RESULT_FULL/QUEUE_EXPIRED/OWNER_STALE/RELATION_STALE/GENERATION_STALE/POLICY_STALE/TRANSACTION_STALE/CANCELLED/RESET=0..10`,
+  backend access is `OK/OWNER/EPOCH/CANCEL/RESET=0..4`, and `255` means that
+  axis did not participate in the failure. `ddu` is signed microseconds from
+  the request's not-after deadline at failure detection: positive is late;
+  `-2147483648` means a publish failure had no request deadline available. A
+  BEGIN failure with `class=3`, `failure=1` and positive `ddu` is therefore a
+  proved storage queue expiry rather than an inferred wire failure.
+- `qctx=delay/window` retains actual cross-core publish-to-failure-detection
+  residence and the signed publish-to-not-after window, both in microseconds.
+  For a BEGIN queue expiry, `delay - window == ddu`. Both timestamps now share
+  the actual storage publication boundary. With the default 20 ms standing
+  response window, a settled High / Medium / Low link reads a
+  25000 / 45000 / 85000 us window: the configured window at the current scale
+  plus the 5 ms compact-TX/handoff margin.
+  `4294967295/-2147483648` means that failure had no
+  published request context.
+- `psvc=valid/kind/reason/result` and `span=start/end/gap` retain the most
+  recent completed timed route at the failure. `start` and `end` are signed
+  route-start-minus-publish and route-end-minus-publish; `gap` is
+  failure-detection-minus-route-end, in microseconds. Thus `valid=1`, positive
+  `end`, and `start < qctx.delay` prove that route occupied part of the queued
+  request's residence. Negative `start` means it was already in flight when
+  storage published; positive `start` means it began after publication but
+  before Core1 observed the dedicated storage slot. A small nonnegative `gap`
+  places BEGIN immediately after it. Standing is `kind=1` with runtime reason
+  `3` (section push) or `4` (response poll); result uses the same `1..4`
+  mapping as `flast`. Zero `valid` and `-2147483648` spans mean there was no
+  completed timing sample to correlate. The retained window is read from
+  `split/era_split_transaction_engine.c`; no service-loop trace is added.
+- `fid=owner/relation/transaction/request/domain/detail` identifies the failed
+  storage publication. For `PUSH_CTL_REQ` (`op=EE`), detail is
+  `OPEN/APPLY/COMPLETE/ABORT=0/1/2/3`. Local cross-core request generation may
+  change on retry while the wire-visible transaction/domain/op identity stays
+  the same.
 - `wire storage cause`: selector-only causal timeline emitted when
   `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes`; absent from normal release,
   qwin and wire-diagnostics builds. `role=1/2` means PEER/HOST, `dom/gen`
@@ -536,12 +630,98 @@ operations, leaving a few percent of it to read traffic in. Both figures are in
   success is `1`; session submit records prior peer-known; session result uses
   transaction result `1..4` or `5` for OK-without-valid decode; and session RX
   uses bit 3 for response-sent and bits `0..2` for result.
+
+  `EEPROM_BEGIN..EEPROM_END` brackets the forward candidate-slice walk. Raw
+  verification and publication follow `EEPROM_END`; a failed walk or a later
+  deferred abort may perform rollback writes outside that pair. Read
+  `wire edge flash` and `wire edge burst`, not the cause bracket alone, when
+  the question is whether rollback touched flash. None of these counters sees
+  the public EEPROM facade directly; the old-or-new claim is a source/host-test
+  gate, not a console inference.
 - **`CHUNK_RESULT` is sampled and its detail is the sixteenth, not the chunk
   id.** One chunk in sixteen is recorded, so `1X` reads as chunk `X × 16`. The
   sampling exists because an unsampled stream fills the 32-entry ring before the
   apply, the rotation or the abort — the events the timeline exists for — and the
   timestamps are 16-bit milliseconds for the same reason: a byte saturates at
   `254 ms` against an episode whose bulk stream alone runs several hundred.
+- `wire storage edge`: `cause`-only, interval-scoped indicator and dynamic-macro
+  recorder. A `WIRE_DIAG` snapshot copies this line and immediately resets its
+  interval in `split/diagnostics/era_split_wire_diagnostics.c`. In DUAL-HOST,
+  where both consoles already exist, take one idle baseline snapshot on each
+  half, perform exactly one macro write without an intermediate diagnostic
+  press, wait for the lamps to fall, then take one result snapshot on each
+  half.
+
+  **A HOST-PEER leg needs the promotion route.** Before the leg, attach USB to
+  the PEER temporarily, promote it, and take its baseline snapshot; detach that
+  USB, wait until the intended HOST-PEER relation is restored and both lamps
+  are dark, then take the HOST baseline. Perform the one write in HOST-PEER and
+  wait for final lamp fall. Take the HOST result first while the relation is
+  still HOST-PEER. Only then attach USB to the former PEER, promote it, and take
+  its result snapshot. Promotion does not reset the edge record: only storage
+  init and a local `WIRE_DIAG` snapshot do, in
+  `split/era_host_peer_storage.c` and
+  `split/diagnostics/era_split_wire_diagnostics.c`. Promotion deliberately
+  appends a trailing `service leave` event; when it follows the operation's
+  final indicator fall it is extraction context and not the blink cause. A
+  `service leave` before an in-operation indicator fall is instead a finding.
+  Do not reboot the promoted half, because the record is RAM state.
+
+  `wr` is the dynamic-macro EEPROM-change notification count;
+  `at=first/last` gives their offsets from the baseline in milliseconds;
+  `gap=last/max` gives the last and largest inter-notification gap; and `oq`
+  counts gaps at least as large as the 1000 ms dirty-quiet boundary. `n/ov` are
+  retained edge count and overflow. A receiver normally has `wr=0`. These are
+  **not RAW-HID request counters**: `nvm_dynamic_keymap_update_changed_runs()`
+  in `quantum/nvm/eeprom/nvm_dynamic_keymap.c` notifies only when at least one
+  byte in a request differs from the cache, and the final durable marker adds a
+  separate trailing notification. Consequently `gap/oq` on this line cannot by
+  itself prove that VIA paused between requests.
+
+  Each comma-separated `ev=` entry is
+  `event/arms/rs/domain/dirty/changed/generation@ms`. Event ids are
+  `1=advertised rise`, `2=advertised fall`, `3=mirror rise`, `4=mirror fall`,
+  `5=indicator rise`, `6=indicator fall`, `7=service leave`, `8=changed-shadow
+  rise`, `9=changed-shadow fall`, `10=dirty rise`, and `11=dirty fall`.
+  `arms` is hexadecimal: `01=dirty`, `02=visible changed shadow`,
+  `04=visible content-moving cell`, `08=visible summary`, `10=visible content
+  expected`, `20=moving span`,
+  `40=peer mirror`, and `80=service/policy gate`. `rs >> 5` is the storage role
+  (`1=PEER`, `2=HOST`) and `rs & 1F` is the runtime state; domain is decimal,
+  dirty/changed are hexadecimal domain masks, and `@ms` is interval-relative.
+  The 64-event recorder lives in `split/era_host_peer_storage.c` and saturates
+  timestamps at 65535 ms.
+
+- `wire via macro`: `cause`-only timing for actual
+  `id_dynamic_keymap_macro_set_buffer` RAW-HID requests. It is snapped and reset
+  by the same local `WIRE_DIAG` boundary as `wire storage edge`.
+
+  `rx/rsp/dr` are set-buffer receives, returned generic VIA responses, and RAW
+  IN endpoint-drain epochs. `dr` can be smaller than `rsp` only when the host
+  pipelines requests: one drain then closes the whole queued batch. `at` and
+  `gap/oq` have the same shapes as the storage-edge fields but are taken at
+  actual request entry, so this `oq` is the one that establishes whether the
+  host/firmware exchange really crossed the 1000 ms boundary.
+
+  `h=total/max` is request entry through the dynamic-macro handler;
+  `send=total/max` is time spent inside `raw_hid_send()` admitting the response
+  to QMK's RAW IN queue; `drain=total/max` is from that return until the endpoint
+  first becomes idle; and `app=total/max` is idle endpoint to the next macro
+  request. All four are milliseconds. `app` is recorded only when no other RAW
+  command intervened; `int` counts the excluded intervals. `ovl` counts a new
+  macro request observed while the preceding response was still pending, and
+  `p=1` means the snapshot caught an undrained response. The cause-gated seams
+  are in `quantum/via.c`; the state and endpoint-idle poll are in
+  `split/diagnostics/era_via_macro_diagnostics.c`.
+
+  For a carrier-caused blink, the source's event `2` precedes the receiver's
+  `4`, then the receiver's `6`. A source event `11` and event `9` before event
+  `2`, followed by more macro notifications or `oq>0`, identifies a write
+  stream that crossed the quiet boundary and temporarily retired every local
+  lamp arm. Event `7` instead identifies a service/role exit. Keep the adjacent
+  `wire storage cause`, `wire storage`, `eeprom shim ind`, and `wire edge burst`
+  lines from the same snapshot; the edge line identifies the falling carrier,
+  while those lines identify its transfer and flash context.
 
 ## The qwin Window
 
@@ -634,7 +814,7 @@ operations, leaving a few percent of it to read traffic in. Both figures are in
 
   **A key-quiet qwin figure understates a fix that sits in the reactive path.**
   The decay-walk removal is the recorded case: qwin moved +14.1 % key-quiet while
-  the `wire` profile's HOST-PEER *typing* rate moved **+21.7 %**, because a
+  the `wire` variant's HOST-PEER *typing* rate moved **+21.7 %**, because a
   keyboard being typed on carried the full eight entries the walk read. Quote
   both when a change touches anything the hit tracker feeds, and only qwin when
   it does not.
@@ -759,7 +939,7 @@ correction carried over from an older sitting over-corrects.
   from one that waited behind another exchange, and that difference is the entire
   question whenever new work is proposed for core1.
 - `wire qmk scan_hz/raw/raw_us/raw_max` (+ `smp_hz/ovr/rearm/fd1/fw` on the PIO
-  sampler): the wire profile's scan facts. `raw_us` and `raw_max` bracket the raw
+  sampler): the wire variant's scan facts. `raw_us` and `raw_max` bracket the raw
   read; on the PIO sampler that bracket is the frame fetch and decode, which is
   core0's whole share of the scan on that backend. `smp_hz` is the sampler frame
   rate between the two captures, `ovr`/`rearm` the boot-cumulative counters the
@@ -823,7 +1003,7 @@ correction carried over from an older sitting over-corrects.
 - `open_ms`: the two boot instants, in milliseconds since `timer_init()` at the
   top of `keyboard_init()`, at which the explicit core1 launch step was entered
   and returned. Captured once per boot in keyboard post-init, wire-diagnostics
-  profiles only, saturating at 65535. Entry dates the wire opening against
+  diagnostic variants only, saturating at 65535. Entry dates the wire opening against
   everything `keyboard_init()` does before it, and on the half without a cable it
   is the direct check that no boot-master poll runs inside `split_pre_init()`
   upstream of the reading. Exit minus entry is the launch handshake's own cost.
@@ -974,9 +1154,10 @@ every counter cumulative from boot and printed in every relation.
   unfinished window and `max_ms` is the maximum completed duration, a 16-bit
   field. `max_ms` carries no index, timestamp or address, so it says how long the
   longest window was and nothing about which call it belonged to. A normal EEPROM
-  write is the bare commit window with the wire running; a guarded storage apply
-  starts timing at its EEPROM owner write, after the validated-result drain and
-  Core1 quiesce.
+  write is the bare commit window with the wire running; a storage Apply starts
+  timing at its first checked candidate slice after the validated-result drain.
+  Core1 is not quiesced across those writes; the later identity rotation is a
+  separate event.
 
   **`max_ms` is the operation and `stall_ms` is the outage, and they are not one
   number.** `max_ms` measures the operation and does **not** fall when the
@@ -1002,7 +1183,7 @@ every counter cumulative from boot and printed in every relation.
   carry. A CLEAN boot reads `sl=12 sy=0 stall_ms=0`.
 
   All three are release-image state rather than diagnostic-only: an instrument
-  that exists only on the wire profile cannot say what the shipped image did.
+  that exists only on the `wire` variant cannot say what the shipped image did.
 
   **`stall_ms` above `max_ms` is impossible and therefore diagnostic.** An inner
   span cannot exceed the operation containing it, so that reading means an

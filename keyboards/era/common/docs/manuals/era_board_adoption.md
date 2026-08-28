@@ -100,7 +100,9 @@ on it is an exception that owes a reason. **All twenty-two RP2040 boards under
 `keyboards/era` are on it**, and there is no ERA XIP board. `sirind/brick65` is
 atmega32u4, where a copy-to-RAM image is not a configuration a part with 2.5 KB
 of SRAM can hold; it is a permanent exception rather than a debt, and it takes
-none of the ERA layer.
+none of the ERA firmware layer. `sirind/brick65/post_rules.mk` includes only
+the common make-time build-variant validator and option printer; neither one
+adds a source file, linker rule or runtime feature.
 
 `system/era_sram_resident_rules.mk` is the bundle — linker script, marker, map
 emission, pre-copy window object and vector defaults — and a board becomes
@@ -517,7 +519,7 @@ release/adoption requirement on a *new* board rather than an open firmware gap.
 Re-proving the non-split path is one command on any eligible board, and is
 worth running after any change to the guard boundary:
 
-    qmk compile -kb era/newone/odessey60s -km via
+    era-build era/newone/odessey60s:via
 
 Two things to check in the result rather than just its exit code: the decode
 loop matches the split build's, and `arm-none-eabi-nm` links no peer/host-peer

@@ -18,8 +18,8 @@ turn the instruments back on.
 ## The Instruments Are In The Tree And Off In Release
 
 **The console diagnostics are kept, compiled out, and one selector away.** The
-wire diagnostics, the qwin scan-rate window, the pass-phase itemiser and the
-storage cause timeline are all still here, every one of them behind a selector
+  wire diagnostics, the qwin scan-rate window, the pass-phase itemiser and the
+  storage/VIA cause instruments are all still here, every one of them behind a selector
 that `keyboards/era/era_build_options.mk` declares `?= no`. A release build
 compiles none of it — provable rather than asserted, because turning every
 selector off yields the byte-identical UF2 the release build already produces —
@@ -28,11 +28,12 @@ instrument on is a build option and never a re-instrumentation.
 
 What a measuring session does, in order:
 
-1. **Turn the selector on**, either with `-e` on the build or by a line in the
-   board's `post_rules.mk`. `era_build_options.md` declares every one with its
-   default and its preconditions; TOMAK79H additionally carries named profiles
-   in `keyboards/era/sirind/tomak79h/build_profiles/` that set the usual
-   combinations.
+1. **Select the common build variant.** `era-build keyboard:keymap wire`,
+   `qwin`, `cause`, `stale` or `qwin_phase` applies the repository-owned
+   combination from `keyboards/era/common/build_variants/`; the make layer
+   refuses a variant whose prerequisites the selected target lacks. The
+   launcher also refuses unless the resolved five-axis tuple agrees with the
+   link-visible ELF witnesses, before it writes an artifact or manifest.
 2. **Bind a keycode.** `WIRE_DIAG`, `WIRE_DIAG_2` and `WIRE_QWIN` exist in the
    family enum on every build, and **the shipped keymaps bind none of them** —
    a shipping keyboard may not spend a key on an instrument that does nothing in
@@ -55,15 +56,116 @@ of it — saying so is the verification statement.
 
 | The change… | owes |
 | --- | --- |
-| touches any source | a build through the launcher, from a tree synchronised to the change |
+| touches any source | a build through `era-build keyboard:keymap`, whose first step synchronises the WSL local build tree to the change |
 | claims to touch no behaviour | the **Refactor Self-Check** tier its binary earns |
 | touches a closed surface, a retired path, or a QMK core matrix file | the **Source Gate** |
 | touches RAM placement or the load image | the **Layout checks**, per board |
 | adds core1 call depth | a measured stack figure — no compile-time construct can report one |
+| changes replacement Apply, the public EEPROM facade, or dynamic-macro durability | the focused host-test set below plus a supported split build |
+| changes RP2040 backing verification, common wear-level failure recovery, or the storage canonical-health gate | `era_eeprom_clean_persistence`, the complete upstream wear-level host-test set below, the other focused storage/CLEAN tests, and a supported split build |
+| changes scheduler request admission, queue freshness, or Core1 liveness | the scheduler admission/liveness device gate below at every supported link level |
+| changes EEPROM CLEAN's reboot-durable prepare, agreed-restart phase machine, or storage quarantine | a deterministic CLEAN state-machine host regression covering physical-replay failure, PREPARE/COMMIT/echo loss and duplication, relation rotation and quarantine; a supported split build; and the EEPROM CLEAN agreement device gate below |
+| changes common build-variant rules or the launcher identity | the variant-precedence test, all six canonical variants on one representative split target, and Brick65 `standard`; each manifest must carry equal resolved/compiled tuples |
 | would move a **Fixed Baseline** | an instrument, first |
 
-The build itself — what a machine must provide, the commands, the launcher's
+The build itself — what WSL must provide, the automated command, and its
 refusals as stop conditions — is `era_build_and_flash.md`'s.
+
+### Focused host-test set
+
+Run these in the WSL-local tree after the build automation has synchronized it:
+
+```text
+make test:era_storage_slice_swap
+make test:era_eeprom_clean_persistence
+make test:era_split_restart_agreement
+make test:era_split_storage_publication_retire
+make test:era_via_exact_ms
+make test:wear_leveling_general
+make test:wear_leveling_2byte_optimized_writes
+make test:wear_leveling_2byte
+make test:wear_leveling_4byte
+make test:wear_leveling_8byte
+make test:era_reset_lifecycle
+make test:era_rp2040_matrix_pio
+bash tests/era_build_variant_rules/test_variant_rules.sh
+```
+
+`era_storage_slice_swap` is the hardware-free proof of the exact production
+header. It checks the old public view after every slice, candidate-prefix/raw
+partition, the separate verify opportunity, partial slice failure, deferred
+abort, bounded rollback and verified repair, one successful flip/revision,
+foreign-write absorption, cross-boundary reads, and facade inactivity outside
+Apply. `era_via_exact_ms` owns the State Sync envelope and dynamic-macro
+transcript, including reordered-input refusal and failed-close non-publication.
+`era_eeprom_clean_persistence` runs the production wear-level/EEPROM seam and
+proves reboot-playback authority, ambiguous-append whole-image roll-forward,
+one complete consolidation retry, old-slice repair without cache-equality
+success, and failed-erase refusal of empty/default publication. The upstream
+wear-level set owns the unchanged off-gate cache-stage/re-init/commit behavior;
+`era_split_storage_publication_retire` runs the exact production publication
+unit and proves CLEAN's terminal sentinel, ready/unclaimed discard and active
+claim drain on both storage directions. Reset and matrix tests guard the
+keyboard opportunity sector slicing calls.
+
+The make-only variant test attacks all six tuples through direct assignments,
+`MAKEFLAGS`, exported environment and `make -e`, and checks the non-split
+standard-only refusal. It does not replace firmware builds: the launcher is the
+only check that derives `compiled_tuple` from the ELF and binds that result to
+artifact and manifest identity.
+
+### Scheduler admission/liveness device gate
+
+Run the same storage-changing workload in both DUAL-HOST directions and with
+each physical half taking the HOST-PEER PEER role, at High, Medium and Low with
+a `cause` image. At each level, `QUEUE_EXPIRED` and storage core `fail` remain
+zero, `claim == tx == rx == publish`, and the Core1
+dead/cap/reclaim/service-failure counters do not advance. Each operation still
+advances storage transfer/complete/apply exactly once, with abort, storage
+timeout, integrity, version, domain and queue-publication failures at zero.
+The scale matrix is mandatory because queue freshness is derived from the
+runtime wire scale, while the lifecycle progress word advances only after the
+selected non-preemptive service returns; a scale-one static expression cannot
+prove the Medium/Low service occupancy (`split/scheduler/era_split_transport_scheduler_routes.c`,
+`split/scheduler/era_split_transport_scheduler_timing.c`,
+`split/communication_core/era_split_communication_core_lifecycle_rp2040.c`).
+
+### EEPROM CLEAN agreement device gate
+
+This gate exercises the controlled software-reset contract; an external
+RUN/DVDD reset or power cut is deliberately not a leg. Start with identical
+non-default layout and macro content on both halves. At High, run DUAL-HOST in
+both command directions and HOST-PEER with each physical half taking PEER;
+repeat the two DUAL-HOST directions at Low after High passes.
+
+For every serviced CLEAN, the compact phase evidence must order one REQUEST,
+reboot-durable local PREPARED on both halves, one COMMIT carrying a nonzero common
+deadline, responder COMMIT_ARMED, and the initiator's adoption of that same
+deadline. Neither half may hold a commit deadline before both PREPARED states,
+and no storage claim, transmit, receive, capture, transfer, Apply or responder
+admission may begin after the first PREPARED and before reset. On each half's
+live `wire clean` lines, `cq` and `hs` remain bit-for-bit unchanged from event
+4 through its last pre-reset event;
+request/result/ready generations and storage-active are already zero at event
+4. Both halves must disconnect and boot; each boot reports its ordinary
+twelve erase slices with
+no runtime yield, then relation-open convergence closes all seven domains as
+MATCH with `xfer=0` and `apply=0`. Storage abort, timeout, integrity, version,
+domain, queue-publication and Core1-failure counters remain zero; the indicator
+ends on both halves with `vis=0` and `pnd=0`.
+
+The deterministic host regressions supply the destructive failure legs a
+device run must not manufacture: physical replay or either local invalidation failing leaves
+PREPARED unpublished and creates no deadline or reset while quarantine remains
+sticky; lost or duplicated PREPARE is idempotent and cannot create a deadline;
+lost, duplicated or delayed COMMIT/echo cannot consume PREPARED as
+COMMIT_ARMED or reopen quarantined storage; a lost COMMIT echo followed by
+relation rotation must cross canonical idle before a fresh PREPARED observation
+can create a replacement deadline; and every rotation rejects stale peer phase
+while retaining and re-driving the local monotonic prepare obligation. It also
+proves all refused act/param/bit7/deadline tuples and that
+the existing five-byte RESTART_ARM and seven-byte AUTHORITY bodies, masks,
+eligibility bytes and standing cadence do not move.
 
 ## Refactor Self-Check
 
@@ -127,6 +229,16 @@ Two rules bind whatever the tier:
   ERA branch**.
 - No dynamic allocation, Pico SDK queue, stock split serial backend, or
   synchronous core0 ERA wire fallback is linked.
+- Replacement Apply's ordinary read path reaches the old-view facade; only its
+  writer, verifier, rollback and runtime reload reach the raw/cache seam. No
+  State Sync revision or immutable manifest publication precedes raw
+  verification, deferred-abort evaluation and fallible preflight. A rollback
+  failure retains explicit repair state and no success counter advances.
+- Every automated build emits exactly one unique resolved variant/tuple pair
+  after make restarts are deduplicated. The requested and resolved names match;
+  the resolved and compiled tuples match; the artifact stem and manifest use
+  that resolved name. A non-split ELF admits only the all-`no` `standard`
+  tuple.
 - No `usb_disconnect`, `usb_connected_state`, or `usb_vbus_state` symbol is
   linked, and `is_keyboard_master_impl` resolves to the ERA override. This pair
   is the check that the override still does its job: if any of those symbols
@@ -162,10 +274,10 @@ surface.
 **Three checks are enforced rather than inspected, and
 `common/tools/era_residency_gate.sh <elf>` is where all three live**: the 32 KiB
 free-ram0 floor, allocator absence, and the vector-table check. It takes an ELF
-and nothing else, prints the three manifest fields, and the launcher calls it —
-so a board with no launcher is checked by the same code rather than by the same
-intention. Run it on any adoption, on any board, before offering a build as
-evidence.
+and nothing else and prints the three manifest fields. The internal launcher
+calls it for every UF2 produced by `era-build`, so every copy-to-RAM board is
+checked by the same code rather than by the same intention; there is no manual
+per-board gate leg to remember before offering a build as evidence.
 
 The vector check requires every `.vectors` entry except the reset slot to hold an
 SRAM address, and the reset slot to still hold a flash one — boot2 fetches the
@@ -358,14 +470,15 @@ to four digits across the last two comparison points — which is what says the
 pass shortening is core0's alone. The PIO sampler's consumer costs **3.18 µs a
 pass**.
 
-**The core1 stack is 912 B used on `release` and `qwin` and 992 B on `wire` and
-`cause`, against a 2048 B reservation**, both with the exception frame included —
-so the acceptance is 1056 B of headroom in the worst image, not one number.
-**The figure is per profile and a reading that does not name its image is not a
+**The core1 stack is 912 B used on `standard`, `qwin` and `qwin_phase`, and 992 B
+on `wire`, `cause` and `stale`, against a 2048 B reservation**, all with the
+exception frame included — so the acceptance is 1056 B of headroom in the worst
+image, not one number.
+**The figure is per variant and a reading that does not name its image is not a
 reading**: the deepest chain in a diagnostics build is not the deepest chain in
 the shipping one. Re-derive with
 `python3 keyboards/era/common/tools/era_core1_stack_walk.py <elf>` on the ELF
-beside the profile's UF2; the tool prints the chain and the headroom. What that
+beside the variant's UF2; the tool prints the chain and the headroom. What that
 figure cannot see is an inlining change, so a change that adds core1 call depth
 re-runs the walk rather than reasoning about it.
 

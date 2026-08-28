@@ -2,16 +2,20 @@
 
 Status: active
 Genre: manual
-Canonical for: what a machine must provide to build this firmware, the commands
-that build and gate an image on any machine, and how a built image reaches a
-keyboard
-Read when: building ERA firmware for the first time on a machine, or flashing
-one
+Canonical for: what the configured WSL automation must provide to build this
+firmware, its one build-and-gate entry point, how a built image reaches a
+keyboard, and the short TOMAK_TKL release-image hardware handoff
+Read when: building ERA firmware for the first time on a machine, flashing one,
+or running the TOMAK_TKL release-image hardware acceptance route
 
-**This document names no machine.** Which operating system provides the shell,
-where the toolchain is installed, and how an editing checkout reaches a build
-tree are environment, and environment belongs to the tool adapter layer named
-in `AGENTS.md`. What is here is what has to be true on every machine.
+**Agent and evidence builds use the configured WSL local-build automation.**
+From the Windows edit tree the entry point is the host adapter's explicit
+`era-build keyboard:keymap` command, invoked through WSL as shown below. It
+synchronises into the WSL local filesystem before it builds. Do not run `qmk`
+in Windows, do not build on the `/mnt/` edit tree, and do not manually invoke
+the internal launcher. Installation and literal machine paths remain
+environment and therefore live in the host adapter (`CLAUDE.md`); the mandatory
+automated sequence lives here.
 
 ## What The Build Needs
 
@@ -40,9 +44,9 @@ in `AGENTS.md`. What is here is what has to be true on every machine.
   but unusable, and the gate launcher refuses it rather than letting a build
   hang.
 
-**The launcher's refusals are stop conditions**: on a refusal, report the
-environment and stop. Do not retry, do not bypass the launcher with a direct
-`qmk compile`, and do not substitute a different host to get past it.
+**The automation's refusals are stop conditions**: on a refusal, report the
+environment and stop. Do not retry, do not bypass `era-build` with a direct
+compile, and do not substitute a different host to get past it.
 
 ## Which Boards And Keymaps Exist
 
@@ -62,46 +66,50 @@ exception is canonical in `era_board_adoption.md`'s **Copy-To-RAM Policy**.
 
 ## Building
 
-Any board and keymap, from the repository root:
+Every invocation names the intended keyboard and keymap explicitly. For
+TOMAK_TKL, run this from Windows:
 
-```sh
-qmk compile -kb era/sirind/tomak79h -km via
+```powershell
+wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via'
 ```
 
-The artifact lands at `.build/<target>.uf2`. **Name the ELF you mean; never
-pick one by time** — `ls -t .build/*.elf` picks a stale artifact whenever a
-build was cached or a later target was built after the one being measured.
+Omitting the variant means `standard` on every keyboard. Diagnostic names are
+also board-independent; the existing make preconditions, not a launcher board
+list, refuse an incompatible selection:
 
-TOMAK79H VIA builds select a repository-owned diagnostics profile. The selector
-is declared in that board's `post_rules.mk` and documented in
-`era_build_options.md`; the profile files are
-`keyboards/era/sirind/tomak79h/build_profiles/`; what a figure taken on one may
-be compared against is `era_performance_gates.md`'s **Fixed Baselines**:
-
-```sh
-qmk compile -kb era/sirind/tomak79h -km via -e ERA_TOMAK79H_BUILD_PROFILE=wire
+```powershell
+wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via cause'
+wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via wire'
+wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via standard wire qwin cause'
 ```
 
-**The gate launcher is the only supported entry point for a build offered as
-evidence.** It performs a clean build and preserves the UF2, ELF, log, hashes,
-toolchain identity and command under `.era-artifacts/`, and it runs the three
-enforced copy-to-RAM checks:
+`.claude/tools/era-build.sh` first runs `era-sync`, builds clean in
+`~/projects/qmk_firmware_eerraa`, invokes the common gate launcher, and returns
+only that invocation's manifest-declared artifacts to the Windows
+`.era-artifacts/` directory. A successful compile without that sync is not an
+ERA evidence build. Select the firmware and ELF from the `Manifest:` path the
+command reports; never select an artifact by modification time. Each artifact
+stem includes the first 16 hexadecimal digits of the firmware SHA-256, so a
+different uncommitted binary at the same HEAD cannot overwrite the image already
+handed to a device test.
 
-```sh
-keyboards/era/common/tools/era_tomak79h_build.sh wire
-```
+The filename contract is identical for all twenty-three keyboards:
+`<keyboard>_<keymap>_<variant>_<git10>[_dirty][_<fixed-date>]_<sha16>.<format>`,
+with slashes converted to underscores. Only the platform-native final format
+differs: the twenty-two RP2040 boards produce `.uf2`, while atmega32u4
+`sirind/brick65` produces `.hex`. That extension is a flash format, not a
+board-specific naming rule.
 
-**Every other ERA board has no launcher**, so run the same three checks by hand
-on each keymap's ELF:
-
-```sh
-keyboards/era/common/tools/era_residency_gate.sh .build/<target>.elf
-```
-
-It takes an ELF and nothing else — no profile, no board name, no build — so
-every board's adoption is checked by the same code rather than by the same
-intention. What the three checks are, and what a change owes beyond them, is
-`era_performance_gates.md`'s.
+`keyboards/era/common/tools/era_qmk_build.sh` is the automation's internal
+target launcher, not a second user entry point. It refuses a call without the
+completed sync marker, performs the clean compile, records the firmware, ELF,
+map, logs, hashes, toolchain and exact command, and runs
+`keyboards/era/common/tools/era_residency_gate.sh` automatically for every UF2
+image. Artifact and manifest both carry the selected `variant`; the recorded
+QMK command always contains `-e ERA_BUILD_VARIANT=<name>`, so diagnostics cannot
+hide under `standard`. The residency gate remains ELF-only so all copy-to-RAM
+boards are judged by the same checks. Its meaning and the additional checks a
+change may owe are `era_performance_gates.md`'s.
 
 Which build selectors exist, what each costs, and where a new one is declared
 are canonical in `era_build_options.md`.
@@ -135,3 +143,115 @@ the way to discard a stored keymap that a keycode renumbering has made wrong;
 what a CLEAN boot costs is read with the wire diagnostics, which
 `era_performance_gates.md` says how to turn on and `era_capture_reading.md`
 says how to decode.
+
+## TOMAK_TKL Release-Image Hardware Route
+
+This is the shortest reusable handoff for the persistence and controlled-reset
+gate. It is a procedure, not a device-evidence report. Run it once in order;
+do not repeat the whole route for each setting.
+
+### Exact image and definitions
+
+For the source-audited `7d4936b851` gate, first produce the image through the
+WSL automation above. The exact automated artifact and hash for this route are:
+
+```text
+.era-artifacts/era_sirind_tomak_via_standard_7d4936b851_dirty_9f5282130a6fec9d.uf2
+SHA-256 9f5282130a6fec9d9131e93abe2a86b54c1432c4b109244a52822f781aeb1e86
+```
+
+The automation manifest produced with that image records the pre-variant
+spelling `profile=standard`, standard VIA
+configuration with diagnostics off, target
+`era/sirind/tomak:via`, full Git HEAD
+`7d4936b8511cf09e195d637f2e3d075df91eac44`, `worktree_dirty=yes`, and
+`edit_tree_check=matched by era-sync`. The dirty suffix records this uncommitted
+automation/document correction; its sole compiled-source edit is a path-name
+comment, and the resulting UF2 is byte-identical to the earlier HEAD build.
+Check this manifest and hash; never select a TOMAK artifact by modification
+time. In particular, the packaging image at
+`.era-artifacts/release/TOMAK-TKL/era_sirind_tomak_via.uf2` is different and is
+not this gate's input; ignore it for this route.
+
+Flash the exact same UF2 to both halves, once each. The VIA definition is the
+only side-specific file: load
+`keyboards/era/sirind/tomak/keymaps/via/TOMAK-TKL-L-VIA.json` when LEFT owns
+the host USB connection, or the adjacent `TOMAK-TKL-R-VIA.json` when RIGHT owns
+it. Wait for the steady-red EEPROM SYNC indication to go dark before starting
+a timed leg.
+
+Use this standard VIA image for the acceptance result. If an ambiguous overlap
+needs a `WIRE_DIAG` capture, build `era/sirind/tomak:via wire` or `cause` as a
+separate TKL diagnostic leg; never substitute an artifact whose target stem is
+another keyboard. How to bind and read the keycode is in
+`era_capture_reading.md`.
+
+### One-time setup
+
+1. Export the existing VIA layout once before flashing if it must be restored
+   after CLEAR. This backup is cleanup only; do not use it as an unexamined test
+   input.
+2. Flash both halves with the UF2 above, reconnect the normal inter-half cable,
+   load the JSON for the USB-connected half, and wait for EEPROM SYNC to finish.
+3. Keep the shipped layer-1 lighting keys: `Fn+A` is `RM_TOGG`, `Fn+S`/`Fn+X`
+   are RGB Matrix brightness up/down, `Fn+Z` is the next effect, and `Fn+Esc`
+   is `QK_BOOT`. These bindings are in
+   `keyboards/era/sirind/tomak/keymaps/via/keymap.c`.
+4. For the two remaining reset legs, temporarily put `QK_REBOOT` and
+   `QK_CLEAR_EEPROM` on unused layer-1 keys, for example `Fn+F1` and `Fn+F2`.
+   Run CLEAR last because it deliberately deletes this keymap. Do not spend a
+   second setup cycle restoring it before then.
+5. Export this prepared layout once as the gate LOAD, then make one known,
+   harmless keymap or macro change so that loading it back performs real work.
+   This preserves the temporary reset bindings while the overlap leg runs. Do
+   not create repeated filler writes merely to move the wear-level log.
+
+Use visibly different RGB markers for successive legs, for example blue/64,
+red/128, green/192 and purple/96. For the TOMAK indicator use Caps Lock,
+priority on, yellow and brightness 96. Write down only the chosen values and
+PASS/FAIL/NOT EXERCISED; raw logs and EEPROM bytes are not test records.
+
+### Short sequence
+
+1. **Flash-slice overlap, once.** Start the one known-different VIA layout LOAD.
+   During its long storage episode, after at least 500 ms, tap `Fn+S` enough to
+   leave a plainly different final RGB Matrix brightness, then tap the temporary
+   `QK_REBOOT` key. PASS means one reset, no boot loop or bootloader entry, and
+   the last RGB state is still present after boot and the following one-second
+   quiet period. A steady-red SYNC lamp proves unfinished pair storage, not by
+   itself a flash slice: count the exact overlap subcase only when a
+   consolidation window was already known or confirmed by the wire diagnostic.
+   Otherwise record that subcase as NOT EXERCISED and continue; do not grind
+   thousands of writes to manufacture it.
+2. **SAVE then suspend.** Arrange a confirmed host USB suspend, change RGB
+   Matrix to the next marker, release the final control less than 500 ms before
+   USB suspend, then wake without touching Lighting. PASS means VIA reads back
+   the marker and the LEDs show it. An ordinary sleep whose USB suspend time is
+   unknown does not prove this leg; record NOT EXERCISED instead of repeating
+   guesses.
+3. **SAVE then controlled reset.** Change RGB Matrix to the next marker and tap
+   the temporary `QK_REBOOT` key within 500 ms. Require exactly one reboot and
+   the marker after boot. Change to another marker and repeat with `Fn+Esc`;
+   after `RPI-RP2` appears, remove and restore power without copying a UF2.
+   Require the same marker after normal boot.
+4. **One TOMAK indicator settle.** In VIA Lighting -> Badge Lighting, select the
+   indicator marker above, release the last control, wait one second, toggle
+   Caps Lock, and require the chosen indicator colour and brightness. This is
+   the TOMAK keyboard-channel persistence leg; do not repeat it per field.
+5. **One drag only.** Drag RGB Matrix Brightness continuously for 30 seconds
+   while typing on both halves, end at a recorded value, release, and wait one
+   second. Require responsive input throughout and the final value, not an
+   intermediate one.
+6. **One final full power cycle.** Remove every USB power source from both
+   halves, reconnect the normal HOST-PEER rig, wait for SYNC to go dark, and
+   require the final RGB Matrix and indicator markers. This single cycle closes
+   the suspend, reset, indicator and drag persistence checks together.
+7. **CLEAR last.** Change one RGB value, release it, and press the temporary
+   `QK_CLEAR_EEPROM` key within 500 ms. PASS is exactly one reset into defaults;
+   the just-selected value must not survive, because CLEAR wins by definition.
+   Restore the original VIA layout once after recording the result if the board
+   must be returned to service.
+
+TOMAK_TKL has RGB Matrix and its keyboard-channel indicator, but no RGBLight or
+Backlight. Those two domain checks belong on a board that actually enables
+them; looking for them on TOMAK_TKL or repeating this route cannot cover them.
