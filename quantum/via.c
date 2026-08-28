@@ -287,9 +287,21 @@ __attribute__((weak)) bool via_command_kb(uint8_t *data, uint8_t length) {
     return false;
 }
 
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+/* Cause-variant hooks are declared here rather than by including a keyboard
+ * header into QMK core. They compile away from every other image. */
+void era_via_macro_diagnostics_receive(uint8_t command_id);
+void era_via_macro_diagnostics_response_begin(void);
+void era_via_macro_diagnostics_response_end(void);
+#endif
+
 void raw_hid_receive(uint8_t *data, uint8_t length) {
     uint8_t *command_id   = &(data[0]);
     uint8_t *command_data = &(data[1]);
+
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_receive(*command_id);
+#endif
 
     // If via_command_kb() returns true, the command was fully
     // handled, including calling raw_hid_send()
@@ -478,7 +490,13 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 
     // Return the same buffer, optionally with values changed
     // (i.e. returning state to the host, or the unhandled state).
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_response_begin();
+#endif
     raw_hid_send(data, length);
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_response_end();
+#endif
 }
 
 #if defined(BACKLIGHT_ENABLE)

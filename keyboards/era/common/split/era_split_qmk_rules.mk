@@ -1,6 +1,6 @@
 # Every ERA option this file reads is declared in keyboards/era/era_build_options.mk,
 # which is the one file to edit. Included here rather than by the board so this
-# fragment cannot run without its declarations; a board or a profile assigning
+# fragment cannot run without its declarations; a board or a variant assigning
 # above the include that reads it still wins, because every line there is `?=`.
 include keyboards/era/era_build_options.mk
 
@@ -172,6 +172,7 @@ ifeq ($(strip $(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE)), yes)
         $(error ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE requires ERA_HOST_PEER_STORAGE_V1_ENABLE=yes)
     endif
     OPT_DEFS += -DERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    SRC += keyboards/era/common/split/diagnostics/era_via_macro_diagnostics.c
 endif
 
 # Injection selector, never a production surface: it compiles the accept path
@@ -373,7 +374,7 @@ SRC += keyboards/era/common/split/era_split_authority_reducer.c
 ifeq ($(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)), yes)
     # The scheduler's snapshot/baseline unit belongs here rather than beside its
     # siblings above: both of its exports are reached only from
-    # era_split_wire_diagnostics.c, so a release profile compiled it only for
+    # era_split_wire_diagnostics.c, so the standard variant compiled it only for
     # gc-sections to discard it again. Its declarations in
     # era_split_transport_scheduler.h stay ungated on purpose — a future
     # release-side caller then fails the link instead of silently pulling the

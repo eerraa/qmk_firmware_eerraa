@@ -38,6 +38,9 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "../communication_core/era_split_communication_core_storage.h"
 #    include "../era_host_peer_storage.h"
+#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+#        include "era_via_macro_diagnostics.h"
+#    endif
 #endif
 
 #ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_LINE_INTERVAL_MS
@@ -70,7 +73,7 @@ enum {
 #endif
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 6,
+    ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 8,
 #    else
     ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 5,
 #    endif
@@ -113,6 +116,8 @@ typedef struct {
     era_split_communication_core_storage_probe_diagnostics_t         storage_probe_snapshot;
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_cause_timeline_t                            storage_cause_timeline_snapshot;
+    era_host_peer_storage_cause_edge_t                                storage_cause_edge_snapshot;
+    era_via_macro_diagnostics_t                                       via_macro_snapshot;
 #    endif
 #endif
 } era_split_wire_diagnostics_state_t;
@@ -212,6 +217,8 @@ static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_st
                                                           const era_split_communication_core_storage_probe_diagnostics_t *probe_snapshot,
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
                                                           const era_host_peer_storage_cause_timeline_t *cause_timeline_snapshot,
+                                                          const era_host_peer_storage_cause_edge_t *cause_edge_snapshot,
+                                                          const era_via_macro_diagnostics_t *via_macro_snapshot,
 #endif
                                                           uint8_t line) {
     const era_host_peer_storage_diagnostics_t storage = *snapshot;
@@ -230,9 +237,47 @@ static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_st
         case 2:
             uprintf("wire storage stale=%lu source=%u full=%lu/%lu integrity=%lu version=%lu domain=%lu qfail=%lu\r\n", (unsigned long)storage.stale_count, (unsigned)storage.source_changed_count, (unsigned long)storage.initiator_full_count, (unsigned long)storage.responder_full_count, (unsigned long)storage.integrity_reject_count, (unsigned long)storage.version_reject_count, (unsigned long)storage.domain_reject_count, (unsigned long)storage.quiesce_fail_count);
             return true;
-        case 3:
-            uprintf("wire storage core cl=%lu tx=%lu rx=%lu pub=%lu fail=%lu gen=%u/%u/%u last=%u/%u/%u/%02X/%u\r\n", (unsigned long)probe.claim_count, (unsigned long)probe.tx_count, (unsigned long)probe.rx_count, (unsigned long)probe.publish_count, (unsigned long)probe.failure_count, (unsigned)probe.request_claim_generation, (unsigned)probe.result_claim_generation, (unsigned)probe.result_ready_generation, (unsigned)probe.last_stage, (unsigned)probe.last_result, (unsigned)probe.last_failure, (unsigned)probe.last_operation, (unsigned)probe.last_status);
+        case 3: {
+            const era_split_communication_core_storage_probe_failure_context_t *failure_context = &probe.failure_context;
+            uprintf("wire storage core cl=%lu tx=%lu rx=%lu pub=%lu fail=%lu gen=%u/%u/%u last=%u/%u/%u/%02X/%u flast=%u/%u/%u/%02X/%u/%u/%u ddu=%ld qctx=%lu/%ld psvc=%u/%u/%u/%u span=%ld/%ld/%ld fid=%u/%u/%u/%u/%u/%u\r\n",
+                    (unsigned long)probe.claim_count,
+                    (unsigned long)probe.tx_count,
+                    (unsigned long)probe.rx_count,
+                    (unsigned long)probe.publish_count,
+                    (unsigned long)probe.failure_count,
+                    (unsigned)probe.request_claim_generation,
+                    (unsigned)probe.result_claim_generation,
+                    (unsigned)probe.result_ready_generation,
+                    (unsigned)probe.last_stage,
+                    (unsigned)probe.last_result,
+                    (unsigned)probe.last_failure,
+                    (unsigned)probe.last_operation,
+                    (unsigned)probe.last_status,
+                    (unsigned)probe.failure_stage,
+                    (unsigned)probe.failure_result,
+                    (unsigned)probe.failure_failure,
+                    (unsigned)probe.failure_operation,
+                    (unsigned)probe.failure_status,
+                    (unsigned)probe.failure_classification,
+                    (unsigned)probe.failure_access,
+                    (long)probe.failure_deadline_delta_us,
+                    (unsigned long)failure_context->queue_delay_us,
+                    (long)failure_context->queue_window_us,
+                    (unsigned)failure_context->prior_route_timing_valid,
+                    (unsigned)failure_context->prior_route_kind,
+                    (unsigned)failure_context->prior_route_reason,
+                    (unsigned)failure_context->prior_route_result,
+                    (long)failure_context->prior_route_start_delta_us,
+                    (long)failure_context->prior_route_end_delta_us,
+                    (long)failure_context->prior_route_to_failure_delta_us,
+                    (unsigned)failure_context->owner_epoch,
+                    (unsigned)failure_context->relation_generation,
+                    (unsigned)failure_context->transaction_generation,
+                    (unsigned)failure_context->request_generation,
+                    (unsigned)failure_context->domain,
+                    (unsigned)failure_context->detail);
             return true;
+        }
         case 4: {
             /* Recency layer, read cold at print time like the news/probe
              * fields above -- `news` printed as `mask` until D2 renamed the
@@ -241,7 +286,7 @@ static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_st
             era_host_peer_storage_get_recency_snapshot(&recency);
             era_host_peer_storage_foundation_snapshot_t arbitration;
             era_host_peer_storage_get_foundation_snapshot(&arbitration);
-            uprintf("wire storage recency ok=%u chg=%02X cnt=%u/%u/%u/%u/%u/%u/%u arb=%u/%02X psh=%02X cfl=%02X\r\n", (unsigned)recency.baseline_record_valid, (unsigned)recency.changed_mask, (unsigned)recency.divergence_counter[0], (unsigned)recency.divergence_counter[1], (unsigned)recency.divergence_counter[2], (unsigned)recency.divergence_counter[3], (unsigned)recency.divergence_counter[4], (unsigned)recency.divergence_counter[5], (unsigned)recency.divergence_counter[6], (unsigned)arbitration.arbitration_flags, (unsigned)arbitration.peer_changed_mask, (unsigned)arbitration.push_pending_mask, (unsigned)arbitration.conflict_pending_mask);
+            uprintf("wire storage recency ok=%u chg=%02X cnt=%u/%u/%u/%u/%u/%u/%u arb=%u/%02X psh=%02X cfl=%02X prv=%02X/%02X cfm=%u\r\n", (unsigned)recency.baseline_record_valid, (unsigned)recency.changed_mask, (unsigned)recency.divergence_counter[0], (unsigned)recency.divergence_counter[1], (unsigned)recency.divergence_counter[2], (unsigned)recency.divergence_counter[3], (unsigned)recency.divergence_counter[4], (unsigned)recency.divergence_counter[5], (unsigned)recency.divergence_counter[6], (unsigned)arbitration.arbitration_flags, (unsigned)arbitration.peer_changed_mask, (unsigned)arbitration.push_pending_mask, (unsigned)arbitration.conflict_pending_mask, (unsigned)arbitration.provisional_changed_mask, (unsigned)arbitration.provisional_cell_mask, (unsigned)arbitration.indicator_round_confirmed);
             return true;
         }
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
@@ -264,6 +309,61 @@ static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_st
                         (unsigned)cause_timeline_snapshot->elapsed_ms[index]);
             }
             uprintf("\r\n");
+            return true;
+        case 6:
+            if (cause_edge_snapshot == NULL) {
+                return false;
+            }
+            uprintf("wire storage edge wr=%lu at=%u/%u gap=%u/%u oq=%u n=%u ov=%u ev=",
+                    (unsigned long)cause_edge_snapshot->macro_dirty_count,
+                    (unsigned)cause_edge_snapshot->macro_first_elapsed_ms,
+                    (unsigned)cause_edge_snapshot->macro_last_elapsed_ms,
+                    (unsigned)cause_edge_snapshot->macro_gap_last_ms,
+                    (unsigned)cause_edge_snapshot->macro_gap_max_ms,
+                    (unsigned)cause_edge_snapshot->macro_gap_over_quiet_count,
+                    (unsigned)cause_edge_snapshot->event_count,
+                    (unsigned)cause_edge_snapshot->overflow);
+            if (cause_edge_snapshot->event_count == 0) {
+                uprintf("-");
+            }
+            for (uint8_t index = 0; index < cause_edge_snapshot->event_count; index++) {
+                uprintf("%s%u/%02X/%02X/%u/%02X/%02X/%u@%u",
+                        index == 0 ? "" : ",",
+                        (unsigned)cause_edge_snapshot->event[index],
+                        (unsigned)cause_edge_snapshot->arms[index],
+                        (unsigned)cause_edge_snapshot->state[index],
+                        (unsigned)cause_edge_snapshot->domain[index],
+                        (unsigned)cause_edge_snapshot->dirty_mask[index],
+                        (unsigned)cause_edge_snapshot->changed_mask[index],
+                        (unsigned)cause_edge_snapshot->transaction_generation[index],
+                        (unsigned)cause_edge_snapshot->elapsed_ms[index]);
+            }
+            uprintf("\r\n");
+            return true;
+        case 7:
+            if (via_macro_snapshot == NULL) {
+                return false;
+            }
+            uprintf("wire via macro rx=%lu rsp=%lu dr=%lu at=%u/%u gap=%u/%u oq=%u h=%lu/%u send=%lu/%u drain=%lu/%u app=%lu/%u ovl=%u int=%u p=%u\r\n",
+                    (unsigned long)via_macro_snapshot->receive_count,
+                    (unsigned long)via_macro_snapshot->response_count,
+                    (unsigned long)via_macro_snapshot->drain_count,
+                    (unsigned)via_macro_snapshot->first_receive_elapsed_ms,
+                    (unsigned)via_macro_snapshot->last_receive_elapsed_ms,
+                    (unsigned)via_macro_snapshot->receive_gap_last_ms,
+                    (unsigned)via_macro_snapshot->receive_gap_max_ms,
+                    (unsigned)via_macro_snapshot->receive_gap_over_quiet_count,
+                    (unsigned long)via_macro_snapshot->handler_total_ms,
+                    (unsigned)via_macro_snapshot->handler_max_ms,
+                    (unsigned long)via_macro_snapshot->send_total_ms,
+                    (unsigned)via_macro_snapshot->send_max_ms,
+                    (unsigned long)via_macro_snapshot->drain_total_ms,
+                    (unsigned)via_macro_snapshot->drain_max_ms,
+                    (unsigned long)via_macro_snapshot->application_total_ms,
+                    (unsigned)via_macro_snapshot->application_max_ms,
+                    (unsigned)via_macro_snapshot->response_overlap_count,
+                    (unsigned)via_macro_snapshot->intervening_raw_count,
+                    (unsigned)via_macro_snapshot->response_pending);
             return true;
 #endif
         default:
@@ -872,6 +972,10 @@ static void era_split_wire_diagnostics_capture_snapshot(void) {
     era_split_communication_core_storage_get_probe_diagnostics(&era_split_wire_diagnostics_state.storage_probe_snapshot);
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_get_cause_timeline_snapshot(&era_split_wire_diagnostics_state.storage_cause_timeline_snapshot);
+    era_host_peer_storage_get_cause_edge_snapshot(&era_split_wire_diagnostics_state.storage_cause_edge_snapshot);
+    era_via_macro_diagnostics_get_snapshot(&era_split_wire_diagnostics_state.via_macro_snapshot);
+    era_host_peer_storage_reset_cause_edge();
+    era_via_macro_diagnostics_reset();
 #    endif
 #endif
     era_split_transport_scheduler_reset_diagnostics_era_baselines();
@@ -916,6 +1020,8 @@ static bool era_split_wire_diagnostics_print_pending_line(void) {
                                                              &era_split_wire_diagnostics_state.storage_probe_snapshot,
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
                                                              &era_split_wire_diagnostics_state.storage_cause_timeline_snapshot,
+                                                             &era_split_wire_diagnostics_state.storage_cause_edge_snapshot,
+                                                             &era_split_wire_diagnostics_state.via_macro_snapshot,
 #    endif
                                                              line);
     }
