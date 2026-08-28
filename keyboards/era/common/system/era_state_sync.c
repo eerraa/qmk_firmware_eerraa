@@ -131,7 +131,7 @@ void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     if (macro_start > keymap_start && era_state_sync_span_overlaps(offset, length, keymap_start, macro_start - keymap_start)) {
         era_state_sync_bump_keymap();
     }
-    if (era_state_sync_span_overlaps(offset, length, macro_start, nvm_dynamic_keymap_macro_size())) {
+    if (era_state_sync_span_overlaps(offset, length, macro_start, nvm_dynamic_keymap_macro_size()) && !nvm_dynamic_keymap_macro_transaction_in_progress()) {
         era_state_sync_bump_macro();
     }
     if (era_state_sync_span_overlaps(offset, length, ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET, ERA_EEPROM_SYNCABLE_CONFIG_SIZE)) {

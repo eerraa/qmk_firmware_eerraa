@@ -10,8 +10,10 @@ SRC += keyboards/era/common/features/era_tapdance.c
 SRC += keyboards/era/common/features/era_tapdance_via.c
 SRC += keyboards/era/common/storage/era_eeprom_config_io.c
 SRC += keyboards/era/common/system/era_state_sync.c
+SRC += quantum/dynamic_keymap.c
 SRC += quantum/nvm/eeprom/nvm_dynamic_keymap.c
 SRC += quantum/nvm/eeprom/nvm_via.c
+LDFLAGS += -Wl,--wrap=send_string_with_delay_impl
 TAP_DANCE_ENABLE = yes
 RGB_MATRIX_ENABLE = yes
 RGB_MATRIX_DRIVER = custom
@@ -21,6 +23,7 @@ EEPROM_DRIVER = transient
 INTROSPECTION_KEYMAP_C = keymap.c
 OPT_DEFS += -DERA_TAPPING_CONFIG_ENABLE -DERA_TAP_DANCE_ENABLE -DERA_TAP_DANCE_KEYCODE_BASE=0x5700 -DVIA_ENABLE
 OPT_DEFS += -DERA_STATE_SYNC_TEST -DERA_HOST_PEER_STORAGE_V1_ENABLE -DRGB_MATRIX_LED_COUNT=1
+OPT_DEFS += -DERA_DYNAMIC_MACRO_TRANSACTION_ENABLE -DERA_DYNAMIC_MACRO_TRANSACTION_TEST
 OPT_DEFS += -DTRANSIENT_EEPROM_SIZE=1024
 OPT_DEFS += -DVIA_EEPROM_MAGIC_ADDR=293 -DDYNAMIC_KEYMAP_EEPROM_ADDR=297 -DDYNAMIC_KEYMAP_LAYER_COUNT=4
 OPT_DEFS += -DDYNAMIC_KEYMAP_MACRO_EEPROM_ADDR=617 -DDYNAMIC_KEYMAP_MACRO_EEPROM_SIZE=128
