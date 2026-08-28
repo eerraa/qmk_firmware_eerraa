@@ -328,13 +328,20 @@ writes nothing:
 
 The persisted baselines and counters have no RAM copy: readers and writers
 run at the cold boundary and read through the wear-level cache. What the
-layer does keep in RAM is one derived byte — the changed-vs-baseline domain
-mask, written only from `era_host_peer_storage_note_changed_shadow()`
+layer keeps in RAM is a derived changed-vs-baseline domain mask, written only
+from `era_host_peer_storage_note_changed_shadow()`
 (`split/era_host_peer_storage.c`) beside the record reads that already
-happen, and never from the lamp path, which only loads it. It costs four
-bytes of the core0 state budget and no more, and the account of which sites
-write it belongs to the indicator's local arm in **Diagnostics** below. The
-diagnostic view of the persisted side is the `wire storage recency` line
+happen, and never from the lamp path, which only loads it. Beside it is one
+display-only provenance mask: on a boot with an invalid record, each domain
+whose source captured successfully is tagged provisional; a domain whose
+source is unavailable is not. A real local write or a domain conclusion
+retires that tag. Both bytes fit the same four-byte aligned local-state seat
+the changed mask already occupied, so the core0 budget does not grow.
+
+The provenance mask never enters the recency snapshot, summary payload, cell
+selection, divergence counter, baseline writer, or restart predicate. It can
+change only what the indicator advertises. The diagnostic view exposes both
+the persisted side and this display provenance on `wire storage recency`
 (`era_capture_reading.md`).
 
 The responder answers `SYNC_STATUS` from the recency seat inside its
@@ -430,6 +437,20 @@ degraded half's counters are zero and the half with real edits wins. Fresh
 counters resolve 0-vs-0 to Left, and a push or pull whose contents already
 match short-circuits to a `MATCH` close that heals the baselines.
 
+The cell drain retains that conservative result, but the indicator retains
+its provenance separately in `split/era_host_peer_storage.c`. The local
+boot-provisional mask tags its domains; if the peer's summary reports an
+invalid whole baseline record, all seven relation cells are tagged
+provisional because the existing wire body carries validity but no per-domain
+provenance. Those tags survive a serviced identity rotation and retire per
+domain on a local write, `MATCH`, terminal refusal, or `TRANSFER`; round drain
+retires the remainder. A provisional summary, cell and pre-transfer episode
+remain fully scheduled but stay dark. `TRANSFER` immediately confirms the
+initiator's round and keeps the actual operation visible through its remaining
+gaps; a storage timeout, source-change retry, or nonterminal abort confirms it
+by the same display-only latch. This changes no direction, proof, retry, or
+wire value.
+
 **In-session carriers.** Two signals arm a summary, and everything the
 summary decides follows from both halves' declared masks rather than from
 one half's:
@@ -495,12 +516,112 @@ validity. Capture occurs only at init, after the trailing dirty quiet deadline,
 or for a clean domain selected by an explicit cold storage task request. A
 request can never bypass a pending dirty quiet deadline.
 
-Initialization captures the seven domains once, reading and CRC-visiting
-`176 + keymap + 16384 + 8 + 2 + 1 + 1` bytes in total — `17436` on the 12×9
-boards, `17628` on 12×11 `sirind/tomak`. This is boot
-work, not a scheduler-loop period. There is no periodic idle-proof patrol and
-no idle due token: with no local EEPROM write, a captured domain stays
-quiescent and triggers no repeated EEPROM reads, CRCs, or source comparison.
+`DYNAMIC_MACRO` has one additional capture authority: QMK reserves the domain's
+last byte as its valid marker, nonzero while an application is replacing the
+buffer and zero only after replacement completes. Therefore
+`era_host_peer_storage_domain_capture_ready()`
+(`split/era_host_peer_storage.c`) reads that one byte only at a cold capture
+boundary and refuses publication while it is nonzero. The domain stays dirty
+and unpublished, with its deadline re-armed one ordinary quiet interval later;
+the final zero-marker write replaces that deadline like any other write. A VIA
+pause between sequential buffer requests is thus never a commit boundary and
+cannot start a transfer of a partial macro image.
+
+On an ERA wear-leveling image, that same marker is also the local physical
+commit boundary. The accepted replacement transcript is exactly `RESET`, a
+nonzero (`0xFF`) write to domain-relative offset
+`DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1`, one or more payload writes, a zero write
+to that same offset, and a targeted read of the marker. The marker offset is
+16383 in the 16384-byte domain; its absolute address is the board-resolved
+`DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + 16383`.
+
+`nvm_dynamic_keymap_macro_update_buffer()`
+(`quantum/nvm/eeprom/nvm_dynamic_keymap.c`) enforces the transcript rather than
+inferring one from arbitrary writes. With no open transaction, payload and a
+zero marker are ignored. `0xFF` opens the transaction and every following
+payload request changes only the wear-leveling RAM cache. A zero before any
+payload is forced back to nonzero and leaves the transaction open. The final
+zero after payload calls `eeprom_driver_commit_cache()`
+(`drivers/eeprom/eeprom_wear_leveling.c`), which consolidates that cache once.
+Only a successful consolidation closes the transaction and leaves the targeted
+marker read at zero. A failed consolidation restores the cache marker to
+nonzero, leaves the transaction open, and publishes no completion revision.
+
+`RESET` remains a standalone command: it stages zeros and performs its own one
+consolidation when bytes changed or an interrupted transaction needs closing;
+that successful reset may therefore publish one MACRO revision separately from
+a later replacement. Thus a normal replacement has one physical flash window
+for its completed image, plus one for a preceding reset that had work — never
+one window per 28-byte RAW HID request. Logical changed notifications still
+occur while staging, so the dirty arm rises at the opener; the commit path
+repeats the notification after the physical window so the 1000 ms quiet
+interval is trailing durability rather than overlapping it.
+
+The host-visible State Sync revision follows the same publication boundary.
+`era_state_sync_note_eeprom_span()` (`system/era_state_sync.c`) withholds the
+MACRO revision while `nvm_dynamic_keymap_macro_transaction_in_progress()`
+(`quantum/nvm/eeprom/nvm_dynamic_keymap.c`) reports an open cache transaction;
+only the trailing notification after a successful consolidation advances it.
+Chunk notifications still arm split storage, but cannot publish incomplete
+macro state or trigger a revision observer to reread the whole buffer during
+the upload. The opener and payload therefore publish no MACRO revision; a
+successful explicit close publishes at most one.
+
+`wear_leveling_write_cache()` and `wear_leveling_commit_cache()`
+(`quantum/wear_leveling/wear_leveling.c`) reuse the logical cache that already
+answers every EEPROM read; no second macro-sized buffer exists. During an
+unfinished same-boot upload, QMK therefore reads the nonzero marker and refuses
+execution, and `era_host_peer_storage_domain_capture_ready()`
+(`split/era_host_peer_storage.c`) refuses split capture on the same byte. A
+reset before the final commit normally reloads the previous
+complete durable image; if an unrelated log-full consolidation happened to
+persist the staged cache, its nonzero marker instead preserves the ordinary
+invalid-image outcome. A failed final consolidation rewrites the cache marker
+to nonzero before returning, so neither macro execution nor storage capture can
+publish a zero-marked image whose durability failed. The successful final
+window is the wear-level driver's existing force-consolidation operation, not a
+new atomic bank: power loss inside that physical window retains the underlying
+non-atomic recovery contract in **Durable Apply And Power Loss** below.
+
+### External H7S State-Sync And Macro Handoff
+
+An H7S implementation interoperating with ERA consumes the existing 32-byte
+VIA RAW HID surface; it does not add a command, report, status, transaction id,
+capability bit, or BUSY state. State Sync is `GET_KEYBOARD_VALUE` (`0x02`),
+selector `0x06`, envelope version `0x01`. A valid request has byte 3 and bytes
+6..31 zero; bytes 4..5 are an opaque tag echoed in the response. An OK response
+has status `0x00` in byte 3, domain mask `0x07` in byte 6, byte 7 zero, then
+nonzero big-endian 32-bit KEYMAP, MACRO, and CONFIG revisions at bytes 8, 12,
+and 16 respectively; bytes 20..31 remain zero.
+
+KEYMAP means the dynamic keymap/encoder image changed. MACRO means a standalone
+reset completed or an explicit `FF -> payload -> zero` transaction completed
+durably; opener and payload writes alone do not advance it, and a failed close
+leaves the targeted marker read nonzero and the revision unchanged. CONFIG
+means a GET-visible configuration value changed, whether by SET-before-SAVE,
+an independent persisted write, or a successful split-domain publication.
+All three revisions are nonzero wrapping RAM generations, not durable storage
+epochs.
+
+The H7S macro transcript is `RESET -> FF -> payload -> zero -> targeted marker
+GET`, with the marker at `macro_buffer_size - 1`; nonzero means invalid/open and
+zero means the EERRAA close is durable. Standard keymap commands, existing
+SET/SAVE semantics, and official/legacy VIA compatibility remain unchanged.
+The H7S side does not copy split authority, replacement Apply, the staged
+old-view overlay, or the RP2040 sector-erase architecture; those are ERA
+firmware mechanisms below the externally observable handoff.
+
+Initialization captures every committable domain once, normally all seven,
+reading and CRC-visiting `176 + keymap + 16384 + 8 + 2 + 1 + 1` bytes in total —
+`17436` on the 12×9 boards, `17628` on 12×11 `sirind/tomak`. If an interrupted
+macro upload persisted a nonzero marker, initialization leaves only that
+manifest unpublished and dirty; QMK refuses to execute the same image until a
+later completed upload returns the marker to zero. This is boot work, not a
+scheduler-loop period. There is no periodic idle-proof patrol and no idle due
+token: with no local EEPROM write, a captured domain stays quiescent and
+triggers no repeated EEPROM reads, CRCs, or source comparison. An invalid macro
+is the bounded exception: its one-byte readiness check repeats at the 1000 ms
+dirty cadence while it remains unfinished.
 **The EEPROM sync policy bit gates none of this local half.** It decides
 whether a cross-half episode opens (on the initiator's arm) and whether the
 news value is advertised (on the responder's), and it carries no term
@@ -531,7 +652,10 @@ there is no revision history queue. Thus intermediate keymap edits are
 coalesced into the latest whole-domain image. Edits less than 1000 ms apart do
 not each trigger a whole keymap-image transfer; one capture and, if needed, one
 whole-image transfer (four chunks on a 12×9 board) becomes eligible after the
-final edit settles.
+final edit settles. For `DYNAMIC_MACRO`, quiet coalescing cannot override the
+explicit marker above: an expired deadline while the marker is nonzero performs
+only the one-byte readiness check, and the one capture becomes eligible after
+the zero-marker write's own final quiet interval.
 
 Time-based storage work is serviced only at the scheduler's existing cold task
 boundary, not by a separate per-loop poll. The always-present 10 ms authority
@@ -724,11 +848,11 @@ underneath both.
   target baud, not during the Low meet; the link byte does not enter this
   engine. A generation mismatch seen while the raise is still owed is left
   pending and fires when the predicate becomes true. The link raise waits
-  only on live pair work (`era_host_peer_storage_restart_should_wait()` in
-  `split/era_host_peer_storage.c`), not on the boot changed-shadow the
-  audit is what clears: waiting on that shadow deadlocks a CLEAN, because
-  the shadow is the lamp and the audit cannot start until the raise
-  finishes. Every
+  only on raw live pair work (`era_host_peer_storage_restart_should_wait()` in
+  `split/era_host_peer_storage.c`), not on the boot changed-shadow or its
+  display provenance. The audit is what clears that shadow; waiting on it
+  deadlocks a CLEAN because the audit cannot start until the raise finishes.
+  Every
   legitimate divergence path (promotion use, either-side reboot or power
   loss, cable loss) rotates the relation and is caught there; the news value
   covers responder-side settled changes inside a live session, and the
@@ -740,9 +864,9 @@ underneath both.
 
 ### Why An EEPROM Clean Is An Agreed Restart
 
-The VIA EEPROM CLEAN command invalidates the store and then reboots, on **both**
-halves at one instant. Three separate things make that shape necessary, and each
-would be reintroduced by dropping one of them.
+The VIA EEPROM CLEAN command invalidates the boot magic and reboots **both**
+halves at one agreed commit instant. Three separate things make that shape
+necessary, and each would be reintroduced by dropping one of them.
 
 **The restart is required by *this* contract, not by local state.** Local core0
 state does not need it: every item `eeconfig_init_quantum()` (`quantum/eeconfig.c`)
@@ -794,34 +918,145 @@ but both halves already hold the same defaults, so the transfer short-circuits t
 a `MATCH` close and nothing moves. **No content behaviour changes, only which
 half also erased**; the path to it is different and the outcome is not.
 
-**The clean is the agreement's first user, and its failure mode is why.** The
-agreement is a general mechanism and was built inside the feature with the
-highest cost of failure; a failed link agreement loses the owner's setting,
-while a failed clean agreement degrades to exactly the behaviour above — the
-commanded half alone, which this tree already proves. So the clean requires no
-confirmation: the commanded half takes its own deadline when it asks and acts at
-it whether or not the peer ever armed.
+**CLEAN requires bilateral reboot-durable preparation while a relation is serviced.**
+The former rule allowed invalidation to wait until the commit deadline. It
+therefore proved only that both halves had agreed to *try* the write: one failed
+or unperformed local write could leave a valid macro image available, and
+relation-open storage convergence could restore it onto the half that did
+clean. The act table in `split/era_split_keyboard.c` keeps CLEAN's user/API
+parameter at zero and marks the act confirmation-required; the wire phase
+values below are agreement state, not application parameters.
 
-**The erase happens at the boot and not before it.** `eeconfig_disable()`
-(`quantum/eeconfig.c`, over `quantum/nvm/eeprom/nvm_eeconfig.c`) is a
-whole-backing erase plus a write of `EECONFIG_MAGIC_NUMBER_OFF`, and only the
-second has to survive the restart, because the boot that magic forces opens with
-`eeconfig_init_quantum()`, whose first statement is `nvm_eeconfig_erase()` — the
-same erase. The pre-reset erase duplicated one that runs anyway, and it cost
-more than its own ~0.4 s: with the store already erased, `via_init()` found the
-VIA magic invalid and ran `eeconfig_init_via()` a few init steps before
-`quantum_init()` erased that work and ran it again, so a clean recovery boot
-wrote the whole dynamic keymap, the macro area and every ERA region twice. What
-the prepare does now is one word (`era_via_system_eeprom_invalidate()`,
-`system/era_via_system.c`), at the commit instant like every other agreed act.
+The serviced sequence has these safety boundaries
+(`split/era_split_restart_agreement.c`, `system/era_via_system.c`):
 
-This needs no retained object and no reset-cause branch at boot: the invalid
-magic *is* the persisted state, and the boot path that reads it is the one every
-boot already takes. Every reader between `via_init()` and `quantum_init()` sees
-the pre-clean store for a few init steps and is overwritten by
+1. `REQUEST` carries no deadline and changes no store.
+2. Before a half publishes `PREPARED`, it installs the CLEAN storage quarantine
+   and submits `EECONFIG_MAGIC_NUMBER_OFF` through the reboot-checked
+   wear-leveling seam. That seam refuses a sliced-erase gap, writes the one
+   word, then rebuilds the live cache from the physical backing store through
+   the same consolidated-image and log playback path the next boot will take.
+   `PREPARED` requires that rebuilt value to equal OFF, that playback's first
+   empty entry becomes the live write cursor, and that no nonzero log entry
+   exists behind it. A successful replay that does not yet reconstruct OFF
+   leaves a canonical physical cursor: initialization either replayed the exact
+   log or consolidated only its accepted prefix after a legacy hole or
+   malformed entry. From that cursor the seam may perform one further
+   write-and-replay attempt. `PREPARED` is withheld if either replay
+   initialization fails or the second replay still does not reconstruct OFF.
+   A lower-layer write result, success or failure, is never authority by itself:
+   only ordinary physical boot playback reconstructing OFF authorizes
+   `PREPARED`, and RAM/cache equality is never evidence. This proves the local
+   next boot's predicate, not second-bank or pair-atomic power-loss completion.
+   If physical append verification itself returns false,
+   `wear_leveling_write()` (`quantum/wear_leveling/wear_leveling.c`) neither
+   retries that ambiguous slot nor parses it. The cache already contains the
+   complete requested word, as it does when an append reaches log-full, so the
+   same whole-cache consolidation erases the partial log and writes image plus
+   checksum; one complete erase/write retry is the bound. Only a verified
+   consolidation may turn that failure into success. If both attempts fail,
+   the reboot proof does not call initialization over the last complete RAM
+   image and `PREPARED` remains withheld.
+3. The initiator may publish `COMMIT` with a nonzero shared-clock deadline only
+   after this relation holds both local and peer `PREPARED`. The responder may
+   publish `COMMIT_ARMED` only after adopting that same deadline, and the
+   initiator arms its local deadline only after observing that echo. No half
+   writes EEPROM at the deadline; each enters the ordinary controlled reset
+   directly.
+
+From installation immediately before the first local reboot-durable prepare
+until controlled reset, storage on that half is quarantined: it may neither
+capture or publish an image nor select, admit, or answer a new storage episode.
+Work already admitted when quarantine rises reaches its existing coherent
+Apply/close/cancel boundary before reboot-durable prepare may publish; it
+cannot begin another episode. The standing exchange remains live because it
+carries PREPARE, COMMIT and their AUTHORITY answers. **PREPARE is a monotonic
+roll-forward vote, not a tentative write with rollback.** Relation loss, phase
+timeout and prepare failure do not restore magic or clear the gate: a
+compensating durable write would add another failure point and could reopen the
+old-image advertisement window. A relation rotation invalidates the old peer
+phase but retains this half's local quarantine and prepare obligation. If
+rotation interrupts a CLEAN COMMIT before its matching echo arrives, the
+proposal is retired but its disarm obligation is not: the new relation carries
+the canonical idle body and observes a fresh peer PREPARED after that disarm
+before creating a replacement deadline. The new relation otherwise republishes
+PREPARED after local success, makes the new peer PREPARED, and retries COMMIT.
+Only controlled reset clears the live gate. The dedicated Core1 source publications use a
+terminal sequence during that interval, and every owner-role/capacity rebuild
+preserves it rather than reopening an empty slot
+(`split/communication_core/era_split_communication_core_storage.c`). The route
+admission half of this rule is canonical in `era_route_contract.md`.
+
+A split storage half whose agreement service currently has no serviced relation
+retains the ordinary local CLEAN path:
+the same local gate, one reboot-durable boot-magic invalidation, then controlled
+reset on success. It has no peer phase or deadline to confirm; a failed prepare
+still leaves the local gate sticky for that boot rather than advertising an
+uncertain store if a relation later appears. If a relation becomes serviced
+while that local gate is still waiting for an admitted Core1/storage boundary,
+the obligation promotes monotonically to the bilateral sequence above before
+the reboot-durable write; it never downgrades back to a one-half reset if that
+relation then rotates or drops (`split/era_split_restart_agreement.c`).
+
+The device signature that requires the reboot-durable phase is stronger than a
+missed reset: both halves reached volatile `PREPARED`, disconnected and
+enumerated again, while one boot reported twelve sliced erase steps and the
+other reported zero; relation-open storage then transferred one old domain
+from the surviving store. The old prepare had compared only the cache, so its
+success did not prove that boot playback could recover OFF. The capture does
+not distinguish a dropped program from another lower flash mechanism, and the
+new boundary deliberately does not guess: physical replay itself is the
+discriminator.
+
+**The prepare still changes one word, but proves it with a physical replay
+before the commit deadline exists.** `era_via_system_eeprom_invalidate()`
+(`system/era_via_system.c`) returns the reboot-checked result for
+`EECONFIG_MAGIC_NUMBER_OFF` without publishing the retiring store through the
+EEPROM changed hook. The following QMK boot observes the already-proved
+predicate in `quantum_init()` and enters
+`eeconfig_init_quantum()` (`quantum/eeconfig.c`), whose first statement erases
+the whole backing store before the VIA keymap and macro regions are rebuilt.
+Both halves reach the commit phase only after both local replay proofs have
+succeeded.
+
+**The boot erase has its own verified publication boundary.** The OFF replay
+proof says the next boot will enter reset; it does not make a later erase
+result infallible. `wear_leveling_erase()`
+(`quantum/wear_leveling/wear_leveling.c`) therefore gives a failed verified
+whole-store erase one complete retry and publishes the empty cache and reset
+append cursor only after success. If both attempts fail, the old cache is not
+relabelled empty, ordinary wear-level writes — including the boot-default
+writes — remain closed, and `era_host_peer_storage_init()`
+(`split/era_host_peer_storage.c`) captures or publishes no default-looking
+domain. A later explicit verified erase may reopen the store; until then the
+failure cannot become a successful CLEAN merely because the QMK erase API has
+no result channel.
+
+> **REFUSED:** replace MAGIC OFF with a full pre-reset backing erase to fix a connected CLEAN
+> **WHY:** it duplicates both boot erases on every normal path; physical replay of the one-word predicate provides the required pre-commit proof without adding an unconditional erase.
+> **REOPENS:** device evidence that both halves proved reboot-durable OFF yet either half skipped the boot erase
+
+This needs no new reset-retained object and no reset-cause branch at boot: the
+invalid magic *is* the persisted state, while the quarantine and phase machine
+are ordinary volatile agreement state. The boot path that reads the magic is
+the one every boot already takes. Every reader between `via_init()` and
+`quantum_init()` sees the pre-clean store for a few init steps and is overwritten by
 `eeconfig_init_kb()`; the family that guards its own strict reset already tests
 `nvm_eeconfig_is_enabled()` and defers to the pending init for exactly this
 reason (`sirind/common/tomak_common.c`).
+
+**The guarantee stops at the controlled software-reset transaction.** An
+external RUN/DVDD reset or power loss before that reset completes interrupts
+the command; this contract promises neither pair-atomic completion nor rollback
+or transaction replay across that event. The next entry is the ordinary QMK
+boot and relation-open storage recovery, and a CLEAN still required by the
+operator is issued again. This scope does not relax any live serviced-relation
+rule above: while power remains present, one half may not expose or restore the
+other half's PREPARED store.
+
+> **REFUSED:** add a watchdog-scratch token, protected-range transaction marker, or raw-flash journal for CLEAN
+> **WHY:** cross-power transaction continuation exceeds the accepted single-bank contract and is unnecessary once both reboot-durable magic invalidations precede controlled commit
+> **REOPENS:** a separately approved physical-power-loss CLEAN guarantee with storage-layout, compatibility, recovery and device-fault evidence
 
 ## Fixed Wire Contract
 
@@ -1033,34 +1268,40 @@ PEER owns forward progress. Domains are considered in ascending id order.
 4. `TRANSFER_VERIFIED`: PEER has every chunk and the staged CRC matches proof.
 5. `APPLY_READY`: PEER sends `APPLY_REQ`; HOST rechecks its pinned source and
    returns `APPLY_RSP`. This acknowledges transfer consistency only.
-6. `APPLYING`: PEER core0 performs the durable apply as a sliced write from
-   the validated staged image with Core1 running and the wire alive:
-   bounded sub-range writes **pumped back-to-back** —
-   `era_host_peer_storage_apply_write_active()` (`split/era_host_peer_storage.c`) holds `housekeeping_event_due()`
-   true for the width of this phase, so the walk advances once per scan pass
-   rather than at the cold cadence — with the wire held by
-   whatever still runs while core0 is inside the write. **The wire is not
-   exclusively storage's here**: exclusivity ended at `TRANSFER_VERIFIED`, so
-   normal routes — the matrix push first — run in
-   the windows between the apply's EEPROM operations, and the initiator's
-   keys cross while its own apply runs. Any mid-write abort
-   trigger (identity change, target dirty) is latched; the local sliced write
-   of the validated image finishes first, then read-back, then the wire
-   episode aborts — no torn durable state exists.
+6. `APPLYING`: PEER core0 performs a bounded staged slice swap with Core1
+   running and the wire alive. Before each 32-byte candidate write it copies
+   the raw old slice into the swap scratch. Only a successful checked write
+   moves that old slice into the staging image and advances `written_prefix`.
+   Therefore, after every slice, staging owns the old prefix, raw storage owns
+   the candidate prefix and old suffix, and the public EEPROM facade composes
+   a complete old image from those two owners. A possibly partial failed slice
+   remains protected by the scratch until rollback resolves it. The exact
+   mechanism is `era_storage_slice_swap_write_next()`
+   (`storage/era_storage_slice_swap.h`), called from
+   `split/era_host_peer_storage.c`.
 
-   **The episode deadline is not one of those triggers, and must not be made
-   one.** It cannot prevent (the write-through rule above outranks it) and it
-   cannot detect (`eeprom_update_block()` (`drivers/eeprom/eeprom_driver.c`) is synchronous on core0, so a wedged
-   write wedges the core that would run the check); all it can do is fire on an
-   apply that is slow but progressing, turning a successful convergence into a
-   reported abort, a re-probe and an indicator flash. This phase is bounded by
-   its own shape instead: the slice cursor advances unconditionally, so the
-   apply is strictly monotonic and terminates in ceil(image_size / slice) ticks.
-7. `REVALIDATING`: after read-back CRC and runtime-owner reload, one brief
-   rotation (revoke/stop, capacity flush, restart under a new owner epoch,
-   a few milliseconds of wire silence) anchors identity; `SESSION_STATUS`
-   re-establishes the same HOST-PEER authority. No old wire result is
-   reused across the owner epoch.
+   Slices are **pumped back-to-back**:
+   `era_host_peer_storage_apply_write_active()`
+   (`split/era_host_peer_storage.c`) holds `housekeeping_event_due()` true, so
+   one bounded responsibility runs per scan pass rather than at the cold
+   cadence. Storage exclusivity ended at `TRANSFER_VERIFIED`; normal routes —
+   matrix first — run between EEPROM operations. The final successful slice
+   leaves a distinct VERIFY phase so one more keyboard opportunity occurs
+   before the raw whole-image CRC is evaluated.
+
+   The episode deadline is not an Apply trigger. A successful slice advances;
+   a failed slice enters bounded rollback; a failed rollback remains in an
+   explicit repair-required phase while the public facade continues serving
+   old. Identity/target-dirty aborts are deferred until raw candidate
+   verification. A terminal role or mode exit instead rolls the protected
+   prefix back synchronously before its volatile old-byte ownership may be
+   cleared.
+7. `REVALIDATING`: after raw verification, deferred-abort evaluation, all
+   fallible publication preflight, the pull-side identity rotation, raw
+   runtime reload, the single public old-to-new flip, immutable image/manifest
+   publication and the one State Sync revision, `SESSION_STATUS`
+   re-establishes the same HOST-PEER authority. No old wire result is reused
+   across the owner epoch.
 8. `COMPLETING`: PEER sends `COMPLETE_REQ`; HOST returns `CLOSE_RSP` and both
    sides close that domain.
 9. The next domain starts, or the episode closes and normal route priority is
@@ -1096,10 +1337,11 @@ fixed wire roles, mirroring the pull machine stage for stage:
    data in either direction.
 4. `PUSH_CTL/apply` is answered `APPLY_READY` on identity and completeness;
    the responder core0 then validates the staged image against the episode
-   CRC before any durable write and runs the sliced apply — the accepted
-   sequence unchanged: bounded slices with
-   dirty-note suppression per slice, read-back CRC, runtime reload even on
-   the deferred-abort path, publication. **The CRC validation is this role's
+   CRC before any durable write and runs the same staged slice swap as the
+   pull role. Dirty-note suppression covers only each internal checked write;
+   a foreign write is absorbed into the retained old view and defers an abort.
+   Raw verification and all abort/preflight checks precede runtime reload and
+   publication; a deferred abort rolls back and performs neither. **The CRC validation is this role's
    transfer-verified boundary**: exclusivity clears there, so normal
    admission and response content reopen for the width of the sliced apply;
    the initiator's side cleared at its last acknowledged chunk.
@@ -1110,9 +1352,11 @@ fixed wire roles, mirroring the pull machine stage for stage:
    `HOST_PUSH_APPLY_WRITE`, and holds `housekeeping_event_due()`
    (`split/era_split_transport_scheduler.c`) true on whichever half is
    applying. The walk is `IMAGE_BYTES / APPLY_SLICE_BYTES` = 512 ticks and
-   **content-independent** — `apply_write_slice()`
-   (`split/era_host_peer_storage.c`) advances its cursor unconditionally, so a
-   one-block edit and a 443-block edit cost the same ticks — which is ~34 ms
+   **content-independent** —
+   `era_storage_slice_swap_write_next()`
+   (`storage/era_storage_slice_swap.h`) advances only after each checked slice
+   accepts responsibility, so a one-block edit and a 443-block edit take the
+   same number of successful ticks — which is ~34 ms
    pumped. The ~3.0 s figure was the cost of a role-written predicate that
    excluded this side, and it is the one measured number here: before that
    predicate was corrected, the initiator's completion polls stood at 117-129
@@ -1133,14 +1377,14 @@ fixed wire roles, mirroring the pull machine stage for stage:
    A rotation failure costs a re-proof, never divergence: content is
    already durable and reloaded.
 
-The write-through rule binds the responder's apply exactly as it binds the
-initiator's: a local write mid-apply, a relation change, the episode
-deadline, and a context exit each latch the abort and let the sliced write
-finish first, and the reopen arbitration then re-proves the domain
-(expected `MATCH` when the write-through content landed). While the
-responder applies, the initiator's complete polls are the accepted frames
-that feed the responder-silence stale watch; the durable apply mandates no
-wire silence beyond the terminal rotation. Unsupported domain/schema, size mismatch, integrity
+The old-public slice-swap rule binds the responder's Apply exactly as it binds
+the initiator's. A local write mid-Apply becomes part of the old view before it
+latches the abort; deferred failure rolls every candidate slice back and the
+reopen arbitration re-proves the resulting content. Relation/context loss
+cannot discard staged old bytes and therefore completes rollback before state
+reset. While the responder applies, the initiator's complete polls are the
+accepted frames that feed the responder-silence stale watch; the durable Apply
+mandates no wire silence beyond the terminal rotation. Unsupported domain/schema, size mismatch, integrity
 failure, or policy close never falls back to a prefix or different domain. It
 closes/aborts visibly and retries only after new probe eligibility from the
 relation-open audit sweep or from the whole-family summary the news value arms,
@@ -1154,7 +1398,7 @@ All storage capacity is static. No allocation or Pico SDK queue is allowed.
 - seven 16-byte cached manifest entries: 112 bytes; HOST source validity is
   the nonzero source revision, while a clean PEER target with revision zero
   may still use its cached CRC to request repair;
-- core0 transaction and due state: exactly 144 bytes
+- core0 transaction and due state: exactly 180 bytes
   (`ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES`), asserted by equality at its
   owner and consumed by the communication-core aggregate through that
   macro. The assert is `==` and not `<=` on purpose: an inequality silently
@@ -1162,11 +1406,14 @@ All storage capacity is static. No allocation or Pico SDK queue is allowed.
   drifted four bytes behind. It is three structs — local-EEPROM truth (68),
   relation-scoped episode bookkeeping (24, including the arbitration cell
   queues, the peer summary, and the token kind), and episode runtime data
-  (52) — and every move is paid as deliberate arithmetic;
-- one semantic Core0-to-Core1 initiator request: at most 40 bytes — the
-  push chunk is served from the initiator's own published image, so the
-  record carries the image and publication-seq addresses for exactly that
-  operation, zero for every other;
+  (88). The runtime includes the 32-byte staged-old scratch and four bytes of
+  slice ownership metadata; every move is paid as deliberate arithmetic;
+- one semantic Core0-to-Core1 initiator request: 40 bytes in release and qwin,
+  44 bytes in wire diagnostics — the push chunk is served from the initiator's
+  own published image, so the record carries the image and publication-seq
+  addresses for exactly that operation, zero for every other; the diagnostic
+  addition is the actual cross-core publication timestamp and changes no wire
+  payload;
 - one reserved Core1-to-Core0 initiator result: at most 280 bytes;
 - one immutable responder metadata snapshot: at most 64 bytes, carrying
   the recency seat (core0's cold changed mask, baseline validity, and the
@@ -1176,27 +1423,28 @@ All storage capacity is static. No allocation or Pico SDK queue is allowed.
 - one 271-byte bulk wire scratch, one 271-byte decoded-frame scratch, one
   272-byte shared decoded semantic frame, and one 252-byte chunk copy scratch;
 - one 88-byte core0 storage diagnostic record and one 8-byte Core1 lane counter
-  record. The wire-diagnostics profile additionally owns one 32-byte Core1
-  initiator probe, one 88-byte storage copy, one 32-byte probe copy, and two
+  record. The wire-diagnostics variant additionally owns one 80-byte Core1
+  initiator probe, one 88-byte storage copy, one 80-byte probe copy, and two
   4-byte scheduler-edge records for the live state and explicit wire snapshot;
 - two aligned 32-bit Core1-to-Core0 result-ready generations are final
   publication hints for the initiator and responder result slots;
-- the current wire-diagnostics probe totals **18436** additional static bytes,
+- the current wire-diagnostics probe totals **18572** additional static bytes,
   including alignment and publication words, and the cap
   (`ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES`) reads the same figure. The cap
   is the measured aggregate by construction, so the next growth fails a build
   rather than being absorbed into headroom. **The cap is never raised to make
   room; it is moved as arithmetic after the measurement it records.**
 
-  The wire-diagnostics aggregate is pinned by an equality at 18436 and the
-  selector-gated cause profile by one at **18660**, so growth in those two is
+  The wire-diagnostics aggregate is pinned by an equality at 18572 and the
+  selector-gated `cause` variant by one at **20124**, so growth in those two is
   caught by the build. Release and qwin carry only the `<=` against the cap,
   which is why the cap is kept at the measured figure rather than left as
-  headroom; they total **18276** — 16384 image + 7 x 16 manifest + 144 core0
+  headroom; they total **18312** — 16384 image + 7 x 16 manifest + 180 core0
   state + 88 core0 diagnostics + 1548 Core1 storage, with every diagnostic term
   zero. It is the one figure in this section no `_Static_assert` pins, which is
-  why it is the one that drifted. The cause profile's timeline records are an
-  explicit addition to the profile budget
+  why it is the one that drifted. The cause variant's two 112-byte episode
+  timeline records and two 664-byte interval edge records are an explicit
+  addition to the profile budget
   (`ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES`), not an exemption from the
   cap, and the cap assert is armed in every profile.
 
@@ -1339,53 +1587,93 @@ PEER never writes received chunks directly to EEPROM. After full staging and
 2. validate the final `APPLY_RSP`, domain/schema/size/CRC, every
    generation/identity field, and the
    schema-1 `ERA_CONFIG` reserved-zero ranges;
-3. release the final result slot and open the apply cursor; Core1 keeps
-   running, no storage request stays pending, and the core1 liveness beat
-   holds the wire for the whole write;
-4. perform the domain-owner write on core0 as bounded sub-range slices of
-   the validated staged image, **pumped back-to-back on whichever half is
-   applying** — `era_host_peer_storage_apply_write_active()` (`split/era_host_peer_storage.c`) asks about the
-   activity rather than the role, so it is true in both applying states and
-   holds `housekeeping_event_due()` true for the width of the phase — which is
-   also why the apply is unaffected by the raw-microsecond deadline pre-filter
-   in front of that gate (`era_route_contract.md`): it is an event arm, and the
-   pre-filter sits on the deadline arm only — re-evaluating
-   identity and target-dirty at slice boundaries (and not the episode
-   deadline, which this phase does not carry); an abort trigger is latched,
-   never applied mid-write, and dirty-note suppression covers only each
-   slice's own write;
-5. read the complete domain back and verify the expected CRC32;
-6. reload the affected runtime owner whenever the read-back CRC matches,
-   including on the deferred-abort path, so the runtime never diverges
-   from durable content;
-7. with no latched abort, publish the current image, then revoke/stop
-   Core1, flush all storage/general capacity, restart under a new owner
-   epoch, and force `SESSION_STATUS` plus source revalidation — the brief
-   identity-anchor rotation, a few milliseconds of wire silence well under
-   the responder stale limit;
-8. publish durable apply completion only after the same HOST-PEER relation
-   is re-established. A latched abort instead aborts the episode with the
-   domain left stale, so the reopen audit re-proves it (an expected
-   `MATCH` when the write-through content already landed).
+3. release the final result slot and open the slice swap; Core1 keeps running,
+   no storage request stays pending, and its standing liveness beat holds the
+   wire for the whole write;
+4. for each bounded slice, raw-read the old bytes into the 32-byte scratch,
+   submit the candidate through the ERA result-bearing wear-level write seam,
+   and only on success replace that candidate slice in staging with its old
+   bytes and advance `written_prefix`. The public read hook in
+   `drivers/eeprom/eeprom_wear_leveling.c` delegates to the strong facade in
+   `split/era_host_peer_storage.c`, which overlays staged-old prefix and any
+   protected failed slice on raw-old suffix. Internal writer, verifier,
+   rollback and reload paths use the raw/cache seam and never call that facade.
+   `wear_leveling_write()` (`quantum/wear_leveling/wear_leveling.c`) owns the
+   physical failure boundary below that seam: an append verification failure
+   never retries or decodes the failed slot. It erases the partial log and
+   consolidates the already-complete requested cache, exactly as the existing
+   mid-request log-full path does. A verified image and checksum return
+   `CONSOLIDATED`; a second complete erase/write attempt is the only retry;
+5. after the final slice has yielded one keyboard opportunity, require
+   staging = complete old, raw/cache = complete candidate, and public =
+   complete old; compute the expected CRC through the raw/cache reader, not the
+   public facade. The checked write result proves both that each logical
+   wear-level responsibility completed and that the wear-level cache, physical
+   image/log and append cursor are canonical. The O(1) health query is required
+   again at final Apply publication. The readback CRC is cache integrity and is
+   not relabelled as a separate physical-bank atomicity proof;
+6. evaluate the deferred abort, then every fallible publication prerequisite.
+   Any slice/verify/abort/preflight failure retains public old, publishes no
+   manifest or State Sync revision, and restores the candidate prefix in
+   bounded reverse slices from staging, verifying each restored slice. A
+   failed roll-forward leaves the complete candidate cache in the wear-level
+   layer's `REPAIR_REQUIRED` state, where cache equality cannot report success
+   and the next protected-old rollback write performs whole-cache repair rather
+   than an append. If that repair also fails, ordinary writes become
+   unavailable; the slice swap retains its own `REPAIR_REQUIRED` phase and the
+   public-old facade, reports no success, and cannot reuse staging. The raw
+   cache remains readable because that facade needs it to assemble untouched
+   old suffix bytes; durability decisions use the separate health query;
+7. on success only, perform the pull-side relation rotation while rollback is
+   still possible, reload the runtime owner through the raw candidate, then
+   atomically make the facade inactive. That phase write is the sole public
+   old-to-new boundary. Refill the now-free staging image from raw, publish the
+   immutable image and manifest, and finally advance the affected State Sync
+   revision exactly once;
+8. publish durable Apply completion only after the same relation is
+   re-established (pull) or the responder has made its durable declaration
+   (push). A terminal role or mode exit with volatile old-byte ownership first
+   rolls the prefix back synchronously; it may not clear the swap state on a
+   failed repair.
 
-A rotation failure after the write aborts the episode and increments the
-flash-quiesce failure counter. A read-back CRC mismatch marks the domain
-for hint-disabled full fetch. There is no optimistic write and no core0
-synchronous wire fallback. A terminal role or mode exit with the cursor
-open finishes the local sliced write synchronously before the episode
-resets, so a promoted or standalone runtime never types on torn content.
+A rotation failure before the public flip rolls back and increments the
+flash-quiesce failure counter. A raw read-back CRC mismatch marks the domain for
+hint-disabled full fetch. There is no optimistic write and no core0 synchronous
+wire fallback. If an unexpected post-flip immutable-image/manifest publication
+failure occurs, raw, runtime and public are already the complete candidate;
+the engine records `publication_repair_required`, publishes no success or State
+Sync revision, and admits no further storage episode until reset-time capture.
+That state is neither old raw nor a successful publication and must not be
+reported as either.
 
-The underlying wear-level driver does not provide a multi-byte atomic commit.
-Power loss during step 5 may leave a physically partial domain. Such a boot has
-no durable-completion authority: each owner follows its existing boot behavior;
-validated owners may default, while raw dynamic keymap/macro reads may expose
-the physically stored partial image until the next valid HOST relation. The
-target captures a comparison CRC even when it has no valid source revision;
-that CRC then differs from the HOST proof and the whole domain is retransmitted.
-Firmware never reports a partial image as complete and never resumes from a
-partial chunk offset after reset. This recovery contract does not add or reuse
-durable epoch/journal metadata; stronger power-loss atomicity would require a
-separately approved storage format and invariant.
+The same health query gates boot initialization, later domain capture, cold
+storage work, immutable-image publication and the final Apply commit in
+`split/era_host_peer_storage.c`. It is derived directly from the common
+wear-level owner and is not a second storage state machine or a new wire
+status. Thus a recoverable one-shot program mismatch remains local and
+transparent after verified consolidation, while an unrecoverable backing
+failure cannot be advertised as a cache-only success.
+
+The guaranteed atomicity is runtime-session **public** old-or-new. The
+underlying wear-level driver is a single logical bank and does not provide a
+multi-byte atomic commit. A power cut while candidate slices are durable loses
+the volatile staged-old prefix and can leave a mixed logical domain. At the
+next boot the existing source-capture/recency rules cannot distinguish those
+bytes from a legitimate offline local edit; except for the dynamic-macro
+domain's own nonzero valid marker, that mixed content can be captured under a
+fresh local CRC/revision and later enter arbitration. Firmware never resumes
+the old transaction or calls it the pre-reset candidate revision, but this is
+not a cross-reset old-or-new guarantee.
+
+A true cross-reset guarantee requires persistent ownership: at minimum an undo
+journal or second candidate bank large enough for the maximum 16384-byte
+domain, plus version/domain/length/CRC and an atomic commit marker. The current
+24576-byte logical layout leaves only 7031 bytes on the 12x9 schema and 6839 on
+the 12x11 schema after the macro domain, so that journal does not fit. A small
+in-progress marker could suppress advertisement but could neither reconstruct
+the old domain nor distinguish repair from a legitimate offline edit without
+new policy. Either design changes reserved storage, compatibility and
+migration; it is outside this contract until separately approved.
 
 ## Scheduler And Matrix Recovery
 
@@ -1400,9 +1688,9 @@ separately approved storage format and invariant.
   value arms, whose own result decides direction and domains. **No hint
   schedules a single-domain probe**: a news value names no domain, and no
   path writes `probe_pending_mask` from a peer's claim. There is no periodic
-  idle patrol. A dirty domain
-  becomes eligible only after the 1000 ms trailing storage quiet interval; a
-  proof request cannot force early capture.
+  idle patrol. A dirty domain becomes eligible only after the 1000 ms trailing
+  storage quiet interval and any domain-specific commit authority; a proof
+  request cannot force early capture.
 - Probe pacing after a failed episode backs off exponentially with the
   failing domain's consecutive-failure streak (25 ms doubling toward a
   1 s bound); the streak persists across relation events and resets on
@@ -1509,17 +1797,16 @@ floor pads a short process to visibility and never extends a long one, so it
 is a rise-anchored guarantee rather than a trailing delay. The fact is the
 union of two arms:
 
-- **The local arm** — this half's own unfinished pair work, O(1) RAM:
+- **The local arm** — this half's own unfinished visible pair work, O(1) RAM:
   dirty content inside its trailing quiet interval; settled content departed
-  from its persisted baseline (a RAM changed shadow written at exactly the
-  three sites that already read the baseline record — settle, boot,
-  convergence close — plus the terminal refusal, which retires a claim the
-  pair can no longer act on); the decided content-moving cells
-  (push | conflict | the pull-expected `probe ∩ peer-changed` subset); an
-  armed **in-session** summary; and a decided episode's own span — the
-  content-expected latch taken from the token's cell at start, then the
-  moving span through close. All behind one cold-cached gate:
-  serviceability AND this half's own sync policy.
+  from its persisted baseline except the boot-invalid subset still tagged
+  provisional (the RAM changed shadow and provenance described in **Recency
+  Layer**); visible decided content-moving cells (push | conflict | the
+  pull-expected `probe ∩ peer-changed` subset); an armed **in-session**
+  summary; and a visible decided episode span — the content-expected latch
+  taken from the token's cell at start, then the moving span through close.
+  All behind one cold-cached gate: serviceability AND this half's own sync
+  policy.
 - **The mirror** — the peer's advertised fact, which is its whole local
   arm, **dirty phase included** (owner ruling): a VIA save is a multi-second
   write stream, so a settle-anchored advertisement puts the responder seconds
@@ -1535,9 +1822,27 @@ union of two arms:
   discipline, the news byte by the invalid-shadow force. Without that force a
   pure-target responder's all-zero post-rotation byte strands the initiator's
   mirror lit, which is the device-caught case and the reason the re-statement
-  is guaranteed by mechanism rather than by the value happening to differ. It
-  clears when the relation leaves service, so a standalone half never wears a
-  stale lamp.
+  is guaranteed by mechanism rather than by the value happening to differ.
+  Runtime-role admission is not the relation lifetime: an owner/session/
+  capability readiness gap inside one of the four serviced modes may tear down
+  an episode but preserves the mirror and refreshes only the local policy gate;
+  `era_host_peer_storage_update_indicator_relation()`
+  (`split/era_host_peer_storage.c`) clears both only when the mode actually
+  leaves service. A standalone half therefore never wears a stale lamp, while a
+  durable-apply identity rotation cannot split one operation into two lamps.
+
+The display filter in `split/era_host_peer_storage.c` is not a work filter.
+The raw changed mask, summary classification, queues, retry path, mandatory
+audit, convergence writer and `era_host_peer_storage_restart_should_wait()`
+all retain their pre-filter meaning. Only the local advertised fact subtracts
+the provisional masks. `MATCH` retires a domain without a rise; `TRANSFER`
+retires its tag and confirms the initiator round before movement starts, and a
+storage timeout, source-change retry, or nonterminal abort also confirms it.
+Once confirmed, remaining summary/cell/gap work stays visible until round
+drain. Ordinary `BUSY` pacing and relation reopen alone do not confirm a
+baseline-only round. A real local write retires its domain's boot provenance
+before the dirty arm rises, so actual edits still synchronize indicator entry
+in both directions.
 
 > **REFUSED:** a responder-side lamp term bridging its own emitted news
 > step to the round it buys ("stepped, consequence not yet returned").
@@ -1581,9 +1886,13 @@ a new section is what a full mask leaves
 **A terminal refusal goes dark rather than reading as working**: it closes,
 arms nothing, and retires its domain's lamp claim — while a *retrying*
 failure keeps the lamp honestly lit through its backoff, because re-armed
-work is work. A CLEANed or fresh store boots with an invalid baseline
-record, seeds the shadow all-changed, and shows one lamp through its first
-convergence sweep — the per-domain closes clear it.
+work is work. A CLEANed or fresh store still boots with an invalid baseline
+record, seeds the raw shadow all-changed and runs the complete mandatory
+convergence sweep. Its successfully captured domains are display-provisional:
+if all seven close `MATCH`, the sweep shows no lamp; if any domain decides
+`TRANSFER` or the storage round encounters a confirming retry fault, the pair
+lights immediately and stays visible through the remaining drain. An
+unavailable capture is never suppressed.
 
 The explicit paced `wire storage` line family owns these compact counters:
 
@@ -1600,13 +1909,25 @@ The explicit paced `wire storage` line family owns these compact counters:
   armed), read from cold core0 state without growing the fixed 88-byte
   diagnostic record. The `csp` lane's arrival counters are an **absence**
   instrument and must read zero; field semantics in `era_capture_reading.md`.
-- `recency`: baseline-record validity, the per-domain changed mask, and the
-  seven divergence counters (Recency Layer above), read cold at print time
-  without growing the fixed 88-byte diagnostic record; field semantics in
+- `recency`: baseline-record validity, the per-domain changed mask, seven
+  divergence counters, local/relation provisional masks and the confirmed-
+  round latch (Recency Layer above), read cold at print time without growing
+  the fixed 88-byte diagnostic record; field semantics in
   `era_capture_reading.md`.
-- `core cl/tx/rx/pub/fail`, current request/result/ready generations, and the
-  last stage/result/failure/op/status. These are diagnostic-profile-only Core1
-  publication facts and do not authorize execution or expose live owner state.
+- `core cl/tx/rx/pub/fail`, current request/result/ready generations, the last
+  stage/result/failure/op/status, and the retained last-failure
+  stage/result/failure/op/status/classification/access/deadline delta. A
+  retained failure also carries actual publish-to-BEGIN residence, the
+  publish-relative not-after window derived by `era_route_contract.md`,
+  request identity, and the most recent
+  completed timed route's publish-relative start/end. These are
+  diagnostic-variant-only Core1 publication facts and do not authorize
+  execution or expose live owner state. They reuse the existing transaction
+  timing rather than adding a service-loop recorder. The retained record exists
+  because a successful retry legitimately overwrites `last`; losing the failed
+  boundary made a completed device capture unable to distinguish local queue
+  expiry from encode, backend and response failures or to place that expiry
+  against the lower-priority standing exchange.
 
 Diagnostics distinguish PEER initiator result-full from HOST responder
 result-full and distinguish transfer completion from durable apply completion.
@@ -1645,19 +1966,24 @@ oversight.
   design.
 - **A wear-leveling consolidation stall exceeding the responder-silence limit
   is an honest staleness event with clean recovery**, not a liveness exemption.
-  Its recorded signature is `stall_ms` about 81 with `sy=sl=12` inside durable
-  applies of 2.3 s, at `max_ms` in the 428–494 band; the width is what
-  classifies it.
+  Classify the flash contribution with `stall_ms`, the longest non-yield span,
+  while each runtime consolidation advances `sl` and `sy` together in
+  twelve-gap groups and `cross` remains zero. `max_ms` is the whole operation,
+  not the silence width, and no fixed apply-duration or `stall_ms` band is a
+  contract (`system/era_flash_slice.c`).
 - **A CLEAN convergence has been observed failing to complete one domain**,
   with eight wire timeouts on the CLEANed half's first boot: `core rx` exactly
   eight short of `core tx`, `abort=1`, `xfer=4` against `complete=3`. The same
   boot read `sl=12 sy=0` — the erase decomposed and yielded to nothing, because
   `keyboard_init()` (`quantum/keyboard.c`) runs before the loop those gaps
-  yield to — so core0 was blocked for the whole ~399 ms window and requests
-  issued across it expire on their own 5 ms core1 bound. That makes the
-  timeouts plausibly structural and **the incomplete transfer not**: nothing
+  yield to — so core0 was blocked for the whole ~399 ms window. That capture
+  used the retired fixed 5 ms construction-time queue bound; current requests
+  instead receive the publication-relative wire-scaled bound canonical in
+  `era_route_contract.md`. The 399 ms boot window still exceeds that queue
+  bound, so this scheduler correction does not by itself prove the CLEAN case
+  repaired. That makes the timeouts plausibly structural and **the incomplete transfer not**: nothing
   establishes that the aborted domain ever converged. Unfixed, and the
-  discriminator is the `cause` profile's storage cause timeline, which orders
+  discriminator is the `cause` variant's storage cause timeline, which orders
   `EEPROM_BEGIN`/`EEPROM_END` against the aborts.
 
 > **REFUSED:** interleave admitted routes into the CHUNK phase.

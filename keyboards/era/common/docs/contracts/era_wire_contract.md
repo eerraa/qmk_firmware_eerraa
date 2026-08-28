@@ -212,7 +212,7 @@ Sections:
 0x10: ACTIVITY         window + counters    11 bytes  DUAL-HOST
 0x20: VISUAL           reason + baseline    8 bytes   DUAL-HOST
 0x40: STORAGE_PENDING  pending flag         1 byte    both relations
-0x80: RESTART_ARM      act + param + when   5 bytes   both relations
+0x80: RESTART_ARM      act + param/phase + when  5 bytes  both relations
 ```
 
 Storage-pending section body:
@@ -248,66 +248,84 @@ Restart arm section body:
 
 ```text
 byte2 bit7: restart arm section marker
-body byte0: bits0..1 = param (act-defined; 0 for an act with none)
+body byte0: bits0..1 = wire param (act-defined value or phase below)
             bits2..3 = act (0 idle, 1 link speed, 2 EEPROM clean; 3 refused)
             bits4..7 reserved zero, validator-refused
 body byte1..4: T_commit, sync-timer milliseconds, little-endian
 ```
 
-The initiator's half of the two-phase agreement that resets both halves of a
-pair at one instant, and the only half that has a section: the response mask has
-all eight markers assigned, so the responder's request and its confirmation ride
-the AUTHORITY flags byte instead (below). `0x80` has never been assigned in the
-push id space, which is the same reading of the marker rule `STORAGE_PENDING`
-took for `0x40` while the response direction already used that value.
+The initiator's carrier for the preparation and commit phases of the same
+restart act on both halves, and the only half that has a section: the response
+mask has all eight markers assigned, so the responder's request, PREPARED and
+COMMIT_ARMED states ride the AUTHORITY flags byte instead (below). `0x80` had
+never been assigned in the push id space, which is the same reading of the
+marker rule `STORAGE_PENDING` took for `0x40` while the response direction
+already used that value.
 
 **The section is the mechanism, not the feature.** It carried the link switch
 alone when it opened and now carries any agreed act; the body says which, and
 the acts are `split/era_split_restart_agreement.h`'s. That generality is what
 keeps the push id space from having to find a second marker for the second
-thing two halves must reset together, and there is no second marker to find.
+thing two halves must perform at a shared deadline, and there is no second
+marker to find.
 
-**The act absorbs the arm bit**, which is why the width did not move when the
-section stopped being one feature's: an act of zero is idle, so advertising an
-act *is* the arm and no separate flag is spent. The fourth code point of the
-two-bit field is **refused** by both validators rather than reserved, so a
-captured 3 is a malformed frame and never an act from an era the reader's image
-does not know. The param's width is the act's own — `era_split_restart_intent_valid()`
-(`split/era_split_restart_agreement.c`) answers for both carriers, so an act
-with no parameter refuses the three values it never means.
+**The same two-bit wire-param seat remains act-defined; CLEAN spends values on
+agreement phase rather than changing its user/API parameter.** The complete
+section validation table is:
 
-The deadline is absolute rather than a countdown, and that is the reason the
-section costs four bytes instead of one: a latest-state section can cross again
-— a forced refresh, a reopen — and an absolute deadline is idempotent under
-re-delivery where a countdown restarts itself on every arrival. It is the same
-encoding the time-anchor section carries, on the same clock.
+| Act | wire param | `T_commit` | Meaning |
+| --- | ---: | ---: | --- |
+| idle | 0 | 0 | canonical all-zero body |
+| link speed | the validated link-level parameter | nonzero | the existing shared-deadline arm |
+| EEPROM CLEAN | 1 | 0 | `PREPARE`; no deadline exists |
+| EEPROM CLEAN | 2 | nonzero | `COMMIT`; the shared deadline |
 
-The idle form is one canonical all-zero body: with the act zero the validator
-requires the param and the deadline to be zero, so a section whose live form
-carries a timestamp still has a reserved-zero rule to enforce.
+For CLEAN, wire-param 0 or 3 in this section is malformed. Act value 3 remains
+refused in every form. CLEAN's application parameter remains zero and the act
+table's `param_max` remains zero; values 1 and 2 never reach the local CLEAN
+dispatch as an application argument.
 
-**The deadline is absolute and not a countdown**, and that is what the four
-bytes buy. Every section here can cross again — a forced refresh, a reopen —
-and an absolute deadline is idempotent under re-delivery where a countdown
-restarts itself on each arrival. It is the `TIME_ANCHOR` section's encoding on
-the same clock, and the responder is that clock's source in both relations, so
-the initiator is quoting a time its peer owns.
+The CLEAN ordering is load-bearing. `PREPARE` asks the pair to enter storage
+quarantine and perform the local reboot-durable boot-magic invalidation; its zero
+timestamp cannot be interpreted as a deadline. Only after the initiator holds
+both local and peer PREPARED for the same relation may it publish `COMMIT`.
+The responder adopts that nonzero deadline and advertises COMMIT_ARMED through
+AUTHORITY; the initiator takes the same local deadline only after consuming
+that state. A response snapshot may have been published before the incoming
+push was applied, so transaction success or a PREPARED echo is not a
+COMMIT_ARMED confirmation; the initiator waits for the matching later
+latest-state edge.
 
-**The idle form is one canonical all-zero body**: with the arm bit clear the
-validator requires the level and the deadline to be zero, which is what gives a
-section carrying a timestamp something a reserved-bit discipline can check.
-Unlike the one-byte facts it does **not** force a cross per relation — both
-halves drop the handshake on the relation identity rotation, so the idle body
-never has to reach a peer that could be holding a stale arm, and a fresh boot
-puts nothing of this section on the wire.
+**A nonzero deadline is absolute and not a countdown**, and that is what the
+four bytes buy. The COMMIT section can cross again — a forced refresh, a reopen
+— and an absolute deadline is idempotent under re-delivery where a countdown
+would restart itself. It is the `TIME_ANCHOR` section's encoding on the same
+clock, and the responder is that clock's source in both relations, so the
+initiator is quoting a time its peer owns. PREPARE is the one admitted
+zero-deadline live form and validators distinguish it by the CLEAN/param-1
+tuple.
+
+**The section forces its current body to cross once per relation.** Relation
+rotation invalidates the standing sender shadow, so ordinary idle state crosses
+as the canonical all-zero body; a confirmed live arm instead re-crosses its
+same absolute deadline. The force is load-bearing for an unconfirmed CLEAN
+COMMIT: rotation retires that proposal but holds the section at idle until the
+peer has processed the disarm and advertised a fresh PREPARED state, and only
+then may a replacement deadline be created. A previous relation's PREPARED or
+COMMIT_ARMED state is never accepted as current in a new one. The local CLEAN
+quarantine and monotonic prepare obligation survive the identity change and may
+be discarded only through the controlled reset defined in
+`era_host_peer_storage_contract.md`; a fresh boot publishes only the idle body.
 
 **It is the yielding class's first claimant rather than a member of the
 never-deferring core**, because five bytes do not fit beside that core in
 either relation (`3 + 1 + 7 + 1 + 5` in DUAL-HOST and `3 + 7 + 1 + 5` in
 HOST-PEER, both past the fifteen-byte budget). It claims ahead of ACTIVITY: a
-handshake that has started is bounded by a deadline where a judgment refresh is
-not, and the frame it wants — arm plus AUTHORITY, exactly fifteen — is the one
-that carries the confirmation back in the same exchange.
+handshake that has started gates a bounded commit where a judgment refresh does
+not, and a frame can carry the five-byte phase beside the seven-byte AUTHORITY
+body at exactly fifteen bytes. That fit permits the answer and phase to share a
+frame when both were already published; it does not promise that applying an
+incoming phase mutates the response snapshot in the same exchange.
 
 `VISUAL` is the visual pressed-baseline twin in the push direction, at the same
 fixed width the response body uses. Render state whose content is pressed
@@ -466,10 +484,11 @@ body byte0:   flags
               bit0 = accepted_host_open
               bit1 = accepted_no_host
               bit2 = matrix_ready
-              bits 3..4 = restart param (act-defined; 0 for an act with none)
+              bits 3..4 = restart wire param (act-defined value or phase)
               bits 5..6 = restart act (0 idle, 1 link speed, 2 EEPROM clean;
                           3 refused)
-              bit7 = restart armed
+              bit7 = restart state-qualified (`armed` for link speed;
+                     PREPARED/COMMIT_ARMED qualifier for EEPROM CLEAN)
 body byte1..2: usb_epoch, little-endian
 body byte3..4: host_open_generation, little-endian
 body byte5..6: host_close_generation, little-endian
@@ -492,7 +511,7 @@ for, and what is shared is the rules rather than one constant.
 
 **Reserved bits zero used to be a third shared rule and is now `SESSION_STATUS`'s
 alone, because this byte has no reserved bits.** Bit 7 was the last one and the
-agreement's `armed` took it; the mask is `0xFF` and `era_split_wire_protocol.h`
+agreement's qualified state took it; the mask is `0xFF` and `era_split_wire_protocol.h`
 asserts that it is. The rule is discharged rather than dropped — every field is
 checked for what it may say, which is a stronger test than asking whether
 anything is set that should not be. **The next fact on this section needs its
@@ -525,25 +544,30 @@ serviced relation and both directions, it never defers, no sync policy bit
 gates it, and both ends already hold a shadow, so the intent gets change
 delivery with no mechanism of its own.
 
-**The act and the param are shared between the two phases because at most one
-is ever live: arming consumes the request.** With `armed` clear the fields say
-what this half is asking for; with it set they say what this half holds a commit
-deadline for. With the act zero the whole intent reads idle, and the validator
-refuses a param or an `armed` bit beside it — the section's idle form,
-checkable.
+**The five restart bits are one act-qualified state, not independent flags.**
+The complete AUTHORITY validation table is:
 
-**The armed form echoes what it armed for rather than blanking the fields**,
-and the echo is what lets the initiator confirm that the two halves armed for
-the *same* thing. It costs nothing, because the fields exist in this byte
-either way; without it a responder still holding `armed` from a previous
-episode would confirm the current one.
+| Act | wire param | bit7 | Meaning |
+| --- | ---: | ---: | --- |
+| idle | 0 | 0 | no restart state |
+| link speed | validated link-level parameter | 0 | request |
+| link speed | the same parameter | 1 | matching shared deadline adopted |
+| EEPROM CLEAN | 0 | 0 | `REQUEST` |
+| EEPROM CLEAN | 1 | 1 | local physical boot-replay proof complete: `PREPARED` |
+| EEPROM CLEAN | 2 | 1 | CLEAN COMMIT deadline adopted: `COMMIT_ARMED` |
 
-**A half publishes its request ahead of its armed fact**, and the order is
-load-bearing rather than arbitrary. An act that needs no confirmation leaves
-the commanded half holding a local deadline *and* a live request at once, and
-publishing `armed` there would hide the request the initiator has to see before
-it can arm. Adopting an arm clears the request, so the two are exclusive from
-that moment on.
+For CLEAN, `(param 1, bit7 0)`, `(param 2, bit7 0)`, `(param 0, bit7 1)` and
+every param-3 form are malformed. The full tuple participates in the sender
+shadow and receiver edge comparison, so REQUEST→PREPARED→COMMIT_ARMED cannot be
+collapsed into one sticky armed level. Relation identity is part of the
+consumer's acceptance even though it costs no byte in this body.
+
+**A CLEAN request is published before either qualified state.** PREPARED says
+only that this half's one-word prepare survived physical boot replay under
+storage quarantine; it carries no deadline. COMMIT_ARMED says that this half adopted
+the matching nonzero COMMIT deadline. Only that last state confirms an arm.
+The separation prevents a stale PREPARED answer from being mistaken for the
+commit echo and spends no new body, marker, operation or cadence.
 
 **The restart intent is not a session fact, and the two consumers differ on
 purpose.** `era_split_wire_authority_equal()` compares it, because that
@@ -902,12 +926,13 @@ Rules:
   never-deferring core — the yielding class defers to
   AUTHORITY and within itself by remaining budget, through room checks against
   the plan's projected length, and the anchor yields to everything. Within the
-  yielding class the restart arm claims budget first, then ACTIVITY
+  yielding class the restart phase claims budget first, then ACTIVITY
   (judgment data with a live window behind it outranks a render refresh), then
   the visual baseline, then RGB state. **The arm leads the class because it is
-  the one member with a deadline behind it**, and because the frame it wants is
-  arm plus AUTHORITY at exactly fifteen bytes, which carries the confirmation
-  back in the same exchange. Both it and ACTIVITY sit in the yielding class
+  the one member that can establish a commit deadline**, and because its five
+  bytes fit beside AUTHORITY at exactly fifteen. That is a capacity statement,
+  not an apply-order promise: a matching PREPARED or COMMIT_ARMED answer may
+  arrive on a later latest-state exchange. Both it and ACTIVITY sit in the yielding class
   rather than in the core because a one-poll deferral is noise against a 200 ms
   judgment window and against a commit window of hundreds of
   milliseconds. A deferred
@@ -936,10 +961,10 @@ Rules:
   never drains; ACTIVITY at eleven bytes fits beside *each* response-direction
   one-byte fact but not both at once, so both falling due on the poll an
   ACTIVITY drain is due defers that drain one further response poll. The
-  restart arm carries a second drain assert of its own — that it fits
+  restart phase carries a second drain assert of its own — that it fits
   beside AUTHORITY at exactly fifteen bytes — because an arm that could never
-  share a frame with the section carrying the answer would cost every agreement
-  an extra round trip.
+  share a frame with the section carrying the current answer would add a
+  permanent capacity round trip to every agreement.
   `AUTHORITY + RGB` is 14 body bytes against 12, so those two never share a
   frame in either direction — an exclusion the family deliberately does not
   assert, because an exclusion assert would state the opposite of the

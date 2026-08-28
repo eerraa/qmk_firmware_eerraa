@@ -137,8 +137,15 @@ list is exhaustive — a payload or behavior not named here is closed.
   open for. The link switch was its first user and the EEPROM clean is its
   second; a third would be a new act value in an existing body, not a new
   opening. What the cell may never carry is an act whose consequence is anything
-  but "prepare, then reset this half" — a wire that can make a peer do arbitrary
-  work is a different surface from a wire that can make it restart.
+  but "prepare, then act at one shared deadline, resetting only when the act
+  table says so" — a wire that can make a peer do arbitrary work is a different
+  surface from this bounded agreement.
+
+  CLEAN's `PREPARE(param=1, T=0)` and `COMMIT(param=2, T!=0)` are phases of that
+  same second act, not two more acts or openings. They retain the five-byte
+  body, marker, push direction, standing cadence and eligibility cells. The
+  storage quarantine they drive is derived local admission state and crosses
+  as no new wire fact (`era_wire_contract.md` for the validator table).
 - **The restart intent is open in the AUTHORITY body in both relations and both
   directions**, as bits 3..7 of that section's flags byte: a widening of an
   existing body rather than a new section, the `STORAGE_NEWS` bit7 precedent
@@ -150,6 +157,12 @@ list is exhaustive — a payload or behavior not named here is closed.
   agreement that could be turned off by a lighting preference would be a
   feature the owner cannot reach when they need it
   (`era_wire_contract.md` for both bodies).
+
+  CLEAN reuses the existing act/param/bit7 tuple as REQUEST, PREPARED and
+  COMMIT_ARMED. It adds no bit: the tuple's previously refused CLEAN param
+  values become validator-owned phase values, while CLEAN's user/API parameter
+  remains zero. Relation identity scopes every phase, so no transaction id or
+  retained marker is opened here.
 
   **This spends the flags byte's last reserved bit**, which the same contract
   records with the three alternatives that would buy another and what each

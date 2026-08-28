@@ -23,7 +23,7 @@ Read when: every ERA split implementation or review session
     short-circuited, so both always ran — and the split stands on its own
     reason: C leaves the operand evaluation order of `|` unspecified, so the
     single expression did not say which of the two ran first.
-  The release profile MUST be functionally identical to upstream. No other QMK
+  The standard variant MUST be functionally identical to upstream. No other QMK
   core matrix edit is permitted.
 
   This is a fork-hygiene invariant, not a statement about the running image.
@@ -136,6 +136,23 @@ Read when: every ERA split implementation or review session
   the grant exists, that it is per relation and per route kind, that it is
   bounded, and that it never extends to authority; its identity terms and stop
   semantics are canonical in `era_route_contract.md`.
+- **Replacement Apply has one public-image boundary.** Until the successful
+  publication flip, every ordinary EEPROM reader MUST observe the complete
+  pre-Apply domain; after it, every reader MUST observe the complete candidate.
+  A candidate prefix, old suffix, or failed current slice is never a public
+  image. Only the Apply writer, raw verifier, rollback and runtime reload may
+  bypass that facade. The staged ownership, checked-write order, rollback and
+  runtime-versus-reset scope are canonical in
+  `era_host_peer_storage_contract.md`; preserving a mixed raw store behind an
+  old public facade is valid only while the volatile old-byte ownership still
+  exists.
+- **A build-variant name and its compiled five-axis tuple are one identity.**
+  `standard`, `wire`, `qwin`, `cause`, `stale` and `qwin_phase` each resolve to
+  the immutable `wire/qwin/phase/cause/stale` tuple owned by
+  `manuals/era_build_options.md`. A command-line option, `MAKEFLAGS`, exported
+  environment, or `make -e` may select the name and MUST NOT mutate an axis
+  beneath it. Artifact and manifest identity comes only after the ELF witnesses
+  agree with the resolved tuple.
 - While core1 owns a transaction, core1 MUST also own control-byte construction
   and transaction-engine tx/ack sequence state. Core0 may publish only semantic
   immutable request data and MUST NOT preallocate wire sequence values.
@@ -381,7 +398,12 @@ Read when: every ERA split implementation or review session
   structurally zero. **Refusing is the safe side there and is not the safe side
   at `wear_leveling_write()`**, where a refusal would drop a user's edit and the
   cache-only path exists instead; past that interlock the caller is about to
-  commit into a half-erased store, so there is no lossless option left.
+  commit into a half-erased store, so there is no lossless option left. The
+  CLEAN-only `wear_leveling_write_word_reboot_checked()`
+  (`quantum/wear_leveling/wear_leveling.c`) is deliberately different: it is a
+  durability proof rather than an ordinary edit, and refuses before changing
+  the cache when the gap is open, because cache-only success could not publish
+  `PREPARED`.
 
   **Slicing without a gap that runs something is not this mechanism**, and
   three rules keep the distinction measurable. `sl`/`sy` and `stall_ms` exist

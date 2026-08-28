@@ -142,8 +142,10 @@ BIOS나 부트 메뉴에서 읽지 못하면 끄라"고 안내한다.
   아니라 QMK 스위치에서 파생된다: `NKRO_ENABLE = yes`일 때만
   `features/era_nkro_via.c`가 `SRC`에 들어가고 `-DERA_NKRO_VIA_ENABLE`이
   나간다(`system/era_common_qmk_rules.mk:257`). 그 파일을 읽는 경로는 보드의
-  `post_rules.mk`인데 `sirind/brick65`에는 `post_rules.mk`가 없다 — atmega32u4
-  영구 예외이며, 그 보드의 VIA 정의에도 NKRO 메뉴가 없다.
+  `post_rules.mk`가 `system/era_common_qmk_rules.mk`를 포함하는 경로다.
+  `sirind/brick65/post_rules.mk`는 빌드 이름 검증과 옵션 출력만 포함하고
+  그 공통 펌웨어 규칙은 포함하지 않는다 — atmega32u4 영구 예외이며, 그
+  보드의 VIA 정의에도 NKRO 메뉴가 없다.
 - VIA 정의 파일은 26개(`*-VIA.json`, 스플릿 3보드가 L/R 두 벌씩), 그중
   **25개에 NKRO 메뉴가 있다.** 값 id는 5
   (`features/era_nkro_via.h:17`), 채널은 `id_custom_channel`. 이 번호는

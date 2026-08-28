@@ -11,10 +11,12 @@ jargon-heavy documents below decode on first contact.
 ## What ERA Is
 
 Every board under `keyboards/era` is an ERA board: twenty-two RP2040 boards
-take the whole ERA layer, and `sirind/brick65` (atmega32u4) takes none of it — a
-permanent exception, not a debt. All share one common layer under
-`keyboards/era/common/`, and every RP2040 one runs the whole image from SRAM
-(copy-to-RAM) so neither core fetches flash at runtime
+take the whole ERA firmware layer, and `sirind/brick65` (atmega32u4) takes none
+of that firmware — a permanent runtime exception, not a debt. Its
+`sirind/brick65/post_rules.mk` includes only the common make-time build-variant
+validator and option printer, so all twenty-three boards still share one
+automated-build identity contract under `keyboards/era/common/`. Every RP2040
+one runs the whole image from SRAM (copy-to-RAM) so neither core fetches flash at runtime
 (`manuals/era_board_adoption.md`'s **Copy-To-RAM Policy**).
 
 Three are split — `sirind/tomak`, `tomak79h`, `tomak79s` — and the custom
@@ -143,12 +145,15 @@ Per-file ownership is canonical in `maps/era_source_map.md`; this is the shape:
 - **promotion** — a former PEER that lost the relation (e.g. cable pull) and
   runs standalone on its last durable image.
 - **agreed restart** — both halves of a pair committing the same **act** at one
-  instant: the commanded half requests over the AUTHORITY section, the
-  relation's initiator arms with a shared-clock deadline over the
-  `RESTART_ARM` push section, and each half runs the act's own preparation at
-  that deadline. An act that resets (EEPROM CLEAN) resets immediately after
-  prepare; the link-speed act does not — its prepare is the runtime divider
-  change. The mechanism knows neither user
+  shared-clock deadline: the commanded half requests over the AUTHORITY
+  section, the relation's initiator drives the act's preparation and commit
+  phases over the existing `RESTART_ARM` push section, and AUTHORITY carries
+  the responder's matching state. EEPROM CLEAN is the checked-preparation user:
+  both halves invalidate and verify their own boot magic under storage
+  quarantine, and no commit deadline exists until both report PREPARED. It then
+  resets at the deadline with no further EEPROM write. The link-speed act still
+  applies its runtime divider at the deadline and does not reset. The mechanism
+  knows neither user
   (`split/era_split_restart_agreement.h`; wire in
   `contracts/era_wire_contract.md`, what the cell is open for in
   `contracts/era_closed_surface_contract.md`).
@@ -168,7 +173,7 @@ Per-file ownership is canonical in `maps/era_source_map.md`; this is the shape:
 - **CORE1_FULL** — the default communication-core stage: core1 owns all wire IO.
 - **qwin** — the no-cable standalone scan-rate benchmark window (`WIRE_QWIN`);
   its 18 kHz per-half floor is canonical in `manuals/era_performance_gates.md`.
-- **rung** — a build profile that exists only to attribute a measurement: the
+- **rung** — a build variant that exists only to attribute a measurement: the
   all-on image with exactly **one** mechanism turned off, so the difference
   between its window and the all-on window of the same sitting is that
   mechanism's contribution. A batch that lands several mechanisms together is

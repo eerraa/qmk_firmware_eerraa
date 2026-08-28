@@ -20,6 +20,33 @@ not against mandatory relation recovery. This ordering is the bounded-idle
 proof that storage cannot hide cable loss, role change, policy change, or stale
 session authority indefinitely.
 
+**Priority applies at transaction boundaries; an exchange already begun is
+never preempted.** Core0 therefore admits only one of the generic request ring
+and the dedicated storage request slot at a time. A pending generic request
+prevents the next storage publication, as before; the reverse gate now holds
+both `SESSION_STATUS` and matrix outside the generic ring from successful
+storage publication through result consumption or cancellation. The preceding
+reserve-to-publish prefix has no scheduler point inside its one Core0 call.
+Their due facts remain armed. Thus a status edge
+that arrives during one storage transaction runs after that result is drained
+and before another storage publication, while matrix runs only after the same
+higher-priority work. The admission reads the existing Core0 cached
+request-pending flag and adds no queue or state (`split/era_host_peer_storage.c`,
+`split/scheduler/era_split_transport_scheduler_routes.c`).
+
+**A Core1 request's queue freshness begins at shared publication, not request
+construction.** Once the two request slots cannot coexist, the only legal
+predecessor is one already-running compact standing exchange. The not-after
+window is therefore the configured standing response window at the current
+backend wire scale plus a 5 ms handoff/TX margin. The default 20 ms response
+window yields 25 / 45 / 85 ms at High / Medium / Low. The margin is statically
+held above one maximum compact frame plus turnaround at Low, and the configured
+Low-level maximum must remain below the 100 ms Core1-unresponsive judgment or
+the build fails. This is a queue-residence bound only; the selected request's own
+response window starts after BEGIN (`split/scheduler/era_split_transport_scheduler_routes.c`,
+`split/communication_core/era_split_communication_core_host_peer_lanes.c`,
+`split/communication_core/era_split_communication_core_storage.c`).
+
 **The exclusive span is the transfer phase, not the episode.** Exclusivity runs
 from a validated `TRANSFER` to each role's transfer-verified boundary and to an
 abort's bounded cleanup; the apply phase is a local flash operation on the
@@ -33,6 +60,21 @@ the small remainder of the span (`era_host_peer_storage_contract.md` carries
 both figures). Design against that — the windows are what lets a press-and-release
 that lands in one still cross, and no design may treat them as usable room a
 route can plan to occupy.
+
+**CLEAN quarantine is a different and stronger admission state than transfer
+exclusivity.** A half installs the cached O(1) gate before it publishes CLEAN
+PREPARED, and it stays installed through COMMIT and controlled reset. While it
+is set, this half may neither select nor publish a storage request, admit or
+answer one as responder, or expose a storage snapshot for a new episode. Any
+already-owned storage request/result or Apply old-view responsibility reaches
+its existing safe close/cancel boundary before PREPARED may publish. Mandatory
+`SESSION_STATUS` and the standing exchange remain admitted: AUTHORITY and
+`RESTART_ARM` are the carriers that finish the CLEAN agreement. No abort,
+timeout or relation rotation clears the gate; a new relation re-drives the
+local monotonic prepare obligation and only controlled reset clears the live
+state. The state adds no route, queue, scan, cadence or wire fact
+(`split/era_split_restart_agreement.c`, `split/era_host_peer_storage.c`,
+`split/scheduler/era_split_transport_scheduler_routes.c`).
 
 **Exclusivity suppresses the routes an initiator selects and never a
 responder's answer.** A busy responder that goes mute is indistinguishable from
@@ -297,9 +339,10 @@ The rules, and each is a bound rather than a convention:
 - **The plan is published on change, never on a pass or a timer.** It carries
   the owner epoch, the relation generation, an enable bit, the period, the
   eligible push section mask, and the latest-state section bodies — the
-  restart arm among them, whose two moves per owner action are exactly the
-  cadence class this rule was built for, and whose deadline is an absolute
-  instant so a republish hands core1 the same body rather than a moved one. Publishing
+  restart phase among them, whose bounded PREPARE/COMMIT/idle changes are
+  exactly the cadence class this rule was built for, and whose nonzero commit
+  deadline is an absolute instant so a republish hands core1 the same body
+  rather than a moved one. Publishing
   it on a pass would reintroduce the per-exchange core0 cost the grant exists
   to remove, and publishing a time-varying field in it would make every publish
   differ — the failure the responder snapshot already paid for once.
@@ -483,11 +526,12 @@ below are the same in every one of them.
 - The initiator may select storage only in a confirmed relation that admits it
   as initiator, with local requested policy enabled, both session endpoints
   advertising the required bulk-page support, no mandatory status revalidation
-  due, and dedicated core1 result capacity available.
+  due, no CLEAN quarantine on this half, and dedicated core1 result capacity
+  available.
 - The responder never selects a storage route. In a confirmed relation that
   admits it as responder, it may publish an immutable storage responder
   snapshot and admit only the matching initiator request in that request's
-  response slot.
+  response slot, provided CLEAN quarantine is not set.
 - The unpinned `BUSY`/core0 pin handoff remains nonexclusive and keeps normal
   HOST matrix response admission open, for the pull probe and the push open
   alike. Once a validated `TRANSFER` starts in either direction, storage takes
@@ -681,6 +725,11 @@ frame that outranks everything, the storage lane, and this relation's matrix:
 2. Active HOST-PEER storage step in the storage lane.
 3. `HOST_PEER_SOURCE_PUSH` when PEER matrix dirty or forced baseline exists.
 
+The ordering is the transaction-boundary rule above: an already-published
+storage request finishes without mid-frame cancellation, and a status becoming
+due during it prevents the next storage publication rather than aging in the
+generic queue.
+
 **The standing exchange is not a fourth entry, and that is why it is not on the
 list.** It is not selected against these at all: core1 reaches its standing
 service only on a pass where the request queue and the storage lane both did
@@ -793,17 +842,27 @@ follows is only the route consequence.
   decisions are deadline/due conditions, not producer events.
 - **A dead core1 is detected on both wire roles, by one detector with two
   co-dependent sensors**, both riding existing housekeeping passes and reading
-  one core1-published word each — the same wire-anchored liveness class as the
-  responder watch's accepted-RX read, not a core0 poll of core1. No new poll, no
-  wire traffic, no core1 code.
+  one core1-published word each, not a core0 request to core1. The responder's
+  word is wire-anchored accepted RX; the initiator's is completed Core1
+  lifecycle-loop passes. No new poll, no wire traffic and no new core1 writer
+  are introduced.
 
   - The receiving half's sensor is the **responder-silence watch** above: it has
     arriving frames to miss.
   - The initiating half receives nothing to miss, so its sensor is that watch's
     structural twin, the **initiator silence watch**
     (`scheduler/era_split_transport_scheduler_timing.c`), whose progress signal
-    is the standing exchange's own count through a one-word accessor. It arms
-    only where exchanges are supposed to be happening: initiator role, live
+    is the communication-core lifecycle's completed-loop count through
+    `era_split_communication_core_progress_count()`
+    (`split/communication_core/era_split_communication_core_lifecycle_rp2040.c`).
+    Queue, storage and standing service all return through the same increment,
+    and an idle loop increments immediately before parking. No legal service
+    occupancy may therefore hold that word unchanged for the unresponsive
+    bound; the scale-specific device gate is the proof where a runtime wire
+    level prevents one compile-time expression from being sufficient. A
+    genuinely stopped core advances none of them. The watch arms only where
+    service is supposed to be happening:
+    initiator role, live
     `CORE1` lease, known peer, no stop report, and a **granted** standing plan,
     cached at the publish from core1's own acceptance test
     (`relation_generation != 0`) so the watch cannot drift from the plan

@@ -22,7 +22,7 @@ migrating a board onto this image
   profile (about 24 KiB more headroom than wire, which carries the diagnostics
   worst case), the 16 KiB XIP cache reclaim, and LTO (off; expected 5-15%
   `.text` reduction, and it requires its own measured gate before adoption).
-  A per-board or per-profile free-RAM figure is a build's own output rather
+  A per-board or per-variant free-RAM figure is a build's own output rather
   than a recorded one — `common/tools/era_residency_gate.sh` prints it from the
   ELF, and no document carries a table of them to go stale. The standing
   requirement is the 32 KiB floor under **Verification** below.
@@ -261,7 +261,9 @@ crt0, both-core SRAM VTOR holds by construction.
   They are commit-window recorders: `fwg` counts commit windows without owner
   revoke and `wire edge flash` records window duration. The storage-path users
   of the stop/reset helper family are governed by the apply-liveness design
-  below.
+  below. CLEAN's reboot-durable word operation runs its physical
+  `wear_leveling_init()` replay inside this one bracket; it adds no unbracketed
+  runtime flash operation and refuses an erase-yield gap before changing cache.
 - The RP2040 wear-leveling backing store does not mask core0 interrupts across
   its program and erase windows. That mask covers one hazard — the SSI leaves
   memory-mapped XIP to issue the command sequence, so flash-fetched code must
@@ -282,7 +284,24 @@ crt0, both-core SRAM VTOR holds by construction.
   write windows of a CLEAN burst and every ordinary VIA write. It is **not**
   an enumeration fix, and that is recorded because it is the reason it was
   argued for: a measured CLEAN enumeration found `route slave` unmoved.
-- **Boot-ordering invariant, load-bearing and recorded here.** The
+- Under `ERA_HOST_PEER_STORAGE_V1_ENABLE`, an RP2040 program result is returned
+  only after XIP readback matches every requested complemented word, and an
+  erase result only after the full backing range reads physically erased
+  (`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`).
+  This is synchronous verification inside the existing commit window, not an
+  asynchronous durability claim. CLEAN additionally rebuilds the logical word
+  through ordinary boot playback, because physical byte equality alone cannot
+  detect an earlier empty log slot.
+- The semantic owner of a false verified result is the wear-level layer, not
+  this RP2040 backend. `wear_leveling_write()` and `wear_leveling_erase()`
+  (`quantum/wear_leveling/wear_leveling.c`) publish cache/cursor state only
+  after a canonical result: an ambiguous append rolls the already-complete
+  request cache forward through bounded whole-image consolidation, while a
+  repeatedly failed explicit erase keeps empty-cache publication and
+  boot-default writes unavailable. Storage consumes only the O(1)
+  canonical-health query;
+  it neither reconstructs flash state nor adds work to a scan-bound route.
+- **Boot-ordering invariant, load-bearing and recorded here.** The boot
   wear-leveling init consolidation and the hardware-id unique-ID read are the
   only unhooked flash operations and both run inside `keyboard_setup`
   (`quantum/main.c:41`), strictly before the first possible core1 launch. **No
@@ -321,12 +340,15 @@ semantics — cursor state, abort ordering, the core1 beat, and both storage
 state machines — are canonical in `era_host_peer_storage_contract.md`. What
 this contract owns is the placement-side consequence and the bound:
 
-- The PEER durable apply is a sliced write: a cursor state writes bounded
-  sub-ranges (span-diffed against the wear-leveling cache) from the
-  already-CRC-validated staged image, driven from the cold storage task with a
-  pending-work condition so slices run back-to-back. Core0 returns to its loop
-  between slices; the matrix-scan freeze drops from the full write duration to
-  one slice bound.
+- Replacement Apply is a staged slice swap: each 32-byte step first retains the
+  raw old slice, submits the candidate through a result-bearing wear-level
+  write, and only on success transfers ownership of the old bytes into the
+  staging image. The pending-work condition pumps one responsibility per scan
+  pass on either applying role. Core0 returns to its loop between slices and
+  after the final slice before raw verification; ordinary EEPROM readers keep
+  seeing the complete old image until the later publication flip. The bounded
+  scratch and runtime metadata account for 36 bytes of the core0 storage state
+  (`storage/era_storage_slice_swap.h`).
 
   **That bound is structural, not small, and this is the sentence that must
   not be read as reassurance.** One slice is 32 bytes, but a slice that
@@ -342,56 +364,41 @@ this contract owns is the placement-side consequence and the bound:
   core0 is the thing the write blocks, so a keepalive emitted from it is not a
   liveness signal. This states the mechanism rather than a measurement; the
   HOST-PEER half of it is unmeasured.
-- The rest of the apply protocol belongs to the storage contract and is named
-  here only so it is recognizable: an abort while the cursor is open finishes
-  the local sliced write of the validated staged image before aborting the
-  wire episode, so **no torn-EEPROM terminal state exists**, cable-pull
-  standalone included; the `nvm_eeprom_changed_kb` suppression covers the
-  apply's own slice writes only, so a foreign write into the target domain
-  still raises the dirty-abort; every exit clears the storage apply guard and
-  the guard-ignorant core1 stoppers (diagnostics flush, mode-change serial
-  reset) are interlocked against an open cursor; and the episode closes
-  through one brief `rotate_storage_relation` (1-4 ms of wire silence) that
-  provides the owner-epoch discontinuity and forced session revalidation.
+- The rest of the Apply protocol belongs to the storage contract and is named
+  here only so it is recognizable: deferred abort and verification/preflight
+  failure restore the candidate prefix in bounded, verified reverse slices;
+  rollback failure retains an explicit repair-required state and the old
+  public facade; a foreign write is absorbed into that old view before it
+  raises the abort; and a terminal relation/mode exit cannot discard volatile
+  old-byte ownership. Success alone performs raw runtime reload, the public
+  flip, immutable publication and the State Sync revision. These are
+  runtime-session guarantees; power loss discards the old-byte scratch and is
+  bounded separately in `era_host_peer_storage_contract.md`.
 
-**Consolidation stance, and it is a decision-record.** The wear-leveling
-consolidation erases the whole 48 KB backing in one call that blocks core0 for
-its duration, and can exceed the 100 ms watch on either half, in or out of
-storage episodes. That call no longer masks interrupts on this image (above),
-so USB and the timers survive the window; what does not is core0's own
-scheduler pass, and that is what the watch can still trip on. A consolidation
-that lands mid-apply or mid-session is an honest stale-trip-and-recover event,
-never a liveness exemption: the watch fires truthfully, write-through
-completes the local image, and the reopen audit converges (worst case one
-session re-establishment, with the content already durable). Per-sector
-consolidation decomposition remains an evidence-gated option.
+**Consolidation stance, and it is a decision-record.** KEEP_SECTOR_SLICED is
+the shipped mechanism. The 48 KiB RP2040 backing-store erase is twelve 4 KiB
+`flash_range_erase()` calls, with `wear_leveling_backing_erase_yield()` after
+every sector, including the twelfth
+(`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`). Once
+the keyboard loop is armed, each gap runs one matrix/action pass and no wire or
+storage recursion; the cache-only/reentrancy and commit-entry interlocks keep a
+partly erased store unreachable. The final gap is load-bearing because the
+whole-cache program begins immediately after the erase function returns.
+
+The outer commit window still spans all twelve erases and the following
+program, so `max_ms` does not shrink; `stall_ms` is the longest unbroken span
+between successful gaps. On a boot-time erase the loop is not armed and the
+expected signature is `sl=12 sy=0`; on a runtime consolidation it is
+`sl += 12`, `sy += 12`, with a keyboard opportunity after the final sector.
+Core1 remains alive throughout. No monolithic 48 KiB ERA erase is permitted.
 
 > **REFUSED:** a pre-flight log-headroom gate ahead of the write.
-> **WHY:** it needs a QMK-common accessor, and it converts a mid-write trip
-> into a pre-write abort that leaves the domain un-applied — strictly worse
-> than write-through.
-> **REOPENS:** a headroom read that costs no new accessor, on a store where
-> the abort would leave no domain un-applied.
+> **WHY:** it predicts consolidation but proves neither slice durability nor rollback, so it adds a QMK-common accessor without closing a failure path.
+> **REOPENS:** a measured failure after checked rollback and an existing result-bearing headroom fact that removes a prerequisite.
 
-> **REFUSED:** decomposing the wear-leveling consolidation further than the
-> sliced durable apply above, and making the durable write asynchronous.
-> **WHY:** the sliced apply measured sufficient against the freeze target on
-> its own. Decomposition
-> buys 68 → ~32 ms and opens a torn-consolidation hazard slicing does not
-> carry: `wear_leveling_write_consolidated()` (`quantum/wear_leveling/wear_leveling.c`) computes its FNV checksum from
-> the live cache *after* the bulk write, so a cache mutation inside that gap
-> stores a torn image under a checksum describing the untorn one and the next
-> boot clears the store on the mismatch — the interlock would have to defer or
-> snapshot rather than apply, a cost priced nowhere else. Of the two
-> asynchronous designs only one is architectural: poll-with-yield removes none
-> of the slicing's
-> mechanisms, since core0 still calls its own keyboard task from inside the
-> storage layer, and buys the case the 32 ms acceptance declined;
-> issue-and-return removes the call-graph cycle at the price of a durability
-> change (`eeprom_write_block()` returning before flash) plus a restructure of
-> `wear_leveling_consolidate_force()` and the QMK EEPROM contract above it.
-> **REOPENS:** the 32 ms interval becoming a measured complaint, or the
-> call-graph cycle producing another defect.
+> **REFUSED:** make the wear-leveling commit return before its program and checksum are durable.
+> **WHY:** QMK callers treat return as durability, while the checksum uses the live cache after programming; asynchronous mutation needs a second immutable cache or a new EEPROM contract.
+> **REOPENS:** a separately approved asynchronous EEPROM contract with bounded immutable storage and power-loss recovery.
 
 ## Closed Placement Surfaces
 
@@ -417,8 +424,8 @@ not closed; it is evidence-gated on measured bank contention.
   of 262,144 B must be free; allocator absence is asserted
   (`malloc`/`_sbrk`/`chCoreAlloc*`/`chHeapAlloc` undefined in the ELF); and the
   linked `.vectors` table is read. It takes an ELF and nothing else — no board,
-  no profile, no build — and the tomak79h launcher calls it rather than
-  carrying a second copy, so the three manifest fields a profile records are
+  no variant, no build — and the common launcher calls it rather than carrying
+  a second copy, so the three residency manifest fields a variant records are
   the three any board's adoption produces. Board-agnostic is not a
   convenience: while the check lived inside that one launcher,
   `newone/odessey60s` linked `malloc` through an RGBLIGHT effect for ten days
