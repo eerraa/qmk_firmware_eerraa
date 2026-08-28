@@ -608,6 +608,17 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     state.relation_generation = plan.relation_generation;
 
     if (result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
+        /* A non-OK exchange does not confirm the request, but neither does it
+         * prove that the request missed the peer. RESTART_ARM is destructive
+         * state: if the peer accepted this body and the plan later returns to
+         * the previous body (most importantly the idle disarm), retaining the
+         * old shadow would make that return look already confirmed and strand
+         * the peer's arm.
+         * Invalidate only this shadow so whichever restart body is current
+         * after revalidation must cross again. */
+        if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM) != 0) {
+            g_era_split_communication_core_standing_private.sent_restart_valid = 0;
+        }
         g_era_split_communication_core_standing_private.stopped                 = 1;
         g_era_split_communication_core_standing_private.stopped_plan_generation = plan.plan_generation;
         bool notify                                                             = state.stopped == 0;

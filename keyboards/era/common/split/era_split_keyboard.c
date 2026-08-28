@@ -38,6 +38,9 @@
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 #    include "diagnostics/era_split_wire_diagnostics.h"
 #endif
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+#    include "diagnostics/era_via_macro_diagnostics.h"
+#endif
 #ifdef ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE
 #    include "diagnostics/era_split_qwin_diagnostics.h"
 #endif
@@ -282,17 +285,14 @@ bool era_split_keyboard_lighting_sleep_state(void) {
 const era_split_restart_act_rules_t era_split_restart_act_rules[ERA_SPLIT_RESTART_ACT_MAX + 1] = {
     [ERA_SPLIT_RESTART_ACT_NONE]         = {.requires_confirmation = false, .yields_to_storage = false, .resets = false, .param_max = 0},
     [ERA_SPLIT_RESTART_ACT_LINK_SPEED]   = {.requires_confirmation = true, .yields_to_storage = true, .resets = false, .param_max = ERA_SPLIT_LINK_LEVEL_LOW},
-    [ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN] = {.requires_confirmation = false, .yields_to_storage = false, .resets = true, .param_max = 0},
+    [ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN] = {.requires_confirmation = true, .yields_to_storage = true, .resets = true, .param_max = 0},
 };
 
-/* The dispatch runs on both halves at the commit instant. The clean still
-   resets after this; the link switch's work *is* the commit.
-
-   Every act's work belongs at this instant rather than at the request, and the
-   link switch is the reason: a half that stored its level at the arm and then
-   disarmed would hold a level its peer does not. Nothing is persisted until the
-   pair has agreed. */
-void era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param) {
+/* The checked act dispatch. LINK_SPEED runs here at T_commit. A serviced CLEAN
+   runs here during its deadline-free PREPARE phase, and a standalone CLEAN
+   immediately before reset. The bool is what keeps a failed CLEAN write from
+   becoming a deadline or reset. */
+bool era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param) {
     switch (act) {
         case ERA_SPLIT_RESTART_ACT_LINK_SPEED: {
             bool agreed = era_split_restart_agreement_commit_agreed();
@@ -309,42 +309,35 @@ void era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param)
                 era_split_via_link_schedule_reattach();
             }
 #endif
-            break;
+            return true;
         }
 #ifdef ERA_EEPROM_CLEAN_ENABLE
         case ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN:
-            era_via_system_eeprom_invalidate();
-            break;
+            return era_via_system_eeprom_invalidate();
 #endif
         default:
-            break;
+            return false;
     }
 }
 
 bool era_split_restart_arm_ready(era_split_restart_act_t act) {
-    if (act != ERA_SPLIT_RESTART_ACT_LINK_SPEED) {
+    if (act != ERA_SPLIT_RESTART_ACT_LINK_SPEED && act != ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
         return true;
     }
-    /* The responder is the shared-clock source; its T_commit needs no
-       adoption. The initiator must have applied one time-anchor or the
-       deadline is in the wrong time domain and the two applies miss. */
+    /* PREPARE itself carries no deadline. Before either act emits T_commit,
+       though, the initiator must have applied one time-anchor or the deadline
+       is in the wrong time domain and the two halves miss. The responder is
+       the shared-clock source and needs no adoption. */
     return sync_timer_is_time_source() || era_host_peer_transaction_time_anchor_adopted();
 }
 
 #ifdef ERA_EEPROM_CLEAN_ENABLE
-/* The strong half of system/era_via_system.h's hand-off. A split board's EEPROM
-   clean is an agreed restart like any other: the commanded half raises it, the
-   relation's initiator arms it, and both halves invalidate and reset on one
-   instant.
-
-   **The clean is what this service was extracted for**, and the reason is its
-   failure mode. Its degrade -- no relation, or an initiator that never arms --
-   is one half invalidating and resetting alone, which is exactly the behaviour
-   this tree already proves; the link switch has no such floor. That is also why
-   the act needs no confirmation, and why the return here is unconditional:
-   handing off is what a split board does with a restart, and a request the
-   service refuses because another is pending must leave nothing happening
-   rather than reset this half into the agreement it just cancelled. */
+/* The strong half of system/era_via_system.h's hand-off. With a serviced
+   relation CLEAN is a bilateral prepared restart: both checked boot-predicate
+   writes and storage quarantine precede the first deadline. Without a serviced
+   relation the service retains the ordinary checked local CLEAN. The hand-off
+   remains unconditional because a refused second request must do nothing, not
+   fall through to an unrelated local reset. */
 bool era_via_system_eeprom_clean_handed_off(void) {
     (void)era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN, 0);
     return true;
@@ -395,6 +388,11 @@ void era_split_keyboard_task(void) {
        four parts tile HK so its 153 us maximum gets an owner; the fourth is
        derived by the reader as HK minus these three. */
     era_pass_phase_hk_open();
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    /* raw_hid_task() ran earlier in this main-loop pass. Polling the RAW IN
+     * endpoint here separates response enqueue time from actual queue drain. */
+    era_via_macro_diagnostics_task();
 #endif
     era_common_features_task();
 #ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE

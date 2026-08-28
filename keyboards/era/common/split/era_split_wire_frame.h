@@ -17,6 +17,9 @@
    binds: making either `static` invites the inlining that moves this image on
    a path every received frame runs. */
 uint8_t  era_split_wire_crc8(const uint8_t *data, uint8_t length);
+/* Incremental reflected-CRC accumulator. Seed with 0xFFFFFFFF and XOR the
+   final result with 0xFFFFFFFF; era_split_wire_crc32() is that wrapper. */
+uint32_t era_split_wire_crc32_update(uint32_t crc, const uint8_t *data, uint16_t length);
 uint32_t era_split_wire_crc32(const uint8_t *data, uint16_t length);
 
 uint8_t era_split_wire_next_seq(uint8_t seq);

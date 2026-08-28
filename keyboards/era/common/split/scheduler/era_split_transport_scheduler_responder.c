@@ -76,7 +76,11 @@ static void era_split_transport_scheduler_snapshot_response_plan(era_split_commu
            policy-off half advertises zero through the door that keeps its
            own lamp dark, and a second policy read here would be the same
            fact fetched twice. */
-        if (era_host_peer_storage_advertised_pending()) {
+        bool storage_pending = era_host_peer_storage_advertised_pending();
+#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        era_host_peer_storage_cause_note_advertised(storage_pending);
+#    endif
+        if (storage_pending) {
             storage_news |= ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING;
         }
     }

@@ -87,9 +87,9 @@ void era_split_transaction_backend_init(void);
    whether anything moved. */
 bool era_split_transaction_backend_set_speed(uint32_t baud);
 /* ceil(SERIAL_USART_SPEED / baud) -- 1 / 2 / 4 at the three compiled levels.
-   Read by the one wire-time window that is computed outside this unit (the
-   storage lane's bulk-page body deadline) and by the scheduler, which scales
-   the DUAL-HOST poll period with it. */
+   Read by the wire-time windows computed outside this unit (the storage lane's
+   bulk-page body deadline and Core1 publication freshness) and by the
+   scheduler, which scales the DUAL-HOST poll period with it. */
 uint8_t era_split_transaction_backend_wire_scale(void);
 bool era_split_transaction_backend_init_initiator(void);
 bool era_split_transaction_backend_init_responder(void);

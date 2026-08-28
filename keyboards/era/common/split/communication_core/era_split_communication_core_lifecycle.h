@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 void era_split_communication_core_init(void);
 bool era_split_communication_core_start(void);
@@ -21,6 +22,14 @@ void era_split_communication_core_declare_dead(void);
    it to stop wanting a wire role, which is what lets the half converge to
    LOCAL_NO_LINK instead of replanning against a core that will not come up. */
 bool era_split_communication_core_launch_capped(void);
+
+/* One aligned-word proof that core1 completed another lifecycle-loop pass.
+ * A selected service must return before the word advances; an idle pass
+ * advances it immediately before WFE. Unlike the standing-exchange count,
+ * this therefore covers queue, storage, standing and idle progress. The
+ * initiator silence watch reads it to distinguish a responsive core from one
+ * that has actually stopped. */
+uint32_t era_split_communication_core_progress_count(void);
 
 /* R7 fix (2026-08-06): the owner layer's service report, which is what moves
    the give-up streak. `serviced` clears it — the owner observed core1 in

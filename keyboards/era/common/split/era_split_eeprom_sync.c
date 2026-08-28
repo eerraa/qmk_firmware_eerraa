@@ -52,7 +52,11 @@ static era_split_eeprom_sync_state_t era_split_eeprom_sync_state;
 
 bool era_split_eeprom_sync_indicator_visible_advance(void) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    if (era_host_peer_storage_indicator_pending()) {
+    bool pending = era_host_peer_storage_indicator_pending();
+#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_host_peer_storage_cause_note_indicator(pending);
+#    endif
+    if (pending) {
         /* Stamped on every pending pass, not once on the rising edge: the
          * last stamp IS the fall time when the fact drops, with no second
          * read racing it. One operator action produces one span however

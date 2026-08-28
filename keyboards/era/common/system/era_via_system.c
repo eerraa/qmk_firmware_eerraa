@@ -5,24 +5,13 @@
 #include "era_state_sync.h"
 
 #include "eeprom.h"
-/* EECONFIG_MAGIC, whose address is the core NVM eeprom backend's to state. ERA
-   already stands on that layout -- storage/era_storage_adoption.h supplies and
-   asserts EECONFIG_SIZE, and the whole ERA config block is placed against it --
-   so naming one more symbol from it adds no coupling that was not already
-   load-bearing, and it is a coupling the compiler checks: an upstream that
-   moves or renames this fails the build by name rather than silently.
-
-   Evaluated against two alternatives 2026-08-19 and kept as the better shape.
-   The header is already this fork's seam and not merely upstream's internals:
-   the changed-run engine and the `_kb` hooks ERA added to the core are declared
-   in it (era_qmk_fork_ledger.md), and the two other ERA units that include it
-   -- storage/era_eeprom_config_io.c for those hooks, split/era_host_peer_storage.c
-   for the domain addresses its schema asserts by name -- stand on it the same
-   way. An ERA wrapper header re-exporting the few symbols would hide which
-   core name each unit stands on behind a second copy of the seam; a core-side
-   `nvm_eeconfig_invalidate()` split out of `nvm_eeconfig_disable()` would spend
-   one more fork edit to hide a one-word write. Neither removes the coupling,
-   both cost a hop, and the compiler-checked name is what a rebase needs. */
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_WEAR_LEVELING)
+#    include "eeprom_driver.h"
+#endif
+/* EECONFIG_MAGIC is the one boot predicate CLEAN has to invalidate. The split
+   agreement obtains reboot-durable PREPARED votes from both halves before
+   creating a commit deadline, so a one-half reset cannot leave valid old
+   storage able to repopulate the CLEANed half. */
 #include "nvm_eeprom_eeconfig_internal.h"
 #include "nvm_eeconfig.h"
 #include "quantum.h"
@@ -126,12 +115,25 @@ bool era_via_system_restart_quiet_ok(uint32_t requested_ms) {
            timer_elapsed32(requested_ms) >= ERA_VIA_SYSTEM_RESTART_DEFER_MAX_MS;
 }
 
-void era_via_system_eeprom_invalidate(void) {
-    /* The raw driver write and not nvm_eeprom_update_changed_word(): the
-       wrapper notifies nvm_eeprom_changed_kb(), which is how the ERA storage
-       engine learns a domain moved, and a store about to be erased must not
-       arm a transfer of itself on its way out. */
-    eeprom_update_word(EECONFIG_MAGIC, EECONFIG_MAGIC_NUMBER_OFF);
+bool era_via_system_eeprom_invalidate(void) {
+    /* The prepare is one word. QMK's following boot observes it in
+       quantum_init(), erases the whole logical EEPROM, and rebuilds VIA's
+       keymap and macro regions. Calling eeconfig_disable() here would perform
+       that same whole-store erase twice.
+
+       Do not route this through nvm_eeprom_update_changed_word(): its changed
+       hook would advertise the store being retired as new storage work. The
+       split service guarantees the missing distributed property instead: it
+       quarantines portable storage before this write and creates no deadline
+       until both halves report reboot-durable PREPARED. */
+    const uint16_t invalid_magic = EECONFIG_MAGIC_NUMBER_OFF;
+
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_WEAR_LEVELING)
+    return eeprom_driver_write_word_reboot_checked(invalid_magic, EECONFIG_MAGIC);
+#else
+    eeprom_update_word(EECONFIG_MAGIC, invalid_magic);
+    return eeprom_read_word(EECONFIG_MAGIC) == invalid_magic;
+#endif
 }
 
 __attribute__((weak)) bool era_via_system_eeprom_clean_handed_off(void) {
@@ -159,11 +161,9 @@ static void era_via_system_trigger_eeprom_reset_if_confirmed(void) {
         }
         eeprom_reset_confirm = 0;
 
-        /* Nothing is written here. The three confirms have been given, and what
-         * that buys is a restart; the store is invalidated at the instant the
-         * restart happens, which on a split board is an instant both halves
-         * agreed on. The quiet interval therefore runs from the confirming
-         * report, with no local work in front of it to anchor around. */
+        /* Nothing is written here. The three confirms only hand the request to
+         * the split agreement. That service applies the quiet gate, bilateral
+         * physical boot-replay proof, and shared commit in order. */
         if (era_via_system_eeprom_clean_handed_off()) {
             return;
         }
@@ -189,9 +189,11 @@ void era_via_system_task(void) {
     }
 
     eeprom_reset_pending = false;
-    /* The same order the agreed path takes at its commit: prepare, then reset,
-       with nothing between them. */
-    era_via_system_eeprom_invalidate();
+    /* A non-split board has no peer vote: ordinary logical invalidation, then
+       QMK's controlled-reset path. */
+    if (!era_via_system_eeprom_invalidate()) {
+        return;
+    }
     soft_reset_keyboard();
 #endif
 }

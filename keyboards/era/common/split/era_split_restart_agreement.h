@@ -12,9 +12,9 @@
  * instant, having prepared for the same thing.
  *
  * One mechanism and two users. A user hands over an `(act, param)` and this
- * unit does the rest -- the raw-HID quiet gate, the two-phase agreement over
- * the wire, the shared-clock deadline, and the degrade to acting alone when
- * there is no peer to agree with. **It knows neither user**: what an act *is*
+ * unit does the rest -- the raw-HID quiet gate, the agreement over the wire,
+ * the shared-clock deadline, and the degrade to acting alone when there is no
+ * peer to agree with. **It knows neither user**: what an act *is*
  * (four properties, `era_split_restart_act_rules[]`) and what an act *does*
  * (`era_split_restart_prepare_local()`) are both declared here by name and
  * defined in era_split_keyboard.c, the one unit that knows both users -- so
@@ -28,18 +28,22 @@
  * RESTART_ARM push section, which is the initiator's direction, because the
  * initiator is what owns the deadline.
  *
- * The two facts are mutually exclusive on the wire -- arming consumes the
- * request -- so one `armed` bit carries the phase and the act and param fields
- * are shared between them.
+ * Ordinary acts use the armed bit to distinguish request from adopted
+ * deadline. CLEAN additionally uses its otherwise-unused param values for a
+ * deadline-free PREPARED vote and a COMMIT_ARMED echo. That makes both checked
+ * boot-predicate writes precede the first deadline without adding a section or
+ * widening either body.
  *
  * **What the raw-HID quiet gate covers is the requesting half's own raise, and
  * that is the whole of it.** The initiator's arm for a peer's request and the
  * commit instant itself are not held on this half's own quiet: two halves have
  * two VIA applications and one shared deadline, so no instant is quiet on both
  * by construction. On a half acting alone the gate is adjacent -- quiet
- * observed, prepare, reset -- and on an agreed pair it is best-effort: the
- * commanded half's traffic is the one the gate was built against, and the
- * window on the other half is minimised rather than closed.
+ * observed, checked prepare, reset. On a serviced CLEAN it precedes selection;
+ * both halves then quarantine storage and finish checked prepare before the
+ * shared deadline exists. The commanded half's traffic is the one the quiet
+ * gate was built against, and the window on the other half is minimised rather
+ * than closed.
  *
  * **When both halves ask at once, Left wins.** It is reached by one owner
  * action on each half inside one arm window, and by the link lane's boot
@@ -107,6 +111,16 @@ typedef enum {
 _Static_assert(ERA_SPLIT_RESTART_ACT_MAX <= ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_VALUE_MAX,
                "The act set must fit the two-bit field both wire carriers give it.");
 
+/* CLEAN has no user parameter. Inside its two existing wire carriers the same
+ * two-bit field instead names the bilateral protocol phase. Keeping these
+ * values here lets the carrier validators and the agreement state machine ask
+ * one owner rather than widening either body. */
+#define ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST 0
+#define ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED 1
+#define ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT 2
+_Static_assert(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT <= ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_PARAM_MASK,
+               "Every CLEAN phase must fit both carriers' shared two-bit param field.");
+
 /* How long the initiator waits for the responder to answer an arm before it
  * retires the arm. It covers the worst HOST-PEER round trip -- publish, poll,
  * snapshot, poll, drain, each bounded by that relation's response poll period
@@ -122,13 +136,10 @@ _Static_assert(ERA_SPLIT_RESTART_ACT_MAX <= ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH
  * relation's poll period is in era_split_transport_scheduler.c, which is where
  * that period lives.
  *
- * **One value for every act, and that is a property of where the prepare
- * runs.** Each act's own work happens at the commit — immediately before the
- * reset when the act resets, or as the runtime apply when it does not — so
- * no act's preparation is inside the window this delay bounds. A per-act
- * delay would only be needed if some act had to do its work *before*
- * answering, which is the ordering trick this arrangement exists to not
- * need. */
+ * **One value for every act.** LINK_SPEED performs its work at the commit.
+ * CLEAN's checked prepare happens earlier and creates no deadline; only after
+ * both PREPARED votes exist does this delay begin. Thus no flash work is inside
+ * the interval the value bounds, and a per-act delay buys nothing. */
 #ifndef ERA_SPLIT_RESTART_COMMIT_DELAY_MS
 #    define ERA_SPLIT_RESTART_COMMIT_DELAY_MS 120
 #endif
@@ -158,6 +169,14 @@ _Static_assert(ERA_SPLIT_RESTART_COMMIT_DELAY_MS > ERA_SPLIT_RESTART_ARM_TIMEOUT
  * body is a valid body. */
 bool era_split_restart_intent_valid(uint8_t act, uint8_t param);
 
+/* Carrier-specific validation. CLEAN uses protocol phases that are not legal
+ * user intent parameters: AUTHORITY carries REQUEST, PREPARED, and
+ * COMMIT_ARMED, while RESTART_ARM carries only PREPARE(T=0) or COMMIT(T!=0).
+ * LINK_SPEED and the canonical all-zero idle body retain their existing
+ * ranges. */
+bool era_split_restart_authority_valid(uint8_t act, uint8_t param, bool armed);
+bool era_split_restart_arm_valid(uint8_t act, uint8_t param, uint32_t commit_ms);
+
 /* **The whole user-facing surface.** Returns false if the act is not one of
  * the above or if another restart is already pending, which is what makes two
  * acts interleaving impossible rather than unlikely. Returning true means the
@@ -169,6 +188,12 @@ bool era_split_restart_agreement_request(era_split_restart_act_t act, uint8_t pa
    The VIA Apply USB reattach asks this so `restart_usb_driver()` cannot land
    inside the commit window (`split/era_split_via_link.c`). */
 bool era_split_restart_agreement_in_flight(void);
+
+/* True once a serviced CLEAN has been selected for bilateral prepare, and
+ * remains true through a checked-write failure or reset. Storage admission
+ * asks this O(1) fact so no pre-CLEAN snapshot can cross after either half has
+ * invalidated its boot predicate. */
+bool era_split_restart_agreement_storage_quarantined(void);
 
 /* **What an act is: four properties, and nothing else about an act lives in
  * the service.** They are separate booleans rather than one, because they are
@@ -182,21 +207,20 @@ typedef struct {
     /* Whether the initiator may commit without the responder's answer.
      *
      * The link switch may not: a lone divider change leaves the pair at two
-     * rates, so a failed agreement must do nothing at all. An EEPROM clean
-     * may: a lone erase-and-reset *is* the behaviour this tree already proves,
-     * so a failed agreement must still clean the half that was commanded.
-     * Requiring confirmation for it would turn a degrade into a command that
-     * silently did not happen. */
+     * rates. CLEAN may not either: a lone reset leaves the other half's valid
+     * macro image available to storage convergence, which can restore it onto
+     * the CLEANed half at relation reopen. Both acts therefore require the
+     * responder's answer while a relation is serviced. A request raised with
+     * no serviced relation still takes the local path in the service. */
     bool requires_confirmation;
     /* Whether the arm waits for a storage episode to finish.
      *
      * The link switch does: applying through the owner's VIA save loses the
      * save, and the setting can wait a second. It does not wait on the boot
-     * changed-shadow a CLEAN leaves: that lamp is what the relation-open
-     * audit clears, and the audit waits for this raise. The clean does not
-     * yield: the store is what is being discarded, and a deferred arm would
-     * let the commanded half's own deadline fire first and clean one half of
-     * the pair. */
+     * changed-shadow a CLEAN leaves: that lamp is what the relation-open audit
+     * clears, and the audit waits for this raise. CLEAN does yield to live pair
+     * work after raising quarantine; the storage task completes an admitted
+     * Apply coherently or tears the episode down before checked prepare. */
     bool yields_to_storage;
     /* Whether the service resets both MCUs after prepare. The clean does; the
      * link switch does not — its prepare is the runtime divider change. */
@@ -208,31 +232,29 @@ typedef struct {
 } era_split_restart_act_rules_t;
 extern const era_split_restart_act_rules_t era_split_restart_act_rules[ERA_SPLIT_RESTART_ACT_MAX + 1];
 
-/* The act's own work, run on both halves at the commit instant. When
- * `resets` is set it runs immediately before the reset; when it is not, it
- * *is* the commit. **Declared here and defined in era_split_keyboard.c**, so
- * this unit names no user and no user names another.
- *
- * Every act's preparation belongs here rather than at the request, and the link
- * switch is why: a half that stored its level at the arm and then disarmed
- * would hold a level its peer does not. Nothing is persisted until the pair has
- * agreed, and the pair agreeing is what this instant means. */
-void era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param);
+/* The act's own checked work. LINK_SPEED runs it at the commit instant. A
+ * serviced CLEAN runs it in the deadline-free PREPARE phase; a standalone
+ * CLEAN runs it immediately before reset. **Declared here and defined in
+ * era_split_keyboard.c**, so this unit names no user and no user names another.
+ * The result is load-bearing for CLEAN: false creates no deadline and no
+ * reset. */
+bool era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param);
 /* Whether the initiator may arm this act now. **Declared here and defined in
- * era_split_keyboard.c** beside prepare. The link act waits for the
- * time-anchor to have been applied on the adopting half; the clean does not
- * wait. */
+ * era_split_keyboard.c** beside prepare. Both acts that emit a shared-clock
+ * deadline wait for the initiator's time-anchor adoption; CLEAN's PREPARE arm
+ * itself carries T=0 and does not ask this predicate. */
 bool era_split_restart_arm_ready(era_split_restart_act_t act);
 
 /* **Whether a peer produced the commit now running.** Valid only inside
- * `era_split_restart_prepare_local()`, which is the one moment it is asked.
+ * `era_split_restart_prepare_local()` for LINK_SPEED, which is the one moment
+ * that act asks it.
  *
  * True when this half's deadline came from an initiator's arm or from a
  * responder's answer; false when it set its own, which happens on the
  * no-relation degrade and on an act that requires no confirmation. **It is a
  * fact about the deadline and not about the relation**, so an agreement whose
  * wire died inside the commit window still reports true -- both halves hold the
- * same deadline and both will run their prepare.
+ * same deadline and both will run their commit.
  *
  * An act stores it only if the difference means something to that act. The link
  * switch does: an unagreed level is one half's claim that the other has never
@@ -266,3 +288,10 @@ void era_split_restart_agreement_note_peer_arm(uint8_t act, uint8_t param, uint3
 void era_split_restart_agreement_note_relation(bool serviced, bool initiator, bool local_left);
 void era_split_restart_agreement_note_relation_rotation(void);
 void era_split_restart_agreement_task(void);
+
+#ifdef ERA_SPLIT_RESTART_AGREEMENT_TEST
+/* Host-test reset for the file-static singleton. It is absent from every
+ * firmware build and exists only so independent deterministic cases begin at
+ * the same BSS-zero state as a real boot. */
+void era_split_restart_agreement_test_reset(void);
+#endif

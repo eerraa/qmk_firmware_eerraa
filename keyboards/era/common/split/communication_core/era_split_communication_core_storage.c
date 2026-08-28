@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "hal.h"
+#include "hardware/structs/timer.h"
 
 #include "../era_split_wire_frame.h"
 
@@ -43,6 +44,10 @@ typedef struct {
 } era_split_communication_core_storage_responder_result_slot_t;
 
 #define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_ALIGN4(value) (((value) + 3U) & ~3U)
+/* publication_begin() reserves the top two values against wrap. The odd top
+ * value is consequently a terminal seqlock state: readers cannot claim it and
+ * publishers cannot advance it for the rest of this boot. */
+#define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED UINT32_MAX
 
 enum {
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -70,8 +75,10 @@ enum {
 #endif
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES = ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES,
+    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES = ERA_HOST_PEER_STORAGE_CAUSE_EDGE_STATIC_BYTES,
 #else
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES = 0,
+    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES = 0,
 #endif
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES =
         ERA_HOST_PEER_STORAGE_IMAGE_BYTES +
@@ -79,7 +86,8 @@ enum {
         ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES + ERA_HOST_PEER_STORAGE_DIAGNOSTICS_BYTES + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES +
         ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES +
         ERA_SPLIT_COMMUNICATION_CORE_STORAGE_EDGE_DIAGNOSTIC_BYTES +
-        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES,
+        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES +
+        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES,
 };
 
 /* 274 until the write-only `subtype` byte left the frame record. The struct's
@@ -89,7 +97,9 @@ enum {
    bounds on purpose — a frame record that grows silently is what these catch,
    and they caught this one. */
 _Static_assert(sizeof(era_split_wire_frame_t) == 272U, "ERA storage decoded semantic frame budget changed.");
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES == 1548U + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES ==
+                   1548U + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES +
+                       (ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES - 40U),
                "ERA communication-core storage capacity budget changed.");
 /* The cap guard is unconditional. It used to live in the non-cause arm only, so
    the one profile that exceeds ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES was
@@ -107,11 +117,17 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    moved back, 18672 -> 18668 with the frame record's `subtype` byte, and
    18668 -> 18660 with the core0 state's two write-only fields (2026-08-11),
    and 18660 -> 18668 with the indicator redesign's core0 state move
-   136 -> 144 (2026-08-14), and 18668 -> 18660 when the wire-reset edge
-   record lost the two `hbmiss` counters with the heartbeat lane. Deliberate
-   arithmetic on a selector-gated profile that is never an acceptance build. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18660U,
-               "ERA HOST-PEER cause-timeline diagnostic budget changed.");
+   136 -> 144 (2026-08-14), 18668 -> 18660 when the wire-reset edge record
+   lost the two `hbmiss` counters with the heartbeat lane, and 18660 -> 19988
+   for the interval-scoped indicator/write edge recorder, then 19988 -> 20024
+   for the replacement-Apply slice swap's 36-byte staged-old state, and
+   20024 -> 20048 for two copies of the 12-byte retained Core1 failure detail,
+   and 20048 -> 20124 for the diagnostic request timestamp and two copies of
+   the 36-byte retained queue/preceding-route context.
+   Deliberate arithmetic on a selector-gated variant that is never an
+   acceptance build. */
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20124U,
+               "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 /* 18452 -> 18448 at D2, the core0 state's four bytes coming back, and
@@ -122,8 +138,12 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18
    local truth and the indicator bits in the relation record, the RAM the
    retired 1500 ms lamp bridge's job now lives in, and 18444 -> 18436 when the
    wire-reset edge record lost its two `hbmiss` counters with the heartbeat
-   lane (2026-08-17). */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18436U,
+   lane (2026-08-17), 18436 -> 18472 for the replacement-Apply slice swap's
+   36-byte staged-old state, 18472 -> 18496 for two copies of the 12-byte
+   retained Core1 failure detail, and 18496 -> 18572 for the diagnostic
+   request timestamp and two copies of the 36-byte retained queue/preceding-
+   route context. */
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18572U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif
@@ -352,7 +372,7 @@ bool era_split_communication_core_storage_validate_wire_payload(const uint8_t *p
 static bool era_split_communication_core_storage_initiator_request_valid(const era_split_communication_core_storage_initiator_request_t *request) {
     if (request == NULL || request->owner_epoch == 0 || request->relation_generation == 0 ||
         request->request_generation == 0 || request->transaction_generation == 0 ||
-        request->not_after_us == 0 || request->response_window_ms != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS ||
+        request->response_window_ms != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS ||
         request->schema != ERA_HOST_PEER_STORAGE_SCHEMA_V1 ||
         request->reserved != 0 || !era_split_communication_core_storage_request_operation_valid(request->operation)) {
         return false;
@@ -880,15 +900,132 @@ static void era_split_communication_core_storage_result_publish_ready(volatile u
 }
 
 void era_split_communication_core_storage_capacity_init(void) {
+    bool publications_retired =
+        g_era_split_communication_core_storage_initiator_request.publication_seq ==
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED ||
+        g_era_split_communication_core_storage_responder_snapshot.publication_seq ==
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
     memset(&g_era_split_communication_core_storage_initiator_request, 0, sizeof(g_era_split_communication_core_storage_initiator_request));
     memset(&g_era_split_communication_core_storage_initiator_result, 0, sizeof(g_era_split_communication_core_storage_initiator_result));
     memset(&g_era_split_communication_core_storage_responder_snapshot, 0, sizeof(g_era_split_communication_core_storage_responder_snapshot));
     memset(&g_era_split_communication_core_storage_responder_result, 0, sizeof(g_era_split_communication_core_storage_responder_result));
+    if (publications_retired) {
+        /* Owner-role rebuilds reuse this capacity initializer. CLEAN
+         * quarantine is monotonic for the boot, so a rebuild clears stale
+         * records/results but must not turn either source publication back
+         * into an admissible slot. Either sentinel is fail-closed evidence for
+         * the pair; normal sequence allocation can never produce UINT32_MAX. */
+        g_era_split_communication_core_storage_initiator_request.publication_seq =
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+        g_era_split_communication_core_storage_responder_snapshot.publication_seq =
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+    }
     memset(g_era_split_communication_core_storage_wire_frame, 0, sizeof(g_era_split_communication_core_storage_wire_frame));
     memset(g_era_split_communication_core_storage_decoded_frame, 0, sizeof(g_era_split_communication_core_storage_decoded_frame));
     memset(g_era_split_communication_core_storage_chunk_scratch, 0, sizeof(g_era_split_communication_core_storage_chunk_scratch));
     memset(&g_era_split_communication_core_storage_decoded_semantic_frame, 0, sizeof(g_era_split_communication_core_storage_decoded_semantic_frame));
     __DMB();
+}
+
+bool era_split_communication_core_storage_retire_publications(void) {
+    volatile uint32_t *initiator_publication_seq = &g_era_split_communication_core_storage_initiator_request.publication_seq;
+    volatile uint32_t *responder_publication_seq = &g_era_split_communication_core_storage_responder_snapshot.publication_seq;
+    uint32_t initiator_seq = *initiator_publication_seq;
+    uint32_t responder_seq = *responder_publication_seq;
+
+    /* Core0 is the sole publisher of both records, so an ordinary odd value
+     * means this call did not arrive at a publication boundary. A nonzero
+     * claim is core1's service ownership and must drain before retirement. */
+    uint32_t initiator_result_seq = g_era_split_communication_core_storage_initiator_result.publication_seq;
+    uint32_t responder_result_seq = g_era_split_communication_core_storage_responder_result.publication_seq;
+    if ((initiator_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED && (initiator_seq & 1U) != 0) ||
+        (responder_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED && (responder_seq & 1U) != 0) ||
+        (initiator_result_seq & 1U) != 0 || (responder_result_seq & 1U) != 0 ||
+        g_era_split_communication_core_storage_initiator_request.claim_generation != 0 ||
+        g_era_split_communication_core_storage_responder_snapshot.claim_generation != 0) {
+        return false;
+    }
+
+    bool initiator_changed = initiator_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+    bool responder_changed = responder_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+    if (initiator_changed) {
+        *initiator_publication_seq = ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+    }
+    __DMB();
+    if (responder_changed) {
+        *responder_publication_seq = ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED;
+    }
+    __DMB();
+
+    /* A reader may have copied an even publication just before the terminal
+     * store and raised its claim afterwards. Its final sequence check will
+     * reject the claim, but until it does this call must report busy. Restore
+     * the unchanged records' prior even sequences; observing either the
+     * terminal value or the restored value is safe because no record bytes
+     * changed and retirement has not been reported complete. Each source
+     * claim remains held until its result record is even and ready is
+     * published, so after both claims reach zero an even result is discardable
+     * only when its ready marker is either zero or agrees with its immutable
+     * record and reservation. */
+    uint32_t checked_initiator_result_seq = g_era_split_communication_core_storage_initiator_result.publication_seq;
+    uint32_t checked_responder_result_seq = g_era_split_communication_core_storage_responder_result.publication_seq;
+    __DMB();
+    uint32_t initiator_result_claim       = g_era_split_communication_core_storage_initiator_result.claim_generation;
+    uint32_t initiator_result_ready       = g_era_split_communication_core_storage_initiator_result.ready_generation;
+    uint32_t responder_result_claim       = g_era_split_communication_core_storage_responder_result.claim_generation;
+    uint32_t responder_result_ready       = g_era_split_communication_core_storage_responder_result.ready_generation;
+    uint16_t initiator_record_generation  = g_era_split_communication_core_storage_initiator_result.record.request_generation;
+    uint16_t responder_record_generation  = g_era_split_communication_core_storage_responder_result.record.snapshot_generation;
+    __DMB();
+    uint32_t final_initiator_result_seq = g_era_split_communication_core_storage_initiator_result.publication_seq;
+    uint32_t final_responder_result_seq = g_era_split_communication_core_storage_responder_result.publication_seq;
+    bool initiator_ready_valid =
+        initiator_result_ready == 0 ||
+        (checked_initiator_result_seq != 0 && initiator_result_claim == initiator_result_ready &&
+         initiator_record_generation == (uint16_t)initiator_result_ready);
+    bool responder_ready_valid =
+        responder_result_ready == 0 ||
+        (checked_responder_result_seq != 0 && responder_result_claim == responder_result_ready &&
+         responder_record_generation == (uint16_t)responder_result_ready);
+
+    if (*initiator_publication_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED ||
+        *responder_publication_seq != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED ||
+        g_era_split_communication_core_storage_initiator_request.claim_generation != 0 ||
+        g_era_split_communication_core_storage_responder_snapshot.claim_generation != 0 ||
+        checked_initiator_result_seq != initiator_result_seq || final_initiator_result_seq != checked_initiator_result_seq ||
+        (checked_initiator_result_seq & 1U) != 0 ||
+        checked_responder_result_seq != responder_result_seq || final_responder_result_seq != checked_responder_result_seq ||
+        (checked_responder_result_seq & 1U) != 0 ||
+        (initiator_result_claim == 0 && initiator_result_ready != 0) ||
+        (responder_result_claim == 0 && responder_result_ready != 0) ||
+        !initiator_ready_valid || !responder_ready_valid) {
+        if (responder_changed) {
+            *responder_publication_seq = responder_seq;
+        }
+        __DMB();
+        if (initiator_changed) {
+            *initiator_publication_seq = initiator_seq;
+        }
+        __DMB();
+        __SEV();
+        return false;
+    }
+
+    /* With both source publications held at an odd terminal sequence, no new
+     * core1 claim can succeed. The remaining nonzero result markers therefore
+     * name either a core0 reservation that never started or an immutable ready
+     * result that the closing runtime deliberately discards. Clear claim
+     * before ready, matching the ordinary core0 release discipline. */
+    g_era_split_communication_core_storage_initiator_result.claim_generation = 0;
+    __DMB();
+    g_era_split_communication_core_storage_initiator_result.ready_generation = 0;
+    __DMB();
+    g_era_split_communication_core_storage_responder_result.claim_generation = 0;
+    __DMB();
+    g_era_split_communication_core_storage_responder_result.ready_generation = 0;
+    __DMB();
+    __SEV();
+    return true;
 }
 
 void era_split_communication_core_storage_note_responder_full(void) {
@@ -951,6 +1088,40 @@ void era_split_communication_core_storage_note_initiator_probe(era_split_communi
     __DMB();
 }
 
+void era_split_communication_core_storage_note_initiator_failure(era_split_communication_core_storage_probe_stage_t stage,
+                                                                 const era_split_communication_core_storage_initiator_result_t *result,
+                                                                 uint8_t request_operation,
+                                                                 uint8_t classification,
+                                                                 uint8_t access,
+                                                                 int32_t deadline_delta_us,
+                                                                 const era_split_communication_core_storage_probe_failure_context_t *failure_context) {
+    /* Write the retained detail before failure_count becomes the visible
+     * commit marker in note_initiator_probe(). A print racing this tiny window
+     * may see new detail with the old count, never a new count with stale
+     * detail; the next paced line is coherent in either case. */
+    g_era_split_communication_core_storage_probe_diagnostics.failure_stage             = (uint8_t)stage;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_result            = result != NULL ? result->result : 0;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_failure           = result != NULL ? result->failure : 0;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_operation         = request_operation;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_status            = result != NULL ? result->status : 0;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_classification    = classification;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_access            = access;
+    g_era_split_communication_core_storage_probe_diagnostics.failure_deadline_delta_us = deadline_delta_us;
+    if (failure_context != NULL) {
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context = *failure_context;
+    } else {
+        memset(&g_era_split_communication_core_storage_probe_diagnostics.failure_context, 0,
+               sizeof(g_era_split_communication_core_storage_probe_diagnostics.failure_context));
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context.queue_delay_us                 = UINT32_MAX;
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context.queue_window_us                = INT32_MIN;
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_start_delta_us     = INT32_MIN;
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_end_delta_us       = INT32_MIN;
+        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_to_failure_delta_us = INT32_MIN;
+    }
+    __DMB();
+    era_split_communication_core_storage_note_initiator_probe(stage, false, result);
+}
+
 void era_split_communication_core_storage_get_probe_diagnostics(era_split_communication_core_storage_probe_diagnostics_t *snapshot) {
     if (snapshot == NULL) {
         return;
@@ -977,7 +1148,9 @@ era_split_wire_frame_t *era_split_communication_core_storage_decoded_semantic_fr
 }
 
 bool era_split_communication_core_storage_reserve_initiator_result(uint16_t request_generation) {
-    if (request_generation == 0 || g_era_split_communication_core_storage_initiator_result.claim_generation != 0 ||
+    if (request_generation == 0 ||
+        g_era_split_communication_core_storage_initiator_request.publication_seq == ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED ||
+        g_era_split_communication_core_storage_initiator_result.claim_generation != 0 ||
         g_era_split_communication_core_storage_initiator_result.ready_generation != 0) {
         return false;
     }
@@ -986,8 +1159,8 @@ bool era_split_communication_core_storage_reserve_initiator_result(uint16_t requ
     return true;
 }
 
-bool era_split_communication_core_storage_publish_initiator_request(const era_split_communication_core_storage_initiator_request_t *request) {
-    if (!era_split_communication_core_storage_initiator_request_valid(request) ||
+bool era_split_communication_core_storage_publish_initiator_request(const era_split_communication_core_storage_initiator_request_t *request, uint32_t queue_window_us) {
+    if (queue_window_us == 0 || !era_split_communication_core_storage_initiator_request_valid(request) ||
         g_era_split_communication_core_storage_initiator_request.claim_generation != 0 ||
         g_era_split_communication_core_storage_initiator_result.claim_generation != request->request_generation) {
         return false;
@@ -997,7 +1170,13 @@ bool era_split_communication_core_storage_publish_initiator_request(const era_sp
     if (!era_split_communication_core_storage_publication_begin(&g_era_split_communication_core_storage_initiator_request.publication_seq, &odd_seq)) {
         return false;
     }
-    g_era_split_communication_core_storage_initiator_request.record = *request;
+    era_split_communication_core_storage_initiator_request_t published = *request;
+    uint32_t published_at_us = timer_hw->timerawl;
+    published.not_after_us   = published_at_us + queue_window_us;
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    published.published_at_us = published_at_us;
+#endif
+    g_era_split_communication_core_storage_initiator_request.record = published;
     era_split_communication_core_storage_publication_finish(&g_era_split_communication_core_storage_initiator_request.publication_seq, odd_seq);
     return true;
 }
@@ -1060,7 +1239,14 @@ bool era_split_communication_core_storage_publish_initiator_result(const era_spl
         g_era_split_communication_core_storage_initiator_request.claim_generation != result->request_generation ||
         g_era_split_communication_core_storage_initiator_result.claim_generation != result->request_generation) {
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH, false, result);
+        era_split_communication_core_storage_note_initiator_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH,
+            result,
+            result != NULL ? result->operation : 0,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            INT32_MIN,
+            NULL);
 #endif
         return false;
     }
@@ -1068,7 +1254,14 @@ bool era_split_communication_core_storage_publish_initiator_result(const era_spl
     uint32_t odd_seq;
     if (!era_split_communication_core_storage_publication_begin(&g_era_split_communication_core_storage_initiator_result.publication_seq, &odd_seq)) {
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH, false, result);
+        era_split_communication_core_storage_note_initiator_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH,
+            result,
+            result->operation,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            INT32_MIN,
+            NULL);
 #endif
         return false;
     }
@@ -1076,8 +1269,8 @@ bool era_split_communication_core_storage_publish_initiator_result(const era_spl
         g_era_split_communication_core_storage_initiator_result.record = *result;
     }
     era_split_communication_core_storage_publication_finish(&g_era_split_communication_core_storage_initiator_result.publication_seq, odd_seq);
-    era_split_communication_core_storage_release_initiator_request(result->request_generation);
     era_split_communication_core_storage_result_publish_ready(&g_era_split_communication_core_storage_initiator_result.ready_generation, result->request_generation);
+    era_split_communication_core_storage_release_initiator_request(result->request_generation);
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH, true, result);
 #endif
@@ -1291,8 +1484,8 @@ bool era_split_communication_core_storage_publish_responder_result(const era_spl
     }
     g_era_split_communication_core_storage_responder_result.record = *result;
     era_split_communication_core_storage_publication_finish(&g_era_split_communication_core_storage_responder_result.publication_seq, odd_seq);
-    era_split_communication_core_storage_release_responder_snapshot(result->snapshot_generation);
     era_split_communication_core_storage_result_publish_ready(&g_era_split_communication_core_storage_responder_result.ready_generation, result->snapshot_generation);
+    era_split_communication_core_storage_release_responder_snapshot(result->snapshot_generation);
     return true;
 }
 

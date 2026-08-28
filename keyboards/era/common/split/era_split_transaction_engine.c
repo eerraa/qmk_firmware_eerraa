@@ -272,6 +272,29 @@ void era_split_transaction_engine_timing_end_route(void) {
     }
     g_era_split_transaction_engine.timing_route_active = false;
 }
+
+bool era_split_transaction_engine_timing_last_completed_route(era_split_transaction_route_window_t *window) {
+    if (window == NULL) {
+        return false;
+    }
+
+    memset(window, 0, sizeof(*window));
+    if (g_era_split_transaction_engine.timing_route_active ||
+        !g_era_split_transaction_engine.timing_latest.valid ||
+        g_era_split_transaction_engine.timing_latest.total_pending ||
+        g_era_split_transaction_engine.timing_latest.route_generation != g_era_split_transaction_engine.timing_route_generation) {
+        return false;
+    }
+
+    window->start_us     = g_era_split_transaction_engine.timing_route_start_us;
+    window->end_us       = window->start_us + g_era_split_transaction_engine.timing_latest.total_us;
+    window->generation   = g_era_split_transaction_engine.timing_route_generation;
+    window->route_kind   = g_era_split_transaction_engine.timing_latest.route_kind;
+    window->route_reason = g_era_split_transaction_engine.timing_latest.route_reason;
+    window->result       = g_era_split_transaction_engine.timing_latest.result;
+    window->valid        = 1;
+    return true;
+}
 #endif
 
 static bool era_split_transaction_engine_response_kind_matches(era_split_wire_payload_kind_t expected_kind, era_split_wire_payload_kind_t alternate_expected_kind, era_split_wire_payload_kind_t response_kind) {
@@ -486,6 +509,16 @@ static void era_split_transaction_engine_write_current_diagnostics(era_split_tra
 }
 
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    ifdef ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE
+/* Link-visible, zero-storage witness for the launcher's compiled-tuple check.
+ * A callable constant-return witness was folded away by LTO and then removed
+ * by gc-sections. This absolute symbol is emitted by the same preprocessor arm
+ * as the injection itself, survives linking without an artificial hot-path
+ * call, and occupies no code or data bytes. */
+__asm__(".global era_split_era_mirror_force_stale_compiled\n"
+        ".set era_split_era_mirror_force_stale_compiled, 1\n");
+#    endif
+
 void era_split_transaction_engine_publish_diagnostics_snapshot(void) {
     uint32_t odd_seq = (g_era_split_transaction_engine_diagnostics_publish_seq + 1U) | 1U;
     g_era_split_transaction_engine_diagnostics_publish_seq = odd_seq;

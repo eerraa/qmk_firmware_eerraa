@@ -184,6 +184,56 @@ static era_split_transaction_failure_t era_split_communication_core_storage_fail
     }
 }
 
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+static void era_split_communication_core_storage_note_service_failure(
+    era_split_communication_core_storage_probe_stage_t stage,
+    const era_split_communication_core_storage_initiator_request_t *request,
+    const era_split_communication_core_storage_initiator_result_t *result,
+    uint8_t classification,
+    uint8_t access) {
+    uint32_t detected_at_us = timer_hw->timerawl;
+    era_split_communication_core_storage_probe_failure_context_t failure_context;
+    memset(&failure_context, 0, sizeof(failure_context));
+    failure_context.queue_delay_us                     = UINT32_MAX;
+    failure_context.queue_window_us                    = INT32_MIN;
+    failure_context.prior_route_start_delta_us         = INT32_MIN;
+    failure_context.prior_route_end_delta_us           = INT32_MIN;
+    failure_context.prior_route_to_failure_delta_us    = INT32_MIN;
+    if (request != NULL) {
+        failure_context.owner_epoch            = request->owner_epoch;
+        failure_context.relation_generation    = request->relation_generation;
+        failure_context.request_generation     = request->request_generation;
+        failure_context.transaction_generation = request->transaction_generation;
+        failure_context.domain                 = request->domain;
+        failure_context.detail                 = request->detail;
+        if (request->published_at_us != 0) {
+            failure_context.queue_delay_us  = (uint32_t)(detected_at_us - request->published_at_us);
+            failure_context.queue_window_us = (int32_t)(request->not_after_us - request->published_at_us);
+#    ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
+            era_split_transaction_route_window_t prior_route;
+            if (era_split_transaction_engine_timing_last_completed_route(&prior_route)) {
+                failure_context.prior_route_timing_valid      = prior_route.valid;
+                failure_context.prior_route_kind              = prior_route.route_kind;
+                failure_context.prior_route_reason            = prior_route.route_reason;
+                failure_context.prior_route_result            = prior_route.result;
+                failure_context.prior_route_start_delta_us    = (int32_t)(prior_route.start_us - request->published_at_us);
+                failure_context.prior_route_end_delta_us      = (int32_t)(prior_route.end_us - request->published_at_us);
+                failure_context.prior_route_to_failure_delta_us = (int32_t)(detected_at_us - prior_route.end_us);
+            }
+#    endif
+        }
+    }
+    era_split_communication_core_storage_note_initiator_failure(
+        stage,
+        result,
+        request != NULL ? request->operation : 0,
+        classification,
+        access,
+        request != NULL ? (int32_t)(detected_at_us - request->not_after_us) : INT32_MIN,
+        &failure_context);
+}
+#endif
+
 bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_epoch) {
     era_split_communication_core_storage_initiator_request_t request;
     if (!era_split_communication_core_storage_claim_initiator_request(&request)) {
@@ -194,7 +244,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
         era_split_communication_core_storage_begin_initiator_result(request.request_generation);
     if (result == NULL) {
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_BEGIN, false, NULL);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_BEGIN,
+            &request,
+            NULL,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE);
 #endif
         // A failed begin does not own any ready result and must never erase it.
         era_split_communication_core_storage_release_initiator_request(request.request_generation);
@@ -235,7 +290,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
                               era_split_communication_core_storage_failure_from_access(access) :
                               era_split_communication_core_storage_failure_from_classification(classification);
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_BEGIN, false, result);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_BEGIN,
+            &request,
+            result,
+            (uint8_t)classification,
+            (uint8_t)access);
 #endif
         (void)era_split_communication_core_storage_publish_initiator_result(result);
         return true;
@@ -265,7 +325,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
         result->result  = ERA_SPLIT_TRANSACTION_RESULT_BAD;
         result->failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_ENCODE, false, result);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_ENCODE,
+            &request,
+            result,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE);
 #endif
         (void)era_split_communication_core_storage_publish_initiator_result(result);
         return true;
@@ -275,7 +340,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
     if (!era_split_communication_core_storage_send_payload(ERA_SPLIT_WIRE_DIRECTION_PRIMARY_TO_SECONDARY, payload, payload_len, request_lane, owner_epoch, &failure)) {
         result->failure = failure;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_TX, false, result);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_TX,
+            &request,
+            result,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE);
 #endif
         (void)era_split_communication_core_storage_publish_initiator_result(result);
         return true;
@@ -292,7 +362,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
         result->result  = transaction_result;
         result->failure = failure;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_RX, false, result);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_RX,
+            &request,
+            result,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE);
 #endif
         (void)era_split_communication_core_storage_publish_initiator_result(result);
         return true;
@@ -305,7 +380,12 @@ bool era_split_communication_core_storage_service_initiator_once(uint16_t owner_
         result->result  = ERA_SPLIT_TRANSACTION_RESULT_BAD;
         result->failure = ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_CONTRACT;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_CONTRACT, false, result);
+        era_split_communication_core_storage_note_service_failure(
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_CONTRACT,
+            &request,
+            result,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
+            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE);
 #endif
         era_split_communication_core_storage_note_io_failure((era_split_transaction_failure_t)result->failure);
     } else {

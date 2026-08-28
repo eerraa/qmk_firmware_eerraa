@@ -49,30 +49,27 @@ uint32_t era_via_system_raw_hid_quiet_ms(void);
  * the operation count as quiet. */
 bool era_via_system_restart_quiet_ok(uint32_t requested_ms);
 
-/* **The EEPROM clean, and it is one word.**
+/* **The EEPROM clean is one invalidated word before reset.**
  *
  * `eeconfig_disable()` is two things: a whole-backing erase of about 0.4 s, and
- * a write of EECONFIG_MAGIC_NUMBER_OFF. Only the second has to survive the
- * restart, because the boot that follows opens with
- * `eeconfig_init_quantum()` (`quantum/eeconfig.c`), whose first statement is
- * `nvm_eeconfig_erase()` -- the same whole-backing erase. So the erase before
- * the reset was a duplicate of one that runs anyway, and it cost more than its
- * own 0.4 s: with the store erased, `via_init()` found the VIA magic invalid
- * and ran `eeconfig_init_via()` a few init steps before `quantum_init()` erased
- * that work and ran it again, writing the whole dynamic keymap twice on every
- * recovery boot.
+ * a write of EECONFIG_MAGIC_NUMBER_OFF. Only the second belongs here. The boot
+ * that follows observes the invalid magic in `quantum_init()` and opens
+ * `eeconfig_init_quantum()` (`quantum/eeconfig.c`) with the whole-backing erase,
+ * then rebuilds VIA's keymap and macro regions.
  *
- * Invalidating instead leaves the store intact until the boot erases it once,
- * and every reader between `via_init()` and `quantum_init()` is unaffected:
- * each board family's `matrix_init_kb`/`via_init_kb` load is re-run by
- * `eeconfig_init_kb()` at `quantum_init()`, and the family that guards its own
- * strict reset already tests `nvm_eeconfig_is_enabled()` and defers to the
- * pending init for exactly this reason (`sirind/common/tomak_common.c`).
+ * The split safety property is not supplied by doing that erase early. It is
+ * supplied by `split/era_split_restart_agreement.c`: while a relation is
+ * serviced, both halves quarantine storage and report a checked PREPARED vote
+ * before the first commit deadline exists. A device run showed why the old
+ * one-half fallback was invalid: the untouched half retained its macros and
+ * storage convergence put them back after the commanded half rebooted.
  *
- * It runs at the restart's commit instant and not when the command arrives,
- * which is the rule every agreed act follows: nothing is persisted until the
- * restart is actually happening. */
-void era_via_system_eeprom_invalidate(void);
+ * A serviced storage-enabled split runs it in the deadline-free PREPARE phase;
+ * a split half with no serviced relation runs it immediately before its local
+ * reset. That path returns the reboot-checked physical boot-playback result.
+ * The weak non-split fallback performs the ordinary one-word update and
+ * immediate logical readback instead. */
+bool era_via_system_eeprom_invalidate(void);
 
 /* Whether this board's EEPROM clean is handed to the split agreement instead of
  * this unit's own cut. Weak here and answered "no", so a non-split board keeps

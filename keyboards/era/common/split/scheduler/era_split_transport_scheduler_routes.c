@@ -9,6 +9,8 @@
 #include "era_split_transport_scheduler_internal.h"
 #include "../era_host_peer_matrix_link.h"
 #include "../era_host_peer_transaction.h"
+#include "../era_split_link.h"
+#include "../era_split_transaction_backend.h"
 #include "../communication_core/era_split_communication_core_diagnostics.h"
 #include "../communication_core/era_split_communication_core_initiator.h"
 #include "../communication_core/era_split_communication_core_lifecycle.h"
@@ -22,12 +24,46 @@
 #include "../era_split_scheduler_session.h"
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
-#include "hardware/structs/timer.h"
 #include "timer.h"
 
-#ifndef ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US
-#    define ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US 5000U
-#endif
+/* A queued request cannot preempt the transaction Core1 has already begun.
+ * Core0 therefore gives every publication one complete standing response
+ * window at the current wire rate, plus the old 5 ms handoff/TX margin. The
+ * storage and generic publishers stamp this duration at their actual shared
+ * publication boundary; request construction time consumes none of it.
+ *
+ * Admission keeps a generic request and a dedicated storage request from
+ * occupying the two slots together. Consequently the only legal predecessor
+ * after publication is the already-running compact standing exchange. */
+#define ERA_SPLIT_COMMUNICATION_CORE_REQUEST_HANDOFF_MARGIN_US 5000U
+#define ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US(scale) \
+    (ERA_SPLIT_COMMUNICATION_CORE_REQUEST_HANDOFF_MARGIN_US +       \
+     (uint32_t)ERA_SPLIT_PEER_RESPONSE_WINDOW_MS * 1000U * (uint32_t)(scale))
+#define ERA_SPLIT_COMMUNICATION_CORE_MAX_WIRE_SCALE (ERA_SPLIT_LINK_SPEED_HIGH / ERA_SPLIT_LINK_SPEED_LOW)
+#define ERA_SPLIT_COMMUNICATION_CORE_MAX_COMPACT_OCCUPANCY_US                                      \
+    ((((uint32_t)ERA_SPLIT_WIRE_COMPACT_MAX_FRAME_LEN * 10U + 11U) * 1000000U +                  \
+      ERA_SPLIT_LINK_SPEED_LOW - 1U) /                                                             \
+     ERA_SPLIT_LINK_SPEED_LOW)
+
+_Static_assert(ERA_SPLIT_LINK_SPEED_HIGH % ERA_SPLIT_LINK_SPEED_LOW == 0,
+               "ERA link levels must yield an integral maximum queue-window scale.");
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_MAX_WIRE_SCALE == 4U,
+               "ERA queue freshness assumes the compiled High/Medium/Low 1/2/4 wire scales.");
+_Static_assert(ERA_SPLIT_PEER_RESPONSE_WINDOW_MS > 0U,
+               "ERA Core1 queue freshness requires a nonzero standing response window.");
+_Static_assert(ERA_SPLIT_PEER_RESPONSE_WINDOW_MS <= UINT16_MAX,
+               "ERA standing response window must fit the shared request record without truncation.");
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_MAX_COMPACT_OCCUPANCY_US < ERA_SPLIT_COMMUNICATION_CORE_REQUEST_HANDOFF_MARGIN_US,
+               "The queue handoff margin must contain one maximum compact TX and turnaround at Low.");
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US(ERA_SPLIT_COMMUNICATION_CORE_MAX_WIRE_SCALE) <
+                   ERA_SPLIT_CORE1_UNRESPONSIVE_MS * 1000U,
+               "A healthy queued request must expire before the Core1 unresponsive judgment at every link level.");
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US(ERA_SPLIT_COMMUNICATION_CORE_MAX_WIRE_SCALE) < INT32_MAX,
+               "Core1 queue freshness must fit the signed wrap-safe deadline comparison.");
+
+uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void) {
+    return ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US(era_split_transaction_backend_wire_scale());
+}
 
 /* The `clear_host_peer_tx` parameter went with the period anchor it cleared
    (R2): the two HOST-PEER routes it paced are gone and nothing else read it,
@@ -130,7 +166,18 @@ bool era_split_transport_scheduler_stop_communication_core_for_flash_write(void)
 }
 
 bool era_split_transport_scheduler_initiator_route_available(void) {
-    return !era_split_transport_scheduler_core1_initiator_pending();
+    if (era_split_transport_scheduler_core1_initiator_pending()) {
+        return false;
+    }
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    /* The generic ring and the dedicated storage slot are two physical
+     * publications but one priority domain. Do not let either SESSION_STATUS
+     * or SOURCE_PUSH age behind a storage transaction already admitted. Their
+     * due facts remain armed and run after the current result is drained. */
+    return !era_host_peer_storage_initiator_request_pending();
+#else
+    return true;
+#endif
 }
 
 static uint16_t era_split_transport_scheduler_next_core1_request_generation(void) {
@@ -157,12 +204,13 @@ static void era_split_transport_scheduler_init_core1_request(era_split_communica
         .expected_kind          = (uint8_t)expected_kind,
         .alternate_expected_kind = (uint8_t)alternate_expected_kind,
         .response_window_ms     = response_window_ms,
-        .not_after_us           = timer_hw->timerawl + ERA_SPLIT_COMMUNICATION_CORE_REQUEST_QUEUE_WINDOW_US,
     };
 }
 
 static bool era_split_transport_scheduler_submit_core1_request(const era_split_communication_core_initiator_request_t *request, bool peer_known_before_request) {
-    if (!era_split_communication_core_enqueue_initiator(request)) {
+    if (!era_split_transport_scheduler_initiator_route_available() ||
+        !era_split_communication_core_enqueue_initiator(request,
+                                                        era_split_transport_scheduler_core1_request_queue_window_us())) {
         return false;
     }
     g_era_split_transport_scheduler.core1_initiator_async_pending             = true;

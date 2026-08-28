@@ -19,8 +19,22 @@ void era_split_transaction_engine_commit_prepared_tx(uint8_t tx_seq);
 void era_split_transaction_engine_commit_received_frame(const era_split_wire_frame_t *frame);
 
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
+typedef struct {
+    uint32_t start_us;
+    uint32_t end_us;
+    uint32_t generation;
+    uint8_t  route_kind;
+    uint8_t  route_reason;
+    uint8_t  result;
+    uint8_t  valid;
+} era_split_transaction_route_window_t;
+
+_Static_assert(sizeof(era_split_transaction_route_window_t) == 16U,
+               "ERA transaction route-window diagnostic budget changed.");
+
 void era_split_transaction_engine_timing_begin_route(uint8_t route_kind, uint8_t route_reason);
 void era_split_transaction_engine_timing_end_route(void);
+bool era_split_transaction_engine_timing_last_completed_route(era_split_transaction_route_window_t *window);
 #endif
 
 era_split_transaction_engine_result_t era_split_transaction_engine_transact_compact_owned(era_split_wire_direction_t       request_direction,

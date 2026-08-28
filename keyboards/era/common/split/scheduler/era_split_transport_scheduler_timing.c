@@ -13,9 +13,9 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "../era_host_peer_storage.h"
 #endif
+#include "../communication_core/era_split_communication_core_lifecycle.h"
 #include "../communication_core/era_split_communication_core_owner.h"
 #include "../communication_core/era_split_communication_core_responder.h"
-#include "../communication_core/era_split_communication_core_standing.h"
 #include "../era_split_responder_projection.h"
 #include "../era_split_scheduler_events.h"
 #include "../era_split_scheduler_session.h"
@@ -29,15 +29,14 @@
 #    include "../communication_core/era_split_communication_core_storage.h"
 _Static_assert(ERA_SPLIT_AUTHORITY_POLL_PERIOD_MS <= ERA_HOST_PEER_STORAGE_RETRY_MS,
                "ERA storage service cadence exceeds the shortest storage retry deadline.");
-/* R7.1: the initiator silence watch's storage-phase margin, asserted rather
-   than inherited. During a storage episode core1's lane order preempts the
-   standing exchange on every pass the storage lane works, so the worst
-   legitimate exchange-count freeze is one liveness period plus one chunk's
-   response-window occupancy; doubling the window is the same slack
-   convention the cadence asserts above use, and it is what makes a widened
-   storage window fail here loudly instead of eroding the watch silently. */
+/* R7.1's scale-one constant check. The lifecycle progress word advances only
+   after a selected storage service returns, so consecutive chunks cannot
+   accumulate into one gap. The backend scales wire windows at runtime,
+   however; this arithmetic is deliberately not presented as a Medium/Low
+   proof. The scheduler admission/liveness device gate in
+   era_performance_gates.md owns that observation. */
 _Static_assert(ERA_SPLIT_STANDING_LIVENESS_MS + 2 * ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS <= ERA_SPLIT_CORE1_UNRESPONSIVE_MS,
-               "The storage phase's worst legitimate standing-exchange gap must stay inside the initiator silence watch's bound, or a long durable apply reads as a dead core1.");
+               "The storage phase's worst legitimate core1 progress gap must stay inside the initiator silence watch's bound, or a healthy storage transaction reads as a dead core1.");
 #endif
 
 void era_split_transport_scheduler_reset_responder_silence_watch(void) {
@@ -100,13 +99,13 @@ static void era_split_transport_scheduler_reset_initiator_silence_watch(void) {
  * kill leg exposed. The responder watch is fed by arriving traffic, so the
  * half whose core1 *initiates* had no detector when that core1 died: nothing
  * arrived, nothing was missed, and the half idled on a re-blessed dead lease
- * until an external edge. Wire-anchored the same
- * way — the standing exchange's own count is the progress signal — and a
- * fire feeds the same sticky peer-stale latch. The bound is the responder
- * watch's 100 ms figure but deliberately NOT its ERA_SPLIT_SESSION_STALE_MS
- * override: that override widens how long a session may go unfed, and this
- * watch measures core1 responsiveness, which no configuration is entitled
- * to widen.
+ * until an external edge. One existing core1-published progress word is the
+ * signal, and a fire feeds the same sticky peer-stale latch. A completed
+ * queue, storage or standing service pass advances it, so route priority
+ * cannot make healthy work look like silence. The bound is the responder watch's 100 ms figure
+ * but deliberately NOT its ERA_SPLIT_SESSION_STALE_MS override: that override
+ * widens how long a session may go unfed, and this watch measures core1
+ * responsiveness, which no configuration is entitled to widen.
  *
  * Armed only while this half is the wire initiator holding a live CORE1
  * lease over a known peer, with no stop report and a *granted* standing
@@ -131,12 +130,12 @@ static bool era_split_transport_scheduler_initiator_silence_stale(bool peer_know
         return false;
     }
 
-    uint32_t exchange_count = era_split_communication_core_standing_exchange_count();
+    uint32_t progress_count = era_split_communication_core_progress_count();
     uint32_t now_ms         = timer_read32();
     if (!g_era_split_transport_scheduler.initiator_progress_observed ||
-        g_era_split_transport_scheduler.initiator_progress_observed_count != exchange_count) {
+        g_era_split_transport_scheduler.initiator_progress_observed_count != progress_count) {
         g_era_split_transport_scheduler.initiator_progress_observed       = true;
-        g_era_split_transport_scheduler.initiator_progress_observed_count = exchange_count;
+        g_era_split_transport_scheduler.initiator_progress_observed_count = progress_count;
         g_era_split_transport_scheduler.initiator_progress_observed_ms    = now_ms;
         return false;
     }
@@ -525,11 +524,14 @@ bool era_split_transport_scheduler_refresh_route_due_flags(void) {
         flags |= ERA_SPLIT_SCHEDULER_ROUTE_DUE_DUAL_RUNTIME_PUSH;
     }
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    /* The exclusivity clamp is a mask down to the one bit that survives it, not
-       a list of bits to clear, so retiring three of them leaves it covering
-       exactly what it covered: the matrix push and the plan-publication bit
-       still go, and only a mandatory revalidation still selects. */
-    if (era_host_peer_storage_route_exclusive()) {
+    /* A published storage request owns the next non-preemptive transaction
+       boundary. Keep both generic lanes outside the queue until its result is
+       drained; their source latches remain due. Between storage requests the
+       episode's exclusivity clamp is still a mask down to the one bit that
+       survives it, so mandatory revalidation wins before the next request. */
+    if (era_host_peer_storage_initiator_request_pending()) {
+        flags = 0;
+    } else if (era_host_peer_storage_route_exclusive()) {
         flags &= ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS;
     }
 #endif

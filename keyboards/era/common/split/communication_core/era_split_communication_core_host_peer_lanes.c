@@ -413,8 +413,8 @@ static void era_split_communication_core_initiator_note_accept(const era_split_c
     }
 }
 
-bool era_split_communication_core_enqueue_initiator(const era_split_communication_core_initiator_request_t *request) {
-    if (!era_split_communication_core_initiator_request_valid(request)) {
+bool era_split_communication_core_enqueue_initiator(const era_split_communication_core_initiator_request_t *request, uint32_t queue_window_us) {
+    if (queue_window_us == 0 || !era_split_communication_core_initiator_request_valid(request)) {
         return false;
     }
 
@@ -434,12 +434,17 @@ bool era_split_communication_core_enqueue_initiator(const era_split_communicatio
         .kind                   = ERA_SPLIT_COMMUNICATION_CORE_QUEUE_RECORD_INITIATOR_REQUEST,
         .data.initiator_request = *request,
     };
+    /* Stamp after owner readiness and immediately before the shared ring
+     * publication. Semantic capture and a first Core1 launch therefore consume
+     * none of the queue-freshness budget. Timer wrap is valid: expiry uses the
+     * signed delta, so zero is an ordinary absolute deadline. */
+    record.data.initiator_request.not_after_us = timer_hw->timerawl + queue_window_us;
     if (!era_split_communication_core_request_push(&record, &g_era_split_communication_core.initiator_pending)) {
         era_split_communication_core_initiator_note_full(request->lane);
         return false;
     }
 
-    era_split_communication_core_initiator_note_accept(request);
+    era_split_communication_core_initiator_note_accept(&record.data.initiator_request);
     era_split_communication_core_wake();
     return true;
 }

@@ -13,8 +13,13 @@
 /* 32 -> 40 at the Slice 10 push lane: the initiator-sent bulk chunk is
  * served from the initiator's own published image, so the request record
  * carries the image and publication-seq addresses the way the responder
- * snapshot always has. Deliberate budget arithmetic, cap moves with it. */
-#define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES 40U
+ * snapshot always has. The diagnostic variant adds only the publication
+ * timestamp needed to measure residence before Core1 BEGIN. */
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES 44U
+#else
+#    define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES 40U
+#endif
 #define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_RESULT_BYTES 280U
 #define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONDER_SNAPSHOT_BYTES 64U
 #define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONDER_RESULT_BYTES 48U
@@ -38,6 +43,9 @@ typedef enum {
 
 typedef struct {
     uint32_t not_after_us;
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    uint32_t published_at_us;
+#endif
     uint32_t source_revision;
     uint32_t image_crc32;
     /* Push lane only (operation PUSH_CHUNK_REQ): where core1 reads the
@@ -174,12 +182,47 @@ typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH,
 } era_split_communication_core_storage_probe_stage_t;
 
+enum {
+    /* A failure outside request classification/backend admission has no
+     * meaningful value on those axes. Keep the sentinel outside both enums so
+     * a retained failure cannot be mistaken for their zero/OK member. */
+    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE = UINT8_MAX,
+};
+
+typedef struct {
+    uint32_t queue_delay_us;
+    int32_t  queue_window_us;
+    int32_t  prior_route_start_delta_us;
+    int32_t  prior_route_end_delta_us;
+    int32_t  prior_route_to_failure_delta_us;
+    uint16_t owner_epoch;
+    uint16_t relation_generation;
+    uint16_t request_generation;
+    uint16_t transaction_generation;
+    uint8_t  domain;
+    uint8_t  detail;
+    uint8_t  prior_route_timing_valid;
+    uint8_t  prior_route_kind;
+    uint8_t  prior_route_reason;
+    uint8_t  prior_route_result;
+    uint8_t  reserved[2];
+} era_split_communication_core_storage_probe_failure_context_t;
+
+_Static_assert(sizeof(era_split_communication_core_storage_probe_failure_context_t) == 36U,
+               "ERA storage failure-context diagnostic budget changed.");
+
 typedef struct {
     uint32_t claim_count;
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t publish_count;
     uint32_t failure_count;
+    /* Signed distance from the request's not-after deadline at the retained
+     * failure. Positive is late; INT32_MIN means the publish helper had no
+     * request deadline. Unlike `last_*`, every field prefixed `failure_`
+     * survives later successful requests. */
+    int32_t  failure_deadline_delta_us;
+    era_split_communication_core_storage_probe_failure_context_t failure_context;
     uint16_t request_claim_generation;
     uint16_t result_claim_generation;
     uint16_t result_ready_generation;
@@ -189,15 +232,23 @@ typedef struct {
     uint8_t  last_operation;
     uint8_t  last_status;
     uint8_t  reserved;
+    uint8_t  failure_stage;
+    uint8_t  failure_result;
+    uint8_t  failure_failure;
+    uint8_t  failure_operation;
+    uint8_t  failure_status;
+    uint8_t  failure_classification;
+    uint8_t  failure_access;
+    uint8_t  failure_reserved;
 } era_split_communication_core_storage_probe_diagnostics_t;
 
-_Static_assert(sizeof(era_split_communication_core_storage_probe_diagnostics_t) == 32U,
+_Static_assert(sizeof(era_split_communication_core_storage_probe_diagnostics_t) == 80U,
                "ERA storage probe diagnostics budget changed.");
 #endif
 
 _Static_assert(sizeof(uintptr_t) == sizeof(uint32_t), "ERA storage shared pointers require the RP2040 32-bit address space.");
 _Static_assert(sizeof(era_split_communication_core_storage_initiator_request_t) == ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES,
-               "ERA storage initiator request must stay 40 bytes.");
+               "ERA storage initiator request budget changed.");
 _Static_assert(sizeof(era_split_communication_core_storage_initiator_result_t) == ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_RESULT_BYTES,
                "ERA storage initiator result must stay 280 bytes.");
 _Static_assert(sizeof(era_split_communication_core_storage_responder_snapshot_t) == ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONDER_SNAPSHOT_BYTES,
@@ -206,6 +257,11 @@ _Static_assert(sizeof(era_split_communication_core_storage_responder_result_t) =
                "ERA storage responder result must stay 48 bytes.");
 
 void era_split_communication_core_storage_capacity_init(void);
+/* Permanently close the current boot's storage publications after core0 has
+ * stopped the storage runtime. Returns false while core1 still owns either
+ * lane; true invalidates both request-side publications and discards any
+ * unstarted reservation or already-ready result. */
+bool era_split_communication_core_storage_retire_publications(void);
 void era_split_communication_core_storage_note_responder_full(void);
 void era_split_communication_core_storage_note_replay(void);
 void era_split_communication_core_storage_get_lane_diagnostics(era_split_communication_core_storage_lane_diagnostics_t *snapshot);
@@ -213,6 +269,13 @@ void era_split_communication_core_storage_get_lane_diagnostics(era_split_communi
 void era_split_communication_core_storage_note_initiator_probe(era_split_communication_core_storage_probe_stage_t stage,
                                                                bool success,
                                                                const era_split_communication_core_storage_initiator_result_t *result);
+void era_split_communication_core_storage_note_initiator_failure(era_split_communication_core_storage_probe_stage_t stage,
+                                                                 const era_split_communication_core_storage_initiator_result_t *result,
+                                                                 uint8_t request_operation,
+                                                                 uint8_t classification,
+                                                                 uint8_t access,
+                                                                 int32_t deadline_delta_us,
+                                                                 const era_split_communication_core_storage_probe_failure_context_t *failure_context);
 void era_split_communication_core_storage_get_probe_diagnostics(era_split_communication_core_storage_probe_diagnostics_t *snapshot);
 #endif
 
@@ -222,7 +285,7 @@ bool era_split_communication_core_storage_decode_request_payload(const uint8_t *
 bool era_split_communication_core_storage_decode_response_payload(const era_split_communication_core_storage_initiator_request_t *request, const uint8_t *payload, uint16_t payload_len, era_split_wire_frame_lane_t lane, uint8_t expected_ack_seq, era_split_communication_core_storage_initiator_result_t *result);
 
 bool era_split_communication_core_storage_reserve_initiator_result(uint16_t request_generation);
-bool era_split_communication_core_storage_publish_initiator_request(const era_split_communication_core_storage_initiator_request_t *request);
+bool era_split_communication_core_storage_publish_initiator_request(const era_split_communication_core_storage_initiator_request_t *request, uint32_t queue_window_us);
 bool era_split_communication_core_storage_claim_initiator_request(era_split_communication_core_storage_initiator_request_t *request);
 void era_split_communication_core_storage_release_initiator_request(uint16_t request_generation);
 era_split_communication_core_storage_initiator_result_t *era_split_communication_core_storage_begin_initiator_result(uint16_t request_generation);

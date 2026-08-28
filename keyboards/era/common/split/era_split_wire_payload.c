@@ -226,21 +226,12 @@ static bool era_split_wire_authority_body_valid(const uint8_t *body) {
         return false;
     }
     /* The restart intent's own rules, local to this carrier because
-       SESSION_STATUS does not carry the fact. Each is one act's contract stated
-       where the frame is refused rather than where it is consumed, which is
-       what keeps a malformed body from ever reaching the state machine:
-
-       - the act names one this image knows, so the fourth code point of the
-         two-bit field is refused rather than reserved;
-       - an idle intent carries nothing: no param and no armed bit;
-       - an act with no parameter carries a zero param, so a captured body says
-         one thing per state. */
+       SESSION_STATUS does not carry the fact. The act-specific validator owns
+       every valid act/param/armed combination, so a malformed or impossible
+       phase never reaches the state machine. */
     uint8_t restart_act   = (uint8_t)((flags & ERA_SPLIT_WIRE_AUTHORITY_RESTART_ACT_MASK) >> ERA_SPLIT_WIRE_AUTHORITY_RESTART_ACT_SHIFT);
     uint8_t restart_param = (uint8_t)((flags & ERA_SPLIT_WIRE_AUTHORITY_RESTART_PARAM_MASK) >> ERA_SPLIT_WIRE_AUTHORITY_RESTART_PARAM_SHIFT);
-    if (!era_split_restart_intent_valid(restart_act, restart_param)) {
-        return false;
-    }
-    if (restart_act == ERA_SPLIT_RESTART_ACT_NONE && (flags & ERA_SPLIT_WIRE_AUTHORITY_FLAG_RESTART_ARMED) != 0) {
+    if (!era_split_restart_authority_valid(restart_act, restart_param, (flags & ERA_SPLIT_WIRE_AUTHORITY_FLAG_RESTART_ARMED) != 0)) {
         return false;
     }
     return true;
@@ -526,11 +517,8 @@ bool era_split_wire_layout_source_push(const uint8_t *payload, uint16_t payload_
         }
     }
 
-    /* Restart arm: reserved bits refused like every other section here, the
-       same act and param rules the AUTHORITY carrier applies, and the one
-       canonical idle form. With the act zero the param and the deadline must
-       both be zero, which is what gives a section carrying a timestamp
-       something a validator can check. */
+    /* Restart arm: reserved bits are refused like every other section here;
+       the act-specific validator owns every valid act/param/deadline phase. */
     if (era_split_wire_section_present(layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)) {
         uint16_t       arm_offset = era_split_wire_section_offset(layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM);
         const uint8_t *arm_body   = &payload[arm_offset];
@@ -540,10 +528,7 @@ bool era_split_wire_layout_source_push(const uint8_t *payload, uint16_t payload_
         uint8_t  act       = (uint8_t)((arm_body[0] & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_MASK) >> ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_SHIFT);
         uint8_t  param     = (uint8_t)(arm_body[0] & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_PARAM_MASK);
         uint32_t commit_ms = era_split_wire_get32(&arm_body[1]);
-        if (!era_split_restart_intent_valid(act, param)) {
-            return false;
-        }
-        if (act == ERA_SPLIT_RESTART_ACT_NONE && commit_ms != 0) {
+        if (!era_split_restart_arm_valid(act, param, commit_ms)) {
             return false;
         }
     }

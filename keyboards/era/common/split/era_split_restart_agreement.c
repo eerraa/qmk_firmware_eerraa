@@ -13,6 +13,15 @@
 #endif
 #include "sync_timer.h"
 #include "timer.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "print.h"
+#    ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+#        include "communication_core/era_split_communication_core_storage.h"
+#    endif
+#endif
+#ifdef ERA_SPLIT_RESTART_AGREEMENT_TEST
+#    include <string.h>
+#endif
 
 /* No act table here, and no user's header: what an act *is* reaches this unit
    the same way what an act *does* reaches it -- through
@@ -22,6 +31,35 @@
 
 bool era_split_restart_intent_valid(uint8_t act, uint8_t param) {
     return act <= ERA_SPLIT_RESTART_ACT_MAX && param <= era_split_restart_act_rules[act].param_max;
+}
+
+bool era_split_restart_authority_valid(uint8_t act, uint8_t param, bool armed) {
+    if (act > ERA_SPLIT_RESTART_ACT_MAX) {
+        return false;
+    }
+    if (act == ERA_SPLIT_RESTART_ACT_NONE) {
+        return param == 0 && !armed;
+    }
+    if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        return (!armed && param == ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST) ||
+               (armed && (param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED ||
+                          param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT));
+    }
+    return param <= era_split_restart_act_rules[act].param_max;
+}
+
+bool era_split_restart_arm_valid(uint8_t act, uint8_t param, uint32_t commit_ms) {
+    if (act > ERA_SPLIT_RESTART_ACT_MAX) {
+        return false;
+    }
+    if (act == ERA_SPLIT_RESTART_ACT_NONE) {
+        return param == 0 && commit_ms == 0;
+    }
+    if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        return (param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED && commit_ms == 0) ||
+               (param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT && commit_ms != 0);
+    }
+    return param <= era_split_restart_act_rules[act].param_max && commit_ms != 0;
 }
 
 static struct {
@@ -72,7 +110,91 @@ static struct {
      * the next arm. Cleared when the peer advertises idle. Boot is false, so
      * the first peer request of a relation can be armed. */
     bool peer_request_suppressed;
+
+    /* CLEAN is prepared before either deadline exists. Once selected, storage
+     * stays quarantined even if the link rotates or the physical replay fails:
+     * a half whose boot predicate may already be OFF must never re-advertise
+     * its old portable image. A failed reboot-durable prepare is deliberately
+     * sticky; the local backing state is not a publishable old image. */
+    bool clean_selected;
+    bool clean_standalone;
+    bool clean_local_prepared;
+    bool clean_prepare_failed;
+    bool clean_waiting_disarm;
+    bool clean_disarm_observed_prepared;
 } g_era_split_restart_agreement;
+
+enum {
+    ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST = 1,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_RX,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARED,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_FAIL,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_TX,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_RX,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_ECHO,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_DISARM,
+    ERA_SPLIT_RESTART_CLEAN_TRACE_RESET,
+};
+
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+static void era_split_restart_agreement_clean_trace(uint8_t event) {
+    uint32_t core_claim    = 0;
+    uint32_t core_tx       = 0;
+    uint32_t core_rx       = 0;
+    uint32_t core_publish  = 0;
+    uint32_t core_fail     = 0;
+    uint16_t request_claim = 0;
+    uint16_t result_claim  = 0;
+    uint16_t result_ready  = 0;
+    uint32_t transfer      = 0;
+    uint32_t apply         = 0;
+    uint32_t complete      = 0;
+    uint32_t abort         = 0;
+    uint32_t timeout       = 0;
+    uint8_t  storage_active = 0;
+#    ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_split_communication_core_storage_probe_diagnostics_t core;
+    era_host_peer_storage_diagnostics_t                      storage;
+    era_split_communication_core_storage_get_probe_diagnostics(&core);
+    era_host_peer_storage_get_diagnostics_snapshot(&storage);
+    core_claim     = core.claim_count;
+    core_tx        = core.tx_count;
+    core_rx        = core.rx_count;
+    core_publish   = core.publish_count;
+    core_fail      = core.failure_count;
+    request_claim  = core.request_claim_generation;
+    result_claim   = core.result_claim_generation;
+    result_ready   = core.result_ready_generation;
+    transfer       = storage.transfer_count;
+    apply          = storage.apply_count;
+    complete       = storage.complete_count;
+    abort          = storage.abort_count;
+    timeout        = storage.timeout_count;
+    storage_active = storage.active;
+#    endif
+    uprintf("wire clean ev=%u t=%lu i=%u l=%u lp=%u pp=%u pa=%u ap=%u dl=%lu cq=%lu/%lu/%lu/%lu/%lu/%u/%u/%u hs=%lu/%lu/%lu/%lu/%lu/%u\r\n",
+            (unsigned)event, (unsigned long)timer_read32(),
+            (unsigned)g_era_split_restart_agreement.relation_initiator,
+            (unsigned)g_era_split_restart_agreement.relation_local_left,
+            (unsigned)g_era_split_restart_agreement.clean_local_prepared,
+            (unsigned)(g_era_split_restart_agreement.peer_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+                       g_era_split_restart_agreement.peer_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED &&
+                       g_era_split_restart_agreement.peer_armed),
+            (unsigned)g_era_split_restart_agreement.peer_param,
+            (unsigned)(g_era_split_restart_agreement.arm_live ? g_era_split_restart_agreement.arm_param : 0),
+            (unsigned long)g_era_split_restart_agreement.commit_ms,
+            (unsigned long)core_claim, (unsigned long)core_tx,
+            (unsigned long)core_rx, (unsigned long)core_publish,
+            (unsigned long)core_fail, (unsigned)request_claim,
+            (unsigned)result_claim, (unsigned)result_ready,
+            (unsigned long)transfer, (unsigned long)apply,
+            (unsigned long)complete, (unsigned long)abort,
+            (unsigned long)timeout, (unsigned)storage_active);
+}
+#else
+#    define era_split_restart_agreement_clean_trace(event) ((void)(event))
+#endif
 
 static bool era_split_restart_agreement_act_valid(uint8_t act) {
     return act != ERA_SPLIT_RESTART_ACT_NONE && act <= ERA_SPLIT_RESTART_ACT_MAX;
@@ -102,6 +224,14 @@ static bool era_split_restart_agreement_storage_busy(void) {
 #endif
 }
 
+static bool era_split_restart_agreement_storage_quarantine_ready(void) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    return era_host_peer_storage_restart_quarantine_ready();
+#else
+    return true;
+#endif
+}
+
 static void era_split_restart_agreement_arm_commit(uint8_t act, uint8_t param, uint32_t commit_ms, bool agreed) {
     g_era_split_restart_agreement.commit_armed  = true;
     g_era_split_restart_agreement.commit_agreed = agreed;
@@ -115,7 +245,8 @@ bool era_split_restart_agreement_commit_agreed(void) {
 }
 
 bool era_split_restart_agreement_request(era_split_restart_act_t act, uint8_t param) {
-    if (!era_split_restart_agreement_act_valid((uint8_t)act)) {
+    if (!era_split_restart_agreement_act_valid((uint8_t)act) ||
+        !era_split_restart_intent_valid((uint8_t)act, param)) {
         return false;
     }
     /* **One pending fact.** A second request while one is in flight is refused
@@ -124,7 +255,8 @@ bool era_split_restart_agreement_request(era_split_restart_act_t act, uint8_t pa
        that did nothing, which is the right answer for a board that is about to
        reset for the first thing they asked for. */
     if (g_era_split_restart_agreement.pending || g_era_split_restart_agreement.request_live ||
-        g_era_split_restart_agreement.commit_armed) {
+        g_era_split_restart_agreement.commit_armed || g_era_split_restart_agreement.clean_selected ||
+        g_era_split_restart_agreement.clean_prepare_failed) {
         return false;
     }
     g_era_split_restart_agreement.pending              = true;
@@ -136,13 +268,30 @@ bool era_split_restart_agreement_request(era_split_restart_act_t act, uint8_t pa
 
 bool era_split_restart_agreement_in_flight(void) {
     return g_era_split_restart_agreement.pending || g_era_split_restart_agreement.request_live ||
-           g_era_split_restart_agreement.commit_armed || g_era_split_restart_agreement.arm_live;
+           g_era_split_restart_agreement.commit_armed || g_era_split_restart_agreement.arm_live ||
+           g_era_split_restart_agreement.clean_selected || g_era_split_restart_agreement.clean_prepare_failed;
+}
+
+bool era_split_restart_agreement_storage_quarantined(void) {
+    return g_era_split_restart_agreement.clean_selected || g_era_split_restart_agreement.clean_prepare_failed;
 }
 
 void era_split_restart_agreement_fill_authority(era_split_wire_authority_section_t *authority) {
     if (authority == NULL) {
         return;
     }
+    /* A prepared CLEAN outranks its original request. It is the durable vote
+       the initiator must see before it may create a deadline; COMMIT is the
+       echo that confirms adoption of that deadline. */
+    if (g_era_split_restart_agreement.clean_selected && g_era_split_restart_agreement.clean_local_prepared) {
+        authority->restart_act   = ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN;
+        authority->restart_param = g_era_split_restart_agreement.commit_armed ?
+                                       ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT :
+                                       ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED;
+        authority->restart_armed = true;
+        return;
+    }
+
     /* **The request outranks the armed fact in what this half publishes**, and
        the order is load-bearing rather than arbitrary: a half that holds a
        local deadline for a no-confirmation act holds both at once, and
@@ -175,6 +324,30 @@ void era_split_restart_agreement_note_peer_authority(const era_split_wire_author
     g_era_split_restart_agreement.peer_armed = authority->restart_armed;
     if (authority->restart_act == ERA_SPLIT_RESTART_ACT_NONE) {
         g_era_split_restart_agreement.peer_request_suppressed = false;
+    }
+
+    if (g_era_split_restart_agreement.clean_waiting_disarm &&
+        authority->restart_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+        authority->restart_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED && authority->restart_armed) {
+        g_era_split_restart_agreement.clean_disarm_observed_prepared = true;
+    }
+
+    /* CLEAN's first arm has no deadline. Its AUTHORITY PREPARED answer is
+       consumed by the task only after this half's own reboot-durable prepare also
+       succeeded. The second arm carries T_commit; only the matching COMMIT
+       echo lets the initiator adopt that same deadline. */
+    if (g_era_split_restart_agreement.arm_live &&
+        g_era_split_restart_agreement.arm_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        if (g_era_split_restart_agreement.arm_param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT &&
+            authority->restart_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+            authority->restart_param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT && authority->restart_armed &&
+            !g_era_split_restart_agreement.commit_armed) {
+            era_split_restart_agreement_arm_commit(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
+                                                   ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT,
+                                                   g_era_split_restart_agreement.commit_ms, true);
+            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_ECHO);
+        }
+        return;
     }
 
     /* The initiator's confirmation, and the one place it commits to a deadline.
@@ -243,6 +416,52 @@ void era_split_restart_agreement_note_peer_arm(uint8_t act, uint8_t param, uint3
     if (!era_split_restart_agreement_act_valid(act)) {
         return;
     }
+    if ((g_era_split_restart_agreement.clean_selected ||
+         g_era_split_restart_agreement.clean_prepare_failed) &&
+        act != ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        /* CLEAN selection is monotonic for this boot. A delayed arm from an
+           earlier act cannot interleave persistence or a second deadline with
+           a half whose boot predicate may already be OFF. */
+        return;
+    }
+
+    if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        if (param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED && commit_ms == 0) {
+            /* PREPARE is intentionally deadline-free. Receipt quarantines the
+               storage engine at once; the cold task waits for any admitted
+               episode to reach a coherent boundary before doing the checked
+               one-word write. A duplicate is idempotent. */
+            if (g_era_split_restart_agreement.commit_armed || g_era_split_restart_agreement.clean_prepare_failed) {
+                return;
+            }
+            bool first_prepare = !g_era_split_restart_agreement.clean_selected;
+            g_era_split_restart_agreement.clean_selected = true;
+            g_era_split_restart_agreement.pending        = false;
+            g_era_split_restart_agreement.request_live   = false;
+            if (first_prepare) {
+                era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_RX);
+            }
+            return;
+        }
+        if (param != ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT || commit_ms == 0 ||
+            !g_era_split_restart_agreement.clean_selected ||
+            !g_era_split_restart_agreement.clean_local_prepared ||
+            g_era_split_restart_agreement.clean_prepare_failed) {
+            return;
+        }
+        /* Both durable PREPARED votes crossed before the initiator could emit
+           COMMIT. Only now may this responder adopt its shared-clock deadline. */
+        int32_t remaining_ms = (int32_t)(commit_ms - sync_timer_read32());
+        if (remaining_ms <= 0 || remaining_ms > ERA_SPLIT_RESTART_COMMIT_DELAY_MS) {
+            return;
+        }
+        era_split_restart_agreement_arm_commit(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
+                                               ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, commit_ms, true);
+        g_era_split_restart_agreement.request_live = false;
+        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_RX);
+        return;
+    }
+
     /* The deadline is on the shared clock, and the responder is its source --
        so this half's reading is the authority and a deadline that does not sit
        inside the initiator's own commit window means the initiator was working
@@ -262,6 +481,17 @@ void era_split_restart_agreement_note_relation(bool serviced, bool initiator, bo
     g_era_split_restart_agreement.relation_serviced   = serviced;
     g_era_split_restart_agreement.relation_initiator  = initiator;
     g_era_split_restart_agreement.relation_local_left = local_left;
+
+    if (serviced && g_era_split_restart_agreement.clean_selected &&
+        g_era_split_restart_agreement.clean_standalone) {
+        /* A no-relation CLEAN may wait at its Core1 drain barrier. If a peer
+           becomes serviced in that interval, local-only reset is no longer a
+           safe degrade: the peer's still-valid store could restore the old
+           image after reboot. Promotion into bilateral roll-forward is
+           monotonic; a later relation loss waits for reopen rather than
+           downgrading this obligation to standalone again. */
+        g_era_split_restart_agreement.clean_standalone = false;
+    }
 
     /* **A commit's wire face follows the initiator role.** A half that holds a
        commit a peer produced -- adopted from an arm, or an own arm the peer
@@ -308,24 +538,176 @@ void era_split_restart_agreement_note_relation_rotation(void) {
      * deadline against its own clock. The peer's cache does not survive,
      * because a reopened peer holds nothing and a stale shadow would leave it
      * at zero; the request does, bounded by its own lifetime, so a rotation
-     * immediately after the owner's click does not silently drop the action. */
+     * immediately after the owner's click does not silently drop the action.
+     *
+     * A CLEAN COMMIT whose echo was lost is the one unconfirmed proposal that
+     * may already be a live deadline on the peer. Rotation still retires that
+     * proposal, but it must preserve the disarm wait: the reopened relation's
+     * forced idle body cancels the peer's old deadline, and only a PREPARED
+     * answer observed after that idle permits a fresh COMMIT. */
+    bool clean_disarm_required =
+        g_era_split_restart_agreement.clean_waiting_disarm ||
+        (g_era_split_restart_agreement.clean_selected &&
+         g_era_split_restart_agreement.clean_local_prepared &&
+         !g_era_split_restart_agreement.commit_armed &&
+         g_era_split_restart_agreement.arm_live &&
+         g_era_split_restart_agreement.arm_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+         g_era_split_restart_agreement.arm_param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT);
+
     if (!g_era_split_restart_agreement.commit_armed) {
         g_era_split_restart_agreement.arm_live = false;
     }
     g_era_split_restart_agreement.peer_act   = ERA_SPLIT_RESTART_ACT_NONE;
     g_era_split_restart_agreement.peer_param = 0;
     g_era_split_restart_agreement.peer_armed = false;
+    g_era_split_restart_agreement.clean_waiting_disarm            = clean_disarm_required;
+    g_era_split_restart_agreement.clean_disarm_observed_prepared  = false;
+}
+
+static bool era_split_restart_agreement_peer_clean_prepared(void) {
+    return g_era_split_restart_agreement.peer_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+           g_era_split_restart_agreement.peer_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED &&
+           g_era_split_restart_agreement.peer_armed;
+}
+
+static void era_split_restart_agreement_clean_arm_prepare(void) {
+    g_era_split_restart_agreement.arm_live       = true;
+    g_era_split_restart_agreement.arm_act        = ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN;
+    g_era_split_restart_agreement.arm_param      = ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED;
+    g_era_split_restart_agreement.commit_ms      = 0;
+    g_era_split_restart_agreement.arm_started_ms = timer_read32();
+    g_era_split_restart_agreement.request_live   = false;
+}
+
+static void era_split_restart_agreement_clean_arm_commit(void) {
+    g_era_split_restart_agreement.arm_live       = true;
+    g_era_split_restart_agreement.arm_act        = ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN;
+    g_era_split_restart_agreement.arm_param      = ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT;
+    g_era_split_restart_agreement.commit_ms      = sync_timer_read32() + ERA_SPLIT_RESTART_COMMIT_DELAY_MS;
+    g_era_split_restart_agreement.arm_started_ms = timer_read32();
+    g_era_split_restart_agreement.clean_waiting_disarm           = false;
+    g_era_split_restart_agreement.clean_disarm_observed_prepared = false;
+    era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_TX);
+}
+
+static void era_split_restart_agreement_commit(void);
+
+/* Returns true once CLEAN owns the agreement service for this boot. */
+static bool era_split_restart_agreement_clean_task(void) {
+    if (!g_era_split_restart_agreement.clean_selected) {
+        return false;
+    }
+    if (g_era_split_restart_agreement.clean_prepare_failed) {
+        return true;
+    }
+
+    if (!g_era_split_restart_agreement.clean_local_prepared) {
+        /* Quarantine was raised before this test. The cold capture task sees
+           it before this point; the runtime task later in housekeeping rolls
+           an admitted Apply to coherence and tears every other episode down.
+           The dedicated Core1 publication barrier therefore becomes ready on
+           this or a later restart-task entry, never before those owners have
+           released their state. */
+        if (!era_split_restart_agreement_storage_quarantine_ready()) {
+            return true;
+        }
+        if (!era_split_restart_prepare_local(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
+                                             ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST)) {
+            g_era_split_restart_agreement.clean_prepare_failed = true;
+            g_era_split_restart_agreement.arm_live             = false;
+            g_era_split_restart_agreement.commit_armed          = false;
+            g_era_split_restart_agreement.request_live          = false;
+            g_era_split_restart_agreement.pending               = false;
+            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_FAIL);
+            return true;
+        }
+        g_era_split_restart_agreement.clean_local_prepared = true;
+        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARED);
+    }
+
+    if (g_era_split_restart_agreement.clean_standalone) {
+        /* No peer and no shared clock mean there is nothing to schedule. The
+           requesting half already passed its raw-HID quiet gate; checked
+           prepare is the final fallible boundary, so reset immediately after
+           it succeeds. */
+        era_split_restart_agreement_arm_commit(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
+                                               ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST,
+                                               sync_timer_read32(), false);
+        era_split_restart_agreement_commit();
+        return true;
+    }
+
+    if (!g_era_split_restart_agreement.relation_serviced ||
+        !g_era_split_restart_agreement.relation_initiator ||
+        g_era_split_restart_agreement.commit_armed) {
+        return true;
+    }
+
+    if (g_era_split_restart_agreement.arm_live) {
+        if (g_era_split_restart_agreement.arm_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED) {
+            if (era_split_restart_agreement_peer_clean_prepared() &&
+                era_split_restart_arm_ready(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN)) {
+                era_split_restart_agreement_clean_arm_commit();
+            }
+            return true;
+        }
+        if (g_era_split_restart_agreement.arm_param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT) {
+            if (timer_elapsed32(g_era_split_restart_agreement.arm_started_ms) >= ERA_SPLIT_RESTART_ARM_TIMEOUT_MS) {
+                /* Retire the unanswered deadline and expose idle long enough
+                   for a PREPARED answer observed after this point to prove the
+                   responder processed that retirement. Both boot predicates
+                   are already OFF, so even a responder that reaches the old
+                   deadline cannot restore pre-CLEAN storage. */
+                g_era_split_restart_agreement.arm_live                        = false;
+                g_era_split_restart_agreement.clean_waiting_disarm            = true;
+                g_era_split_restart_agreement.clean_disarm_observed_prepared  = false;
+                era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_DISARM);
+            }
+            return true;
+        }
+    }
+
+    if (g_era_split_restart_agreement.clean_waiting_disarm) {
+        if (!g_era_split_restart_agreement.clean_disarm_observed_prepared) {
+            return true;
+        }
+        g_era_split_restart_agreement.clean_waiting_disarm = false;
+    }
+
+    if (era_split_restart_agreement_peer_clean_prepared() &&
+        era_split_restart_arm_ready(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN)) {
+        era_split_restart_agreement_clean_arm_commit();
+    } else {
+        era_split_restart_agreement_clean_arm_prepare();
+    }
+    return true;
 }
 
 static void era_split_restart_agreement_commit(void) {
-    uint8_t act = g_era_split_restart_agreement.commit_act;
-    era_split_restart_prepare_local((era_split_restart_act_t)act, g_era_split_restart_agreement.commit_param);
+    uint8_t act      = g_era_split_restart_agreement.commit_act;
+    bool    prepared = true;
+    if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN && g_era_split_restart_agreement.clean_selected) {
+        prepared = g_era_split_restart_agreement.clean_local_prepared &&
+                   !g_era_split_restart_agreement.clean_prepare_failed;
+    } else {
+        prepared = era_split_restart_prepare_local((era_split_restart_act_t)act,
+                                                   g_era_split_restart_agreement.commit_param);
+    }
     g_era_split_restart_agreement.commit_armed            = false;
     g_era_split_restart_agreement.arm_live                = false;
     g_era_split_restart_agreement.request_live            = false;
     g_era_split_restart_agreement.pending                 = false;
     g_era_split_restart_agreement.peer_request_suppressed = true;
+    if (!prepared) {
+        if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+            g_era_split_restart_agreement.clean_prepare_failed = true;
+        }
+        return;
+    }
     if (era_split_restart_act_rules[act].resets) {
+        if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_RESET);
+        }
         soft_reset_keyboard();
     }
 }
@@ -340,15 +722,27 @@ static void era_split_restart_agreement_commit(void) {
      cannot hold a link at the current rate is set at all, each half over its
      own USB, and it is how a clean behaves on a half with no cable to its peer.
    - **A serviced relation and an act that needs no confirmation**: the request
-     is advertised *and* a local deadline is taken, one arm timeout further out
-     so the initiator's arm has a full attempt to arrive and replace it. If it
-     does, the two halves share the instant exactly; if it does not, the
-     commanded half still does what it was told, bounded, rather than waiting
-     out the request lifetime.
+      is advertised *and* a local deadline is taken, one arm timeout further out
+      so the initiator's arm has a full attempt to arrive and replace it. If it
+      does, the two halves share the instant exactly; if it does not, the
+      commanded half still does what it was told, bounded, rather than waiting
+      out the request lifetime. No resetting act currently uses this policy.
    - **A serviced relation and an act that needs confirmation**: the request
      alone. No deadline exists until the initiator gives one. */
 static void era_split_restart_agreement_raise(uint8_t act, uint8_t param) {
     if (!g_era_split_restart_agreement.relation_serviced) {
+        if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+            /* Standalone CLEAN still raises the same monotonic quarantine so
+               stale dedicated publications cannot cross if a relation is
+               concurrently reopening. It has no peer phase or deadline: the
+               CLEAN task resets immediately after the drain barrier and the
+               physical boot-replay proof. */
+            g_era_split_restart_agreement.clean_selected   = true;
+            g_era_split_restart_agreement.clean_standalone = true;
+            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST);
+            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED);
+            return;
+        }
         era_split_restart_agreement_arm_commit(act, param, sync_timer_read32() + ERA_SPLIT_RESTART_COMMIT_DELAY_MS, false);
         return;
     }
@@ -357,6 +751,9 @@ static void era_split_restart_agreement_raise(uint8_t act, uint8_t param) {
     g_era_split_restart_agreement.request_act        = act;
     g_era_split_restart_agreement.request_param      = param;
     g_era_split_restart_agreement.request_started_ms = timer_read32();
+    if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST);
+    }
 
     if (!era_split_restart_act_rules[act].requires_confirmation) {
         era_split_restart_agreement_arm_commit(act, param,
@@ -394,6 +791,10 @@ void era_split_restart_agreement_task(void) {
            half that made it bounds that from the one side that knows how long
            it has been asking. */
         g_era_split_restart_agreement.request_live = false;
+    }
+
+    if (era_split_restart_agreement_clean_task()) {
+        return;
     }
 
     if (!g_era_split_restart_agreement.relation_initiator) {
@@ -460,12 +861,19 @@ void era_split_restart_agreement_task(void) {
     bool peer_requesting = !g_era_split_restart_agreement.peer_request_suppressed &&
                            !g_era_split_restart_agreement.peer_armed &&
                            era_split_restart_agreement_act_valid(g_era_split_restart_agreement.peer_act);
+    bool peer_clean_prepared = era_split_restart_agreement_peer_clean_prepared();
     bool own_ready = g_era_split_restart_agreement.request_live;
 
     uint8_t target_act   = ERA_SPLIT_RESTART_ACT_NONE;
     uint8_t target_param = 0;
     bool    take_own     = g_era_split_restart_agreement.relation_local_left ? own_ready : (!peer_requesting && own_ready);
-    if (take_own) {
+    if (peer_clean_prepared) {
+        /* A prepared peer may be the surviving half of a lost COMMIT or a role
+           rotation. It is already unable to rejoin storage, so roll forward
+           outranks a fresh user request and restores a bilateral endpoint. */
+        target_act   = ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN;
+        target_param = ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST;
+    } else if (take_own) {
         target_act   = g_era_split_restart_agreement.request_act;
         target_param = g_era_split_restart_agreement.request_param;
     } else if (peer_requesting) {
@@ -473,6 +881,17 @@ void era_split_restart_agreement_task(void) {
         target_param = g_era_split_restart_agreement.peer_param;
     }
     if (target_act == ERA_SPLIT_RESTART_ACT_NONE) {
+        return;
+    }
+    if (target_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+        /* Selection raises quarantine before either reboot-durable prepare. PREPARE has
+           no deadline and may cross immediately, causing the responder to
+           raise the same quarantine while both storage tasks drain safely. */
+        g_era_split_restart_agreement.clean_selected = true;
+        g_era_split_restart_agreement.pending        = false;
+        g_era_split_restart_agreement.request_live   = false;
+        era_split_restart_agreement_clean_arm_prepare();
+        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED);
         return;
     }
     if (era_split_restart_act_rules[target_act].yields_to_storage && era_split_restart_agreement_storage_busy()) {
@@ -502,3 +921,9 @@ void era_split_restart_agreement_task(void) {
         era_split_restart_agreement_arm_commit(target_act, target_param, g_era_split_restart_agreement.commit_ms, false);
     }
 }
+
+#ifdef ERA_SPLIT_RESTART_AGREEMENT_TEST
+void era_split_restart_agreement_test_reset(void) {
+    memset(&g_era_split_restart_agreement, 0, sizeof(g_era_split_restart_agreement));
+}
+#endif

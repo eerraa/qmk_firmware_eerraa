@@ -98,10 +98,28 @@
  * this constant may not carry.** For as long as the cap sat above the measured
  * aggregate, the next eight bytes of growth were absorbed instead of failing
  * the build — the `==`-by-construction design defeated by exactly the gap. The
- * cause profile's `<=` against `ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES` is
- * an exact equality again at 18436 + 224 = 18660, which is why that profile is
- * built rather than reasoned about. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18436U
+ * cause variant's `<=` against `ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES` is
+ * an exact equality again at 18436 + 224 + 1328 = 19988, which is why that
+ * variant is built rather than reasoned about.
+ *
+ * **18436 -> 18472 for the replacement-Apply slice swap.** The runtime record
+ * now owns one 32-byte staged-old slice plus its bounded cursor/phase metadata
+ * (52 -> 88), so public EEPROM readers can remain on the complete old image
+ * while raw storage advances through the candidate. The scratch is the state
+ * that makes the invariant true; it is not diagnostics headroom.
+ *
+ * **18472 -> 18496 for retained Core1 failure detail.** The diagnostic record
+ * and the paced printer's snapshot each grow by 12 bytes; release images
+ * compile both copies out. The bytes retain the failed boundary after later
+ * success overwrites `last`, so a device capture can distinguish expiry from
+ * encode, wire and contract failures.
+ *
+ * **18496 -> 18572 for the queue-residence discriminator.** The diagnostic
+ * request gains its actual publication timestamp (4 bytes), and the retained
+ * failure context plus the paced printer's snapshot each gain 36 bytes. The
+ * context reuses the transaction timing already present in diagnostic builds;
+ * release images keep the 40-byte request and compile all 76 bytes out. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18572U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 #define ERA_HOST_PEER_STORAGE_APPLY_SLICE_BYTES 32U
@@ -184,8 +202,14 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
    serviceability-and-policy gate, the two facts the lamp reads that only the
    cold pass can produce. What these bytes retire is the fixed 1500 ms lamp
    bridge — a time constant standing in for a wire fact — so the record grew
-   where a timer died. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 144U
+   where a timer died.
+
+   **144 -> 180 for the replacement-Apply slice swap.** The runtime record
+   grows 52 -> 88: 32 bytes are the bounded staged-old slice and four bytes
+   are cursor/length/phase metadata. That state is the public-reader barrier
+   during a candidate write and the rollback source for the slice currently
+   being replaced. */
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 180U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -204,13 +228,16 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
 #    define ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_EVENT_CAPACITY 32U
 #    define ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES 112U
 #    define ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES (ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES * 2U)
-/* The cause timeline is a selector-gated diagnostic surface and never a
-   production build (`era_performance_gates.md`), so its records sit on top of
-   the production cap instead of inside it. Expressing that as a profile budget
+#    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY 64U
+#    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES 664U
+#    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_STATIC_BYTES (ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES * 2U)
+/* The cause records are a selector-gated diagnostic surface and never a
+   production build (`era_performance_gates.md`), so they sit on top of the
+   production cap instead of inside it. Expressing that as a profile budget
    keeps the cap assert armed in every profile; the previous shape compiled the
    cap check out of the one build that exceeded it and left an equality against
    an over-cap constant as the only surviving check. */
-#    define ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES (ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES + ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES)
+#    define ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES (ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES + ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES + ERA_HOST_PEER_STORAGE_CAUSE_EDGE_STATIC_BYTES)
 
 typedef enum {
     ERA_HOST_PEER_STORAGE_CAUSE_EVENT_NONE = 0,
@@ -246,8 +273,65 @@ typedef struct {
     uint16_t elapsed_ms[ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_EVENT_CAPACITY];
 } era_host_peer_storage_cause_timeline_t;
 
+/* Interval-scoped edge recorder for the two questions the episode-local cause
+ * timeline cannot answer: which pending arm fell at an indicator blink, and
+ * whether a fragmented dynamic-macro write stream repeatedly crossed the
+ * one-second settle boundary. WIRE_DIAG snapshots and then resets it, so a
+ * baseline press followed by one operator action yields one bounded record. */
+typedef enum {
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_NONE = 0,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_ADVERTISED_RISE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_ADVERTISED_FALL,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_MIRROR_RISE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_MIRROR_FALL,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_INDICATOR_RISE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_INDICATOR_FALL,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_SERVICE_LEAVE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_CHANGED_RISE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_CHANGED_FALL,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_DIRTY_RISE,
+    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_DIRTY_FALL,
+} era_host_peer_storage_cause_edge_event_t;
+
+enum {
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_DIRTY            = 1U << 0,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_CHANGED          = 1U << 1,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_CELL             = 1U << 2,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_SUMMARY          = 1U << 3,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_CONTENT_EXPECTED = 1U << 4,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_MOVING           = 1U << 5,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_MIRROR           = 1U << 6,
+    ERA_HOST_PEER_STORAGE_CAUSE_ARM_GATE             = 1U << 7,
+};
+
+typedef struct {
+    uint32_t interval_start_ms;
+    uint32_t macro_dirty_count;
+    uint16_t macro_first_elapsed_ms;
+    uint16_t macro_last_elapsed_ms;
+    uint16_t macro_gap_last_ms;
+    uint16_t macro_gap_max_ms;
+    uint16_t macro_gap_over_quiet_count;
+    uint8_t  event_count;
+    uint8_t  overflow;
+    uint8_t  advertised_valid;
+    uint8_t  advertised_pending;
+    uint8_t  indicator_valid;
+    uint8_t  indicator_pending;
+    uint8_t  event[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint8_t  arms[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint8_t  state[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint8_t  domain[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint8_t  dirty_mask[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint8_t  changed_mask[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint16_t transaction_generation[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    uint16_t elapsed_ms[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+} era_host_peer_storage_cause_edge_t;
+
 _Static_assert(sizeof(era_host_peer_storage_cause_timeline_t) == ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES,
                "ERA storage cause timeline record budget changed.");
+_Static_assert(sizeof(era_host_peer_storage_cause_edge_t) == ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES,
+               "ERA storage cause edge record budget changed.");
 #else
 #    define ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES
 #endif
@@ -284,6 +368,12 @@ typedef struct {
     uint8_t conflict_pending_mask;
     uint8_t peer_changed_mask;
     uint8_t arbitration_flags;
+    /* Display-only provenance: boot-invalid local changed bits, relation cells
+     * derived from baseline uncertainty, and the actual-transfer/fault latch
+     * that promotes the current initiator round. Diagnostics only. */
+    uint8_t provisional_changed_mask;
+    uint8_t provisional_cell_mask;
+    uint8_t indicator_round_confirmed;
 } era_host_peer_storage_foundation_snapshot_t;
 
 /* Cold read-only view of the persisted recency layer, built at call time
@@ -370,13 +460,17 @@ _Static_assert(sizeof(era_host_peer_storage_diagnostics_t) == ERA_HOST_PEER_STOR
 void era_host_peer_storage_init(void);
 bool era_host_peer_storage_task(uint32_t now_ms);
 bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context, bool *result_watch_active);
+/* Core0's cached admission fact. True from a successful storage publication
+ * until that result is consumed or cancelled; no shared record is read. */
+bool era_host_peer_storage_initiator_request_pending(void);
 bool era_host_peer_storage_route_exclusive(void);
-/* The EEPROM SYNC indicator's one fact (2026-08-14 redesign): this half
- * knows of unfinished pair-level storage work. It is the union of the local
- * arm — dirty content inside its quiet interval, settled content departed
- * from its baseline, decided content-moving cells, an in-session summary, or
- * a content-expected episode span — gated on the cached serviceability and
- * this half's own sync policy, with the peer's advertised pending mirror
+/* The EEPROM SYNC indicator's one fact (2026-08-14 redesign, baseline-
+ * provenance refinement): this half knows of unfinished *visible* pair-level
+ * storage work. It is the union of the local arm — dirty content inside its
+ * quiet interval, non-provisional settled divergence, visible content-moving
+ * cells, an in-session summary, or a visible episode span — gated on cached
+ * serviceability and this half's own sync policy, with the peer's advertised
+ * pending mirror
  * (the last applied value of the peer's carrier — the STORAGE_PENDING push
  * section toward a responder, STORAGE_NEWS bit7 toward an initiator). O(1)
  * RAM reads, no EEPROM, no timer: the lamp holds exactly while this returns
@@ -384,10 +478,13 @@ bool era_host_peer_storage_route_exclusive(void);
  * the rise. Every term falls on a two-sided exchange or on the fact that
  * produced it, so both halves' lamps end within one poll of the initiator's
  * last close — the fixed trailing bridge this replaces stood in for the
- * mirror term. Doctrines preserved: an episode that moves nothing shows
- * nothing (probe, verify summary, MATCH, refusals and the relation-open
- * audit sweep stay dark), and a terminal refusal retires its domain's lamp
- * claim. Entry is synchronized in both edit directions — each half's
+ * mirror term. A missing boot baseline remains fully conservative for
+ * arbitration and restart safety but is display-provisional: MATCH-only audit
+ * work stays dark, while TRANSFER or a real retry fault immediately promotes
+ * the round. Doctrines preserved: an episode that moves nothing shows nothing
+ * (probe, verify summary, MATCH, refusals and the relation-open audit sweep
+ * stay dark), and a terminal refusal retires its domain's lamp claim. Entry
+ * is synchronized in both edit directions — each half's
  * advertised fact includes its dirty phase and crosses on its own carrier,
  * so the pair rises together from either half's first write (owner rulings,
  * 2026-08-14 first and fourth sittings). */
@@ -407,10 +504,16 @@ bool era_host_peer_storage_indicator_pending(void);
 bool era_host_peer_storage_advertised_pending(void);
 /* True while a storage episode is in flight that a link raise would tear:
  * a dirty write stream, decided cells, an in-session summary, or a moving
- * span. Not the boot changed-shadow: that lamp term is what the
- * relation-open audit clears, and the audit waits for the raise
- * (`era_split_link_runtime_settled()`). Waiting on it deadlocks CLEAN. */
+ * span. This is the raw functional view and never consults the indicator's
+ * provisional masks. It still excludes the boot changed-shadow: the
+ * relation-open audit clears that shadow and waits for the raise
+ * (`era_split_link_runtime_settled()`), so waiting on it deadlocks CLEAN. */
 bool era_host_peer_storage_restart_should_wait(void);
+/* CLEAN-only barrier after storage quarantine. It waits for an admitted
+ * runtime episode to reach its coherent teardown boundary, then permanently
+ * retires the dedicated Core1 request/snapshot publications and their result
+ * reservations. Dirty and queued future work is discarded, not drained. */
+bool era_host_peer_storage_restart_quarantine_ready(void);
 /* The apply of the peer's advertised pending fact: latches it into the
  * mirror the indicator reads. Each half receives exactly one direction —
  * the responder drain latches the STORAGE_PENDING push section, the
@@ -444,4 +547,8 @@ void era_host_peer_storage_get_diagnostics_snapshot(era_host_peer_storage_diagno
 void era_host_peer_storage_cause_timeline_note(era_host_peer_storage_cause_event_t event, uint8_t detail);
 void era_host_peer_storage_cause_timeline_note_stale(uint16_t watch_age_ms, uint16_t stale_limit_ms);
 void era_host_peer_storage_get_cause_timeline_snapshot(era_host_peer_storage_cause_timeline_t *snapshot);
+void era_host_peer_storage_cause_note_advertised(bool pending);
+void era_host_peer_storage_cause_note_indicator(bool pending);
+void era_host_peer_storage_get_cause_edge_snapshot(era_host_peer_storage_cause_edge_t *snapshot);
+void era_host_peer_storage_reset_cause_edge(void);
 #endif

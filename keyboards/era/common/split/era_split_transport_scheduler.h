@@ -17,6 +17,10 @@ bool era_split_transport_scheduler_start_communication_core(void);
    listener's step and the agreed link raise both use it; the raise keeps
    the relation identity so the standing surface is not thrown away. */
 bool era_split_transport_scheduler_apply_link_level(uint8_t level);
+/* Publish-relative freshness for either Core1 request slot. It is the current
+ * wire-scale standing response window plus the bounded handoff/TX margin; the
+ * publisher, not the request builder, applies it to the hardware clock. */
+uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void);
 // Returns true when this task reduces a changed local authority snapshot.
 bool era_split_transport_scheduler_task(void);
 // The scan path's transport step - one body for every half; role lives in the

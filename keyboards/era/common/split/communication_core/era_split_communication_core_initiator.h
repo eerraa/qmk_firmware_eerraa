@@ -100,7 +100,7 @@ typedef struct {
     } decoded;
 } era_split_communication_core_initiator_result_t;
 
-bool era_split_communication_core_enqueue_initiator(const era_split_communication_core_initiator_request_t *request);
+bool era_split_communication_core_enqueue_initiator(const era_split_communication_core_initiator_request_t *request, uint32_t queue_window_us);
 bool era_split_communication_core_poll_initiator_result(era_split_communication_core_initiator_result_t *result);
 bool era_split_communication_core_initiator_pending(void);
 bool era_split_communication_core_initiator_result_ready(void);

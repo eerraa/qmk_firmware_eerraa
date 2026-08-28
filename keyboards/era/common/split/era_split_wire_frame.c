@@ -18,14 +18,18 @@ uint8_t era_split_wire_crc8(const uint8_t *data, uint8_t length) {
     return crc;
 }
 
-uint32_t era_split_wire_crc32(const uint8_t *data, uint16_t length) {
-    uint32_t crc = 0xFFFFFFFFUL;
+uint32_t era_split_wire_crc32_update(uint32_t crc, const uint8_t *data, uint16_t length) {
     for (uint16_t i = 0; i < length; i++) {
         crc ^= data[i];
         for (uint8_t bit = 0; bit < 8; bit++) {
             crc = (crc & 1U) ? ((crc >> 1) ^ 0xEDB88320UL) : (crc >> 1);
         }
     }
+    return crc;
+}
+
+uint32_t era_split_wire_crc32(const uint8_t *data, uint16_t length) {
+    uint32_t crc = era_split_wire_crc32_update(0xFFFFFFFFUL, data, length);
     return crc ^ 0xFFFFFFFFUL;
 }
 

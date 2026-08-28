@@ -423,6 +423,15 @@ bool era_split_communication_core_launch_capped(void) {
     return g_era_split_communication_core.launch_capped != 0;
 }
 
+uint32_t era_split_communication_core_progress_count(void) {
+    /* Core1 publishes loop_count after the selected service returns, or just
+     * before an idle WFE when no service ran. Queue, storage, standing and
+     * idle progress therefore share one existing writer; a service still in
+     * flight has not advanced it yet. */
+    __DMB();
+    return g_era_split_communication_core.loop_count;
+}
+
 static void era_split_communication_core_note_launch_failure(void) {
     if (g_era_split_communication_core.launch_failure_streak < 0xFFU) {
         g_era_split_communication_core.launch_failure_streak++;

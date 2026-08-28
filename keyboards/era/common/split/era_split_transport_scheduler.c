@@ -301,9 +301,11 @@ static void era_split_transport_scheduler_build_standing_plan(era_split_communic
        the publish-on-change discipline requires: it flips twice per
        operator action, not per pass. */
     if ((plan->eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
-        plan->storage_pending = era_host_peer_storage_advertised_pending()
-                                    ? ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING
-                                    : 0;
+        bool storage_pending = era_host_peer_storage_advertised_pending();
+#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        era_host_peer_storage_cause_note_advertised(storage_pending);
+#    endif
+        plan->storage_pending = storage_pending ? ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING : 0;
     }
 #endif
     /* The same rule for this half's session facts. It reads the cached local
@@ -1554,7 +1556,8 @@ static void era_split_transport_scheduler_note_local_matrix_publish(bool changed
     }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    if (era_host_peer_storage_route_exclusive()) {
+    if (era_host_peer_storage_initiator_request_pending() ||
+        era_host_peer_storage_route_exclusive()) {
         return;
     }
 #endif
@@ -1837,8 +1840,8 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
     era_split_transport_scheduler_publish_host_peer_responder_rgb_state(now_ms);
     /* R7.1: an in-flight initiator request that core1 has neither consumed
        nor expired for the whole unresponsive bound is the request-lane face
-       of a dead core1 — the request's own 5 ms window is core1-enforced, so
-       without this nothing ages it out and the rotting latch also holds the
+       of a dead core1 — the request's publish-relative, wire-scaled freshness
+       window is core1-enforced, so without this nothing ages it out and the rotting latch also holds the
        ATTACH_STATUS probe closed. A ready result is excluded because it is
        the opposite evidence: core1 answered and only core0's own drain is
        late (the sliced durable apply stalls this task for measured seconds),
@@ -1970,7 +1973,15 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
 
 static void era_split_transport_scheduler_local_initiator_step(void) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    if (era_host_peer_storage_route_exclusive()) {
+    /* A Core1 service is non-preemptive once begun. While the dedicated
+     * storage request/result reservation is live, keep both generic requests
+     * outside their publish-relative freshness window. Their due facts remain
+     * in their owners, so the next transaction boundary reselects mandatory
+     * status first and matrix later. Between storage requests, the ordinary
+     * exclusive mask still admits status and suppresses only normal traffic. */
+    if (era_host_peer_storage_initiator_request_pending()) {
+        g_era_split_transport_scheduler.route_due_flags = 0;
+    } else if (era_host_peer_storage_route_exclusive()) {
         g_era_split_transport_scheduler.route_due_flags &= ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS;
     }
 #endif
