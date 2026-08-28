@@ -136,21 +136,32 @@ serves is in `era_performance_gates.md`.
   records the outcome as `edit_tree_check=` in the manifest. The rule this
   serves is canonical in `era_performance_gates.md`; only the path is
   Claude-and-machine specific.
-- `era-build` is the whole loop in one command, runnable from the Windows side:
+- `era-build` is the whole loop in one command, runnable from the Windows side.
+  The `keyboard:keymap` target is mandatory, so a TOMAK_TKL request cannot
+  silently select TOMAK79H:
 
   ```powershell
-  wsl -d Ubuntu -e bash -lc 'era-build'        # all four profiles
-  wsl -d Ubuntu -e bash -lc 'era-build wire'   # one
+  wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via'
+  wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via cause'
+  wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via standard wire qwin cause'
   ```
 
-  It syncs, runs the gate launcher per profile, copies the artifacts back to
+  An omitted variant means `standard` for every target. Variant names are
+  board-independent; the canonical make layer refuses one the target cannot
+  support. The adapter syncs, runs the gate launcher per variant, copies the artifacts back to
   the Windows `.era-artifacts/`, and prints each build's `worktree_dirty`,
-  `edit_tree_check`, and free-ram0 beside its UF2 name. The sync is not
-  optional and runs first every time, because skipping it is this setup's one
-  silent failure. Four profiles end to end take about 25 s.
+  `edit_tree_check`, and free-ram0 beside its firmware name. It copies only the
+  files declared by the manifests from that invocation; old WSL artifacts do
+  not ride back with a new build. The sync is not optional and runs first every
+  time, because skipping it is this setup's one silent failure. Four variants
+  end to end take about 25 s. `.claude/tools/era-build.sh` implements this
+  sequence and `keyboards/era/common/tools/era_qmk_build.sh` is its internal
+  target launcher; invoking the latter directly is refused.
 - Read each manifest path from the launcher's own `Manifest:` line rather than
-  globbing `.era-artifacts/`. One commit's clean and `_dirty` artifacts differ
-  only by a suffix, so a glob happily reports a previous run's file.
+  globbing `.era-artifacts/`. Artifact names include the first 16 hexadecimal
+  digits of the firmware SHA-256, so a different dirty binary cannot overwrite
+  the earlier one, but a glob can still select a previous run rather than the
+  manifest returned now.
 - Flashing stays on Windows: UF2 is a file copy to the RPI-RP2 mass-storage
   device.
 
