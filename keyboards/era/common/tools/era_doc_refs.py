@@ -142,9 +142,19 @@ def git(*args, ok=(0,)):
     return proc.stdout
 
 
-TRACKED = {line.strip() for line in git("ls-files").splitlines() if line.strip()}
+# The check runs before a commit as well as on one. Start from Git's cached and
+# untracked, non-ignored names, then keep only paths that exist in this working
+# tree: a deleted tracked source must not crash the comment pass or remain a
+# false-positive resolver target, and a newly added source must not escape the
+# same check merely because it has not been staged yet. Submodule directory
+# entries remain because `exists()`, unlike `is_file()`, accepts them.
+TRACKED = {
+    line.strip()
+    for line in git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    if line.strip() and (REPO / line.strip()).exists()
+}
 if not TRACKED:
-    sys.exit("git ls-files reported no tracked files, so every check below "
+    sys.exit("git ls-files reported no live working-tree files, so every check below "
              "would scan nothing and pass. That is a failure to measure, not "
              "a clean tree.")
 DIRS = set()
