@@ -1,6 +1,6 @@
 # Every ERA option this file reads is declared in keyboards/era/era_build_options.mk,
 # which is the one file to edit. Included here rather than by the board so this
-# fragment cannot run without its declarations; a board or a profile assigning
+# fragment cannot run without its declarations; a board or a variant assigning
 # above the include that reads it still wins, because every line there is `?=`.
 include keyboards/era/era_build_options.mk
 

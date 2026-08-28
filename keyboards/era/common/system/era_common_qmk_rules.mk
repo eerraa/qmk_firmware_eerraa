@@ -1,6 +1,6 @@
 # Every ERA option this file reads is declared in keyboards/era/era_build_options.mk,
 # which is the one file to edit. Included here rather than by the board so this
-# fragment cannot run without its declarations; a board or a profile assigning
+# fragment cannot run without its declarations; a board or a variant assigning
 # above the include that reads it still wins, because every line there is `?=`.
 include keyboards/era/era_build_options.mk
 
@@ -21,6 +21,13 @@ include keyboards/era/era_build_options.mk
 ifeq ($(strip $(KEYMAP_PATH)),)
     $(error ERA build rules must be included from a board post_rules.mk, not rules.mk -- see the phase note in era_common_qmk_rules.mk)
 endif
+
+# Apply the repository-wide build identity after the keymap and board feature
+# lines are visible, but before any common fragment consumes a diagnostic
+# selector. This include is reached directly by non-split boards and through
+# era_split_qmk_rules.mk by split boards, so no board owns a second variant
+# axis.
+include keyboards/era/common/system/era_build_variant_rules.mk
 
 # Read by era_sram_resident_rules.mk, which cannot be taken without this file.
 # The reason is at the refusal there, not here: this file supplies both the
@@ -97,6 +104,15 @@ OPT_DEFS += -DRP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING
 # consumer sees a different clock. Boards outside this layer keep upstream's
 # per-call conversion.
 OPT_DEFS += -DERA_TIMER_MS_CACHE
+
+# QMK's dynamic-macro protocol already carries a transaction marker in the
+# final byte. ERA's wear-leveling NVM uses that marker to keep intermediate VIA
+# packets in its existing RAM cache and durably consolidate once at completion,
+# instead of opening one flash episode per 28-byte request. This is a fact about
+# the ERA firmware rather than a user-selectable option; the QMK fork path also
+# requires EEPROM_WEAR_LEVELING, so the permanent AVR exception keeps its
+# existing EEPROM behavior.
+OPT_DEFS += -DERA_DYNAMIC_MACRO_TRANSACTION_ENABLE
 
 ifeq ($(strip $(ERA_RP2040_MATRIX_ENABLE)), yes)
     OPT_DEFS += -DERA_RP2040_MATRIX_ENABLE

@@ -28,28 +28,14 @@ RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE = yes
 RGB_MATRIX_INDICATORS_WHEN_DISABLED_ENABLE = yes
 RGB_MATRIX_IDLE_GATE_ENABLE = yes
 ERA_SPLIT_RP_USB_SLEEP_SYNC = 1
+ERA_SPLIT_SERIAL_USART_SPEED = 460800
 
-# Set only for a VIA build, in the block below, because the storage engine
-# requires VIA: ERA_SPLIT_EEPROM_SYNC_ENABLE, ERA_SPLIT_SERIAL_USART_SPEED.
-# The diagnostics axes belong to build_profiles/*.mk on this board.
-
-# VIA_ENABLE, not the keymap's name. The name was a proxy for it, and a
-# keymap that enables VIA under any other name silently lost EEPROM sync
-# and the profile mechanism. The real test is readable here since the
-# option layer moved to the post_rules.mk phase.
+# Set only for a VIA build because the storage engine requires VIA. Diagnostic
+# combinations are board-independent and come from common/build_variants/.
+# VIA_ENABLE, not the keymap's name, keeps a VIA-enabled custom keymap on the
+# same storage path.
 ifeq ($(strip $(VIA_ENABLE)),yes)
-    ERA_TOMAK79H_BUILD_PROFILES := release wire qwin cause stale qwin_phase
-    ERA_TOMAK79H_BUILD_PROFILE ?= release
-
-    ifeq ($(filter $(strip $(ERA_TOMAK79H_BUILD_PROFILE)),$(ERA_TOMAK79H_BUILD_PROFILES)),)
-        $(error Invalid ERA_TOMAK79H_BUILD_PROFILE=$(ERA_TOMAK79H_BUILD_PROFILE); expected one of $(ERA_TOMAK79H_BUILD_PROFILES))
-    endif
-
-    ERA_SPLIT_SERIAL_USART_SPEED := 460800
     ERA_SPLIT_EEPROM_SYNC_ENABLE := yes
-    include keyboards/era/sirind/tomak79h/build_profiles/$(strip $(ERA_TOMAK79H_BUILD_PROFILE)).mk
-else ifneq ($(strip $(ERA_TOMAK79H_BUILD_PROFILE)),)
-    $(error ERA_TOMAK79H_BUILD_PROFILE requires a keymap with VIA_ENABLE=yes)
 endif
 
 # The tomak family's whole board content, shared by all three boards: the

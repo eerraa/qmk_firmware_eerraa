@@ -6,11 +6,11 @@
 #                                           vectors_gate=<summary>
 #                                          exit 0, or a named failure on stderr
 #
-# The three lines are the manifest fields era_tomak79h_build.sh records, so a
-# board without a launcher gets exactly the evidence a profile build records.
+# The three lines are the manifest fields era_qmk_build.sh records for every
+# UF2 target, so every copy-to-RAM board gets the same evidence.
 #
 # These are canonical in era_sram_residency_contract.md and
-# era_performance_gates.md. They lived inside era_tomak79h_build.sh until
+# era_performance_gates.md. They lived inside the TOMAK79H-only launcher until
 # 2026-08-11, which made them one board's gates rather than the image's:
 # newone/odessey60s went copy-to-RAM on 2026-08-01 and linked malloc through
 # RGBLIGHT's twinkle effect for the ten days until something ran an allocator

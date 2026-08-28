@@ -316,9 +316,9 @@ ASSERT((early_hardware_init_post & ~1) >= __flash_startup_base__ && (early_hardw
  * failure that enumeration cannot see is a driver that stops installing a
  * handler, dropping its slot back to the flash default. Only reading the linked
  * table's own bytes catches that, which is the .vectors gate in
- * tools/era_tomak79h_build.sh. What this adds is the case that gate cannot see
- * on the other boards: a dropped SRC line fails the link everywhere, rather
- * than only where the launcher runs. */
+ * common/tools/era_residency_gate.sh and runs on every automated UF2 build.
+ * What this ASSERT adds is the earlier failure for a dropped SRC line: the link
+ * itself fails before an artifact can reach that gate. */
 ASSERT((era_unhandled_vector & ~1) >= __text_base__ && (era_unhandled_vector & ~1) < __text_end__,
        "ERA: era_unhandled_vector is not in .sram_image - the era_vector_defaults.c SRC entry is gone, and the vector table has fallen back to the flash-resident ChibiOS defaults")
 

@@ -1,12 +1,13 @@
-# Every ERA option this file reads is declared in keyboards/era/era_build_options.mk,
-# which is the one file to edit. Included here rather than by the board so this
-# fragment cannot run without its declarations; a board or a profile assigning
-# above the include that reads it still wins, because every line there is `?=`.
-include keyboards/era/era_build_options.mk
+# The two controls this file reads are declared in the firmware-inert build
+# identity layer. An RP2040 board has already loaded every firmware option;
+# Brick65 deliberately has not, so its printer cannot turn a firmware feature
+# on merely by observing the build.
+include keyboards/era/era_build_identity_options.mk
 
 # What did this build actually use?
 #
-#   qmk compile -kb era/sirind/tomak79h -km via -e ERA_SHOW_OPTIONS=yes
+#   qmk compile -kb era/sirind/tomak -km via \
+#       -e ERA_BUILD_VARIANT=cause -e ERA_SHOW_OPTIONS=yes
 #
 # prints every ERA build option with its value and where the value came from --
 # `file` for a default or a board line, `command line` for a -e, `environment`
@@ -38,13 +39,17 @@ include keyboards/era/era_build_options.mk
 
 ERA_SHOW_OPTIONS_NOT_OPTIONS := \
     ERA_SHOW_OPTIONS \
+    ERA_BUILD_IDENTITY_REPORT \
     ERA_SHOW_OPTIONS_NOT_OPTIONS \
     ERA_SHOW_OPTIONS_NAMES \
     ERA_BUILD_OPTIONS_INCLUDED \
+    ERA_BUILD_IDENTITY_OPTIONS_INCLUDED \
+    ERA_BUILD_VARIANTS \
+    ERA_BUILD_VARIANT_TUPLE \
+    ERA_BUILD_VARIANT_RULES_INCLUDED \
     ERA_COMMON_QMK_RULES_INCLUDED \
     ERA_COMMON_VIA_SRCS \
     ERA_SPLIT_COMMUNICATION_CORE_LEGACY_STAGE_VARS \
-    ERA_TOMAK79H_BUILD_PROFILES \
     ERA_EDIT_TREE \
     ERA_BUILD_JOBS \
     RGB_MATRIX_ENABLE \

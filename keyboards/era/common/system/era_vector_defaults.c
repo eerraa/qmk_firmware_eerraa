@@ -38,7 +38,7 @@
  *     that does not have that driver.
  *   - A driver that stops installing a handler drops its slot back to the flash
  *     default, and nothing here would notice. That is the direction the
- *     .vectors gate in tools/era_tomak79h_build.sh exists to catch: it reads
+ *     .vectors gate in tools/era_residency_gate.sh exists to catch: it reads
  *     the linked table's own bytes rather than any name list, so it cannot
  *     inherit a mistake from this enumeration.
  *

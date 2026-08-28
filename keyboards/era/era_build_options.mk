@@ -1,29 +1,33 @@
-# ERA build options -- the declaration site.
+# ERA firmware build options -- the declaration site.
 #
-# Every ERA option is declared here with the value a board that says nothing
-# gets. **Editing a value here does not change what a board builds**, because
+# Every ERA firmware selector is declared here with the value a board that says
+# nothing gets. Automated-build identity is the deliberately firmware-inert
+# exception in keyboards/era/era_build_identity_options.mk. **Editing a value
+# here does not change what a board builds**, because
 # every board assigns above the include that reads this file and a board's
 # assignment wins: measured 2026-08-18 over the twenty-two board
 # `post_rules.mk` files, 293 assignments restate the default they are given
 # here verbatim and 18 differ -- `ERA_SPLIT_EEPROM_SYNC_ENABLE` on the three
 # split boards, and the three lighting selectors on the fifteen boards that ask
-# for one. Eleven declared names are stated by no board and are the only ones a
-# `?=` here still decides -- `ERA_SHOW_OPTIONS`, `ERA_BOARD_COMMON_ENABLE`, the
-# five diagnostics selectors and four of the seven split timing knobs.
+# for one. Ten declared names are stated by no board and are the only ones a
+# `?=` here still decides -- `ERA_BOARD_COMMON_ENABLE`, the five diagnostics
+# selectors and four of the seven split timing knobs.
 #
 # So: to change one board, edit that board's `post_rules.mk`; to change one
 # build, pass `-e`. To change what a board with no line of its own gets, edit
 # here.
 #
-#   qmk compile -kb era/sirind/tomak79h -km via -e ERA_SHOW_OPTIONS=yes
+#   qmk compile -kb era/sirind/tomak -km via -e ERA_SHOW_OPTIONS=yes
 #
 # prints what a build actually used and where each value came from, which is
 # the one question this page cannot answer for you.
 #
-# Included by each ERA .mk fragment as its first line rather than by the board,
-# so a fragment cannot run without its declarations. A board assigns above the
-# `include` that reads it and wins; a build profile assigns later and wins over
-# both. That is why every line here is `?=`.
+# Included by each ERA firmware `.mk` fragment as its first line rather than by
+# the board, so a fragment cannot run without its declarations. The identity
+# validator and printer instead include the firmware-inert identity declaration
+# file. A board assigns above the `include` that reads it and wins; the selected
+# common build variant assigns its diagnostic combination after this declaration
+# layer. That is why every line here is `?=`.
 #
 # Not here, deliberately:
 #   - the SRC lines, the -D emissions and the $(error) refusals stay in the
@@ -34,7 +38,7 @@
 #     run after a board has set the selector it derives from;
 #   - ERA_SPLIT_COMMUNICATION_CORE_STAGE accepts exactly CORE1_FULL and is
 #     declared beside the $(error) that says so. It exists to reject a stale
-#     board or profile, not to be chosen;
+#     board or variant, not to be chosen;
 #   - the copy-to-RAM image is an include, not a variable
 #     (system/era_sram_resident_rules.mk), because a partial adoption has to
 #     fail the link rather than build;
@@ -48,8 +52,11 @@
 ifndef ERA_BUILD_OPTIONS_INCLUDED
 ERA_BUILD_OPTIONS_INCLUDED := yes
 
-# Print every ERA option, its value and its origin, then build as normal.
-ERA_SHOW_OPTIONS ?= no
+# --- Build identity ---------------------------------------------------------
+# This lightweight declaration is shared with Brick65 without importing any of
+# the firmware defaults below. `standard` means the board/keymap feature set
+# with all diagnostic selectors off.
+include keyboards/era/era_build_identity_options.mk
 
 # --- Board layer -----------------------------------------------------------
 # The class skeleton: the QMK hooks every ERA board of a class wires
