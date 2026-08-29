@@ -165,13 +165,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_storage.c": {
-    "mtime": 1787956292.8520942,
-    "ast_hash": "c3fa24603ca4370ae2c1d4d75300ed67",
+    "mtime": 1788032254.248953,
+    "ast_hash": "9ebdf59d6201b4b135d496ad87fc936d",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_storage.h": {
-    "mtime": 1787876893.2462108,
-    "ast_hash": "d2afeccd6a8e55e082483356e90a12c2",
+    "mtime": 1788032021.3083656,
+    "ast_hash": "912ce6f3076f9c6e148da20eea2c8ff0",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_storage_service.c": {
@@ -215,8 +215,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_storage.c": {
-    "mtime": 1788012174.214949,
-    "ast_hash": "6d765ecc6bb85153f66f247e970d8274",
+    "mtime": 1788042724.3913465,
+    "ast_hash": "9cc51f50b0e940683575464f3898ab2d",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_storage.h": {
@@ -2655,8 +2655,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_host_peer_storage_contract.md": {
-    "mtime": 1788012321.259821,
-    "ast_hash": "eadab6f94b56567609240864af787a99",
+    "mtime": 1788041797.4017134,
+    "ast_hash": "7d999573af25a11b273b4e8700b3b220",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_invariants.md": {
@@ -2675,8 +2675,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_sram_residency_contract.md": {
-    "mtime": 1787961442.3318045,
-    "ast_hash": "ee7224fdbaedb4002e74abbebdb8b52e",
+    "mtime": 1788032569.2332146,
+    "ast_hash": "4a001b37a7b62c02b03bc72c3e882825",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_wire_contract.md": {
@@ -2705,8 +2705,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_performance_gates.md": {
-    "mtime": 1787961968.5588927,
-    "ast_hash": "4d894895757bc11a5be37508532d3fa1",
+    "mtime": 1788042462.547848,
+    "ast_hash": "a2590b6a35c2e1bb6b9005198328b43a",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_qmk_fork_ledger.md": {
@@ -2720,8 +2720,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/maps/era_source_map.md": {
-    "mtime": 1788011062.6862092,
-    "ast_hash": "5d76b906f29d1521863eda61bf272626",
+    "mtime": 1788042462.5488484,
+    "ast_hash": "880bba641c670ff56c3e81fa02f9d6ff",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/maps/era_walkthrough.md": {
@@ -4605,8 +4605,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/storage/era_nvm.h": {
-    "mtime": 1787955852.5267377,
-    "ast_hash": "8b1a18ff16d274a48f021298258613d9",
+    "mtime": 1788034288.6857615,
+    "ast_hash": "86e698dbb4043018c5327135da6c7bbf",
     "semantic_hash": ""
   },
   "keyboards/era/common/storage/era_nvm_format.h": {
@@ -4625,18 +4625,23 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/storage/era_eeprom_driver.c": {
-    "mtime": 1787956839.0892715,
-    "ast_hash": "c87671b3834980e96c1e1ba5af7516f9",
+    "mtime": 1788036155.029376,
+    "ast_hash": "3185d4e32bf41898ee6c166499c23167",
     "semantic_hash": ""
   },
   "keyboards/era/common/storage/era_eeprom_driver.h": {
-    "mtime": 1787955871.2912269,
-    "ast_hash": "9ffab27f045c32be29a71f33e7fe6447",
+    "mtime": 1788036155.0333674,
+    "ast_hash": "f055b1346b552a3eed443376acb47fde",
     "semantic_hash": ""
   },
   "keyboards/era/common/storage/era_storage_layout.h": {
     "mtime": 1787956344.559453,
     "ast_hash": "23044cb1691a86c22aebaa30c7c5099c",
+    "semantic_hash": ""
+  },
+  "keyboards/era/common/split/era_host_peer_storage_recency_policy.h": {
+    "mtime": 1788042439.670663,
+    "ast_hash": "d0ac81116a7f7204699448b6ee21610d",
     "semantic_hash": ""
   }
 }
