@@ -61,8 +61,8 @@ of it — saying so is the verification statement.
 | touches a closed surface, a retired path, or a QMK core matrix file | the **Source Gate** |
 | touches RAM placement or the load image | the **Layout checks**, per board |
 | adds core1 call depth | a measured stack figure — no compile-time construct can report one |
-| changes replacement Apply, the public EEPROM facade, or dynamic-macro durability | the focused host-test set below plus a supported split build |
-| changes RP2040 backing verification, common wear-level failure recovery, or the storage canonical-health gate | `era_eeprom_clean_persistence`, the complete upstream wear-level host-test set below, the other focused storage/CLEAN tests, and a supported split build |
+| changes replacement Apply, the custom EEPROM adapter, ERA NVM, or dynamic-macro durability | `era_nvm`, `era_nvm_qmk_driver`, the focused storage/State-Sync/CLEAN set below, and a supported split build |
+| restores or changes QMK wear-level files | the complete upstream wear-level host-test set below, proving the restored QMK implementation remains stock-compatible |
 | changes scheduler request admission, queue freshness, or Core1 liveness | the scheduler admission/liveness device gate below at every supported link level |
 | changes EEPROM CLEAN's reboot-durable prepare, agreed-restart phase machine, or storage quarantine | a deterministic CLEAN state-machine host regression covering physical-replay failure, PREPARE/COMMIT/echo loss and duplication, relation rotation and quarantine; a supported split build; and the EEPROM CLEAN agreement device gate below |
 | changes common build-variant rules or the launcher identity | the variant-precedence test, all six canonical variants on one representative split target, and Brick65 `standard`; each manifest must carry equal resolved/compiled tuples |
@@ -76,8 +76,8 @@ refusals as stop conditions — is `era_build_and_flash.md`'s.
 Run these in the WSL-local tree after the build automation has synchronized it:
 
 ```text
-make test:era_storage_slice_swap
-make test:era_eeprom_clean_persistence
+make test:era_nvm
+make test:era_nvm_qmk_driver
 make test:era_split_restart_agreement
 make test:era_split_storage_publication_retire
 make test:era_via_exact_ms
@@ -86,27 +86,29 @@ make test:wear_leveling_2byte_optimized_writes
 make test:wear_leveling_2byte
 make test:wear_leveling_4byte
 make test:wear_leveling_8byte
-make test:era_reset_lifecycle
 make test:era_rp2040_matrix_pio
 bash tests/era_build_variant_rules/test_variant_rules.sh
 ```
 
-`era_storage_slice_swap` is the hardware-free proof of the exact production
-header. It checks the old public view after every slice, candidate-prefix/raw
-partition, the separate verify opportunity, partial slice failure, deferred
-abort, bounded rollback and verified repair, one successful flip/revision,
-foreign-write absorption, cross-boundary reads, and facade inactivity outside
-Apply. `era_via_exact_ms` owns the State Sync envelope and dynamic-macro
-transcript, including reordered-input refusal and failed-close non-publication.
-`era_eeprom_clean_persistence` runs the production wear-level/EEPROM seam and
-proves reboot-playback authority, ambiguous-append whole-image roll-forward,
-one complete consolidation retry, old-slice repair without cache-equality
-success, and failed-erase refusal of empty/default publication. The upstream
-wear-level set owns the unchanged off-gate cache-stage/re-init/commit behavior;
+`era_nvm` is the power-cut/fault proof of the production A/B format: mount and
+generation authority, append commit ordering, 16-KiB atomic replacement,
+mandatory rotation, one-sector inactive maintenance, format, macro staging and
+CLEAN replay semantics. `era_nvm_qmk_driver` compiles the ERA custom adapter
+with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`; it pins ordinary
+read/write/update behavior, exact committed-span notification, the real 16-byte
+stock macro RESET transcript, the deferred RGB write inside an open macro,
+macro-touching refusal, failed close, whole-store erase, CLEAN replay proof and
+physical prepare failure. `era_via_exact_ms` owns the State Sync envelope and
+revision boundaries. The upstream wear-level set is intentionally unrelated to
+ERA production persistence now: it proves the QMK files restored during the
+cutover behave like stock QMK again.
+
 `era_split_storage_publication_retire` runs the exact production publication
 unit and proves CLEAN's terminal sentinel, ready/unclaimed discard and active
-claim drain on both storage directions. Reset and matrix tests guard the
-keyboard opportunity sector slicing calls.
+claim drain on both storage directions. `era_split_restart_agreement` pins
+PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare
+failure and quarantine. Matrix PIO remains in the set because the storage
+cutover touches the SRAM-resident execution assumptions it shares.
 
 The make-only variant test attacks all six tuples through direct assignments,
 `MAKEFLAGS`, exported environment and `make -e`, and checks the non-split
@@ -130,6 +132,40 @@ prove the Medium/Low service occupancy (`split/scheduler/era_split_transport_sch
 `split/scheduler/era_split_transport_scheduler_timing.c`,
 `split/communication_core/era_split_communication_core_lifecycle_rp2040.c`).
 
+### ERA NVM persistence device gate
+
+Run this after the host fault suite and supported build pass. Source page counts
+are capacity evidence only; **no numeric speedup is accepted without these
+device measurements.** Use compact before/after signatures from the existing
+wire/storage diagnostics and record the wall-clock operation time separately.
+
+Measure at least:
+
+- a complete 16-KiB dynamic-macro upload, opener through durable zero close and
+  targeted marker readback;
+- a 16-KiB replacement Apply whose active journal has enough room and therefore
+  does not rotate;
+- a replacement Apply that requires a bank rotation, including any remaining
+  inactive-bank sector erases and new-bank construction;
+- the NVM physical diagnostic deltas for those operations: program and erase
+  totals may move, while `program_failure_count` and `erase_failure_count` stay
+  zero in every healthy run;
+- post-close content/readback agreement and exactly the expected KEYMAP/MACRO/
+  CONFIG State Sync revision boundary;
+- relation standing liveness across the complete synchronous NVM window, with
+  Core1 failure, storage timeout, integrity, stale and queue-expiry counters not
+  increasing outside the explicitly exercised failure leg;
+- no scan/wire regression outside the accepted synchronous flash window.
+
+Exercise both storage directions and both physical roles under the relation
+matrix required by the scheduler gate. At minimum the normal-journal and
+rotation timing must be taken on High after both directions pass; repeat at Low
+where the scheduler gate requires the storage workload. A rotation-triggering
+macro upload may use the more expensive open-then-append shape currently
+implemented. Do not optimize or normalize that measurement away: it is the
+evidence required before deciding whether to fold the candidate into the
+rotating snapshot.
+
 ### EEPROM CLEAN agreement device gate
 
 This gate exercises the controlled software-reset contract; an external
@@ -147,10 +183,10 @@ admission may begin after the first PREPARED and before reset. On each half's
 live `wire clean` lines, `cq` and `hs` remain bit-for-bit unchanged from event
 4 through its last pre-reset event;
 request/result/ready generations and storage-active are already zero at event
-4. Both halves must disconnect and boot; each boot reports its ordinary
-twelve erase slices with
-no runtime yield, then relation-open convergence closes all seven domains as
-MATCH with `xfer=0` and `apply=0`. Storage abort, timeout, integrity, version,
+4. Both halves must disconnect and boot; the ordinary boot mount must recover
+MAGIC_OFF and QMK's init path must format ERA NVM and rebuild defaults, then
+relation-open convergence closes all seven domains as MATCH with `xfer=0` and
+`apply=0`. Storage abort, timeout, integrity, version,
 domain, queue-publication and Core1-failure counters remain zero; the indicator
 ends on both halves with `vis=0` and `pnd=0`.
 
@@ -224,16 +260,20 @@ Two rules bind whatever the tier:
   there, all of them QMK's own historical ones, so "this repository's first
   commit" does not resolve to a pristine tree and a diff against any of them is
   1200 files wide. On the shipped orphan it is that tree's single root instead;
-  `era_qmk_fork_ledger.md` is canonical for both spellings. Run
-  `git diff c93ef27143 HEAD -- quantum/matrix.c`, and **never against another
-  ERA branch**.
+  `era_qmk_fork_ledger.md` is canonical for both spellings. During an
+  uncommitted implementation run, compare the working tree with
+  `git diff c93ef27143 -- quantum/matrix.c`; after commit the `HEAD` form must
+  agree. **Never compare against another ERA branch.**
 - No dynamic allocation, Pico SDK queue, stock split serial backend, or
   synchronous core0 ERA wire fallback is linked.
-- Replacement Apply's ordinary read path reaches the old-view facade; only its
-  writer, verifier, rollback and runtime reload reach the raw/cache seam. No
-  State Sync revision or immutable manifest publication precedes raw
-  verification, deferred-abort evaluation and fallible preflight. A rollback
-  failure retains explicit repair state and no success counter advances.
+- Replacement Apply has no alternate public EEPROM view. Before ADMIT every
+  fallible identity/policy/schema/CRC/target/publication precondition is checked;
+  after ADMIT the only persistence call is result-bearing
+  `era_nvm_replace(... REMOTE_APPLY)`. The ERA NVM public RAM range remains old
+  until durable commit and is new immediately afterwards. No State Sync or
+  immutable success publication precedes that result, an NVM failure leaves the
+  public image old, and a post-NVM publication failure repairs forward from
+  canonical NVM rather than rewriting old EEPROM bytes.
 - Every automated build emits exactly one unique resolved variant/tuple pair
   after make restarts are deduplicated. The requested and resolved names match;
   the resolved and compiled tuples match; the artifact stem and manifest use

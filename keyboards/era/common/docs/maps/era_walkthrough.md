@@ -174,8 +174,11 @@ loses the relation runs standalone on its last durable image.
    PEER-initiated in HOST-PEER and Left-initiated in DUAL-HOST, by invariant.
 6. **Transfer, then durable apply.** The image crosses as chunks under wire
    exclusivity; exclusivity ends at transfer-verified, and the receiving half
-   then writes it to EEPROM in slices, yielding the keyboard pass between
-   sectors (`system/era_flash_slice.c`, `quantum/wear_leveling/wear_leveling.c`).
+   then revalidates its final authority/preconditions and crosses ADMIT. One
+   synchronous `era_nvm_replace()` commits the complete domain; QMK readers see
+   the old image until that commit succeeds and the new image immediately after.
+   Core1 keeps relation liveness running from SRAM while core0 is inside the NVM
+   call (`storage/era_nvm.c`, `storage/era_eeprom_driver.c`).
 7. **What this costs the typist** is written down and is not a defect:
    `era_host_peer_storage_contract.md`, **What The Lane Costs A Typist**.
 

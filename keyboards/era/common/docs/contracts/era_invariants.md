@@ -136,16 +136,16 @@ Read when: every ERA split implementation or review session
   the grant exists, that it is per relation and per route kind, that it is
   bounded, and that it never extends to authority; its identity terms and stop
   semantics are canonical in `era_route_contract.md`.
-- **Replacement Apply has one public-image boundary.** Until the successful
-  publication flip, every ordinary EEPROM reader MUST observe the complete
-  pre-Apply domain; after it, every reader MUST observe the complete candidate.
-  A candidate prefix, old suffix, or failed current slice is never a public
-  image. Only the Apply writer, raw verifier, rollback and runtime reload may
-  bypass that facade. The staged ownership, checked-write order, rollback and
-  runtime-versus-reset scope are canonical in
-  `era_host_peer_storage_contract.md`; preserving a mixed raw store behind an
-  old public facade is valid only while the volatile old-byte ownership still
-  exists.
+- **Replacement Apply has one durable/public boundary: ERA NVM commit.** Before
+  ADMIT every fallible authority/precondition may abort with no candidate NVM
+  transaction. After ADMIT, `era_nvm_replace()` owns the outcome and ordinary
+  EEPROM readers MUST observe the complete pre-Apply domain until its durable
+  commit succeeds, then the complete candidate immediately afterwards. No
+  relation/policy/source change after ADMIT authorizes rewriting the old bytes
+  back. An NVM failure leaves the public image old; a later runtime/manifest/
+  Core1 publication failure repairs forward from canonical NVM. The exact
+  order and remote-origin notification rule are canonical in
+  `era_host_peer_storage_contract.md`.
 - **A build-variant name and its compiled five-axis tuple are one identity.**
   `standard`, `wire`, `qwin`, `cause`, `stale` and `qwin_phase` each resolve to
   the immutable `wire/qwin/phase/cause/stale` tuple owned by
@@ -344,88 +344,23 @@ Read when: every ERA split implementation or review session
   it without a relaunch. That reversibility is load-bearing for the live
   recovery paths, and the next boot's `.bss` clear would un-raise the flag and
   resume full wire service anyway.
-- The flash commit-window hooks MUST stay immediately around
-  `wear_leveling_erase()`/`wear_leveling_write()`, not at the NVM wrapper.
-  `nvm_eeprom_write_begin_kb()` returns `void` and cannot abort, and
-  `nvm_eeconfig_erase()`/`eeprom_write_block()` bypass the wrapper entirely.
+- **ERA NVM flash work MUST NOT recurse into the keyboard or wire.** Program and
+  erase primitives are synchronous Core0 operations over an SRAM-resident
+  image. The engine may not call `keyboard_task()`, `matrix_task()`, scheduler
+  work, or transport work from inside them. Inactive-bank maintenance erases at
+  most one 4-KiB sector per top-level `era_common_features_task()` call and
+  returns to the main loop before considering the next. A mandatory rotation
+  may synchronously finish the finite remaining sectors; its width is measured
+  on device rather than hidden behind recursive work.
 
-  > **REFUSED:** move the EEPROM commit-window hooks out of the scheduler.
-  > **WHY:** they are the scheduler's own responder-park mechanism wearing a
-  > QMK hook signature; the only foreign thing in them is one
-  > `era_flash_slice` call per side, so the move is a redesign.
-  > **REOPENS:** the park moving out of the scheduler on its own merits.
-- **A gap inside a sliced flash erase MUST run the keyboard pass and MUST NOT
-  run the wire.** The backing store is partly erased for the width of that gap,
-  so what it may run is defined rather than inherited.
-
-  The pass is `matrix_task()` (`quantum/keyboard.c`) — scan, difference, `action_exec()` — and it is
-  the whole pass rather than the scan because the scan alone bounds `scan_hz`
-  and leaves the outage a typist has exactly where it was. The transport step
-  is skipped, and skipping it is sound for the reason the gap exists: the
-  relation's liveness is core1's standing exchange in both serviced relations,
-  so core0 owing the wire nothing for the width of an EEPROM write is the
-  designed case. Re-entering the storage state machine from inside its own
-  durable apply is not a case at all.
-
-  While that gap is open the wear-leveling cache is the only writable copy of
-  logical data: a write arriving from the gap updates the cache and MUST NOT
-  reach the backing store, and a nested erase MUST be refused. That is not a
-  dropped write — the consolidation the erase belongs to writes the whole cache
-  next, and the CLEAN erase clears it — and any future widening of what the gap
-  runs inherits that rule rather than replacing it.
-
-  A reset-class key press reached by that nested pass MUST NOT prevent the
-  caller's next step. The two class process-record seams
-  (`system/era_nonsplit_board.c`, `split/era_split_board.c`) run the user hook
-  first, then consume and latch `QK_BOOTLOADER`, `QK_REBOOT` or
-  `QK_CLEAR_EEPROM` while `era_flash_slice_in_yield()` is true. Their
-  top-level `housekeeping_task_kb()` drains the first action only after the
-  main loop's current keyboard, protocol, raw-HID and deferred-exec calls have
-  returned, by replaying the original keycode through `process_quantum()`
-  (`system/era_flash_slice.c`). The whole QK action is deferred — CLEAN may not
-  disable EEPROM in the gap and defer only its reset — and the latch is cleared
-  before dispatch so one press produces one action even on a reset primitive
-  that returns in a host test.
-
-  **Two guards hold the reachable paths and a check holds the rest.** The
-  wear-leveling interlock takes every writer arriving through
-  `wear_leveling_write()` (`quantum/wear_leveling/wear_leveling.c`) and the transport skip keeps the wire out; both are
-  code. The third part — that nothing else `action_exec` reaches from a gap
-  arrives at the backing store — is a set that grows silently as the action
-  layer grows, so every backing-store commit entry point asks
-  `backing_store_commit_blocked_kb()` and refuses while a gap is open, and the
-  refusals are published as `cross` (`era_capture_reading.md`). It is
-  structurally zero. **Refusing is the safe side there and is not the safe side
-  at `wear_leveling_write()`**, where a refusal would drop a user's edit and the
-  cache-only path exists instead; past that interlock the caller is about to
-  commit into a half-erased store, so there is no lossless option left. The
-  CLEAN-only `wear_leveling_write_word_reboot_checked()`
-  (`quantum/wear_leveling/wear_leveling.c`) is deliberately different: it is a
-  durability proof rather than an ordinary edit, and refuses before changing
-  the cache when the gap is open, because cache-only success could not publish
-  `PREPARED`.
-
-  **Slicing without a gap that runs something is not this mechanism**, and
-  three rules keep the distinction measurable. `sl`/`sy` and `stall_ms` exist
-  so a build with the loop and no pass reads as what it is, and `max_ms` MUST
-  NOT be re-bracketed to the shorter span — it would fall to one sector's width
-  whether or not the gap runs, which is the shape of every metric this project
-  has improved without the thing it names.
-
-  **What the gap bounds is the unbroken span, not the scan rate**, and the two
-  MUST NOT be confused when this clause is extended: the gap interval is one
-  sector erase, so the keyboard is sampled at that hardware cadence and not at
-  scan rate, and only returning core0 to the loop shortens it. The same
-  boundary is why the wire sees no benefit — core0 publishes no responder
-  snapshot for the width of the window whatever the slicing does.
-
-  **A commit reached from inside a gap is the caller's work, not a second
-  operation**, so any instrument bracketing the outer one MUST count depth
-  rather than close on the first end. Closing on the first end cost a device
-  capture its `max_ms`, and the impossibility that produced — an inner span
-  wider than the operation containing it — is the only reason it was found.
-  Counter semantics are canonical in `era_capture_reading.md`, the measured
-  spans and their bands in `era_performance_gates.md`.
+- **An open macro transaction blocks only durable operations touching the macro
+  domain.** A normal EEPROM write outside that range MUST remain durable even
+  while the macro marker is nonzero. This is required by the keyboard's own
+  deferred config flush path, whose pending flag is consumed before the void QMK
+  update call and has no retry channel. A write or result-bearing replacement
+  that overlaps the macro domain remains refused until the macro closes. The
+  exact transcript and stock-QMK RESET dependency are canonical in
+  `era_host_peer_storage_contract.md`.
 - Core1 MUST reserve bounded responder-result capacity before sending any
   success response **that publishes a result**. Source-push capacity MUST
   remain reserved from session/heartbeat traffic, and no accepted matrix may be

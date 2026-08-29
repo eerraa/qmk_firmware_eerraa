@@ -31,7 +31,8 @@ migrating a board onto this image
 
 - The whole firmware image executes from SRAM on both cores (copy-to-RAM).
   Flash keeps only boot2, the vectors LMA, the flash-resident startup
-  carve-out, the `.sram_image` LMA, and the wear-leveling backing store.
+  carve-out, the `.sram_image` LMA, and the linker-reserved 128-KiB ERA NVM
+  region at the end of the effective 2-MiB flash range.
 - Main SRAM (`ram0`, 256 KiB striped) holds the vector table, the copied
   image, `.bss`, and the elastic heap remainder, with at least 32 KiB free on
   every profile.
@@ -62,7 +63,7 @@ migrating a board onto this image
 Placement relaxes none of these:
 
 - Storage capture, EEPROM read/write, CRC, comparison, route enqueue, result
-  drain, apply slices, runtime reload, and diagnostics execute only at
+  drain, replacement Apply, runtime reload, and diagnostics execute only at
   task/housekeeping boundaries, never inside matrix scan.
 - Matrix-scan transport reads cached scalar facts only.
 - Diagnostics formatting and snapshot construction stay outside matrix-scan
@@ -80,11 +81,10 @@ Placement relaxes none of these:
   `keyboards/era` includes from its `post_rules.mk`. One finished layout, no
   legacy XIP path, and no QMK-common, ChibiOS, or pico-sdk file changes.
   RP2040-only.
-- Flash keeps only: `.boot2` at VMA==LMA `0x10000000` (the wear-leveling
-  driver reads the linked `BOOT2_ROM` symbol through XIP), the `.vectors` LMA
-  at exactly `0x10000100` (the prebuilt boot2 blob hardcodes that address for
-  the reset MSP/PC fetch), the flash-kept startup carve-out, and the
-  `.sram_image` LMA load image.
+- Flash keeps only: `.boot2` at VMA==LMA `0x10000000`, the `.vectors` LMA at
+  exactly `0x10000100` (the prebuilt boot2 blob hardcodes that address for the
+  reset MSP/PC fetch), the flash-kept startup carve-out, the `.sram_image` LMA
+  load image, and the separately reserved ERA NVM physical region.
 - The carve-out pins every pre-copy-reachable object to flash VMAs:
   `crt0_v6m.o(.text)`; `vectors.o(.text)`, placed adjacent to crt0 because the
   `b _crt0_entry` short branch reaches only ±2 KB; `crt1.o`; the ChibiOS board
@@ -257,55 +257,25 @@ crt0, both-core SRAM VTOR holds by construction.
 
 ## Flash Write Guards And Boot Ordering
 
-- `eeprom_driver_write_begin_kb`/`end_kb` call no core1 stop/reset helper.
-  They are commit-window recorders: `fwg` counts commit windows without owner
-  revoke and `wire edge flash` records window duration. The storage-path users
-  of the stop/reset helper family are governed by the apply-liveness design
-  below. CLEAN's reboot-durable word operation runs its physical
-  `wear_leveling_init()` replay inside this one bracket; it adds no unbracketed
-  runtime flash operation and refuses an erase-yield gap before changing cache.
-- The RP2040 wear-leveling backing store does not mask core0 interrupts across
-  its program and erase windows. That mask covers one hazard — the SSI leaves
-  memory-mapped XIP to issue the command sequence, so flash-fetched code must
-  not run — and this image has no flash-resident code left to fetch, which the
-  vector table residency above is what makes literally rather than nearly
-  true. **The removal is gated on the `ERA_SRAM_RESIDENT_IMAGE` marker rather
-  than being a deletion**, because any keyboard elsewhere in this fork that
-  does not include the residency rules is an XIP build where the mask is
-  load-bearing, and the marker is what keeps the mask and the residency
-  changing together rather than in two places. The marker is defined beside
-  `MCU_LDSCRIPT` in `system/era_sram_resident_rules.mk` and storage v1 asserts
-  it at compile time; what else it selects is canonical in
-  `era_board_adoption.md`'s **Copy-To-RAM Policy**. Both windows are gated, not
-  only the erase, and the guarantee that unreachable slots stay unreachable
-  moves from `PRIMASK` to the NVIC enable bits — weaker, which is exactly why
-  the slots had to move to SRAM first rather than the other way round. What
-  the removal buys is correctness plus removed ISR latency across the ~821
-  write windows of a CLEAN burst and every ordinary VIA write. It is **not**
-  an enumeration fix, and that is recorded because it is the reason it was
-  argued for: a measured CLEAN enumeration found `route slave` unmoved.
-- Under `ERA_HOST_PEER_STORAGE_V1_ENABLE`, an RP2040 program result is returned
-  only after XIP readback matches every requested complemented word, and an
-  erase result only after the full backing range reads physically erased
-  (`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`).
-  This is synchronous verification inside the existing commit window, not an
-  asynchronous durability claim. CLEAN additionally rebuilds the logical word
-  through ordinary boot playback, because physical byte equality alone cannot
-  detect an earlier empty log slot.
-- The semantic owner of a false verified result is the wear-level layer, not
-  this RP2040 backend. `wear_leveling_write()` and `wear_leveling_erase()`
-  (`quantum/wear_leveling/wear_leveling.c`) publish cache/cursor state only
-  after a canonical result: an ambiguous append rolls the already-complete
-  request cache forward through bounded whole-image consolidation, while a
-  repeatedly failed explicit erase keeps empty-cache publication and
-  boot-default writes unavailable. Storage consumes only the O(1)
-  canonical-health query;
-  it neither reconstructs flash state nor adds work to a scan-bound route.
+- ERA NVM's RP2040 backend is the only production EEPROM flash writer. It uses
+  the pico-sdk program/erase primitives from the SRAM-resident image and returns
+  success only after the generic NVM engine reads the affected physical bytes
+  back and verifies them. A false physical result is owned by ERA NVM and is
+  surfaced through its result-bearing API; no QMK cache or storage protocol
+  layer is allowed to convert it to success.
+- Program and erase callbacks never call keyboard, scheduler or wire work. The
+  normal runtime yields between inactive-bank erase sectors by returning all the
+  way to the top-level housekeeping caller. A mandatory rotation may complete
+  the finite remaining sectors synchronously; Core1 keeps executing from SRAM
+  and owns relation liveness during that Core0 window.
+- The custom EEPROM adapter's ordinary QMK surface is intentionally void on
+  write, exactly as QMK requires. Split Apply and CLEAN therefore call the
+  result-bearing ERA adapter helpers directly. CLEAN's durable proof uses the
+  production NVM replay parser rather than physical byte equality alone.
 - **Boot-ordering invariant, load-bearing and recorded here.** The boot
-  wear-leveling init consolidation and the hardware-id unique-ID read are the
-  only unhooked flash operations and both run inside `keyboard_setup`
-  (`quantum/main.c:41`), strictly before the first possible core1 launch. **No
-  earlier core1 launch entry point may be added.**
+  ERA NVM mount (including a fresh-bank format when no valid bank exists) and
+  the hardware-id unique-ID read both run before the first possible core1
+  launch. **No earlier core1 launch entry point may be added.**
 
   The launch site is keyboard post-init: `era_split_keyboard_post_init()`
   calls `era_split_transport_scheduler_start_communication_core()`, the one
@@ -334,71 +304,44 @@ crt0, both-core SRAM VTOR holds by construction.
 
 ## Apply-Liveness Design
 
-The durable apply holds no core1 stop across the EEPROM write, so the single
-wire-anchored 100 ms liveness rule has no exemptions anywhere. Exact protocol
-semantics — cursor state, abort ordering, the core1 beat, and both storage
-state machines — are canonical in `era_host_peer_storage_contract.md`. What
-this contract owns is the placement-side consequence and the bound:
+The durable Apply holds no core1 stop across the ERA NVM transaction, so the
+single wire-anchored liveness rule has no storage exemption. Exact protocol
+semantics — ADMIT, old-or-new authority, post-commit repair-forward and both
+storage directions — are canonical in `era_host_peer_storage_contract.md`.
+This contract owns the placement consequence:
 
-- Replacement Apply is a staged slice swap: each 32-byte step first retains the
-  raw old slice, submits the candidate through a result-bearing wear-level
-  write, and only on success transfers ownership of the old bytes into the
-  staging image. The pending-work condition pumps one responsibility per scan
-  pass on either applying role. Core0 returns to its loop between slices and
-  after the final slice before raw verification; ordinary EEPROM readers keep
-  seeing the complete old image until the later publication flip. The bounded
-  scratch and runtime metadata account for 36 bytes of the core0 storage state
-  (`storage/era_storage_slice_swap.h`).
+- Replacement Apply is one synchronous `era_nvm_replace()` after all fallible
+  prerequisites have been revalidated. Core0 may be unavailable for the whole
+  flash call. There is no recursive keyboard pass inside it and no per-page
+  route opportunity the scheduler may depend on.
+- Ordinary EEPROM readers continue from the NVM engine's one 24-KiB RAM image.
+  That range stays old until commit and becomes new only after commit. No
+  additional old-image buffer is resident for Apply.
+- Core1 stays running from SRAM and the standing exchange is the mechanism that
+  can keep the peer's relation watch alive during the Core0 window. A core0
+  keepalive is forbidden because core0 is the actor the flash operation blocks.
+- A relation failure during the call does not change NVM authority. When core0
+  returns, scheduler revalidation repairs the relation from the committed state
+  rather than asking storage to roll persistent bytes backward.
 
-  **That bound is structural, not small, and this is the sentence that must
-  not be read as reassurance.** One slice is 32 bytes, but a slice that
-  triggers a wear-leveling erase or consolidation blocks core0 for the
-  hardware duration — hundreds of milliseconds have been measured inside
-  single slices, and the consolidation worst case is an explicitly unmeasured
-  standing debt (`era_performance_gates.md` carries both figures). The
-  applying half does not scan for that window, and no gate observes it,
-  because the scan-rate gates never run during an apply.
-- Core1 stays running through the write, and **what feeds the peer's watch
-  during the window is core1's standing-exchange liveness beat, in both
-  serviced relations.** There is no core0 keepalive and there must not be:
-  core0 is the thing the write blocks, so a keepalive emitted from it is not a
-  liveness signal. This states the mechanism rather than a measurement; the
-  HOST-PEER half of it is unmeasured.
-- The rest of the Apply protocol belongs to the storage contract and is named
-  here only so it is recognizable: deferred abort and verification/preflight
-  failure restore the candidate prefix in bounded, verified reverse slices;
-  rollback failure retains an explicit repair-required state and the old
-  public facade; a foreign write is absorbed into that old view before it
-  raises the abort; and a terminal relation/mode exit cannot discard volatile
-  old-byte ownership. Success alone performs raw runtime reload, the public
-  flip, immutable publication and the State Sync revision. These are
-  runtime-session guarantees; power loss discards the old-byte scratch and is
-  bounded separately in `era_host_peer_storage_contract.md`.
+**Bank-maintenance stance.** The inactive 64-KiB bank is erased in verified
+4-KiB sectors, at most one sector per top-level housekeeping call. Each call
+returns to the normal keyboard loop before another sector is attempted. The
+engine itself never calls the loop.
 
-**Consolidation stance, and it is a decision-record.** KEEP_SECTOR_SLICED is
-the shipped mechanism. The 48 KiB RP2040 backing-store erase is twelve 4 KiB
-`flash_range_erase()` calls, with `wear_leveling_backing_erase_yield()` after
-every sector, including the twelfth
-(`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`). Once
-the keyboard loop is armed, each gap runs one matrix/action pass and no wire or
-storage recursion; the cache-only/reentrancy and commit-entry interlocks keep a
-partly erased store unreachable. The final gap is load-bearing because the
-whole-cache program begins immediately after the erase function returns.
+If a new bank is required before background maintenance finishes, ERA NVM
+synchronously completes the remaining sector erases and constructs the bank.
+That mandatory window is finite and power-safe but has no source-derived latency
+claim; `era_performance_gates.md` requires it to be measured on device. Correct
+operation never depends on a 64-KiB block-erase opcode.
 
-The outer commit window still spans all twelve erases and the following
-program, so `max_ms` does not shrink; `stall_ms` is the longest unbroken span
-between successful gaps. On a boot-time erase the loop is not armed and the
-expected signature is `sl=12 sy=0`; on a runtime consolidation it is
-`sl += 12`, `sy += 12`, with a keyboard opportunity after the final sector.
-Core1 remains alive throughout. No monolithic 48 KiB ERA erase is permitted.
-
-> **REFUSED:** a pre-flight log-headroom gate ahead of the write.
-> **WHY:** it predicts consolidation but proves neither slice durability nor rollback, so it adds a QMK-common accessor without closing a failure path.
-> **REOPENS:** a measured failure after checked rollback and an existing result-bearing headroom fact that removes a prerequisite.
-
-> **REFUSED:** make the wear-leveling commit return before its program and checksum are durable.
-> **WHY:** QMK callers treat return as durability, while the checksum uses the live cache after programming; asynchronous mutation needs a second immutable cache or a new EEPROM contract.
-> **REOPENS:** a separately approved asynchronous EEPROM contract with bounded immutable storage and power-loss recovery.
+> **REFUSED:** reintroduce recursive keyboard/wire work from inside ERA NVM to
+> make a long rotation appear interruptible.
+> **WHY:** it creates storage re-entry and makes public/runtime authority depend
+> on arbitrary action code executed in the middle of a physical transaction.
+> **REOPENS:** a separately designed asynchronous NVM transaction contract with
+> explicit immutable ownership and recovery, not a callback hidden inside the
+> flash backend.
 
 ## Closed Placement Surfaces
 

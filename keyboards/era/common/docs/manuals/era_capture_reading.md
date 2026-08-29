@@ -38,9 +38,8 @@ this paragraph** — a number written here goes stale the next time a line is
 appended, which is why the rule is a derivation. Every new scheduler line is
 appended *last* precisely so that every other line keeps its index: the only
 thing an append moves is this offset. The cheaper check is nearly free — count
-the `wire ` lines before `ccore` in the capture you hold and subtract one,
-because `wire edge flash` and `wire edge burst` share a single paced slot and
-are the one place a slot emits two lines.
+the `wire ` lines before `ccore` in the capture you hold; the current scheduler
+printer emits one line per paced slot.
 
 Read rule: a communication-core counter and a scheduler or storage counter from
 the same press are not simultaneous. Movement visible only on a
@@ -330,15 +329,13 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   initiator retry per unpinned domain; `core cl/tx/rx/pub` proves that handoff
   stays one-shot.
 - `chunk/dup/retry/timeout`: chunk and retry progress.
-- `apply/complete`: successful public publication and pair-visible durable
-  completion counts. Candidate slices, raw verification and rollback do not
-  increment `apply`; a failed Apply therefore leaves both counters unchanged.
-  Runtime states `10` (`PEER_APPLY_WRITE`) and `14`
-  (`HOST_PUSH_APPLY_WRITE`) cover forward write, verify, rollback and
-  repair-required alike — the private slice phase is deliberately not another
-  diagnostic field. A state stuck at 10/14 with no `apply` advance and an
-  integrity/abort result is consistent with fail-closed repair, but a console
-  capture cannot by itself prove which internal slice phase is held.
+- `apply/complete`: successful durable ERA NVM replacement/publication and
+  pair-visible completion counts. The full candidate is validated and all
+  fallible preconditions are rechecked before ADMIT; a failed NVM replacement
+  leaves `apply` and `complete` unchanged. After NVM success there is no
+  rollback state: relation/publication recovery proceeds forward from canonical
+  NVM, so an `apply` increment without a later `complete` names post-durable
+  relation/publication work rather than a partially persisted candidate.
 - `stale/full=i/r`: generation reject and distinct PEER initiator / HOST
   responder dedicated result-capacity failure. Since the complete-poll
   reservation carve-out (`era_host_peer_storage_contract.md`, Capacity And
@@ -350,10 +347,10 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   `SOURCE_CHANGED` proof/apply/abort responses and a local target-dirty abort;
   it is separate from wire `timeout`, `integrity` and relation-stale failures.
 - `integrity/version/domain`: exact image/schema/domain rejects.
-- `qfail`: Core1 quiesce/restart failure preventing publication/identity
-  rotation or bounded pending-timeout recovery. When it follows a complete raw
-  candidate but precedes the public flip, Apply rolls back; it is not evidence
-  that candidate content became public.
+- `qfail`: Core1 quiesce/restart failure preventing an identity rotation or
+  bounded pending-timeout recovery. It is not persistence rollback authority.
+  If it occurs after `apply` advanced, the NVM content is already canonical and
+  the relation must repair/re-prove from it.
 - `news/probe`: this half's storage news value and the current initiator pending
   probe mask, read from cold core0 state. `news=` here is one value; `news=` on
   `csp` is a different field on a different line, a valid/value pair, and neither
@@ -484,6 +481,15 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   the pending fact; `rise`/`fall`
   are local-uptime ms of the latest span's first and last pending pass.
 
+  **A dynamic-macro upload is visible before it is durable.** Its nonzero
+  marker opens ERA NVM's staging transaction, and that transaction mode is an
+  explicit display-only `pnd` arm from the first macro write. It does not move
+  `chg` or the MACRO State Sync revision; those still move only at the successful
+  durable zero close. Thus a capture with `pnd=1`, an open macro transaction and
+  unchanged semantic revision is not premature publication — it is the
+  indicator doing its job. `wire via macro` is the request-side witness for that
+  staging interval.
+
   There is no bridge arithmetic to check: the two halves' `rise` and `fall`
   stamps compare directly within the known local-clock offset, and a responder
   outliving the initiator by more than about one poll period plus a housekeeping
@@ -509,6 +515,14 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   era both closes the era (`roff` stamps the black instant) and drops the board's
   held-frame proof, so the field re-renders within one frame and `rn` counts the
   re-light.
+
+  A TOMAK STATUS-policy edge also explicitly wakes the RGB Matrix render-policy
+  state machine. It does not wait for a later animation epoch: an idle state is
+  restarted on the next RGB task pass, while an already-buffered frame is
+  flushed first and the pending policy refresh starts immediately afterward.
+  Therefore a large `ron`/`roff` lag behind the corresponding `rise`/`fall`,
+  after correcting the halves' local-clock offset, is a render-path finding and
+  not an accepted scheduler delay.
 
   Read `rn` against `spans` per operation: `rn == spans` is the clean reading;
   `rn > spans` with visuals clean means a mid-era repaint was caught and healed —
@@ -555,13 +569,12 @@ changed shadow, not a slow transfer.
 ending at transfer-verified rather than a broken flag: it covers the chunk stream
 (and an abort's wire priority) and clears at each role's transfer-verified
 boundary, so a capture taken mid-apply reads `excl=0` with `st=` in an apply
-state. To read traffic during an apply, bracket the apply era with the cause
-timeline's `EEPROM_BEGIN`/`EEPROM_END` (`cause` variant) or the `wire edge burst`
-bracket, and read the matrix (`sp`/`cache`), runtime (`rt`/`io`) and section
-counters across it — inside that window they move. **Those windows are narrow,
-and the width is measured**: almost the whole save bracket sits inside EEPROM
-operations, leaving a few percent of it to read traffic in. Both figures are in
-`era_host_peer_storage_contract.md`.
+state. To read traffic during an apply, bracket the ERA NVM call with the cause
+timeline's `EEPROM_BEGIN`/`EEPROM_END` (`cause` variant), and read Core1/runtime
+(`rt`/`io`) and section counters before and after it. Core0 does not return to
+the keyboard loop inside that bracket, so no scan or core0-route movement should
+be inferred from a missing intermediate sample. The actual NVM width is a device
+measurement in `era_performance_gates.md`, not a derived sub-window.
 
 ### The storage core and its cause timeline
 
@@ -631,13 +644,12 @@ operations, leaving a few percent of it to read traffic in. Both figures are in
   transaction result `1..4` or `5` for OK-without-valid decode; and session RX
   uses bit 3 for response-sent and bits `0..2` for result.
 
-  `EEPROM_BEGIN..EEPROM_END` brackets the forward candidate-slice walk. Raw
-  verification and publication follow `EEPROM_END`; a failed walk or a later
-  deferred abort may perform rollback writes outside that pair. Read
-  `wire edge flash` and `wire edge burst`, not the cause bracket alone, when
-  the question is whether rollback touched flash. None of these counters sees
-  the public EEPROM facade directly; the old-or-new claim is a source/host-test
-  gate, not a console inference.
+  `EEPROM_BEGIN..EEPROM_END` brackets the one synchronous
+  `era_nvm_replace(... REMOTE_APPLY)` call. `EEPROM_END`'s detail is the NVM
+  result code. Runtime reload and immutable/State-Sync publication follow a
+  successful end. There is no rollback write outside the pair: once NVM
+  succeeds it is authority, while an NVM failure leaves the public range old.
+  The old-or-new claim remains a source/host-test gate, not a console inference.
 - **`CHUNK_RESULT` is sampled and its detail is the sixteenth, not the chunk
   id.** One chunk in sixteen is recorded, so `1X` reads as chunk `X × 16`. The
   sampling exists because an unsampled stream fills the 32-entry ring before the
@@ -719,9 +731,9 @@ operations, leaving a few percent of it to read traffic in. Both figures are in
   `2`, followed by more macro notifications or `oq>0`, identifies a write
   stream that crossed the quiet boundary and temporarily retired every local
   lamp arm. Event `7` instead identifies a service/role exit. Keep the adjacent
-  `wire storage cause`, `wire storage`, `eeprom shim ind`, and `wire edge burst`
-  lines from the same snapshot; the edge line identifies the falling carrier,
-  while those lines identify its transfer and flash context.
+  `wire storage cause`, `wire storage`, and `eeprom shim ind` lines from the
+  same snapshot; the edge line identifies the falling carrier while the storage
+  lines identify its transfer/NVM context.
 
 ## The qwin Window
 
@@ -979,15 +991,6 @@ correction carried over from an older sitting over-corrects.
   snapshot that hit a core1 claim collision or an undrained result and re-armed
   the due latch. Small single digits per session is the designed reading; a rate
   rising with typing says the publish is fighting the claim window.
-- **`fpark=ok/inert` on `wire maint`**: write blocks that began while this half's
-  responder was actually advertising a section — how often the result-ring
-  exposure would have been live, not how many writes ran (`fwg` is that). First
-  figure: parks core1 accepted. Second: parks it refused. **Reading only the sum
-  loses the point** — a refused park is an outage that ran unprotected, so
-  `full`/`noack` moving in an interval whose second figure moved belong to the
-  flash write and not to the poll period. Zero in both says the responder
-  advertised nothing at any write-begin. Diagnostics-gated; the state it reads is
-  in every profile.
 - `plan`: full scheduler mode-planning run count.
 - `dirty`: cached scheduler dirty flags.
 - `due`: cached scheduler route due flags. **Two live route bits, one non-route
@@ -998,8 +1001,6 @@ correction carried over from an older sitting over-corrects.
   (HOST-PEER liveness heartbeat), `0x08` (HOST-source response poll), `0x40`
   (AUTHORITY push) and `0x20` (an earlier response poll). A `due=` value is
   captured, so none of the four is recycled.
-- `fwg`: flash commit-window count. The ordinary-write hooks record commit
-  windows on the copy-to-RAM image (no owner revoke).
 - `open_ms`: the two boot instants, in milliseconds since `timer_init()` at the
   top of `keyboard_init()`, at which the explicit core1 launch step was entered
   and returned. Captured once per boot in keyboard post-init, wire-diagnostics
@@ -1143,88 +1144,13 @@ every counter cumulative from boot and printed in every relation.
   still is "didn't send"; the peer's `rt` rx moving while its `aap` sits still is
   "sent but not applied"; its `aap` moving is "applied".
 
-## Flash And Write Windows
+## Reset Edge
 
 - `wire edge reset`: diagnostic-only local serial owner/role reset boundary
   snapshot. It carried `hbmiss=pre/during` until the heartbeat lane retired; what
   still brackets a boundary here is `dtap_ms`. A boundary includes same-role
   restarts after flash, relation rotation and diagnostic flush, and the
   `rel/prev` fields separately identify the last mode edge.
-- `wire edge flash`: diagnostic-only flash commit-window snapshot. `active` is an
-  unfinished window and `max_ms` is the maximum completed duration, a 16-bit
-  field. `max_ms` carries no index, timestamp or address, so it says how long the
-  longest window was and nothing about which call it belonged to. A normal EEPROM
-  write is the bare commit window with the wire running; a storage Apply starts
-  timing at its first checked candidate slice after the validated-result drain.
-  Core1 is not quiesced across those writes; the later identity rotation is a
-  separate event.
-
-  **`max_ms` is the operation and `stall_ms` is the outage, and they are not one
-  number.** `max_ms` measures the operation and does **not** fall when the
-  backing-store erase is sliced — reading it as though it should is how a change
-  that fixed nothing reads as a pass. `stall_ms` is the longest span inside an
-  operation that core0 could not leave: the same window, split at each gap the
-  erase actually yielded through.
-- `sl`/`sy`: sector gaps the erase reached, and gaps that ran a keyboard pass.
-  **They are a pair and neither means anything alone.** `sl` rising says the
-  driver decomposed; `sy` rising says the decomposition was used. `sl` high with
-  `sy` at zero is the whole defect still shipping behind a loop that looks like
-  the fix — which is reachable, because the pass is refused before the keyboard
-  loop arms and inside its own reentry latch. `stall_ms` is only split on a gap
-  counted by `sy`, deliberately, so a build in that state reports the real
-  blocked width rather than one sector's.
-
-  Both are cumulative from boot and count every backing-store erase, so a CLEAN
-  boot contributes 12 to `sl` with `sy` unmoved before anything else does —
-  **read them as a delta across the operation under test, never as a ratio.** The
-  boot contribution is not a fault: `keyboard_init()` (`quantum/keyboard.c`) runs
-  its erases before the loop that would yield to them exists. `stall_ms` is reset
-  at that arming instant for the same reason, and the boot width is `max_ms`'s to
-  carry. A CLEAN boot reads `sl=12 sy=0 stall_ms=0`.
-
-  All three are release-image state rather than diagnostic-only: an instrument
-  that exists only on the `wire` variant cannot say what the shipped image did.
-
-  **`stall_ms` above `max_ms` is impossible and therefore diagnostic.** An inner
-  span cannot exceed the operation containing it, so that reading means an
-  EEPROM-writing keycode fired inside a gap and its own commit truncated the outer
-  guard — the pair closed on the first `end`. Both pairs count depth now, so on a
-  current image the inversion cannot be produced by nesting alone. The recorded
-  `stall_ms` signature for a consolidation stall is canonical in
-  `era_host_peer_storage_contract.md`.
-- `cross`: backing-store commits refused because a gap was open. **Structurally
-  zero, and that is the point.** The wear-leveling interlock takes every writer
-  that reaches the store through `wear_leveling_write()`
-  (`quantum/wear_leveling/wear_leveling.c`), so a nonzero value means something
-  arrived at a commit entry point without passing through it — the part of the
-  gap's contract no enumeration can keep holding as the action layer grows
-  (`era_invariants.md`). Read it as a boolean: any nonzero value is a finding and
-  names no rate. Cumulative from boot and not reset at arm, because a crossing
-  during boot is a finding too.
-- `wire edge burst n=count last=ms/scans/blocks tot=ms/scans/blocks`: the
-  write-burst bracket, carrying the scan rate during an apply. One burst spans
-  from the first EEPROM write block to the last one before 250 ms of write
-  silence; `last` and `tot` carry the burst width in milliseconds, the raw scans
-  that ran inside it, and the write-block count. The lost-scan arithmetic is the
-  reader's — width times the boot's own `scan_hz`, minus `scans` — which keeps
-  the figure comparable across images; the line records and does not judge.
-  Bursts close lazily, so an `n` that has not moved since the last write is one
-  print stale, not zero cost. A CLEAN boot's init erases form a burst of their
-  own with `scans=0`.
-
-  **`last` is rarely the burst you meant to measure, and reading it as one
-  reports the opposite of the truth.** A VIA macro save is followed by a
-  one-block write of its own — the recency layer's divergence counter — which
-  opens a second burst and takes `last` at `0/0/1`: a reader taking `last` there
-  records zero milliseconds and zero lost scans for a save that cost seconds.
-  **Read the burst under test as a difference: `tot` minus `last` within one
-  capture, or `tot` differenced across two captures that bracket it, with `n`
-  confirming how many bursts fell inside.**
-
-  **The baseline belongs to a window with no writes in it.** `scan_hz` is
-  computed between prints, so the first `WIRE_DIAG` of a boot reads `0` and has no
-  baseline in it at all; the second press, taken after an idle interval with
-  `fwg`, `n` and `sl` all still zero, is the clean figure.
 
 ## Relation-Role Lines
 

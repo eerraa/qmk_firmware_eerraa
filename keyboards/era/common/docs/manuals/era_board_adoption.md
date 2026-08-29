@@ -117,14 +117,14 @@ which is board-agnostic and is the same code the TOMAK79H launcher runs — free
 ram0 against its floor, the `.vectors` table, and the no-allocator check. The
 gate and its pass bands are canonical in `era_performance_gates.md`.
 
-**What the marker changes beyond placement is the larger half.**
-`ERA_SRAM_RESIDENT_IMAGE` removes the interrupt mask around the flash
-program/erase and takes the per-sector sliced erase with its keyboard-pass
-yield. On a board with no flash-resident code the mask guards nothing, which is
-why it is a gate and not a deletion; the slicing is then live, and a non-split
-board gets the pass and the counters without the `stall_ms` bracket, which is
-wired from whoever owns the EEPROM commit hooks and today is the split
-scheduler only.
+**What the marker changes beyond placement is the flash-safety premise.** ERA
+NVM's RP2040 backend issues program/erase commands while the firmware and both
+vector tables execute from SRAM, so no flash-fetched runtime path may be needed
+during those commands. The NVM engine itself never calls the keyboard or wire
+recursively. Inactive-bank maintenance is paced outside the engine by returning
+after at most one 4-KiB sector per top-level housekeeping call; a mandatory bank
+rotation may still hold core0 synchronously until its finite construction is
+complete. That width is a device-measurement obligation, not a placement claim.
 
 **The pre-copy arm is not separable from the bundle**, and the reason is the
 checks rather than the code. `era_boot_core1_halt.c` would compile and link on

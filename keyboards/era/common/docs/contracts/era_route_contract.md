@@ -50,24 +50,20 @@ response window starts after BEGIN (`split/scheduler/era_split_transport_schedul
 **The exclusive span is the transfer phase, not the episode.** Exclusivity runs
 from a validated `TRANSFER` to each role's transfer-verified boundary and to an
 abort's bounded cleanup; the apply phase is a local flash operation on the
-receiving half and runs with normal routes admitted between its EEPROM
-operations — never inside a sliced erase's gap, which runs the keyboard pass and
-not the wire (`era_invariants.md`). The per-role boundaries and the preserved
-flush-at-close are canonical in `era_host_peer_storage_contract.md`. How much of
-the apply span core0 spends outside an EEPROM operation is **measured**: almost
-the whole save bracket is inside EEPROM operations, so the admitted windows are
-the small remainder of the span (`era_host_peer_storage_contract.md` carries
-both figures). Design against that — the windows are what lets a press-and-release
-that lands in one still cross, and no design may treat them as usable room a
-route can plan to occupy.
+receiving half. ERA NVM performs no recursive keyboard/wire pass from inside a
+program or erase primitive; Core1's standing exchange keeps relation liveness
+alive while Core0 is synchronously unavailable. The per-role transfer-verified
+boundaries and close/recovery rules are canonical in
+`era_host_peer_storage_contract.md`. The flash window is therefore a measured
+Core0 outage, not a set of route-admission gaps a route may plan to occupy.
 
 **CLEAN quarantine is a different and stronger admission state than transfer
 exclusivity.** A half installs the cached O(1) gate before it publishes CLEAN
 PREPARED, and it stays installed through COMMIT and controlled reset. While it
 is set, this half may neither select nor publish a storage request, admit or
 answer one as responder, or expose a storage snapshot for a new episode. Any
-already-owned storage request/result or Apply old-view responsibility reaches
-its existing safe close/cancel boundary before PREPARED may publish. Mandatory
+already-owned storage request/result reaches its existing safe close/cancel
+boundary before PREPARED may publish. Mandatory
 `SESSION_STATUS` and the standing exchange remain admitted: AUTHORITY and
 `RESTART_ARM` are the carriers that finish the CLEAN agreement. No abort,
 timeout or relation rotation clears the gate; a new relation re-drives the
@@ -418,18 +414,15 @@ The rules, and each is a bound rather than a convention:
   outranks this, and a beat that resumed on its own would be the retry the
   grant forbids.
 
-  **A stop inside a durable apply is priced, and the price is bounded**
-  (recorded 2026-08-05, so it is not re-derived): a failed exchange mid-apply
-  leaves nobody feeding the peer's 100 ms watch until core0 republishes — but
-  the apply is one 32-byte slice per main-loop pass, exclusivity masks core0's
-  owner routes *to* `ATTACH_STATUS` rather than away from it, and core0's
-  longest absence inside an EEPROM operation is the `stall_ms` band
-  (`era_host_peer_storage_contract.md`, which records that signature). The
-  worst chain — failure at stall onset, a
-  republish inside 85 ms, the next beat inside 50 ms — can exceed the watch only
-  in its tail, and what it produces there is honest staleness with the clean
-  recovery below, not a hang. **`sfg` moving inside an apply era is the reading
-  that would say this pricing is wrong**; no recorded apply era has fired it.
+  **A stop inside a durable Apply remains a relation failure, not a persistence
+  rollback condition.** ERA NVM does not return to core0 between page programs
+  merely to feed the route. If the standing exchange stops during the
+  synchronous Apply, the local NVM call still finishes to old-or-new authority;
+  when core0 returns, the existing `ATTACH_STATUS` revalidation path outranks
+  normal traffic and repairs the relation from whichever durable state won.
+  Device acceptance therefore measures standing liveness and failure counters
+  across the complete NVM window rather than relying on a source-derived
+  sub-window bound.
 - **Failure is core0's, and the property to preserve is route priority rather
   than a clock.** Core1 stops the standing exchange on the first failed
   transaction and reports it; it never retries one on its own. Core0's ordinary

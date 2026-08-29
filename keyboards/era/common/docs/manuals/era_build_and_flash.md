@@ -132,11 +132,13 @@ reads a format an earlier firmware stored (`era_source_map.md`'s
 **Stored-Data Compatibility**). Flashing one half and not the other leaves the
 pair in a state nothing is written to recover.
 
-**A flash erases the store.** The ERA strict reset then rewrites fresh defaults
-on the next boot, and both halves read all-changed at the first relation open
-after it — one degraded relation open, gone from the boot after. That is the
-conservative degradation working; how to read a relation open is
-`era_capture_reading.md`'s.
+**A normal UF2 flash does not erase ERA NVM.** The firmware UF2 contains only
+the linked firmware load range; the linker-reserved ERA NVM starts at effective
+XIP `0x101E0000`, outside those UF2 blocks. A same-format upgrade therefore
+mounts the existing ERA NVM image. On this wear-level-to-ERA-NVM cutover the old
+physical bytes are intentionally not a compatible ERA NVM bank, so the new
+mount rejects them and constructs a fresh current-format bank. Logical-layout
+incompatibility remains a separate `ERA_EEPROM_RESET_KEY`/CLEAN decision.
 
 **A VIA EEPROM CLEAN after flashing is an owner step, not a build step.** It is
 the way to discard a stored keymap that a keycode renumbering has made wrong;
@@ -144,47 +146,32 @@ what a CLEAN boot costs is read with the wire diagnostics, which
 `era_performance_gates.md` says how to turn on and `era_capture_reading.md`
 says how to decode.
 
-## TOMAK_TKL Release-Image Hardware Route
+## TOMAK_TKL Hardware Acceptance Route
 
-This is the shortest reusable handoff for the persistence and controlled-reset
-gate. It is a procedure, not a device-evidence report. Run it once in order;
-do not repeat the whole route for each setting.
+This is the reusable hardware route for persistence, storage synchronization and
+controlled reset. It intentionally names no frozen commit, hash or historical
+artifact: build the current working tree through `era-build`, use the manifest
+and SHA-256 produced by that run, and record those exact identifiers with the
+device evidence.
 
 ### Exact image and definitions
 
-For the source-audited `7d4936b851` gate, first produce the image through the
-WSL automation above. The exact automated artifact and hash for this route are:
+Build `era/sirind/tomak:via standard` for the acceptance image. Build `wire` or
+`cause` separately only when the corresponding diagnostic evidence is needed.
+For every leg, use the artifact whose manifest names the current edit tree and
+target; never select an artifact by modification time and never substitute a
+different TOMAK-family target.
 
-```text
-.era-artifacts/era_sirind_tomak_via_standard_7d4936b851_dirty_9f5282130a6fec9d.uf2
-SHA-256 9f5282130a6fec9d9131e93abe2a86b54c1432c4b109244a52822f781aeb1e86
-```
-
-The automation manifest produced with that image records the pre-variant
-spelling `profile=standard`, standard VIA
-configuration with diagnostics off, target
-`era/sirind/tomak:via`, full Git HEAD
-`7d4936b8511cf09e195d637f2e3d075df91eac44`, `worktree_dirty=yes`, and
-`edit_tree_check=matched by era-sync`. The dirty suffix records this uncommitted
-automation/document correction; its sole compiled-source edit is a path-name
-comment, and the resulting UF2 is byte-identical to the earlier HEAD build.
-Check this manifest and hash; never select a TOMAK artifact by modification
-time. In particular, the packaging image at
-`.era-artifacts/release/TOMAK-TKL/era_sirind_tomak_via.uf2` is different and is
-not this gate's input; ignore it for this route.
-
-Flash the exact same UF2 to both halves, once each. The VIA definition is the
+Flash the exact same selected UF2 to both halves, once each. The VIA definition is the
 only side-specific file: load
 `keyboards/era/sirind/tomak/keymaps/via/TOMAK-TKL-L-VIA.json` when LEFT owns
 the host USB connection, or the adjacent `TOMAK-TKL-R-VIA.json` when RIGHT owns
 it. Wait for the steady-red EEPROM SYNC indication to go dark before starting
 a timed leg.
 
-Use this standard VIA image for the acceptance result. If an ambiguous overlap
-needs a `WIRE_DIAG` capture, build `era/sirind/tomak:via wire` or `cause` as a
-separate TKL diagnostic leg; never substitute an artifact whose target stem is
-another keyboard. How to bind and read the keycode is in
-`era_capture_reading.md`.
+Use the standard VIA image for the final acceptance result. A diagnostic image
+may establish timing/counter evidence but does not replace the final standard
+smoke. How to bind and read `WIRE_DIAG` is in `era_capture_reading.md`.
 
 ### One-time setup
 
@@ -202,9 +189,10 @@ another keyboard. How to bind and read the keycode is in
    Run CLEAR last because it deliberately deletes this keymap. Do not spend a
    second setup cycle restoring it before then.
 5. Export this prepared layout once as the gate LOAD, then make one known,
-   harmless keymap or macro change so that loading it back performs real work.
-   This preserves the temporary reset bindings while the overlap leg runs. Do
-   not create repeated filler writes merely to move the wear-level log.
+   harmless keymap or macro change so loading it back performs real work. Keep
+   the dedicated ERA NVM timing legs from `era_performance_gates.md` separate:
+   journal-room Apply, mandatory-rotation Apply and the full 16-KiB macro close
+   are each measured once under a known starting state.
 
 Use visibly different RGB markers for successive legs, for example blue/64,
 red/128, green/192 and purple/96. For the TOMAK indicator use Caps Lock,
@@ -213,16 +201,14 @@ PASS/FAIL/NOT EXERCISED; raw logs and EEPROM bytes are not test records.
 
 ### Short sequence
 
-1. **Flash-slice overlap, once.** Start the one known-different VIA layout LOAD.
-   During its long storage episode, after at least 500 ms, tap `Fn+S` enough to
-   leave a plainly different final RGB Matrix brightness, then tap the temporary
-   `QK_REBOOT` key. PASS means one reset, no boot loop or bootloader entry, and
-   the last RGB state is still present after boot and the following one-second
-   quiet period. A steady-red SYNC lamp proves unfinished pair storage, not by
-   itself a flash slice: count the exact overlap subcase only when a
-   consolidation window was already known or confirmed by the wire diagnostic.
-   Otherwise record that subcase as NOT EXERCISED and continue; do not grind
-   thousands of writes to manufacture it.
+1. **ERA NVM Apply overlap, once.** Start the one known-different VIA layout LOAD.
+   During the storage episode, tap `Fn+S` enough to leave a plainly different
+   final RGB Matrix brightness, then tap the temporary `QK_REBOOT` key only if
+   this leg is explicitly exercising reset overlap. PASS means one reset, no
+   boot loop or bootloader entry, and the last independently committed RGB state
+   is still present after boot and the following one-second quiet period. A
+   steady-red SYNC lamp proves unfinished pair storage; it does not identify
+   whether the current NVM call is an append or a bank rotation.
 2. **SAVE then suspend.** Arrange a confirmed host USB suspend, change RGB
    Matrix to the next marker, release the final control less than 500 ms before
    USB suspend, then wake without touching Lighting. PASS means VIA reads back

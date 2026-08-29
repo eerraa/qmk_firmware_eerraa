@@ -134,10 +134,9 @@ Per-file ownership is canonical in `maps/era_source_map.md`; this is the shape:
   the last agreement; its only job is to
   tell the initiator to run a whole-family `SYNC_STATUS` summary. It carries no
   domain identity (`contracts/era_host_peer_storage_contract.md`).
-- **durable apply** — the PEER's sliced EEPROM write of a CRC-validated staged
-  image, with the wire kept alive by core1's liveness beat.
-- **flash guard / `fwg`** — the EEPROM commit-window recorder; on the SRAM image
-  it records the window and does not stop core1.
+- **durable apply** — the receiving half's synchronous ERA NVM replacement of a
+  fully validated staged image after ADMIT; public EEPROM remains old until NVM
+  commit, while core1 keeps the relation alive from SRAM.
 - **responder-silence stale watch** — the responder's 100 ms watch on the core1
   accepted-RX counter; no accepted frame for the limit forgets the session. It
   is fed by the relation's own traffic, so the limit is a constant of its own
