@@ -294,6 +294,11 @@ bool era_split_communication_core_storage_acquire_initiator_result(const era_spl
 bool era_split_communication_core_storage_release_initiator_result(uint16_t request_generation);
 bool era_split_communication_core_storage_initiator_result_ready(void);
 bool era_split_communication_core_storage_result_due(void);
+/* Core0 terminal ownership for a ready result whose relation/runtime owner no
+ * longer exists. Discards immutable ready initiator/responder results only; it
+ * does not retire source publications and therefore remains valid across a
+ * same-role relation rotation that intentionally preserves the Core1 lease. */
+bool era_split_communication_core_storage_discard_ready_results(void);
 void era_split_communication_core_storage_cancel_initiator_result(uint16_t request_generation);
 era_split_communication_core_storage_request_classification_t era_split_communication_core_storage_classify_request(const era_split_communication_core_storage_initiator_request_t *request, const era_split_communication_core_storage_execution_context_t *context);
 

@@ -1531,6 +1531,36 @@ bool era_split_communication_core_storage_responder_result_ready(void) {
            g_era_split_communication_core_storage_responder_result.record.snapshot_generation == claim_generation;
 }
 
+bool era_split_communication_core_storage_discard_ready_results(void) {
+    bool discarded = false;
+
+    /* A ready initiator result is immutable while claim+ready agree. Acquire
+     * the generation from that immutable record and take the ordinary Core0
+     * terminal-release path. A failed release is deliberately not converted
+     * into cancellation: it means the ownership predicate changed and the
+     * ready fact must remain visible for a later pass rather than be guessed at. */
+    if (era_split_communication_core_storage_initiator_result_ready()) {
+        const era_split_communication_core_storage_initiator_result_t *result = NULL;
+        if (era_split_communication_core_storage_acquire_initiator_result(&result) && result != NULL) {
+            uint16_t request_generation = result->request_generation;
+            if (era_split_communication_core_storage_release_initiator_result(request_generation)) {
+                discarded = true;
+            }
+        }
+    }
+
+    /* The responder primitive combines immutable copy and terminal release, so
+     * discarding the semantic body needs no second ownership operation. */
+    if (era_split_communication_core_storage_responder_result_ready()) {
+        era_split_communication_core_storage_responder_result_t result;
+        if (era_split_communication_core_storage_drain_responder_result(&result)) {
+            discarded = true;
+        }
+    }
+
+    return discarded;
+}
+
 void era_split_communication_core_storage_cancel_responder_result(uint16_t snapshot_generation) {
     if (snapshot_generation == 0 ||
         g_era_split_communication_core_storage_responder_result.claim_generation != snapshot_generation) {

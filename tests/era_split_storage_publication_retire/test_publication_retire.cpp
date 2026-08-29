@@ -169,6 +169,113 @@ TEST_F(EraSplitStoragePublicationRetire, ResponderResultCommitsEvenBeforeReadyAn
     EXPECT_TRUE(era_test_storage_source_claim_was_held_at_ready());
 }
 
+TEST_F(EraSplitStoragePublicationRetire, ReadyInitiatorResultCanBeDiscardedWithoutRetiringSourceCapacity) {
+    auto request = request_for();
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_initiator_request(&request));
+
+    auto *result = era_split_communication_core_storage_begin_initiator_result(kGeneration);
+    ASSERT_NE(result, nullptr);
+    result->request_generation = kGeneration;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_result(result));
+    ASSERT_TRUE(era_split_communication_core_storage_result_due());
+
+    EXPECT_TRUE(era_split_communication_core_storage_discard_ready_results());
+    EXPECT_FALSE(era_split_communication_core_storage_initiator_result_ready());
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+
+    /* Relation loss is not CLEAN: discarding an old result must leave the
+       source publication seat reusable for the next relation generation. */
+    auto next = request_for(kGeneration + 1U);
+    next.relation_generation++;
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration + 1U));
+    EXPECT_TRUE(era_split_communication_core_storage_publish_initiator_request(&next, 25000U));
+}
+
+TEST_F(EraSplitStoragePublicationRetire, ReadyResponderResultDiscardReopensReplyCapacity) {
+    auto snapshot = snapshot_for();
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_responder_result(kGeneration));
+
+    era_split_communication_core_storage_responder_result_t result{};
+    result.snapshot_generation = kGeneration;
+    result.request_fingerprint  = 1U;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_result(&result));
+    ASSERT_TRUE(era_split_communication_core_storage_result_due());
+
+    EXPECT_TRUE(era_split_communication_core_storage_discard_ready_results());
+    EXPECT_FALSE(era_split_communication_core_storage_responder_result_ready());
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+
+    auto next = snapshot_for(kGeneration + 1U);
+    next.relation_generation++;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_snapshot(&next));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_responder_snapshot(&next));
+    EXPECT_TRUE(era_split_communication_core_storage_reserve_responder_result(kGeneration + 1U));
+}
+
+TEST_F(EraSplitStoragePublicationRetire, BothReadyResultsDiscardInOneCore0OwnershipPass) {
+    auto request = request_for();
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_initiator_request(&request));
+    auto *initiator_result = era_split_communication_core_storage_begin_initiator_result(kGeneration);
+    ASSERT_NE(initiator_result, nullptr);
+    initiator_result->request_generation = kGeneration;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_result(initiator_result));
+
+    auto snapshot = snapshot_for(kGeneration + 1U);
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_responder_result(kGeneration + 1U));
+    era_split_communication_core_storage_responder_result_t responder_result{};
+    responder_result.snapshot_generation = kGeneration + 1U;
+    responder_result.request_fingerprint  = 1U;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_result(&responder_result));
+    ASSERT_TRUE(era_split_communication_core_storage_result_due());
+
+    EXPECT_TRUE(era_split_communication_core_storage_discard_ready_results());
+    EXPECT_FALSE(era_split_communication_core_storage_initiator_result_ready());
+    EXPECT_FALSE(era_split_communication_core_storage_responder_result_ready());
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+}
+
+TEST_F(EraSplitStoragePublicationRetire, InFlightInitiatorReservationSurvivesUntilResultBecomesReady) {
+    auto request = request_for();
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_initiator_request(&request));
+    auto *result = era_split_communication_core_storage_begin_initiator_result(kGeneration);
+    ASSERT_NE(result, nullptr);
+    result->request_generation = kGeneration;
+
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+    EXPECT_FALSE(era_split_communication_core_storage_discard_ready_results());
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_result(result));
+    ASSERT_TRUE(era_split_communication_core_storage_result_due());
+    EXPECT_TRUE(era_split_communication_core_storage_discard_ready_results());
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+}
+
+TEST_F(EraSplitStoragePublicationRetire, InFlightResponderReservationSurvivesUntilResultBecomesReady) {
+    auto snapshot = snapshot_for();
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_claim_responder_snapshot(&snapshot));
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_responder_result(kGeneration));
+    era_split_communication_core_storage_responder_result_t result{};
+    result.snapshot_generation = kGeneration;
+    result.request_fingerprint  = 1U;
+
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+    EXPECT_FALSE(era_split_communication_core_storage_discard_ready_results());
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_result(&result));
+    ASSERT_TRUE(era_split_communication_core_storage_result_due());
+    EXPECT_TRUE(era_split_communication_core_storage_discard_ready_results());
+    EXPECT_FALSE(era_split_communication_core_storage_result_due());
+}
+
 TEST_F(EraSplitStoragePublicationRetire, ActiveInitiatorClaimBlocksThenPublishedResultDrainsAndRetryRetires) {
     auto request = request_for();
     ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));

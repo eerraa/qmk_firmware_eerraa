@@ -7,6 +7,10 @@ extern "C" {
 #include "eeprom.h"
 #include "eeprom_driver.h"
 #include "keyboards/era/common/storage/era_eeprom_driver.h"
+#define _Static_assert static_assert
+#include "keyboards/era/common/storage/era_eeprom_layout.h"
+#include "keyboards/era/common/split/era_split_sync_storage.h"
+#undef _Static_assert
 #include "keyboards/era/common/storage/era_nvm_rp2040.h"
 #include "nvm_dynamic_keymap.h"
 #include "quantum.h"
@@ -154,6 +158,81 @@ TEST_F(EraNvmQmkDriver, StockReadWriteUpdateUsesReplayableEraNvmAndExactChangedE
     uint8_t remounted[4] = {};
     eeprom_read_block(remounted, reinterpret_cast<const void *>(100U), sizeof(remounted));
     EXPECT_EQ(std::memcmp(remounted, updated, sizeof(updated)), 0);
+}
+
+TEST_F(EraNvmQmkDriver, StorageMetadataIsDurableWithoutLocalSemanticNotification) {
+    std::array<uint8_t, 32> metadata{};
+    for (size_t i = 0; i < metadata.size(); ++i) {
+        metadata[i] = static_cast<uint8_t>(0x40U + i);
+    }
+
+    reset_notifications();
+    ASSERT_EQ(era_eeprom_driver_write_storage_metadata(257U, metadata.data(), metadata.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(g_notify_count, 0U);
+
+    std::array<uint8_t, 32> replay{};
+    ASSERT_EQ(era_eeprom_driver_replay_read(257U, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, metadata);
+}
+
+TEST_F(EraNvmQmkDriver, StorageMetadataCounterFailureKeepsPublishedCounterOldUntilRetry) {
+    constexpr uint32_t kCounterAddress = ERA_EEPROM_CONFIG_ADDR + ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET +
+                                         ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET;
+    std::array<uint8_t, ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES> old_counter = {7U, 0U};
+    std::array<uint8_t, ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES> new_counter = {8U, 0U};
+
+    ASSERT_EQ(era_eeprom_driver_write_storage_metadata(kCounterAddress, old_counter.data(), old_counter.size()), ERA_NVM_RESULT_OK);
+    g_flash.fail_program_call = g_flash.program_calls + 1U;
+    EXPECT_EQ(era_eeprom_driver_write_storage_metadata(kCounterAddress, new_counter.data(), new_counter.size()), ERA_NVM_RESULT_IO_ERROR);
+
+    std::array<uint8_t, ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES> published{};
+    eeprom_read_block(published.data(), reinterpret_cast<const void *>(kCounterAddress), published.size());
+    EXPECT_EQ(published, old_counter);
+    std::array<uint8_t, ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES> replay{};
+    ASSERT_EQ(era_eeprom_driver_replay_read(kCounterAddress, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, old_counter);
+
+    ASSERT_EQ(era_eeprom_driver_write_storage_metadata(kCounterAddress, new_counter.data(), new_counter.size()), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_eeprom_driver_replay_read(kCounterAddress, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, new_counter);
+}
+
+TEST_F(EraNvmQmkDriver, StorageMetadataConvergenceEnvelopeFailurePublishesNeitherCounterNorBaseline) {
+    constexpr uint32_t kRecencyConfigOffset = ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET +
+                                               ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET;
+    constexpr uint32_t kRecencyAddress = ERA_EEPROM_CONFIG_ADDR + kRecencyConfigOffset;
+    constexpr size_t kRecencySize = ERA_EEPROM_PROTECTED_RESERVED_OFFSET - kRecencyConfigOffset;
+    static_assert(kRecencySize == 66U, "Host test must cover the exact counter-through-baseline convergence envelope.");
+
+    std::array<uint8_t, kRecencySize> before{};
+    for (size_t i = 0; i < before.size(); ++i) {
+        before[i] = static_cast<uint8_t>(0x20U + i);
+    }
+    ASSERT_EQ(era_eeprom_driver_write_storage_metadata(kRecencyAddress, before.data(), before.size()), ERA_NVM_RESULT_OK);
+
+    auto candidate = before;
+    /* Domain-0 counter clear plus one baseline CRC/guard-shaped change. The
+     * production convergence helper publishes this entire protected envelope
+     * as one ERA NVM record precisely so neither half can become durable alone. */
+    candidate[0] = 0U;
+    candidate[1] = 0U;
+    constexpr size_t kBaselineIndex = ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET - kRecencyConfigOffset;
+    candidate[kBaselineIndex + 0U] ^= 0x5AU;
+    candidate[kBaselineIndex + ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE - 1U] ^= 0xA5U;
+
+    g_flash.fail_program_call = g_flash.program_calls + 1U;
+    EXPECT_EQ(era_eeprom_driver_write_storage_metadata(kRecencyAddress, candidate.data(), candidate.size()), ERA_NVM_RESULT_IO_ERROR);
+
+    std::array<uint8_t, kRecencySize> published{};
+    eeprom_read_block(published.data(), reinterpret_cast<const void *>(kRecencyAddress), published.size());
+    EXPECT_EQ(published, before);
+    std::array<uint8_t, kRecencySize> replay{};
+    ASSERT_EQ(era_eeprom_driver_replay_read(kRecencyAddress, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, before);
+
+    ASSERT_EQ(era_eeprom_driver_write_storage_metadata(kRecencyAddress, candidate.data(), candidate.size()), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_eeprom_driver_replay_read(kRecencyAddress, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, candidate);
 }
 
 TEST_F(EraNvmQmkDriver, StockMacroResetLoopIsOneDurableTransactionAndPublishesOnlyAfterClose) {

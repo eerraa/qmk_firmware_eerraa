@@ -36,6 +36,7 @@ typedef enum {
     ERA_NVM_ORIGIN_MACRO_TRANSACTION,
     ERA_NVM_ORIGIN_CLEAN_PREPARE,
     ERA_NVM_ORIGIN_FORMAT,
+    ERA_NVM_ORIGIN_STORAGE_METADATA,
 } era_nvm_origin_t;
 
 typedef enum {

@@ -16,6 +16,9 @@ bool era_eeprom_driver_ready(void);
 
 era_nvm_result_t era_eeprom_driver_replace(uint32_t address, const void *data, size_t length, era_nvm_origin_t origin);
 era_nvm_result_t era_eeprom_driver_replay_read(uint32_t address, void *data, size_t length);
+/* Protected storage-engine metadata. This is durable local state but not a QMK
+ * user edit, State Sync revision, or split dirty-domain notification. */
+era_nvm_result_t era_eeprom_driver_write_storage_metadata(uint32_t address, const void *data, size_t length);
 
 /* CLEAN PREPARE: persist one word and prove the same production replay parser
  * would recover it after a reboot before the restart agreement may publish

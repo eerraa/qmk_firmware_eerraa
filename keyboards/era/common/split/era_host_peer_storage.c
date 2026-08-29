@@ -33,6 +33,7 @@
 #include "era_split_restart_agreement.h"
 #include "era_split_transport_scheduler.h"
 #include "era_split_wire_frame.h"
+#include "era_host_peer_storage_recency_policy.h"
 
 #ifndef ERA_SRAM_RESIDENT_IMAGE
 #    error ERA HOST-PEER storage v1 requires the SRAM-resident load image: the live-wire durable apply keeps Core1 running through flash commits
@@ -104,6 +105,11 @@ typedef struct {
      * fact; the indicator subtracts this mask until a local write, a transfer
      * decision, or a domain close proves that pair work is real. */
     uint8_t  provisional_changed_mask;
+    /* Boot-only counter repair that failed durably. The ordinary dirty gate
+     * keeps that domain out of conflict/push/probe admission until the cold
+     * task retries the repair; unlike a user edit this bit does not advance
+     * dirty_generation and therefore must not become a settled-news event. */
+    uint8_t  recency_repair_mask;
 } era_host_peer_storage_local_state_t;
 
 /* Relation-scoped episode bookkeeping: probe scheduling, hint consumption,
@@ -824,13 +830,47 @@ static bool era_host_peer_storage_read_baseline_record(era_host_peer_storage_bas
     return record->guard == era_host_peer_storage_baseline_guard(record);
 }
 
-static void era_host_peer_storage_write_baseline(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
-    era_host_peer_storage_baseline_record_t record;
-    bool valid = era_host_peer_storage_read_baseline_record(&record);
-    if (valid && record.baseline_crc32[domain] == crc32) {
-        return;
+static bool era_host_peer_storage_metadata_result_ok(era_nvm_result_t result) {
+    return result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE;
+}
+
+static uint32_t era_host_peer_storage_counter_config_offset(era_split_eeprom_sync_domain_t domain) {
+    return ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
+           (uint32_t)domain * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES;
+}
+
+#define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET \
+    (ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET)
+#define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END \
+    (ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET + ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE)
+#define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE \
+    (ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET)
+
+_Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET +
+                       ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
+                   ERA_EEPROM_LINK_CONFIG_OFFSET,
+               "ERA recency counters must end where the preserved protected metadata span begins.");
+_Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END == ERA_EEPROM_PROTECTED_RESERVED_OFFSET,
+               "ERA convergence metadata transaction must end at the protected reserve.");
+
+/* A convergence close changes two durable recency facts together: the agreed
+ * baseline and that domain's divergence counter returning to zero. They are
+ * disjoint in the protected config layout, so the smallest existing ERA NVM
+ * atomicity boundary is one contiguous metadata publication covering the
+ * counters through the baseline record. Link/reset bytes and the other domain
+ * counters inside that envelope are copied unchanged. Core0 owns all EEPROM
+ * writers and ERA NVM forbids recursive writes, so nothing can mutate those
+ * preserved bytes between this logical read and the synchronous replacement. */
+static bool era_host_peer_storage_write_convergence_metadata(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
+    uint8_t metadata[ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE];
+    if (era_eeprom_read_config(metadata, ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET, sizeof(metadata)) != sizeof(metadata)) {
+        return false;
     }
-    if (!valid) {
+
+    era_host_peer_storage_baseline_record_t record;
+    const uint32_t baseline_index = ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET;
+    memcpy(&record, &metadata[baseline_index], sizeof(record));
+    if (record.guard != era_host_peer_storage_baseline_guard(&record)) {
         /* Unknown neighbours stay zero under the fresh guard: they read as
          * changed until their own convergence close, which is the
          * conservative direction. */
@@ -838,13 +878,16 @@ static void era_host_peer_storage_write_baseline(era_split_eeprom_sync_domain_t 
     }
     record.baseline_crc32[domain] = crc32;
     record.guard                  = era_host_peer_storage_baseline_guard(&record);
-    era_eeprom_update_config(&record, ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET, sizeof(record));
+    memcpy(&metadata[baseline_index], &record, sizeof(record));
 
-}
+    const uint32_t counter_index = era_host_peer_storage_counter_config_offset(domain) - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET;
+    metadata[counter_index]      = 0;
+    metadata[counter_index + 1U] = 0;
 
-static uint32_t era_host_peer_storage_counter_config_offset(era_split_eeprom_sync_domain_t domain) {
-    return ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
-           (uint32_t)domain * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES;
+    return era_host_peer_storage_metadata_result_ok(
+        era_eeprom_driver_write_storage_metadata(ERA_EEPROM_CONFIG_ADDR + ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET,
+                                                 metadata,
+                                                 sizeof(metadata)));
 }
 
 /* Hand-expanded rather than routed through era_split_wire_get16/put16, and the
@@ -862,12 +905,16 @@ static uint16_t era_host_peer_storage_read_divergence_counter(era_split_eeprom_s
     return (uint16_t)((uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8));
 }
 
-static void era_host_peer_storage_write_divergence_counter(era_split_eeprom_sync_domain_t domain, uint16_t value) {
+static bool era_host_peer_storage_write_divergence_counter(era_split_eeprom_sync_domain_t domain, uint16_t value) {
     uint8_t bytes[ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES] = {
         (uint8_t)(value & 0xFFU),
         (uint8_t)(value >> 8),
     };
-    era_eeprom_update_config(bytes, era_host_peer_storage_counter_config_offset(domain), sizeof(bytes));
+    return era_host_peer_storage_metadata_result_ok(
+        era_eeprom_driver_write_storage_metadata(
+            ERA_EEPROM_CONFIG_ADDR + era_host_peer_storage_counter_config_offset(domain),
+            bytes,
+            sizeof(bytes)));
 }
 
 /* The changed-mask shadow's one writer pair. Set/clear beside the record
@@ -922,27 +969,30 @@ static void era_host_peer_storage_indicator_note_transfer(era_split_eeprom_sync_
  * that the natural change-count unit. An invalid baseline record still
  * counts edits; convergence is what rebuilds the record.
  *
- * Returns whether the settle departed from the agreement — false exactly
- * when the record is valid and the content sits on its own baseline. Both
- * settle signals (the news step and the in-relation summary arm) are
- * conditioned on it, and the invalid-record arm reads as departed, so
- * degradation errs toward signalling. */
-static bool era_host_peer_storage_recency_note_settled(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
+ * Returns a result-bearing settle classification. Only durable AT_BASELINE or
+ * DEPARTED outcomes may cross the capture publication boundary; a failed
+ * counter mutation returns PERSIST_FAILED before changed shadow, news, summary,
+ * or dirty retirement can move. An invalid baseline reads as departed, so
+ * successful degradation still errs toward signalling. */
+static era_host_peer_storage_recency_settle_result_t era_host_peer_storage_recency_note_settled(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
     era_host_peer_storage_baseline_record_t record;
     bool     valid   = era_host_peer_storage_read_baseline_record(&record);
     uint16_t counter = era_host_peer_storage_read_divergence_counter(domain);
-    if (valid && record.baseline_crc32[domain] == crc32) {
-        era_host_peer_storage_note_changed_shadow(domain, false);
-        if (counter != 0) {
-            era_host_peer_storage_write_divergence_counter(domain, 0);
-        }
-        return false;
+    bool at_baseline = valid && record.baseline_crc32[domain] == crc32;
+    bool persistence_required = at_baseline ? counter != 0 : counter < ERA_HOST_PEER_STORAGE_DIVERGENCE_COUNTER_MAX;
+    bool persistence_succeeded = true;
+    if (persistence_required) {
+        uint16_t value = at_baseline ? 0 : (uint16_t)(counter + 1U);
+        persistence_succeeded = era_host_peer_storage_write_divergence_counter(domain, value);
     }
-    era_host_peer_storage_note_changed_shadow(domain, true);
-    if (counter < ERA_HOST_PEER_STORAGE_DIVERGENCE_COUNTER_MAX) {
-        era_host_peer_storage_write_divergence_counter(domain, (uint16_t)(counter + 1U));
+
+    era_host_peer_storage_recency_settle_result_t result =
+        era_host_peer_storage_recency_settle_result(at_baseline, persistence_required, persistence_succeeded);
+    if (!era_host_peer_storage_recency_settle_can_publish(result)) {
+        return result;
     }
-    return true;
+    era_host_peer_storage_note_changed_shadow(domain, !at_baseline);
+    return result;
 }
 
 /* Convergence close (MATCH re-proof or durable COMPLETE, either role): the
@@ -986,12 +1036,12 @@ static void era_host_peer_storage_note_domain_converged(era_split_eeprom_sync_do
      * write, which is a data-loss defect only a *falling* carrier can have. A
      * forward-only news value has nothing to retire, so the close writes the
      * baseline and stops. */
-    era_host_peer_storage_write_baseline(domain, crc32);
+    if (!era_host_peer_storage_recency_convergence_can_retire(
+            era_host_peer_storage_write_convergence_metadata(domain, crc32))) {
+        return;
+    }
     era_host_peer_storage_indicator_retire_provisional_domain(domain);
     era_host_peer_storage_note_changed_shadow(domain, false);
-    if (era_host_peer_storage_read_divergence_counter(domain) != 0) {
-        era_host_peer_storage_write_divergence_counter(domain, 0);
-    }
 }
 
 /* Boot capture: no edit happened here, so the increment arm must not run —
@@ -1001,23 +1051,22 @@ static void era_host_peer_storage_note_domain_converged(era_split_eeprom_sync_do
  * interval (changed content, counter zero) is bumped to one so the
  * conflict cell still sees that work. An invalid record has no baseline to
  * diverge from and writes nothing. */
-static void era_host_peer_storage_recency_note_boot(const era_host_peer_storage_baseline_record_t *record, bool record_valid,
+static bool era_host_peer_storage_recency_note_boot(const era_host_peer_storage_baseline_record_t *record, bool record_valid,
                                                     era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
     if (!record_valid) {
         /* No baseline to diverge from; the changed shadow was seeded
          * all-set by init's invalid-record arm, mirroring the recency
          * snapshot's conservative degradation. */
-        return;
+        return true;
     }
     era_host_peer_storage_note_changed_shadow(domain, record->baseline_crc32[domain] != crc32);
     uint16_t counter = era_host_peer_storage_read_divergence_counter(domain);
     if (record->baseline_crc32[domain] == crc32) {
-        if (counter != 0) {
-            era_host_peer_storage_write_divergence_counter(domain, 0);
-        }
+        return counter == 0 || era_host_peer_storage_write_divergence_counter(domain, 0);
     } else if (counter == 0) {
-        era_host_peer_storage_write_divergence_counter(domain, 1);
+        return era_host_peer_storage_write_divergence_counter(domain, 1);
     }
+    return true;
 }
 
 /* One range, because the 2026-08-18 regrouping put the syncable half's whole
@@ -1114,13 +1163,18 @@ static void era_host_peer_storage_image_publish_close(uint32_t odd_seq) {
     __DMB();
 }
 
-static bool era_host_peer_storage_capture_domain(era_split_eeprom_sync_domain_t domain) {
+static bool era_host_peer_storage_capture_domain_internal(era_split_eeprom_sync_domain_t domain,
+                                                          era_host_peer_storage_recency_settle_result_t *settle_result) {
+    if (settle_result != NULL) {
+        *settle_result = ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_NOT_ATTEMPTED;
+    }
     if (!era_eeprom_driver_ready() || !era_host_peer_storage_domain_valid(domain) || g_era_host_peer_storage_relation.active_due ||
         !era_host_peer_storage_domain_capture_ready(domain)) {
         return false;
     }
 
-    if (g_era_host_peer_storage_local.image_publication_seq >= UINT32_MAX - 1U) {
+    uint32_t publication_seq_limit = settle_result != NULL ? UINT32_MAX - 3U : UINT32_MAX - 1U;
+    if (g_era_host_peer_storage_local.image_publication_seq >= publication_seq_limit) {
         g_era_host_peer_storage_local.revision_wrap_pending = 1;
         g_era_host_peer_storage_local.image_valid           = 0;
         return false;
@@ -1138,6 +1192,27 @@ static bool era_host_peer_storage_capture_domain(era_split_eeprom_sync_domain_t 
     uint32_t image_crc32 = era_split_wire_crc32(g_era_host_peer_storage_image, descriptor->size);
     if (!image_valid) {
         g_era_host_peer_storage_diagnostics.integrity_reject_count++;
+    }
+
+    if (source_revision != 0 && settle_result != NULL) {
+        /* The domain image has replaced the shared buffer already, so retire
+         * the old image publication immediately. Do not hold the seqlock odd
+         * across a synchronous NVM commit: an old Core1 snapshot will fail its
+         * sequence equality either way, while the even invalid interval lets
+         * the responder observe that invalidation without a flash-duration
+         * writer window. */
+        era_host_peer_storage_image_publish_close(odd_seq);
+        if (g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_HOST) {
+            g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+        }
+        *settle_result = era_host_peer_storage_recency_note_settled(domain, image_crc32);
+        if (*settle_result == ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_PERSIST_FAILED) {
+            /* Keep the previous manifest/counter pair untouched and leave the
+             * dirty bit raised for a result-bearing retry after the short
+             * backoff. The shared image remains invalid until that retry. */
+            return false;
+        }
+        odd_seq = era_host_peer_storage_image_publish_open();
     }
 
     era_host_peer_storage_image_publish_record(domain, descriptor, image_crc32, source_revision);
@@ -1162,6 +1237,10 @@ static bool era_host_peer_storage_capture_domain(era_split_eeprom_sync_domain_t 
     return source_revision != 0;
 }
 
+static bool era_host_peer_storage_capture_domain(era_split_eeprom_sync_domain_t domain) {
+    return era_host_peer_storage_capture_domain_internal(domain, NULL);
+}
+
 static bool era_host_peer_storage_range_overlaps(uint32_t offset, uint32_t length, const era_host_peer_storage_domain_descriptor_t *descriptor) {
     if (length == 0 || descriptor == NULL) {
         return false;
@@ -1169,6 +1248,53 @@ static bool era_host_peer_storage_range_overlaps(uint32_t offset, uint32_t lengt
     uint32_t end = offset + length;
     uint32_t domain_end = descriptor->address + descriptor->size;
     return offset < domain_end && descriptor->address < end;
+}
+
+static void era_host_peer_storage_note_recency_repair_due(era_split_eeprom_sync_domain_t domain, uint32_t now_ms) {
+    uint32_t domain_mask = era_host_peer_storage_domain_mask(domain);
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    bool was_dirty = (g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) != 0;
+#endif
+    g_era_host_peer_storage_local.recency_repair_mask |= (uint8_t)domain_mask;
+    g_era_host_peer_storage_local.dirty_domain_mask |= domain_mask;
+    g_era_host_peer_storage_local.dirty_deadline_valid_mask |= domain_mask;
+    g_era_host_peer_storage_local.dirty_deadline_ms[domain] = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+    era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    if (!was_dirty) {
+        era_host_peer_storage_cause_edge_note_domain(ERA_HOST_PEER_STORAGE_CAUSE_EDGE_DIRTY_RISE, (uint8_t)domain);
+    }
+#endif
+}
+
+static bool era_host_peer_storage_retry_recency_repair(era_split_eeprom_sync_domain_t domain, uint32_t now_ms) {
+    uint32_t domain_mask = era_host_peer_storage_domain_mask(domain);
+    era_host_peer_storage_baseline_record_t baseline_record;
+    bool baseline_valid = era_host_peer_storage_read_baseline_record(&baseline_record);
+    if (!era_host_peer_storage_recency_note_boot(&baseline_record, baseline_valid, domain,
+                                                 g_era_host_peer_storage_manifest[domain].image_crc32)) {
+        g_era_host_peer_storage_local.dirty_deadline_ms[domain] = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+        era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+        return false;
+    }
+
+    g_era_host_peer_storage_local.recency_repair_mask &= (uint8_t)~domain_mask;
+    if (g_era_host_peer_storage_manifest[domain].dirty_generation == 0) {
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        bool was_dirty = (g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) != 0;
+#endif
+        /* No local writer arrived after boot. The repair itself is not a
+         * settled edit and therefore retires only its internal dirty gate. */
+        g_era_host_peer_storage_local.dirty_domain_mask &= ~domain_mask;
+        g_era_host_peer_storage_local.dirty_deadline_valid_mask &= ~domain_mask;
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        if (was_dirty) {
+            era_host_peer_storage_cause_edge_note_domain(ERA_HOST_PEER_STORAGE_CAUSE_EDGE_DIRTY_FALL, (uint8_t)domain);
+        }
+#endif
+    }
+    era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+    return true;
 }
 
 void era_host_peer_storage_init(void) {
@@ -1228,14 +1354,20 @@ void era_host_peer_storage_init(void) {
         if (!baseline_valid) {
             g_era_host_peer_storage_local.changed_domain_mask = ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
         }
+        uint32_t recency_now_ms = timer_read32();
         for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
             if (g_era_host_peer_storage_manifest[domain].source_revision != 0) {
                 if (!baseline_valid) {
                     g_era_host_peer_storage_local.provisional_changed_mask |= (uint8_t)(1U << domain);
                 }
-                era_host_peer_storage_recency_note_boot(&baseline_record, baseline_valid,
-                                                        (era_split_eeprom_sync_domain_t)domain,
-                                                        g_era_host_peer_storage_manifest[domain].image_crc32);
+                if (!era_host_peer_storage_recency_note_boot(&baseline_record, baseline_valid,
+                                                             (era_split_eeprom_sync_domain_t)domain,
+                                                             g_era_host_peer_storage_manifest[domain].image_crc32)) {
+                    /* A failed boot clear/seed must not expose its stale
+                     * counter to a conflict. Keep the domain behind the same
+                     * dirty admission gate until the cold task repairs it. */
+                    era_host_peer_storage_note_recency_repair_due((era_split_eeprom_sync_domain_t)domain, recency_now_ms);
+                }
             }
         }
     }
@@ -1446,6 +1578,16 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                 continue;
             }
 
+            if ((g_era_host_peer_storage_local.recency_repair_mask & (uint8_t)domain_mask) != 0) {
+                /* Boot repair is metadata work, not a settled edit. Retry it
+                 * before any capture so a later user write starts from the
+                 * normalized durable counter rather than building on a stale
+                 * clear or a missing minimum-one seed. One NVM transaction per
+                 * cold pass keeps the synchronous fault path bounded. */
+                (void)era_host_peer_storage_retry_recency_repair((era_split_eeprom_sync_domain_t)domain, now_ms);
+                return true;
+            }
+
             if (!era_host_peer_storage_domain_capture_ready((era_split_eeprom_sync_domain_t)domain)) {
                 /* The quiet clock is only a coalescer. For dynamic macros the
                  * QMK marker is the commit authority, so a VIA pause cannot
@@ -1456,22 +1598,27 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                 return true;
             }
 
-            bool captured = era_host_peer_storage_capture_domain((era_split_eeprom_sync_domain_t)domain);
+            era_host_peer_storage_recency_settle_result_t settle_result = ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_NOT_ATTEMPTED;
+            bool captured = era_host_peer_storage_capture_domain_internal((era_split_eeprom_sync_domain_t)domain, &settle_result);
+            if (settle_result == ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_PERSIST_FAILED) {
+                /* The capture deliberately left both manifest and dirty
+                 * ownership unconsumed. Back off instead of hammering a sealed
+                 * or otherwise failing journal on every keyboard pass. */
+                g_era_host_peer_storage_local.dirty_deadline_ms[domain] = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+                era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+                return true;
+            }
             era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
             if (captured) {
                 g_era_host_peer_storage_relation.idle_due        = 1;
                 g_era_host_peer_storage_relation.idle_due_domain = domain;
                 g_era_host_peer_storage_relation.idle_due_kind   = ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
                 /* Settled capture after the trailing quiet interval. The
-                 * recency judgment runs first because both settle signals are
-                 * conditioned on its answer: a capture whose content sits on
-                 * its own valid baseline contributes a zero changed mask to
-                 * any summary, so the round either signal would buy is decided
-                 * before it runs (device-read 2026-08-14/15, both edit
-                 * directions of a matched pair). An invalid or torn record
-                 * reads as departed, so degradation errs toward signalling. */
-                bool departed = era_host_peer_storage_recency_note_settled((era_split_eeprom_sync_domain_t)domain,
-                                                                           g_era_host_peer_storage_manifest[domain].image_crc32);
+                 * recency persistence now runs inside the capture before its
+                 * manifest/dirty publication boundary. Therefore every signal
+                 * below is backed by the durable counter it advertises, and a
+                 * failed counter write reaches none of them. */
+                bool departed = era_host_peer_storage_recency_settle_departed(settle_result);
                 if (departed) {
                     /* One step of the news value, whichever domain it was (D2).
                      * Stepping per capture rather than per *domain* is the
@@ -3597,13 +3744,24 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
         return false;
     }
     if (context == NULL) {
+        bool retired_unowned_result = era_split_communication_core_storage_discard_ready_results();
         g_era_host_peer_storage_relation.runtime_service_active = 0;
         era_host_peer_storage_update_indicator_relation(false, false);
-        return false;
+        return retired_unowned_result;
     }
 
     bool relation_serviced = era_host_peer_storage_relation_serviced(context);
     era_host_peer_storage_update_indicator_relation(relation_serviced, context->local_policy_requested);
+    bool context_peer = era_host_peer_storage_context_peer(context);
+    bool context_host = era_host_peer_storage_context_host(context);
+    bool retired_unowned_result = false;
+    if (!context_peer && !context_host) {
+        /* A same-role relation rotation can keep the Core1 lease alive, so no
+         * capacity reset is implied by admission loss. A ready result already
+         * belongs to Core0: discard its old-relation semantics here before an
+         * unserviced early return can strand the one result reservation. */
+        retired_unowned_result = era_split_communication_core_storage_discard_ready_results();
+    }
     /* Revision exhaustion freezes runtime until its cold owner rotates the
        relation. CLEAN quarantine is the terminal exception: the cold task is
        intentionally closed, so an already-active runtime first takes the
@@ -3611,12 +3769,12 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
        checked-prepare barrier waits on. */
     bool restart_quarantined = era_split_restart_agreement_storage_quarantined();
     if (!restart_quarantined && g_era_host_peer_storage_local.revision_wrap_pending) {
-        return false;
+        return retired_unowned_result;
     }
 
     bool runtime_active = g_era_host_peer_storage_relation.runtime_service_active != 0;
     if (!runtime_active && !relation_serviced) {
-        return false;
+        return retired_unowned_result;
     }
 
     /* **The DUAL-HOST policy-open re-arm retired at D2, and it retired because
@@ -3638,10 +3796,10 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
      * mechanism that had to notice it. */
 
     uint8_t previous_state = g_era_host_peer_storage_runtime.state;
-    if (era_host_peer_storage_context_peer(context)) {
+    if (context_peer) {
         g_era_host_peer_storage_relation.runtime_service_active = 1;
         era_host_peer_storage_peer_task(context);
-    } else if (era_host_peer_storage_context_host(context)) {
+    } else if (context_host) {
         g_era_host_peer_storage_relation.runtime_service_active = 1;
         /* Before the responder's own work, not after: this half selects no
            storage route, so anything the initiator drain owns is work it
@@ -3652,7 +3810,7 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
         era_host_peer_storage_host_task(context);
     } else {
         if (!runtime_active) {
-            return false;
+            return retired_unowned_result;
         }
         if (g_era_host_peer_storage_relation.active_due) {
             if (g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
@@ -3675,7 +3833,7 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
          * that state for a real service departure and preserved it for an
          * owner/session/capability gap inside the same serviced mode. */
     }
-    return previous_state != g_era_host_peer_storage_runtime.state;
+    return retired_unowned_result || previous_state != g_era_host_peer_storage_runtime.state;
 }
 
 bool era_host_peer_storage_initiator_request_pending(void) {

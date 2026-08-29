@@ -202,6 +202,10 @@ era_nvm_result_t era_eeprom_driver_replace(uint32_t address, const void *data, s
     return era_nvm_replace(&s_era_eeprom_nvm, address, data, length, origin);
 }
 
+era_nvm_result_t era_eeprom_driver_write_storage_metadata(uint32_t address, const void *data, size_t length) {
+    return era_eeprom_driver_replace(address, data, length, ERA_NVM_ORIGIN_STORAGE_METADATA);
+}
+
 era_nvm_result_t era_eeprom_driver_replay_read(uint32_t address, void *data, size_t length) {
     if (!era_eeprom_driver_ready()) {
         return ERA_NVM_RESULT_NOT_READY;
