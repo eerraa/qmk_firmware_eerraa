@@ -94,6 +94,7 @@ TEST_F(EraSplitStoragePublicationRetire, ReadyInitiatorResultIsDiscarded) {
     result->request_generation = kGeneration;
     ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_result(result));
     ASSERT_TRUE(era_split_communication_core_storage_initiator_result_ready());
+    EXPECT_TRUE(era_split_communication_core_storage_result_due());
 
     ASSERT_TRUE(era_split_communication_core_storage_retire_publications());
     const era_split_communication_core_storage_initiator_result_t *view = nullptr;
@@ -130,6 +131,11 @@ TEST_F(EraSplitStoragePublicationRetire, ReadyResponderResultIsDiscarded) {
     result.request_fingerprint = 1U;
     ASSERT_TRUE(era_split_communication_core_storage_publish_responder_result(&result));
     ASSERT_TRUE(era_split_communication_core_storage_responder_result_ready());
+    /* A ready responder result is globally due even before a later core0
+       runtime-role/watch decision. The scheduler must wake on this ownership
+       fact itself or the reserved result can permanently block all later
+       storage responses during a relation transition. */
+    EXPECT_TRUE(era_split_communication_core_storage_result_due());
 
     ASSERT_TRUE(era_split_communication_core_storage_retire_publications());
     EXPECT_FALSE(era_split_communication_core_storage_responder_result_ready());

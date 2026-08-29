@@ -12,7 +12,6 @@ wear_leveling_common_INC := \
 
 wear_leveling_general_DEFS := \
 	$(wear_leveling_common_DEFS) \
-	-DERA_DYNAMIC_MACRO_TRANSACTION_ENABLE \
 	-DBACKING_STORE_WRITE_SIZE=2 \
 	-DWEAR_LEVELING_BACKING_SIZE=48 \
 	-DWEAR_LEVELING_LOGICAL_SIZE=16

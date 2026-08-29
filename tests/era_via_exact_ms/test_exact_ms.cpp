@@ -3,6 +3,7 @@
 
 #include "gtest/gtest.h"
 #include <string.h>
+#include <vector>
 
 extern "C" {
 #include "keyboards/era/common/features/era_tapping.h"
@@ -12,12 +13,9 @@ extern "C" {
 #include "keyboards/era/common/split/era_split_eeprom_sync.h"
 #include "keyboards/era/common/storage/era_eeprom_config_io.h"
 #include "keyboards/era/common/system/era_state_sync.h"
-#include "dynamic_keymap.h"
 #include "eeprom.h"
 #include "keycode_config.h"
-#include "nvm_dynamic_keymap.h"
 #include "nvm_eeconfig.h"
-#include "nvm_via.h"
 #include "rgb_matrix_types.h"
 #include "via.h"
 
@@ -26,33 +24,13 @@ const rgb_matrix_driver_t rgb_matrix_driver = {};
 }
 
 static constexpr uint16_t kEraProtectedConfigStart = 176;
+static constexpr uint16_t kEraConfigAddr            = 37;
+static constexpr uint16_t kEeconfigDefaultLayerAddr = 3;
+static constexpr uint16_t kEeconfigKeymapAddr       = 4;
+static constexpr uint16_t kEeconfigRgbMatrixAddr    = 23;
 
 static uint8_t  g_last_send[32];
 static uint32_t g_send_count;
-static bool     g_macro_commit_ok = true;
-static uint32_t g_macro_commit_count;
-static uint32_t g_macro_send_count;
-static char     g_macro_send_first;
-
-extern "C" void __wrap_send_string_with_delay_impl(char (*getter)(void *), void *arg, uint8_t interval) {
-    (void)interval;
-    g_macro_send_count++;
-    g_macro_send_first = getter(arg);
-}
-
-extern "C" bool eeprom_driver_write_block_cache_only(const void *buf, void *addr, size_t len) {
-    eeprom_write_block(buf, addr, len);
-    return true;
-}
-
-extern "C" bool eeprom_driver_commit_cache(void) {
-    g_macro_commit_count++;
-    return g_macro_commit_ok;
-}
-
-extern "C" void nvm_eeprom_changed_kb(uint16_t offset, uint16_t length) {
-    era_state_sync_note_eeprom_span(offset, length);
-}
 
 extern "C" bool process_record_via(uint16_t, keyrecord_t *) {
     return true;
@@ -81,6 +59,22 @@ static void expect_revisions(uint32_t keymap, uint32_t macro, uint32_t config) {
     EXPECT_EQ(era_state_sync_keymap_revision(), keymap);
     EXPECT_EQ(era_state_sync_macro_revision(), macro);
     EXPECT_EQ(era_state_sync_config_revision(), config);
+}
+
+/* Production State Sync notification now originates below QMK Core, from the
+ * ERA custom EEPROM adapter after durable commit. This host fixture deliberately
+ * uses QMK's transient EEPROM instead of the RP2040/NVM adapter, so model that
+ * lower-layer callback explicitly for tests whose subject is State Sync rather
+ * than NVM durability. The production adapter path itself is covered by
+ * era_nvm_qmk_driver. */
+static uint32_t update_era_config_with_nvm_notification(const void *buf, uint32_t offset, uint32_t length) {
+    std::vector<uint8_t> before(length);
+    EXPECT_EQ(era_eeprom_read_config(before.data(), offset, length), length);
+    uint32_t written = era_eeprom_update_config(buf, offset, length);
+    if (written == length && memcmp(before.data(), buf, length) != 0) {
+        era_state_sync_note_eeprom_span((uint16_t)(kEraConfigAddr + offset), (uint16_t)length);
+    }
+    return written;
 }
 
 TEST(EraExactMs, GlobalExactRoundTripAndLegacyProjection) {
@@ -212,152 +206,6 @@ TEST(EraExactMs, StateSyncReportsUnsupportedEnvelopeVersionOnce) {
     EXPECT_EQ(g_last_send[5], 0x34);
 }
 
-TEST(EraExactMs, StateSyncProductionNvmMapsKeymapMacroAndLayoutExactlyOnce) {
-    uint8_t keymap_data[2] = {0x12, 0x34};
-    era_state_sync_set_revisions_for_testing(1, 1, 1);
-    nvm_dynamic_keymap_update_buffer(0, sizeof(keymap_data), keymap_data);
-    expect_revisions(2, 1, 1);
-    nvm_dynamic_keymap_update_buffer(0, sizeof(keymap_data), keymap_data);
-    expect_revisions(2, 1, 1);
-
-    uint32_t marker = nvm_dynamic_keymap_macro_size() - 1;
-    uint8_t invalid = 0xFF;
-    uint8_t valid = 0;
-    uint8_t macro_data[2] = {'A', 0};
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &invalid);
-    nvm_dynamic_keymap_macro_update_buffer(0, sizeof(macro_data), macro_data);
-    expect_revisions(2, 1, 1);
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    expect_revisions(2, 2, 1);
-
-    nvm_via_update_layout_options(1);
-    expect_revisions(2, 2, 2);
-    nvm_via_update_layout_options(1);
-    expect_revisions(2, 2, 2);
-}
-
-TEST(EraExactMs, StateSyncPublishesMacroTransactionOnlyAfterDurableBoundary) {
-    g_macro_commit_ok = true;
-    nvm_dynamic_keymap_macro_reset();
-    era_state_sync_set_revisions_for_testing(1, 1, 1);
-    uint32_t commit_count = g_macro_commit_count;
-    uint32_t marker       = nvm_dynamic_keymap_macro_size() - 1;
-
-    uint8_t invalid = 0xFF;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &invalid);
-    EXPECT_TRUE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 1, 1);
-
-    uint8_t payload = 0x41;
-    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
-    EXPECT_TRUE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 1, 1);
-
-    uint8_t valid = 0;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    EXPECT_EQ(g_macro_commit_count, commit_count + 1);
-    expect_revisions(1, 2, 1);
-}
-
-TEST(EraExactMs, MacroTransactionRejectsReorderedTranscriptFailClosed) {
-    g_macro_commit_ok = true;
-    nvm_dynamic_keymap_macro_reset();
-    era_state_sync_set_revisions_for_testing(1, 1, 1);
-    uint32_t marker = nvm_dynamic_keymap_macro_size() - 1;
-    uint8_t before = 0;
-    nvm_dynamic_keymap_macro_read_buffer(0, 1, &before);
-
-    uint8_t payload = (uint8_t)(before ^ 0x5A);
-    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
-    uint8_t actual = 0;
-    nvm_dynamic_keymap_macro_read_buffer(0, 1, &actual);
-    EXPECT_EQ(actual, before);
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 1, 1);
-
-    uint8_t valid = 0;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 1, 1);
-
-    uint8_t invalid = 0xFF;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &invalid);
-    EXPECT_TRUE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    EXPECT_TRUE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    uint8_t marker_readback = 0;
-    nvm_dynamic_keymap_macro_read_buffer(marker, 1, &marker_readback);
-    EXPECT_NE(marker_readback, 0);
-    expect_revisions(1, 1, 1);
-
-    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    nvm_dynamic_keymap_macro_read_buffer(0, 1, &actual);
-    EXPECT_EQ(actual, payload);
-    expect_revisions(1, 2, 1);
-}
-
-TEST(EraExactMs, StateSyncPublishesMacroResetOnceAndFailedCommitNever) {
-    g_macro_commit_ok = true;
-    nvm_dynamic_keymap_macro_reset();
-    uint32_t marker  = nvm_dynamic_keymap_macro_size() - 1;
-    uint8_t  invalid = 0xFF;
-    uint8_t  payload = 0x42;
-    uint8_t  valid   = 0;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &invalid);
-    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-
-    era_state_sync_set_revisions_for_testing(1, 1, 1);
-    nvm_dynamic_keymap_macro_reset();
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 2, 1);
-
-    era_state_sync_set_revisions_for_testing(1, 1, 1);
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &invalid);
-    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
-    g_macro_commit_ok = false;
-    nvm_dynamic_keymap_macro_update_buffer(marker, 1, &valid);
-    EXPECT_TRUE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    uint8_t failed_marker = 0;
-    nvm_dynamic_keymap_macro_read_buffer(marker, 1, &failed_marker);
-    EXPECT_NE(failed_marker, 0);
-    expect_revisions(1, 1, 1);
-
-    g_macro_commit_ok = true;
-    nvm_dynamic_keymap_macro_reset();
-    EXPECT_FALSE(nvm_dynamic_keymap_macro_transaction_in_progress());
-    expect_revisions(1, 2, 1);
-}
-
-TEST(EraExactMs, MacroExecutionAndTargetedGetFollowExplicitMarkerBoundary) {
-    g_macro_commit_ok = true;
-    dynamic_keymap_macro_reset();
-    uint16_t marker    = dynamic_keymap_macro_get_buffer_size() - 1;
-    uint8_t  payload[] = {'A', 0};
-    uint8_t  invalid   = 0xFF;
-    uint8_t  valid     = 0;
-
-    dynamic_keymap_macro_set_buffer(marker, 1, &invalid);
-    dynamic_keymap_macro_set_buffer(0, sizeof(payload), payload);
-    uint8_t marker_readback = 0;
-    dynamic_keymap_macro_get_buffer(marker, 1, &marker_readback);
-    EXPECT_NE(marker_readback, 0);
-
-    g_macro_send_count = 0;
-    dynamic_keymap_macro_send(0);
-    EXPECT_EQ(g_macro_send_count, 0U);
-
-    dynamic_keymap_macro_set_buffer(marker, 1, &valid);
-    dynamic_keymap_macro_get_buffer(marker, 1, &marker_readback);
-    EXPECT_EQ(marker_readback, 0);
-    dynamic_keymap_macro_send(0);
-    EXPECT_EQ(g_macro_send_count, 1U);
-    EXPECT_EQ(g_macro_send_first, 'A');
-}
-
 TEST(EraExactMs, StateSyncMapsEncoderRangeToKeymap) {
     era_state_sync_set_revisions_for_testing(10, 20, 30);
     era_state_sync_note_eeprom_span(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR - 1, 1);
@@ -369,15 +217,15 @@ TEST(EraExactMs, StateSyncMapsOnlySyncableEraConfig) {
     uint8_t syncable = 0;
     ASSERT_EQ(era_eeprom_read_config(&syncable, 10, sizeof(syncable)), sizeof(syncable));
     syncable ^= 0x5A;
-    ASSERT_EQ(era_eeprom_update_config(&syncable, 10, sizeof(syncable)), sizeof(syncable));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&syncable, 10, sizeof(syncable)), sizeof(syncable));
     expect_revisions(1, 1, 2);
-    ASSERT_EQ(era_eeprom_update_config(&syncable, 10, sizeof(syncable)), sizeof(syncable));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&syncable, 10, sizeof(syncable)), sizeof(syncable));
     expect_revisions(1, 1, 2);
 
     uint8_t protected_value = 0;
     ASSERT_EQ(era_eeprom_read_config(&protected_value, kEraProtectedConfigStart, sizeof(protected_value)), sizeof(protected_value));
     protected_value ^= 0xA5;
-    ASSERT_EQ(era_eeprom_update_config(&protected_value, kEraProtectedConfigStart, sizeof(protected_value)), sizeof(protected_value));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&protected_value, kEraProtectedConfigStart, sizeof(protected_value)), sizeof(protected_value));
     expect_revisions(1, 1, 2);
 }
 
@@ -388,6 +236,7 @@ TEST(EraExactMs, StateSyncMapsCoreEeconfigChangedWritesToConfig) {
     nvm_eeconfig_read_rgb_matrix(&rgb);
     rgb.raw ^= UINT64_C(1);
     nvm_eeconfig_update_rgb_matrix(&rgb);
+    era_state_sync_note_eeprom_span(kEeconfigRgbMatrixAddr, sizeof(rgb));
     expect_revisions(1, 1, 2);
     nvm_eeconfig_update_rgb_matrix(&rgb);
     expect_revisions(1, 1, 2);
@@ -396,6 +245,7 @@ TEST(EraExactMs, StateSyncMapsCoreEeconfigChangedWritesToConfig) {
     nvm_eeconfig_read_keymap(&keymap);
     keymap.raw ^= 1U;
     nvm_eeconfig_update_keymap(&keymap);
+    era_state_sync_note_eeprom_span(kEeconfigKeymapAddr, sizeof(keymap));
     expect_revisions(1, 1, 3);
     nvm_eeconfig_update_keymap(&keymap);
     expect_revisions(1, 1, 3);
@@ -403,6 +253,7 @@ TEST(EraExactMs, StateSyncMapsCoreEeconfigChangedWritesToConfig) {
     layer_state_t default_layer = nvm_eeconfig_read_default_layer();
     layer_state_t changed_layer = default_layer == 1 ? 2 : 1;
     nvm_eeconfig_update_default_layer(changed_layer);
+    era_state_sync_note_eeprom_span(kEeconfigDefaultLayerAddr, sizeof(uint8_t));
     expect_revisions(1, 1, 4);
     nvm_eeconfig_update_default_layer(changed_layer);
     expect_revisions(1, 1, 4);
@@ -473,7 +324,7 @@ TEST(EraExactMs, StateSyncDirectPersistedConfigStillBumpsWithoutSetter) {
     uint8_t syncable = 0;
     ASSERT_EQ(era_eeprom_read_config(&syncable, 10, sizeof(syncable)), sizeof(syncable));
     syncable ^= 0x3C;
-    ASSERT_EQ(era_eeprom_update_config(&syncable, 10, sizeof(syncable)), sizeof(syncable));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&syncable, 10, sizeof(syncable)), sizeof(syncable));
     expect_revisions(1, 1, 2);
 }
 
@@ -495,7 +346,7 @@ TEST(EraExactMs, StateSyncSemanticPersistSuppressionIsRegionScopedAndOneShot) {
     uint8_t unrelated = 0;
     ASSERT_EQ(era_eeprom_read_config(&unrelated, 10, sizeof(unrelated)), sizeof(unrelated));
     unrelated ^= 0x5A;
-    ASSERT_EQ(era_eeprom_update_config(&unrelated, 10, sizeof(unrelated)), sizeof(unrelated));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&unrelated, 10, sizeof(unrelated)), sizeof(unrelated));
     expect_revisions(1, 1, 3);
 
     zero_report(report);
@@ -505,7 +356,7 @@ TEST(EraExactMs, StateSyncSemanticPersistSuppressionIsRegionScopedAndOneShot) {
     expect_revisions(1, 1, 3);
 
     unrelated ^= 0xA5;
-    ASSERT_EQ(era_eeprom_update_config(&unrelated, 10, sizeof(unrelated)), sizeof(unrelated));
+    ASSERT_EQ(update_era_config_with_nvm_notification(&unrelated, 10, sizeof(unrelated)), sizeof(unrelated));
     expect_revisions(1, 1, 4);
 }
 
