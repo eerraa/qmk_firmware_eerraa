@@ -66,21 +66,11 @@
  */
 
 /* --- 1. The logical EEPROM span ------------------------------------------ */
-#if defined(WEAR_LEVELING_LOGICAL_SIZE)
-#    error the ERA storage adoption bundle owns WEAR_LEVELING_LOGICAL_SIZE; remove the board definition rather than restating it (keyboards/era/common/storage/era_storage_adoption.h)
-#endif
-#if defined(WEAR_LEVELING_BACKING_SIZE)
-#    error the ERA storage adoption bundle owns WEAR_LEVELING_BACKING_SIZE; remove the board definition rather than restating it (keyboards/era/common/storage/era_storage_adoption.h)
-#endif
-
 #define ERA_STORAGE_EEPROM_LOGICAL_SIZE (24 * 1024)
-/* Twice the logical size: the wear-leveling layer needs a consolidated area
-   and a log area, and the RP2040 backing store is the flash region behind
-   both. */
-#define ERA_STORAGE_EEPROM_BACKING_SIZE (ERA_STORAGE_EEPROM_LOGICAL_SIZE * 2)
-
-#define WEAR_LEVELING_LOGICAL_SIZE ERA_STORAGE_EEPROM_LOGICAL_SIZE
-#define WEAR_LEVELING_BACKING_SIZE ERA_STORAGE_EEPROM_BACKING_SIZE
+#if defined(EEPROM_SIZE)
+#    error the ERA storage adoption bundle owns EEPROM_SIZE; remove the board definition rather than restating it (keyboards/era/common/storage/era_storage_adoption.h)
+#endif
+#define EEPROM_SIZE ERA_STORAGE_EEPROM_LOGICAL_SIZE
 
 /* --- 2. The dynamic macro domain ----------------------------------------- */
 #if defined(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)
@@ -91,7 +81,7 @@
 #define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE ERA_STORAGE_DYNAMIC_MACRO_EEPROM_SIZE
 
 /* --- 3. The eeconfig base ------------------------------------------------ */
-#if defined(EECONFIG_KB_DATA_SIZE) || defined(EECONFIG_USER_DATA_SIZE)
+#if (EECONFIG_KB_DATA_SIZE > 0) || (EECONFIG_USER_DATA_SIZE > 0)
 #    error an ERA storage board may declare no EECONFIG_KB_DATA_SIZE and no EECONFIG_USER_DATA_SIZE -- either moves EECONFIG_SIZE off 37 and the whole schema with it; put per-board persistent state in the ERA keyboard config block instead (ERA_EEPROM_KEYBOARD_CONFIG_OFFSET)
 #endif
 

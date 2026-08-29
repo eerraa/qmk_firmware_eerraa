@@ -34,7 +34,14 @@
  * that claim below. */
 
 #define ERA_EEPROM_CONFIG_SIZE 256
-#define ERA_EEPROM_CONFIG_ADDR (EECONFIG_SIZE)
+/* ERA storage adoption freezes stock QMK's no-KB/no-user eeconfig prefix at
+ * 37 bytes. Keep this header assembler-safe because era_storage_adoption.h is
+ * force-included as CONFIG_H in every translation unit, including .S files.
+ * A C-only static assertion in era_host_peer_storage.c binds this literal back
+ * to QMK's private EECONFIG_SIZE definition so upstream drift still fails the
+ * build instead of moving the portable schema silently. */
+#define ERA_EEPROM_QMK_CONFIG_SIZE 37
+#define ERA_EEPROM_CONFIG_ADDR ERA_EEPROM_QMK_CONFIG_SIZE
 #define ERA_EEPROM_CONFIG_END (ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_CONFIG_SIZE)
 
 #define ERA_EEPROM_SYNCABLE_CONFIG_OFFSET 0

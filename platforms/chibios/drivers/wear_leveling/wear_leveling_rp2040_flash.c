@@ -160,74 +160,7 @@ static void __no_inline_not_in_flash_func(pico_program_bulk)(uint32_t flash_addr
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // QMK Wear-Leveling Backing Store implementation
 
-// The interrupt mask around a program/erase exists for exactly one reason: the
-// SSI leaves memory-mapped XIP mode to issue the command sequence, so no code
-// fetched from flash may run for the duration. On an ordinary XIP build the
-// ISRs are in flash, and the mask is what makes the window survivable.
-//
-// ERA's split boards run the whole image from SRAM. .text, .rodata, .data, both
-// cores' stacks, and - as of the vector-table change this gate arrived with -
-// every vector slot but the reset one hold SRAM addresses, so there is nothing
-// left for an interrupt to fetch from flash. BOOT2_ROM is already copied to RAM
-// in backing_store_init() for precisely this situation. The whole-store erase
-// masked core0 for ~381 ms, which since the boot-master poll was deleted lands
-// inside the USB enumeration window on an EEPROM CLEAN boot.
-//
-// This is a gate and not a deletion. Every keyboard outside ERA remains an XIP
-// build where the mask is still load-bearing; every ERA RP2040 board includes
-// keyboards/era/common/system/era_sram_resident_rules.mk and crosses both
-// decisions together. sirind/brick65 is the permanent AVR exception and never
-// reaches this RP2040 backend. The marker is the one place that keeps residency
-// and the interrupt-mask decision in step.
-//
-// The residency claim is checked rather than argued. era_vector_defaults.c
-// supplies the strong SRAM handlers, and the .vectors gate in
-// keyboards/era/common/tools/era_residency_gate.sh reads the linked table's
-// bytes on every automated UF2 build, so a slot that falls back to the
-// flash-resident ChibiOS default fails the build instead of quietly
-// reintroducing the hazard this mask was covering.
-//
-// Both windows are gated, not just the erase. Slice 8.3 already stopped halting
-// core1 across ordinary commits, so core1 runs through both of these today at a
-// device-measured hbmiss=0/0 - unmasking core0 adds SRAM-resident ISRs to a
-// window a second core already executes through. The write path is also the one
-// the driver was written to tolerate: the max_in_flight limit in
-// flash_put_get() exists so the RX FIFO cannot overflow "when we are
-// interrupted for long periods".
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-#    define ERA_FLASH_COMMIT_MASK_ENTER() ((void)0)
-#    define ERA_FLASH_COMMIT_MASK_EXIT() ((void)0)
-#else
 static int interrupts;
-#    define ERA_FLASH_COMMIT_MASK_ENTER() (interrupts = save_and_disable_interrupts())
-#    define ERA_FLASH_COMMIT_MASK_EXIT() restore_interrupts(interrupts)
-#endif
-
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-static bool backing_store_physical_range_matches(uint32_t flash_offset, const backing_store_int_t *values,
-                                                 size_t item_count) {
-    volatile const backing_store_int_t *physical =
-        (volatile const backing_store_int_t *)((XIP_BASE) + flash_offset);
-    for (size_t i = 0; i < item_count; ++i) {
-        if (physical[i] != (backing_store_int_t)~values[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool backing_store_physical_range_erased(void) {
-    volatile const backing_store_int_t *physical =
-        (volatile const backing_store_int_t *)((XIP_BASE) + (WEAR_LEVELING_RP2040_FLASH_BASE));
-    const size_t count = (WEAR_LEVELING_BACKING_SIZE) / sizeof(backing_store_int_t);
-    for (size_t i = 0; i < count; ++i) {
-        if (physical[i] != (backing_store_int_t)~(backing_store_int_t)0) {
-            return false;
-        }
-    }
-    return true;
-}
-#endif
 
 bool backing_store_init(void) {
     bs_dprintf("Init\n");
@@ -242,18 +175,6 @@ bool backing_store_unlock(void) {
 }
 
 bool backing_store_erase(void) {
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // Nothing the gap runs may reach the backing store, and this is where that
-    // stops being a rule and starts being a check. The reachable half is held
-    // by the wear-leveling interlock; this catches an entry point reached
-    // without passing through it - which today is only `wear_leveling_init()`'s
-    // recovery consolidation, unguarded upstream and not reachable from a gap,
-    // but the guarantee is structural rather than an enumeration.
-    if (backing_store_commit_blocked_kb()) {
-        return false;
-    }
-#endif
-
 #ifdef WEAR_LEVELING_DEBUG_OUTPUT
     uint32_t start = timer_read32();
 #endif
@@ -261,53 +182,12 @@ bool backing_store_erase(void) {
     // Ensure the backing size can be cleanly subtracted from the flash size without alignment issues.
     STATIC_ASSERT((WEAR_LEVELING_BACKING_SIZE) % (FLASH_SECTOR_SIZE) == 0, "Backing size must be a multiple of FLASH_SECTOR_SIZE");
 
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // One call per sector, with control handed back between them.
-    //
-    // The bootrom already erases this range a sector at a time: the backing
-    // store sits at the top of flash and is not 64 KB-aligned, so the block
-    // command flash_range_erase() prefers never applies and all 48 KB go as
-    // twelve 4 KB sector erases either way. The flash work is therefore
-    // identical, and what the loop buys is twelve places core0 can be somewhere
-    // else. The cost is eleven extra XIP exit/re-enter cycles, which is what
-    // makes this safe rather than expensive - flash_range_erase() restores
-    // memory-mapped XIP before it returns, so the gap runs ordinary code.
-    //
-    // Slicing without a gap that does something is not this fix. The whole
-    // reason to pay for the loop is the yield, and whether the yield ran is a
-    // separate reading from how long the window was; both are in
-    // era_flash_slice.c, and the slice/scan pair is what distinguishes this
-    // build from one that only looks like it.
-    //
-    // Residency is the gate because the mask above is: an XIP build holds
-    // interrupts off across this window, and handing control to the keyboard
-    // with interrupts masked is not handing it anywhere. Every board outside
-    // that marker keeps the single masked call it has today, unchanged.
-    // After every sector including the last, and the last one is not spare.
-    // The caller that matters is wear_leveling_consolidate_force(), which
-    // programs 24 KB of cache the instant this returns. Yielding only *between*
-    // sectors welds the twelfth erase to that program into one unbroken span -
-    // ~32 ms plus ~70 ms - and lands the remaining worst case back on the
-    // 100 ms limit this slice exists to get under. With the final yield the
-    // longest span is the undecomposed program alone, which is the ~80 ms the
-    // plan's arithmetic for this rung always assumed and is what rung 2
-    // decomposes next.
-    for (uint32_t offset = 0; offset < (WEAR_LEVELING_BACKING_SIZE); offset += (FLASH_SECTOR_SIZE)) {
-        flash_range_erase((WEAR_LEVELING_RP2040_FLASH_BASE) + offset, (FLASH_SECTOR_SIZE));
-        wear_leveling_backing_erase_yield();
-    }
-#else
-    ERA_FLASH_COMMIT_MASK_ENTER();
+    interrupts = save_and_disable_interrupts();
     flash_range_erase((WEAR_LEVELING_RP2040_FLASH_BASE), (WEAR_LEVELING_BACKING_SIZE));
-    ERA_FLASH_COMMIT_MASK_EXIT();
-#endif
+    restore_interrupts(interrupts);
 
     bs_dprintf("Backing store erase took %ldms to complete\n", ((long)(timer_read32() - start)));
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    return backing_store_physical_range_erased();
-#else
     return true;
-#endif
 }
 
 bool backing_store_write(uint32_t address, backing_store_int_t value) {
@@ -315,25 +195,13 @@ bool backing_store_write(uint32_t address, backing_store_int_t value) {
 }
 
 bool backing_store_write_bulk(uint32_t address, backing_store_int_t *values, size_t item_count) {
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // Same check, same reason. backing_store_write() routes through here, so
-    // one site covers both write entry points.
-    if (backing_store_commit_blocked_kb()) {
-        return false;
-    }
-#endif
-
     uint32_t offset = (WEAR_LEVELING_RP2040_FLASH_BASE) + address;
     bs_dprintf("Write ");
     wl_dump(offset, values, sizeof(backing_store_int_t) * item_count);
-    ERA_FLASH_COMMIT_MASK_ENTER();
+    interrupts = save_and_disable_interrupts();
     pico_program_bulk(offset, values, item_count);
-    ERA_FLASH_COMMIT_MASK_EXIT();
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    return backing_store_physical_range_matches(offset, values, item_count);
-#else
+    restore_interrupts(interrupts);
     return true;
-#endif
 }
 
 bool backing_store_lock(void) {

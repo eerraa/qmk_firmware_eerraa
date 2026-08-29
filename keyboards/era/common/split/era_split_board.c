@@ -5,7 +5,6 @@
 #include "era_split_board.h"
 #include "era_split_keyboard.h"
 #include "../system/era_board_hooks.h"
-#include "../system/era_flash_slice.h"
 #ifdef VIA_ENABLE
 #    include "../system/era_common_via.h"
 #endif
@@ -62,7 +61,6 @@ __attribute__((weak)) void era_split_board_post_init(void) {}
 void housekeeping_task_kb(void) {
     era_split_keyboard_task();
     era_board_housekeeping_tick();
-    era_flash_slice_deferred_reset_task();
     // No need to invoke the user-specific callback, as it's been called
     // already.
 }
@@ -97,7 +95,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
     if (!process_record_user(keycode, record)) {
         return false;
     }
-    return era_flash_slice_defer_reset_action(keycode, record->event.pressed);
+    return true;
 }
 
 #ifdef VIA_ENABLE

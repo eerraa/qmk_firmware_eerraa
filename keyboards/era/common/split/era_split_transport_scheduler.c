@@ -8,7 +8,6 @@
 
 #include "action_layer.h"
 #include "atomic_util.h"
-#include "../system/era_flash_slice.h"
 #include "../system/era_matrix_engine.h"
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "communication_core/era_split_communication_core_storage.h"
@@ -100,63 +99,6 @@ static uint16_t era_split_transport_scheduler_boot_ms(void) {
     return era_split_transport_scheduler_edge_u16(timer_read32());
 }
 
-/* `hbmiss` retired with the lane it measured. It bracketed a wire reset and
-   counted heartbeat-lane misses across it; core0 has queued no heartbeat since
-   the standing exchange took that traffic, so the pair could only ever read
-   0/0. What still brackets a wire reset is `dtap_ms` on the same line. */
-
-/* Only the outermost commit owns the measurement.
- *
- * The pair used to open on the first begin and close on the first end, which is
- * correct for as long as an EEPROM commit cannot contain another one - and until
- * R3 it could not, because nothing ran inside a flash window. The sliced erase
- * yields to the keyboard, so a keycode that writes EEPROM from `action_exec`
- * (PDF, the magic keycodes) now reaches `eeprom_write_block()` from inside one.
- * Its end closed the outer window early and the outer end then recorded nothing,
- * so `max_ms` read the distance to the nested write instead of the operation:
- * device-measured 2026-08-04 as `max_ms=65` against a `stall_ms=69` it cannot be
- * smaller than.
- *
- * The depth cannot exceed two. The yield holds a reentry latch and the erase
- * holds the wear-leveling interlock, so the nested write's own commit reaches no
- * third level. It is a counter rather than a flag because the end side has to
- * tell the two levels apart, which a flag cannot.
- *
- * This is diagnostics-only and the storage kept out of the asserted edge record,
- * which is at its budget. */
-static uint8_t g_era_split_transport_scheduler_flash_guard_depth;
-
-static void era_split_transport_scheduler_note_flash_guard_edge_begin(void) {
-    g_era_split_transport_scheduler_flash_guard_depth++;
-    if (g_era_split_transport_scheduler_flash_guard_depth != 1) {
-        return;
-    }
-    if (g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_started_ms != 0) {
-        return;
-    }
-    uint16_t now_ms                                                                   = (uint16_t)timer_read32();
-    g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_started_ms = now_ms == 0 ? 1 : now_ms;
-}
-
-static void era_split_transport_scheduler_note_flash_guard_edge_end(void) {
-    if (g_era_split_transport_scheduler_flash_guard_depth == 0) {
-        return;
-    }
-    g_era_split_transport_scheduler_flash_guard_depth--;
-    if (g_era_split_transport_scheduler_flash_guard_depth != 0) {
-        return;
-    }
-
-    uint16_t started_ms = g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_started_ms;
-    if (started_ms == 0) {
-        return;
-    }
-    uint16_t elapsed_ms = (uint16_t)((uint16_t)timer_read32() - started_ms);
-    if (elapsed_ms > g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_max_ms) {
-        g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_max_ms = elapsed_ms;
-    }
-    g_era_split_transport_scheduler.edge_diagnostics.flash_write_guard_edge_started_ms = 0;
-}
 #endif
 
 void era_split_transport_scheduler_mark_dirty(uint8_t flags) {
@@ -800,13 +742,6 @@ uint32_t era_split_transport_scheduler_get_responder_snapshot_retry_count(void) 
     return g_era_split_transport_scheduler.responder_snapshot_publish_retry_count;
 }
 
-uint32_t era_split_transport_scheduler_get_responder_flash_suppress_count(void) {
-    return g_era_split_transport_scheduler.responder_flash_suppress_count;
-}
-
-uint32_t era_split_transport_scheduler_get_responder_flash_suppress_inert_count(void) {
-    return g_era_split_transport_scheduler.responder_flash_suppress_inert_count;
-}
 #endif
 
 void era_split_transport_scheduler_mark_host_peer_rgb_state_due(void) {
@@ -1265,106 +1200,6 @@ done:
     return reset;
 }
 
-/* SRAM-resident load image: no core fetches XIP at runtime, so a local
-   flash commit keeps Core1 and the wire owner running. These hooks only
-   record the commit window; the sliced durable apply emits its own cause
-   timeline events from the storage owner.
-
-   `max_ms` measures the whole operation and keeps doing so. R3 separated two
-   quantities that used to be one number: before the erase was sliced, an
-   operation's duration and the span core0 could not leave it were the same
-   thing, and they are not any more. Re-bracketing this pair to the shorter one
-   would have made every recorded `max_ms` incomparable and would have made the
-   falling number free - it falls the moment the loop exists, whether or not
-   anything runs in the gaps. The blocked span has its own instrument instead
-   (`era_flash_slice.c`), and this one is unchanged. */
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-/* R3.1's write-burst bracket, declared here rather than included: the
-   diagnostics layer already includes this file's headers, and one include the
-   other way would put the whole diagnostics surface on the scheduler's
-   include graph for two calls. */
-void era_split_wire_diagnostics_note_write_block_begin(void);
-void era_split_wire_diagnostics_note_write_block_end(void);
-#endif
-
-/* This hook is the one point every writer in the tree passes through -- the
-   deferred RGB flush, the deferred ERA config save, the VIA keymap and layout
-   writes, the sync-policy persist, and the durable cross-half apply -- which
-   is why the responder park lives here and not at any one of them. It must
-   never return false: `eeprom_write_block` treats that as a silent drop with
-   no retry and no signal to its caller, so a veto here is data loss and not
-   deferral. Nothing about the write is gated; only what the responder is
-   advertising while it runs. */
-bool eeprom_driver_write_begin_kb(uint32_t address, size_t length) {
-    (void)address;
-    (void)length;
-    era_flash_slice_note_window_begin();
-    /* Park the responder face for the width of the write, but only when it has
-       something to park -- an already section-less responder needs no publish,
-       which is also what carries the suppression across the several write
-       blocks of one flush without republishing per block. The rationale is at
-       the state field (`era_split_transport_scheduler_internal.h`). A failed
-       publish leaves the sections standing and the write proceeds exactly as
-       it did before this guard existed; `rsnp` counts that case already. */
-    if (g_era_split_transport_scheduler.responder_flash_write_depth < UINT8_MAX) {
-        g_era_split_transport_scheduler.responder_flash_write_depth++;
-    }
-    if (!g_era_split_transport_scheduler.responder_flash_write_suppress &&
-        g_era_split_transport_scheduler.responder_published_section_mask != 0) {
-        /* Set before the publish, because the plan gate reads this flag while
-           the snapshot is being built -- and rolled back if the publish is
-           refused, so the flag never claims a park that core1 did not receive.
-           The retry is not at depth 1 only: a refusal from a transient core1
-           claim can clear by the next nested block, and one that cannot (an
-           undrained result, which only core0 drains and core0 is in here) is
-           counted rather than hidden. */
-        g_era_split_transport_scheduler.responder_flash_write_suppress = true;
-        if (era_split_transport_scheduler_publish_communication_core_responder_snapshot()) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.responder_flash_suppress_count++;
-#endif
-        } else {
-            g_era_split_transport_scheduler.responder_flash_write_suppress = false;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.responder_flash_suppress_inert_count++;
-#endif
-        }
-    }
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.flash_write_guard_begin_count++;
-    era_split_transport_scheduler_note_flash_guard_edge_begin();
-    era_split_wire_diagnostics_note_write_block_begin();
-#endif
-    return true;
-}
-
-void eeprom_driver_write_end_kb(uint32_t address, size_t length) {
-    (void)address;
-    (void)length;
-    era_flash_slice_note_window_end();
-    /* Restore by re-arming, never by republishing here: the due latch and the
-       deadline invalidation are both tested inside the housekeeping gate, so
-       setting them *causes* the next pass rather than needing one to notice.
-       Ordered after the write so a producer that fired during it is not eaten,
-       and left to the scheduler so the restoring publish runs at its own
-       stack depth rather than at this hook's. */
-    if (g_era_split_transport_scheduler.responder_flash_write_depth > 0) {
-        g_era_split_transport_scheduler.responder_flash_write_depth--;
-    }
-    if (g_era_split_transport_scheduler.responder_flash_write_depth == 0 &&
-        g_era_split_transport_scheduler.responder_flash_write_suppress) {
-        g_era_split_transport_scheduler.responder_flash_write_suppress = false;
-        ATOMIC_BLOCK_RESTORESTATE {
-            g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
-            g_era_split_transport_scheduler.next_scheduler_deadline_valid  = false;
-        }
-    }
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    era_split_transport_scheduler_note_flash_guard_edge_end();
-    era_split_wire_diagnostics_note_write_block_end();
-#endif
-}
-
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 void era_split_transport_scheduler_force_storage_recovery(bool revalidate_session) {
     era_split_transport_scheduler_flush_host_peer_relation();
@@ -1468,15 +1303,16 @@ bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void
    millisecond cache (`platforms/chibios/timer.c`). */
 static bool era_split_transport_scheduler_housekeeping_event_due(void) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    if (g_era_split_transport_scheduler.storage_result_watch_active &&
-        era_split_communication_core_storage_result_due()) {
-        return true;
-    }
-    /* Sliced durable apply: pump write slices back-to-back instead of
-     * waiting on unrelated scheduler deadlines. The predicate is on the
-     * activity, so this covers whichever half is applying — the responder's
-     * push apply as much as the initiator's pull apply. */
-    if (era_host_peer_storage_apply_write_active()) {
+    /* A ready dedicated-storage result is an ownership fact, not a runtime
+       policy/watch fact. Core1 may publish the first responder result in the
+       narrow relation-transition window before core0 has entered the storage
+       runtime role. If readiness is hidden behind a later-computed watch bit,
+       that result can remain reserved forever: every subsequent storage frame
+       then finds the responder-result slot full and is consumed without a
+       response, which turns one timing race into a permanent 0xEA timeout
+       loop. Wake on the published result itself so core0 always gets a chance
+       to drain, validate or retire the owner it already has. */
+    if (era_split_communication_core_storage_result_due()) {
         return true;
     }
 #endif
@@ -1937,8 +1773,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
                                          1 :
                                          0,
     };
-    maintenance_performed = era_host_peer_storage_runtime_task(&storage_context,
-                                                                &g_era_split_transport_scheduler.storage_result_watch_active) ||
+    maintenance_performed = era_host_peer_storage_runtime_task(&storage_context) ||
                             maintenance_performed;
 #endif
     /* One recompute, after everything above that can move a due fact. It sat

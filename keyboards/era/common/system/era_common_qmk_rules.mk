@@ -72,14 +72,6 @@ endif
 # nothing where RGB_MATRIX_SLEEP / RGBLIGHT_SLEEP are absent.
 SRC += keyboards/era/common/system/era_usb_session.c
 
-# The pass that runs between two sectors of a sliced backing-store erase.
-# Unconditional here and gated inside the file on ERA_SRAM_RESIDENT_IMAGE,
-# because the slicing it serves is gated on the same marker: a non-resident
-# board compiles this to nothing and keeps the wear-leveling layer's weak
-# no-op hook.
-SRC += keyboards/era/common/system/era_flash_slice.c
-
-
 # Guarded like every other value pass-through in this layer. Unguarded, an
 # empty value emitted `-DERA_STORAGE_QUIET_DEFER_MS` with no body and failed
 # inside quantum/eeconfig.h rather than here.
@@ -104,15 +96,6 @@ OPT_DEFS += -DRP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING
 # consumer sees a different clock. Boards outside this layer keep upstream's
 # per-call conversion.
 OPT_DEFS += -DERA_TIMER_MS_CACHE
-
-# QMK's dynamic-macro protocol already carries a transaction marker in the
-# final byte. ERA's wear-leveling NVM uses that marker to keep intermediate VIA
-# packets in its existing RAM cache and durably consolidate once at completion,
-# instead of opening one flash episode per 28-byte request. This is a fact about
-# the ERA firmware rather than a user-selectable option; the QMK fork path also
-# requires EEPROM_WEAR_LEVELING, so the permanent AVR exception keeps its
-# existing EEPROM behavior.
-OPT_DEFS += -DERA_DYNAMIC_MACRO_TRANSACTION_ENABLE
 
 ifeq ($(strip $(ERA_RP2040_MATRIX_ENABLE)), yes)
     OPT_DEFS += -DERA_RP2040_MATRIX_ENABLE

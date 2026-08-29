@@ -28,6 +28,13 @@
 
 CONFIG_H += keyboards/era/common/storage/era_storage_adoption.h
 
+# Production persistence for an adopted ERA store is the ERA NVM engine behind
+# QMK's supported custom EEPROM boundary. This is intentionally scoped to the
+# storage-adoption bundle: boards that do not own the 24-KiB schema keep their
+# existing QMK EEPROM geometry rather than silently acquiring a new layout.
+EEPROM_DRIVER = custom
+SRC += keyboards/era/common/storage/era_eeprom_driver.c
+
 # Read by split/era_split_qmk_rules.mk. The board includes this file above the
 # ERA fragment that checks the marker, the same ordering era_common_qmk_rules.mk
 # and era_sram_resident_rules.mk already require of each other.

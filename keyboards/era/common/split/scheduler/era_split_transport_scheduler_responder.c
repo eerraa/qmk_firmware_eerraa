@@ -190,7 +190,6 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
            a successful publish, so a half that loses the responder role would
            otherwise keep its last non-zero value for ever and make every later
            flash write attempt a park that this same early return refuses. */
-        g_era_split_transport_scheduler.responder_published_section_mask = 0;
         return false;
     }
     /* Consume the due latch before building: a producer firing mid-build
@@ -304,14 +303,7 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
        due and goes out on the first poll after the transfer; the sent-state
        shadows advance from the wire's own section byte and never from a plan,
        so a suppressed section cannot retire silently. */
-    /* The flash-write term is deliberately NOT folded into `storage_exclusive`.
-       That variable also feeds `host_matrix_admitted` above, and closing matrix
-       admission is a hard no-ACK on the source-push path rather than a
-       section-less answer -- one no-ACK latches the peer initiator's standing
-       exchange stopped, which is the Slice 11.7 collapse reached through the
-       guard meant to prevent it. The suppression belongs to the plan alone.
-       Do not simplify these two terms into one variable. */
-    if (!storage_exclusive && !g_era_split_transport_scheduler.responder_flash_write_suppress) {
+    if (!storage_exclusive) {
         era_split_transport_scheduler_snapshot_response_plan(&snapshot);
     }
     if (!era_split_communication_core_publish_responder_snapshot(&snapshot)) {
@@ -329,10 +321,6 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
 #endif
         return false;
     }
-    /* Recorded only on success, because a failed publish leaves the previous
-       value standing on core1 and the flash-write decision must read what the
-       responder is actually advertising, not what this pass tried to say. */
-    g_era_split_transport_scheduler.responder_published_section_mask = snapshot.response_section_mask;
     return true;
 }
 

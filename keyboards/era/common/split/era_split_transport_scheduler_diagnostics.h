@@ -7,32 +7,6 @@
 
 #include "era_split_transaction_types.h"
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-#    define ERA_SPLIT_TRANSPORT_SCHEDULER_EDGE_DIAGNOSTICS_STATIC_BYTES 8U
-
-
-typedef struct {
-    /* Zero means no commit window is open, so this field is also the open
-     * flag; the recorder stamps 1 in place of a real zero. That costs at most
-     * 1 ms of measured width on one window per 65 s wrap, and it buys the two
-     * bytes that stop max_ms saturating - the record total is asserted by
-     * equality below and again against the storage cap
-     * (`ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES`, `split/era_host_peer_storage.h`),
-     * so widening max_ms had to come out of this struct rather than grow it.
-     * The cap is named and not restated here: written out as a figure it had
-     * been wrong for two revisions of it. */
-    uint16_t flash_write_guard_edge_started_ms;
-    /* Was uint8_t and saturated at 255, which is exactly the range a
-     * wear-leveling consolidation lives in: every stall long enough to matter
-     * read as the same number as every other one. */
-    uint16_t flash_write_guard_edge_max_ms;
-} era_split_transport_scheduler_edge_diagnostics_t;
-
-_Static_assert(sizeof(era_split_transport_scheduler_edge_diagnostics_t) == 4U, "ERA scheduler edge diagnostics budget changed.");
-_Static_assert((sizeof(era_split_transport_scheduler_edge_diagnostics_t) * 2U) == ERA_SPLIT_TRANSPORT_SCHEDULER_EDGE_DIAGNOSTICS_STATIC_BYTES,
-               "ERA scheduler live/snapshot edge diagnostics budget changed.");
-#endif
-
 /* The head every relation-era block shares: whether the block ever had a
    boundary, the mode it closed in, whether that boundary was actually
    observed, and the five compact-IO counters. Three blocks carried these
@@ -123,13 +97,9 @@ typedef struct {
     uint32_t scheduler_plan_count;
     uint8_t  scheduler_dirty_flags;
     uint8_t  scheduler_route_due_flags;
-    uint32_t flash_write_guard_begin_count;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     uint16_t communication_core_start_entry_ms;
     uint16_t communication_core_start_exit_ms;
-#endif
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    era_split_transport_scheduler_edge_diagnostics_t edge_diagnostics;
 #endif
     uint32_t owner_step_count;
     uint8_t  responder_thread_started;

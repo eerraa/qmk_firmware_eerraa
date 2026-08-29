@@ -159,75 +159,11 @@
 /**
  * Storage area for the wear-leveling cache.
  */
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-typedef enum {
-    /* No cache/cursor may be used to create new durable state. A verified
-     * whole-store erase is the only recovery from this state. */
-    ERA_WEAR_LEVELING_UNAVAILABLE = 0,
-    /* Cache, backing image/log, and write_address describe one canonical
-     * logical image. Only this state permits the equality fast path. */
-    ERA_WEAR_LEVELING_CANONICAL,
-    /* Cache is the complete intended image, but the backing store/cursor may
-     * be partial. The next write repairs by whole-cache consolidation instead
-     * of appending at an ambiguous slot. */
-    ERA_WEAR_LEVELING_REPAIR_REQUIRED,
-} era_wear_leveling_health_t;
-#endif
-
 static struct __attribute__((__aligned__(BACKING_STORE_WRITE_SIZE))) {
     __attribute__((__aligned__(BACKING_STORE_WRITE_SIZE))) uint8_t cache[(WEAR_LEVELING_LOGICAL_SIZE)];
     uint32_t                                                       write_address;
     bool                                                           unlocked;
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    /* A checked failure may not leave the RAM view or append cursor published
-     * as canonical. These bytes consume the struct's existing tail padding on
-     * the RP2040 build. */
-    uint8_t health;
-    uint8_t consolidation_generation;
-#endif
 } wear_leveling;
-
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-/**
- * ERA: the reentrancy interlock for a sliced backing-store erase.
- *
- * A backing store that decomposes its erase hands control back between sectors
- * (wear_leveling_rp2040_flash.c). For the width of that gap the store is
- * partly erased and the cache is the only trustworthy copy of logical data,
- * so anything the gap runs that writes EEPROM must be defined here rather than
- * left to arrive at a half-erased log.
- *
- * It is defined by writing the cache and nothing else, and that is durable
- * rather than a concession. Both callers of backing_store_erase() make the
- * cache authoritative immediately afterwards: wear_leveling_consolidate_force()
- * writes the whole cache to the consolidated area, so a value that landed in
- * the cache during the erase is persisted by the very next step; and
- * wear_leveling_erase() clears the cache, which is what erasing means. The log
- * entry this skips would carry no information either one of them loses.
- *
- * The alternative shapes are worse and were considered. Appending to the log
- * writes into a region that is either about to be erased or was erased and
- * cannot hold the bits; refusing the write drops a user's keymap edit silently;
- * and deferring it needs a queue whose bound is the erase, which is the async
- * rung and a different slice.
- */
-static bool wear_leveling_erase_yielding;
-
-__attribute__((weak)) void backing_store_erase_yield_kb(void) {}
-
-__attribute__((weak)) bool backing_store_commit_blocked_kb(void) {
-    return false;
-}
-
-void wear_leveling_backing_erase_yield(void) {
-    if (wear_leveling_erase_yielding) {
-        return;
-    }
-    wear_leveling_erase_yielding = true;
-    backing_store_erase_yield_kb();
-    wear_leveling_erase_yielding = false;
-}
-#endif
 
 /**
  * Locking helper: status
@@ -323,13 +259,7 @@ static wear_leveling_status_t wear_leveling_write_consolidated(void) {
 
     backing_store_lock_status_t lock_status = wear_leveling_unlock();
     wear_leveling_status_t      status      = WEAR_LEVELING_CONSOLIDATED;
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    if (lock_status == STATUS_FAILURE) {
-        status = WEAR_LEVELING_FAILED;
-    }
-#endif
-    if (status != WEAR_LEVELING_FAILED &&
-        !backing_store_write_bulk(0, (backing_store_int_t *)wear_leveling.cache, sizeof(wear_leveling.cache) / sizeof(backing_store_int_t))) {
+    if (!backing_store_write_bulk(0, (backing_store_int_t *)wear_leveling.cache, sizeof(wear_leveling.cache) / sizeof(backing_store_int_t))) {
         wl_dprintf("Failed to write to backing store\n");
         status = WEAR_LEVELING_FAILED;
     }
@@ -360,13 +290,7 @@ static wear_leveling_status_t wear_leveling_write_consolidated(void) {
     }
 
     if (lock_status == STATUS_SUCCESS) {
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-        if (wear_leveling_lock() == STATUS_FAILURE) {
-            status = WEAR_LEVELING_FAILED;
-        }
-#else
         wear_leveling_lock();
-#endif
     }
     return status;
 }
@@ -379,35 +303,6 @@ static wear_leveling_status_t wear_leveling_write_consolidated(void) {
 static wear_leveling_status_t wear_leveling_consolidate_force(void) {
     wl_dprintf("Erasing backing store\n");
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    /* The cache is the complete intended image throughout consolidation, so a
-     * verified erase/program failure has one safe bounded retry: erase the
-     * whole single bank again and rewrite that same image. REPAIR_REQUIRED is
-     * visible to a write reached from an erase yield, but the existing yield
-     * interlock makes that nested write cache-only; the final whole-image write
-     * therefore includes it. This is different from retrying an append into an
-     * ambiguously programmed log slot. */
-    wear_leveling.health = ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-    wear_leveling.consolidation_generation++;
-    wear_leveling_status_t status = WEAR_LEVELING_FAILED;
-    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-        if (!backing_store_erase()) {
-            wl_dprintf("Failed to erase backing store\n");
-            continue;
-        }
-        status = wear_leveling_write_consolidated();
-        if (status != WEAR_LEVELING_FAILED) {
-            break;
-        }
-        wl_dprintf("Failed to write consolidated data\n");
-    }
-    if (status != WEAR_LEVELING_FAILED) {
-        // Publish the reset cursor only with a verified image and checksum.
-        wear_leveling.write_address = (WEAR_LEVELING_LOGICAL_SIZE) + 8;
-        wear_leveling.health        = ERA_WEAR_LEVELING_CANONICAL;
-    }
-    return status;
-#else
     // Erase the backing store. Expectation is that any un-written values that are read back after this call come back as zero.
     bool ok = backing_store_erase();
     if (!ok) {
@@ -420,11 +315,11 @@ static wear_leveling_status_t wear_leveling_consolidate_force(void) {
     if (status == WEAR_LEVELING_FAILED) {
         wl_dprintf("Failed to write consolidated data\n");
     }
+
     // Next write of the log occurs after the consolidated values at the start of the backing store.
     wear_leveling.write_address = (WEAR_LEVELING_LOGICAL_SIZE) + 8; // +8 due to the FNV1a_64 of the consolidated area
 
     return status;
-#endif
 }
 
 /**
@@ -575,25 +470,6 @@ static wear_leveling_status_t wear_leveling_write_raw(uint32_t address, const vo
     return status;
 }
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-/**
- * A zero at an entry boundary is the boot parser's terminator. Anything
- * nonzero behind it is unreachable stale state: filling the hole later would
- * make that state live again. The scan runs only during wear_leveling_init(),
- * never on a write or matrix path.
- */
-static bool wear_leveling_log_tail_is_erased(uint32_t address) {
-    while (address < (WEAR_LEVELING_BACKING_SIZE)) {
-        backing_store_int_t value;
-        if (!backing_store_read(address, &value) || value != 0) {
-            return false;
-        }
-        address += (BACKING_STORE_WRITE_SIZE);
-    }
-    return true;
-}
-#endif
-
 /**
  * "Replays" the write log from the backing store, updating the local cache with updated values.
  */
@@ -614,14 +490,6 @@ static wear_leveling_status_t wear_leveling_playback_log(void) {
         }
         if (value == 0) {
             wl_dprintf("Found empty slot, no more log entries\n");
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-            // The empty slot is canonical only when every later entry is also
-            // empty. A hidden tail is repaired below by consolidating exactly
-            // the prefix this boot accepted.
-            if (!wear_leveling_log_tail_is_erased(address + (BACKING_STORE_WRITE_SIZE))) {
-                status = WEAR_LEVELING_FAILED;
-            }
-#endif
             cancel_playback = true;
             break;
         }
@@ -750,12 +618,6 @@ static wear_leveling_status_t wear_leveling_playback_log(void) {
 wear_leveling_status_t wear_leveling_init(void) {
     wl_dprintf("Init\n");
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    /* Until physical init, checksum playback, and any tail repair all finish,
-     * neither the cache nor the cursor may be published as durable state. */
-    wear_leveling.health = ERA_WEAR_LEVELING_UNAVAILABLE;
-#endif
-
     // Reset the cache
     wear_leveling_clear_cache();
 
@@ -778,19 +640,9 @@ wear_leveling_status_t wear_leveling_init(void) {
     if (status == WEAR_LEVELING_FAILED) {
         // If it failed, clear the cache and return with failure
         wear_leveling_clear_cache();
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-        /* playback may have entered whole-image repair before exhausting its
-         * retry. Once init clears that accepted-prefix cache, it is no longer
-         * a complete repair authority: close boot-default writes rather than
-         * consolidating a zero/partial image on their first call. */
-        wear_leveling.health = ERA_WEAR_LEVELING_UNAVAILABLE;
-#endif
         return status;
     }
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    wear_leveling.health = ERA_WEAR_LEVELING_CANONICAL;
-#endif
     return status;
 }
 
@@ -801,24 +653,6 @@ wear_leveling_status_t wear_leveling_init(void) {
 wear_leveling_status_t wear_leveling_erase(void) {
     wl_dprintf("Erase\n");
 
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // ERA: an erase reached from inside a sliced erase's own gap. There is no
-    // cache-only equivalent of this operation - it destroys the store the outer
-    // erase is halfway through - so it is refused rather than nested. The only
-    // caller that can reach here is a QK_CLEAR_EEPROM-class keycode pressed in
-    // the gap; the ERA EEPROM CLEAN path is a VIA confirm that cannot.
-    if (wear_leveling_erase_yielding) {
-        return WEAR_LEVELING_FAILED;
-    }
-#endif
-
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    /* A failed CLEAN erase may not publish an empty cache/cursor and may not
-     * let the boot-default writes re-enable the pre-erase store. Only another
-     * explicit verified erase can reopen this state. */
-    wear_leveling.health = ERA_WEAR_LEVELING_UNAVAILABLE;
-#endif
-
     // Unlock the backing store
     backing_store_lock_status_t lock_status = wear_leveling_unlock();
     if (lock_status == STATUS_FAILURE) {
@@ -827,34 +661,14 @@ wear_leveling_status_t wear_leveling_erase(void) {
     }
 
     // Perform the erase
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    bool ret = false;
-    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-        if (backing_store_erase()) {
-            ret = true;
-            break;
-        }
-    }
-    if (ret) {
-        /* Publish the empty logical image and reset cursor only after physical
-         * erased verification succeeds. */
-        wear_leveling_clear_cache();
-    }
-#else
     bool ret = backing_store_erase();
     wear_leveling_clear_cache();
-#endif
 
     // Lock the backing store if we acquired the lock successfully
     if (lock_status == STATUS_SUCCESS) {
         ret &= (wear_leveling_lock() != STATUS_FAILURE);
     }
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    if (ret) {
-        wear_leveling.health = ERA_WEAR_LEVELING_CANONICAL;
-    }
-#endif
     return ret ? WEAR_LEVELING_SUCCESS : WEAR_LEVELING_FAILED;
 }
 
@@ -870,92 +684,6 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
     wl_dprintf("Write ");
     wl_dump(address, value, length);
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    bool cache_matches = memcmp(value, &wear_leveling.cache[address], length) == 0;
-
-#    if defined(ERA_SRAM_RESIDENT_IMAGE)
-    /* A write reached from a sliced erase is part of that caller's complete
-     * cache image. It remains cache-only even while the durability state is
-     * temporarily REPAIR_REQUIRED/UNAVAILABLE; the outer operation decides
-     * whether that image becomes canonical. */
-    if (wear_leveling_erase_yielding) {
-        if (!cache_matches) {
-            memcpy(&wear_leveling.cache[address], value, length);
-        }
-        return WEAR_LEVELING_SUCCESS;
-    }
-#    endif
-
-    if (wear_leveling.health == ERA_WEAR_LEVELING_UNAVAILABLE) {
-        return WEAR_LEVELING_FAILED;
-    }
-
-    /* Equality is a logical optimization, not durability evidence. It is safe
-     * only while the backing store and cursor are already canonical. */
-    if (cache_matches && wear_leveling.health == ERA_WEAR_LEVELING_CANONICAL) {
-        return WEAR_LEVELING_SUCCESS;
-    }
-    if (!cache_matches) {
-        memcpy(&wear_leveling.cache[address], value, length);
-    }
-
-    bool repairing = wear_leveling.health == ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-
-    backing_store_lock_status_t lock_status = wear_leveling_unlock();
-    if (lock_status == STATUS_FAILURE) {
-        wear_leveling_lock();
-        wear_leveling.health = repairing ? ERA_WEAR_LEVELING_UNAVAILABLE : ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-        return WEAR_LEVELING_FAILED;
-    }
-
-    uint8_t                consolidation_generation = wear_leveling.consolidation_generation;
-    wear_leveling_status_t status;
-    if (repairing) {
-        /* The failed slot is not parsed or retried. The cache is the complete
-         * intended image, so repair uses the same whole-image path as an
-         * in-line log-full consolidation. */
-        status = wear_leveling_consolidate_force();
-    } else {
-        status = wear_leveling_write_raw(address, value, length);
-        switch (status) {
-            case WEAR_LEVELING_CONSOLIDATED:
-                break;
-
-            case WEAR_LEVELING_FAILED:
-                /* If write_raw() already entered consolidation at log-full,
-                 * its bounded retry is the whole recovery budget. Otherwise
-                 * this was an ambiguous append and one whole-cache
-                 * consolidation converts the complete request to canonical
-                 * state without parsing or rewriting the failed slot. */
-                if (wear_leveling.consolidation_generation == consolidation_generation) {
-                    status = wear_leveling_consolidate_force();
-                }
-                break;
-
-            case WEAR_LEVELING_SUCCESS:
-                status = wear_leveling_consolidate_if_needed();
-                break;
-
-            default:
-                status = WEAR_LEVELING_FAILED;
-                break;
-        }
-    }
-
-    if (status == WEAR_LEVELING_FAILED) {
-        /* One later write (not an equality fast-success) may use the complete
-         * cache to repair. If that repair itself fails, close ordinary writes;
-         * only a verified erase may recover the store. */
-        wear_leveling.health = repairing ? ERA_WEAR_LEVELING_UNAVAILABLE : ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-    }
-
-    if (lock_status == STATUS_SUCCESS && wear_leveling_lock() == STATUS_FAILURE) {
-        status               = WEAR_LEVELING_FAILED;
-        wear_leveling.health = ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-    }
-
-    return status;
-#else
     // Skip write if there's no change compared to the current cached value
     if (memcmp(value, &wear_leveling.cache[address], length) == 0) {
         return true;
@@ -963,15 +691,6 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
 
     // Update the cache before writing to the backing store -- if we hit the end of the backing store during writes to the log then we'll force a consolidation in-line
     memcpy(&wear_leveling.cache[address], value, length);
-
-#if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // ERA: inside a sliced erase's gap the cache above is the whole write. The
-    // reasoning is at the interlock's definition; the placement is load-bearing
-    // and is after the cache update and before the backing store is touched.
-    if (wear_leveling_erase_yielding) {
-        return WEAR_LEVELING_SUCCESS;
-    }
-#endif
 
     // Unlock the backing store
     backing_store_lock_status_t lock_status = wear_leveling_unlock();
@@ -1006,150 +725,7 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
     }
 
     return status;
-#endif
 }
-
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-bool wear_leveling_is_healthy(void) {
-    return wear_leveling.health == ERA_WEAR_LEVELING_CANONICAL;
-}
-
-/**
- * Rebuilds the cache from the backing store exactly as the next boot will and
- * checks one logical word in that rebuilt image. wear_leveling_init() also
- * resets write_address to the physical parser's first empty entry; together
- * with the tail check above this prevents a RAM cursor from stepping over a
- * silently dropped append.
- */
-static bool wear_leveling_reboot_word_matches(uint32_t address, uint16_t expected, wear_leveling_status_t *replay_status) {
-    *replay_status = wear_leveling_init();
-    if (*replay_status == WEAR_LEVELING_FAILED) {
-        return false;
-    }
-
-    uint16_t actual;
-    memcpy(&actual, &wear_leveling.cache[address], sizeof(actual));
-    return actual == expected;
-}
-
-wear_leveling_status_t wear_leveling_write_word_reboot_checked(const uint32_t address, const uint16_t value) {
-    wl_assert(address + sizeof(value) <= (WEAR_LEVELING_LOGICAL_SIZE));
-    if (address + sizeof(value) > (WEAR_LEVELING_LOGICAL_SIZE)) {
-        return WEAR_LEVELING_FAILED;
-    }
-
-#    if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // A normal write inside this gap is deliberately cache-only. PREPARED may
-    // never be derived from that path, so refuse before mutating the cache.
-    if (wear_leveling_erase_yielding) {
-        return WEAR_LEVELING_FAILED;
-    }
-#    endif
-
-    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-        wear_leveling_status_t write_status  = wear_leveling_write(address, &value, sizeof(value));
-        wear_leveling_status_t replay_status = WEAR_LEVELING_FAILED;
-
-        /* A failed write may have entered whole-store recovery. Do not run init
-         * over its last complete RAM image: that would discard the only repair
-         * authority. A reported success is still not accepted until ordinary
-         * boot playback reconstructs the word. */
-        if (write_status == WEAR_LEVELING_FAILED || !wear_leveling_is_healthy()) {
-            return WEAR_LEVELING_FAILED;
-        }
-        if (wear_leveling_reboot_word_matches(address, value, &replay_status)) {
-            if (write_status == WEAR_LEVELING_CONSOLIDATED || replay_status == WEAR_LEVELING_CONSOLIDATED) {
-                return WEAR_LEVELING_CONSOLIDATED;
-            }
-            return WEAR_LEVELING_SUCCESS;
-        }
-
-        // A failed init did not leave a canonical physical cursor from which a
-        // retry can safely append. A successful mismatch did: init either
-        // rebuilt the exact log or consolidated its accepted prefix.
-        if (replay_status == WEAR_LEVELING_FAILED) {
-            return WEAR_LEVELING_FAILED;
-        }
-    }
-
-    return WEAR_LEVELING_FAILED;
-}
-#endif
-
-#if defined(ERA_DYNAMIC_MACRO_TRANSACTION_ENABLE)
-/**
- * ERA's dynamic-macro transaction uses the cache QMK already allocates as its
- * staging image. Keeping this operation here is load-bearing: a second 16 KiB
- * macro buffer would duplicate the cache, while routing through
- * wear_leveling_write() would append one synchronous flash episode for every
- * 28-byte VIA request.
- *
- * Until another write fills the log, a reset before the final commit loses
- * this staged image and reloads the last complete backing-store image. If a
- * consolidation does persist it first, QMK's nonzero valid marker persists
- * with it and keeps the partial image unusable. During the same boot, reads
- * see that marker directly from this cache and refuse macro execution until
- * the caller completes the transaction.
- */
-wear_leveling_status_t wear_leveling_write_cache(const uint32_t address, const void *value, size_t length) {
-    wl_assert(address + length <= (WEAR_LEVELING_LOGICAL_SIZE));
-    if (address + length > (WEAR_LEVELING_LOGICAL_SIZE)) {
-        return WEAR_LEVELING_FAILED;
-    }
-
-#    if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    if (wear_leveling.health == ERA_WEAR_LEVELING_UNAVAILABLE) {
-        return WEAR_LEVELING_FAILED;
-    }
-#    endif
-
-    if (memcmp(value, &wear_leveling.cache[address], length) != 0) {
-        memcpy(&wear_leveling.cache[address], value, length);
-    }
-    return WEAR_LEVELING_SUCCESS;
-}
-
-wear_leveling_status_t wear_leveling_commit_cache(void) {
-#    if defined(ERA_SRAM_RESIDENT_IMAGE)
-    // A commit from inside a sliced erase gap would target a partly-erased
-    // store. No normal VIA path can enter that gap, but keep the same
-    // structural refusal as wear_leveling_erase().
-    if (wear_leveling_erase_yielding) {
-        return WEAR_LEVELING_FAILED;
-    }
-#    endif
-
-#    if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    if (wear_leveling.health == ERA_WEAR_LEVELING_UNAVAILABLE) {
-        return WEAR_LEVELING_FAILED;
-    }
-    bool repairing = wear_leveling.health == ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-#    endif
-
-    backing_store_lock_status_t lock_status = wear_leveling_unlock();
-    if (lock_status == STATUS_FAILURE) {
-        wear_leveling_lock();
-#    if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-        wear_leveling.health = repairing ? ERA_WEAR_LEVELING_UNAVAILABLE : ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-#    endif
-        return WEAR_LEVELING_FAILED;
-    }
-
-    wear_leveling_status_t status = wear_leveling_consolidate_force();
-    if (lock_status == STATUS_SUCCESS && wear_leveling_lock() == STATUS_FAILURE) {
-        status = WEAR_LEVELING_FAILED;
-#    if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-        wear_leveling.health = ERA_WEAR_LEVELING_REPAIR_REQUIRED;
-#    endif
-    }
-#    if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE)
-    if (status == WEAR_LEVELING_FAILED && repairing) {
-        wear_leveling.health = ERA_WEAR_LEVELING_UNAVAILABLE;
-    }
-#    endif
-    return status;
-}
-#endif
 
 /**
  * Reads logical data from the cache.

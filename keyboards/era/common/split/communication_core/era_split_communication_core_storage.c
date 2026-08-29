@@ -68,7 +68,7 @@ enum {
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_READ_RETRIES = 4,
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES = ERA_HOST_PEER_STORAGE_DIAGNOSTICS_BYTES + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES,
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_EDGE_DIAGNOSTIC_BYTES = ERA_SPLIT_TRANSPORT_SCHEDULER_EDGE_DIAGNOSTICS_STATIC_BYTES,
+    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_EDGE_DIAGNOSTIC_BYTES = 0,
 #else
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES = 0,
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_EDGE_DIAGNOSTIC_BYTES = 0,
@@ -106,7 +106,8 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES ==
    also the one profile with no cap check — its equality against an over-cap
    constant read as review rather than as an overage. The cause timeline's
    records are now an explicit addition to the profile budget instead of a
-   silent exemption. */
+   silent exemption. ERA NVM removes the old flash-write edge record entirely;
+   physical program/erase failures are counted by the NVM engine instead. */
 _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES,
                "ERA HOST-PEER storage static budget exceeds the profile cap.");
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
@@ -123,10 +124,12 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    for the replacement-Apply slice swap's 36-byte staged-old state, and
    20024 -> 20048 for two copies of the 12-byte retained Core1 failure detail,
    and 20048 -> 20124 for the diagnostic request timestamp and two copies of
-   the 36-byte retained queue/preceding-route context.
+   the 36-byte retained queue/preceding-route context. ERA NVM then removes the
+   40-byte slice/raw-facade state and the 8-byte flash-edge live/snapshot pair:
+   20124 -> 20076.
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20124U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20076U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -142,8 +145,9 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20
    36-byte staged-old state, 18472 -> 18496 for two copies of the 12-byte
    retained Core1 failure detail, and 18496 -> 18572 for the diagnostic
    request timestamp and two copies of the 36-byte retained queue/preceding-
-   route context. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18572U,
+   route context. ERA NVM removes the 40-byte slice/raw-facade state and the
+   8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18524U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif

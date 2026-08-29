@@ -52,10 +52,8 @@ void era_split_transport_scheduler_get_diagnostics_snapshot(era_split_transport_
     snapshot->scheduler_plan_count                         = g_era_split_transport_scheduler.plan_count;
     snapshot->scheduler_dirty_flags                        = g_era_split_transport_scheduler.scheduler_dirty_flags;
     snapshot->scheduler_route_due_flags                    = g_era_split_transport_scheduler.route_due_flags;
-    snapshot->flash_write_guard_begin_count   = g_era_split_transport_scheduler.flash_write_guard_begin_count;
     snapshot->communication_core_start_entry_ms = g_era_split_transport_scheduler.communication_core_start_entry_ms;
     snapshot->communication_core_start_exit_ms  = g_era_split_transport_scheduler.communication_core_start_exit_ms;
-    snapshot->edge_diagnostics                = g_era_split_transport_scheduler.edge_diagnostics;
     snapshot->owner_step_count                             = g_era_split_transport_scheduler.owner_step_count;
     snapshot->responder_thread_started                     = responder.thread_started;
     snapshot->responder_service_enabled                    = responder.service_enabled;

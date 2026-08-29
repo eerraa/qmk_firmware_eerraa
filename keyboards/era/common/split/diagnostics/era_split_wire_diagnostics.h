@@ -23,9 +23,3 @@ extern uint32_t era_split_wire_diagnostics_raw_matrix_scan_count;
 
 void era_split_wire_diagnostics_task(void);
 bool era_split_wire_diagnostics_process_record(uint16_t keycode, keyrecord_t *record);
-
-/* R3.1's write-burst bracket: called from the eeprom_driver_write_begin_kb /
-   write_end_kb overrides in era_split_transport_scheduler.c, which declares
-   these locally rather than including this header. */
-void era_split_wire_diagnostics_note_write_block_begin(void);
-void era_split_wire_diagnostics_note_write_block_end(void);

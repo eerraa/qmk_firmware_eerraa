@@ -9,7 +9,6 @@
 #endif
 
 #include "debug.h"
-#include "era_flash_slice.h"
 #include "era_matrix_debounce_runtime.h"
 #include "era_matrix_engine.h"
 #include "era_rp2040_matrix.h"
@@ -220,19 +219,6 @@ void matrix_print(void) {
 
 #ifdef SPLIT_KEYBOARD
 bool matrix_post_scan(void) {
-    /* The one caller that gets the scan without the transport step: the pass
-       run between two sectors of a sliced backing-store erase
-       (era_flash_slice.c). The transport step is the storage lane, and the
-       flash operation this gap sits inside is very often that lane's own
-       durable apply. Skipping it is safe for the same reason the gap exists at
-       all - since Slice 11.7 and R2 the relation's liveness is core1's standing
-       exchange in both serviced relations, so core0 owing the wire nothing for
-       the width of an EEPROM write is the designed case rather than an
-       exception. */
-    if (era_flash_slice_in_yield()) {
-        return g_era_matrix_engine.composed_changed;
-    }
-
     /* One transport step and one scan hook, on every half. Which half
        initiates, answers, or projects is the relation's fact, consumed inside
        the scheduler by the paths that act on it - the scan path carries no
@@ -602,10 +588,7 @@ uint8_t matrix_scan(void) {
 #endif
 
 #ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    /* At the end of matrix_scan() rather than inside matrix_post_scan(), so the
-       flash-slice yield's early return is covered by one site: on that pass the
-       transport step does not run, XPORT is charged nothing, and the scan hook
-       segment carries the whole of matrix_post_scan(). */
+    /* At the end of matrix_scan(), after the transport step and scan hook. */
     era_pass_phase_mark(ERA_PASS_PHASE_SCANHK);
 #endif
     return (uint8_t)g_era_matrix_engine.composed_changed;

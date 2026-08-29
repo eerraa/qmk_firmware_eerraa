@@ -81,11 +81,10 @@ static void era_board_keyboard_channel_save_arm(void) {
 }
 
 /* The pending flag is consumed before the synchronous write and not after.
-   Every shipped ERA EEPROM begin hook admits the write, and the QMK wrapper
-   reports no later failure to retry. A sliced erase can run `matrix_task()`
-   inside this call, but a reset key reached there is latched by
-   `era_flash_slice.c` and drained only from top-level housekeeping after this
-   write has returned; it therefore cannot re-enter this commit.
+   QMK's public EEPROM update API remains void-returning, so this accepted
+   deferred-save behaviour has no result path to retry. ERA NVM itself runs no
+   recursive keyboard pass during a program/erase, so this commit cannot be
+   re-entered through a flash-yield callback.
 
    No presenter note here either, since the 2026-08-14 redesign: the write below
    reaches that same intake, and the storage engine's pending fact is what

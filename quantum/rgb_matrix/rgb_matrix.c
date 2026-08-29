@@ -139,6 +139,7 @@ const uint8_t k_rgb_matrix_split[2] = RGB_MATRIX_SPLIT;
 static rgb_matrix_render_policy_t rgb_active_render_policy;
 static rgb_matrix_render_policy_t rgb_last_render_policy;
 static bool                       rgb_render_policy_valid;
+static bool                       rgb_render_policy_refresh_pending;
 static uint8_t                    rgb_render_frame_flags;
 
 static bool rgb_matrix_render_policy_has(uint16_t flag) {
@@ -269,6 +270,16 @@ static void rgb_matrix_render_policy_update(uint8_t effect) {
     rgb_active_render_policy = policy;
     rgb_last_render_policy   = policy;
     rgb_render_policy_valid  = true;
+    rgb_render_policy_refresh_pending = false;
+}
+
+void rgb_matrix_render_policy_request_refresh(void) {
+    rgb_render_policy_refresh_pending = true;
+    /* This function is callable from board housekeeping, outside
+     * rgb_matrix_task(). Record intent only: the task owns its own state
+     * machine and consumes the request at the top of its next pass. If a frame
+     * is already rendering/flushing, rgb_task_flush() below carries the pending
+     * request into STARTING after the buffered frame is safely pushed. */
 }
 #endif
 
@@ -685,8 +696,14 @@ static void rgb_task_flush(uint8_t effect) {
     rgb_render_frame_flags = 0;
 #endif
 
-    // next task
+    // next task. A board-side policy edge may have arrived after the previous
+    // render but before this flush; do not make that edge wait a fresh 16-ms
+    // animation epoch after safely publishing the already-buffered frame.
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    rgb_task_state = rgb_render_policy_refresh_pending ? STARTING : SYNCING;
+#else
     rgb_task_state = SYNCING;
+#endif
 }
 
 #if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
@@ -773,6 +790,14 @@ void era_pass_phase_rgb_mark(uint8_t part);
 #endif
 
 void rgb_matrix_task(void) {
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    /* A board policy edge is a frame deadline of its own. Consume the external
+       request here, under the RGB task's single ownership of rgb_task_state,
+       before the idle gate can defer a SYNCING pass. */
+    if (rgb_task_state == SYNCING && rgb_render_policy_refresh_pending) {
+        rgb_task_state = STARTING;
+    }
+#endif
 #if defined(RGB_MATRIX_IDLE_GATE_ENABLE) && defined(MCU_RP)
     /* ERA: the idle arm, and only the idle arm. SYNCING is about ninety-nine of
        every hundred passes on this image, and the whole of what it decides is

@@ -102,3 +102,10 @@ OPT_DEFS += -DRP2040_BOOTLOADER_DOUBLE_TAP_RESET_PRE_COPY_ARM
 # line goes, the link fails on the era_unhandled_vector ASSERT in the linker
 # script rather than quietly putting 35 entries back in flash.
 SRC += keyboards/era/common/system/era_vector_defaults.c
+
+# ERA NVM's generic engine and RP2040 backend are residency facts: the flash
+# commands execute while XIP is unavailable, so only SRAM-resident ERA targets
+# may link them. Storage-adoption rules select the custom EEPROM adapter that
+# turns these compiled units into the production persistence path.
+SRC += keyboards/era/common/storage/era_nvm.c
+SRC += keyboards/era/common/storage/era_nvm_rp2040.c

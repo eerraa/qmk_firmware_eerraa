@@ -89,8 +89,6 @@ void era_split_transport_scheduler_get_dual_runtime_counts(uint32_t *tx_count, u
    `counts` receives ERA_SPLIT_SCHEDULER_MAINT_SOURCE_COUNT entries. */
 void era_split_transport_scheduler_get_maintenance_source_counts(uint32_t *entry_count, uint32_t *counts);
 uint32_t era_split_transport_scheduler_get_responder_snapshot_retry_count(void);
-uint32_t era_split_transport_scheduler_get_responder_flash_suppress_count(void);
-uint32_t era_split_transport_scheduler_get_responder_flash_suppress_inert_count(void);
 #endif
 void era_split_transport_scheduler_reset_diagnostics_era_baselines(void);
 bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void);

@@ -39,6 +39,13 @@ MEMORY
     ram7   (wx) : org = 0x20041f00, len = 256   /* SRAM5 boot           */
 }
 
+/* Session-1 reservation for the ERA-owned A/B NVM. This names the final
+ * 128 KiB of the *effective linker-visible* flash range instead of assuming
+ * the physical NOR capacity. The collision ASSERT below rejects an image that
+ * grows into it without changing any existing section address. */
+__era_nvm_region_end__ = ORIGIN(flash1) + LENGTH(flash1);
+__era_nvm_region_base__ = __era_nvm_region_end__ - 128k;
+
 /* Aliases consumed by the stock included rules files.*/
 REGION_ALIAS("MAIN_STACK_RAM", ram4);
 REGION_ALIAS("PROCESS_STACK_RAM", ram4);
@@ -347,3 +354,10 @@ ASSERT(__era_bootloader_magic_base__ >= __bss_end__,
        "ERA: .era_bootloader_magic starts inside crt0's .bss clear range, so the double-tap bootloader magic will not survive a reset")
 ASSERT(magic_location == __era_bootloader_magic_base__,
        "ERA: magic_location is not the one word claimed by .era_bootloader_magic - the pre-copy writer and linker carve-out are disconnected")
+
+/* The reservation is an assertion, not a placement rule: Session 1 must not
+ * move the current load image merely to make room for an unselected backend. */
+ASSERT(LENGTH(flash1) >= 128k,
+       "ERA: effective flash range is too small for the reserved 128-KiB NVM")
+ASSERT(__flash_binary_end <= __era_nvm_region_base__,
+       "ERA: firmware load image overlaps the reserved final 128-KiB ERA NVM region")

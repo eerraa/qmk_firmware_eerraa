@@ -102,27 +102,27 @@
  * an exact equality again at 18436 + 224 + 1328 = 19988, which is why that
  * variant is built rather than reasoned about.
  *
- * **18436 -> 18472 for the replacement-Apply slice swap.** The runtime record
- * now owns one 32-byte staged-old slice plus its bounded cursor/phase metadata
- * (52 -> 88), so public EEPROM readers can remain on the complete old image
- * while raw storage advances through the candidate. The scratch is the state
- * that makes the invariant true; it is not diagnostics headroom.
- *
- * **18472 -> 18496 for retained Core1 failure detail.** The diagnostic record
+ * **18436 -> 18460 for retained Core1 failure detail.** The diagnostic record
  * and the paced printer's snapshot each grow by 12 bytes; release images
  * compile both copies out. The bytes retain the failed boundary after later
  * success overwrites `last`, so a device capture can distinguish expiry from
  * encode, wire and contract failures.
  *
- * **18496 -> 18572 for the queue-residence discriminator.** The diagnostic
+ * **18460 -> 18536 for the queue-residence discriminator.** The diagnostic
  * request gains its actual publication timestamp (4 bytes), and the retained
  * failure context plus the paced printer's snapshot each gain 36 bytes. The
  * context reuses the transaction timing already present in diagnostic builds;
- * release images keep the 40-byte request and compile all 76 bytes out. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18572U
+ * release images keep the 40-byte request and compile all 76 bytes out.
+ *
+ * **18536 -> 18524 at the ERA NVM cutover.** The old flash-write edge record
+ * was four bytes in the scheduler and four in its published diagnostics copy.
+ * A/B replacement has no recursive sliced-erase interlock for that record to
+ * measure, so both copies are gone. Two one-byte deferred-abort/internal-read
+ * fields and their alignment also retire with the raw/public facade, accounting
+ * for the remaining four bytes beyond the slice-swap scratch/cursor itself. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18524U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
-#define ERA_HOST_PEER_STORAGE_APPLY_SLICE_BYTES 32U
 /* The consecutive-failure abort bound is derived, not chosen. The widest
  * window in which a healthy peer legitimately answers no storage request is
  * its own sliced wear-leveling consolidation erase: the slices run back to
@@ -204,12 +204,13 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
    bridge — a time constant standing in for a wire fact — so the record grew
    where a timer died.
 
-   **144 -> 180 for the replacement-Apply slice swap.** The runtime record
-   grows 52 -> 88: 32 bytes are the bounded staged-old slice and four bytes
-   are cursor/length/phase metadata. That state is the public-reader barrier
-   during a candidate write and the rollback source for the slice currently
-   being replaced. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 180U
+   ERA NVM replacement reduces this record to **140 bytes**. There is no
+   staged-old slice, write cursor, rollback phase, or raw/public facade: the
+   NVM engine keeps its mounted public image old for the entire synchronous
+   commit and publishes the candidate only after the durable commit record.
+   Compared with the old 180-byte state, the full 40-byte reduction includes
+   the two retired deferred-abort/internal-read bytes plus their alignment. */
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 140U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -459,7 +460,7 @@ _Static_assert(sizeof(era_host_peer_storage_diagnostics_t) == ERA_HOST_PEER_STOR
 
 void era_host_peer_storage_init(void);
 bool era_host_peer_storage_task(uint32_t now_ms);
-bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context, bool *result_watch_active);
+bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context);
 /* Core0's cached admission fact. True from a successful storage publication
  * until that result is consumed or cancelled; no shared record is read. */
 bool era_host_peer_storage_initiator_request_pending(void);
@@ -522,6 +523,10 @@ bool era_host_peer_storage_restart_quarantine_ready(void);
  * rotations, because the fact it mirrors survives them and the live carrier
  * re-crosses on the fresh relation either way. */
 void era_host_peer_storage_note_peer_pending(bool pending);
+/* Successful LOCAL_QMK/MACRO commit notification from ERA's custom EEPROM
+ * adapter. Remote Apply bypasses this path so convergence never re-dirties
+ * itself as a local edit. */
+void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length);
 /* Diagnostics-only view of the indicator fact's arms: bit0 local arm, bit1
  * peer mirror, bit2 serviceability gate. For the wire console's eeprom shim
  * line; not a behavioral surface. */
@@ -531,7 +536,6 @@ uint8_t era_host_peer_storage_indicator_diag(void);
    back-to-back; the question is what core0 is doing, never which role it is
    doing it as, and asking it the other way is what left the responder's apply
    walking at the cold cadence for the project's whole history. */
-bool era_host_peer_storage_apply_write_active(void);
 /* This half's storage news value, the responder's whole advertisement since D2:
    a forward-only 1..127 counter stepped once per settled capture, `0` meaning
    nothing to claim. Its one reader is the responder snapshot's plan build. */

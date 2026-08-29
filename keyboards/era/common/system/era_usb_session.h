@@ -36,8 +36,8 @@ uint8_t era_usb_session_configure_state(void);
    necessarily inverts one of them, silently.
 
    Sample HERE, adjacent to your own evaluation, rather than reading a value
-   another pass left behind. A pass stalled by a flash erase is exactly the case
-   era_flash_slice.c exists for, and a stale shadow read there produces a false
+   another pass left behind. ERA NVM program/erase calls are synchronous Core0
+   flash windows, so a stale shadow across one can still produce a false
    not-fresh, a closed host_open, a stepped usb_epoch, and role churn on the
    wire. */
 bool era_usb_session_sample_frame_age(uint32_t *age_ms);

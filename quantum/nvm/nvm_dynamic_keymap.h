@@ -19,12 +19,7 @@ void     nvm_dynamic_keymap_update_encoder(uint8_t layer, uint8_t encoder_id, bo
 void nvm_dynamic_keymap_read_buffer(uint32_t offset, uint32_t size, uint8_t *data);
 void nvm_dynamic_keymap_update_buffer(uint32_t offset, uint32_t size, uint8_t *data);
 
-uint32_t nvm_dynamic_keymap_eeprom_address(void);
-uint32_t nvm_dynamic_keymap_macro_eeprom_address(void);
 uint32_t nvm_dynamic_keymap_macro_size(void);
-#if defined(ERA_DYNAMIC_MACRO_TRANSACTION_ENABLE)
-bool     nvm_dynamic_keymap_macro_transaction_in_progress(void);
-#endif
 
 void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_t *data);
 void nvm_dynamic_keymap_macro_update_buffer(uint32_t offset, uint32_t size, uint8_t *data);

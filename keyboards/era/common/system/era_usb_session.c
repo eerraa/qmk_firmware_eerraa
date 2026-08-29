@@ -132,8 +132,7 @@ static bool era_usb_session_applied;
 #endif
 
 /* Zero is the never-stamped sentinel as well as a timestamp, so a real zero
-   reading is stamped 1 - the same trade era_flash_slice.c makes, at the cost
-   of at most 1 us per 71.6-minute wrap. */
+   reading is stamped 1. The cost is at most 1 us per 71.6-minute wrap. */
 static uint32_t era_usb_session_now(void) {
 #if defined(MCU_RP)
     uint32_t now = timer_hw->timerawl;

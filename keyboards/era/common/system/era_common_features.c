@@ -4,8 +4,10 @@
 #include "quantum.h"
 #include "era_common_features.h"
 
-#include "era_flash_slice.h"
 #include "era_usb_session.h"
+#ifdef EEPROM_CUSTOM
+#    include "../storage/era_eeprom_driver.h"
+#endif
 
 #ifdef ERA_TAP_DANCE_ENABLE
 #    include "../features/era_tapdance.h"
@@ -102,11 +104,15 @@ void era_common_features_reload_from_eeprom(void) {
 }
 
 void era_common_features_task(void) {
-    /* The keyboard loop is running, so the pass a sliced erase yields to has
-       something to scan. This is the arming condition rather than
-       keyboard_post_init because the erase that matters most at boot -
-       wear_leveling_init()'s consolidation - runs before matrix_init(). */
-    era_flash_slice_arm();
+#ifdef EEPROM_CUSTOM
+    /* Background A/B hygiene: at most one inactive 4-KiB sector per top-level
+       keyboard pass. No callback from the NVM layer runs keyboard/wire work, so
+       each successful erase naturally returns to a complete pass before the
+       next sector is considered. This keeps mandatory rotations exceptional
+       without recreating the retired recursive flash-yield architecture. */
+    bool nvm_maintenance_did_work = false;
+    (void)era_eeprom_driver_maintenance_task(&nvm_maintenance_did_work);
+#endif
 
     /* The frame-loss half of the ERA sleep decision. Here rather than in a
        board file because it is a fact about USB, not about a keyboard, and

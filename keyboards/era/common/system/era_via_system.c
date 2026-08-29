@@ -5,8 +5,9 @@
 #include "era_state_sync.h"
 
 #include "eeprom.h"
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_WEAR_LEVELING)
-#    include "eeprom_driver.h"
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_CUSTOM)
+#    include "../storage/era_eeprom_driver.h"
+#    include "../storage/era_storage_layout.h"
 #endif
 /* EECONFIG_MAGIC is the one boot predicate CLEAN has to invalidate. The split
    agreement obtains reboot-durable PREPARED votes from both halves before
@@ -116,20 +117,17 @@ bool era_via_system_restart_quiet_ok(uint32_t requested_ms) {
 }
 
 bool era_via_system_eeprom_invalidate(void) {
-    /* The prepare is one word. QMK's following boot observes it in
-       quantum_init(), erases the whole logical EEPROM, and rebuilds VIA's
-       keymap and macro regions. Calling eeconfig_disable() here would perform
-       that same whole-store erase twice.
-
-       Do not route this through nvm_eeprom_update_changed_word(): its changed
-       hook would advertise the store being retired as new storage work. The
-       split service guarantees the missing distributed property instead: it
-       quarantines portable storage before this write and creates no deadline
-       until both halves report reboot-durable PREPARED. */
+    /* PREPARE is exactly one result-bearing word. The ERA NVM path does not
+       claim success from the live RAM image: it replays the production bank
+       parser and proves that an ordinary next boot recovers MAGIC_OFF. QMK's
+       following eeconfig_init_quantum() then calls nvm_eeconfig_erase(), whose
+       custom-driver format is the whole-store ERA NVM format, before defaults
+       are rebuilt. */
     const uint16_t invalid_magic = EECONFIG_MAGIC_NUMBER_OFF;
 
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_WEAR_LEVELING)
-    return eeprom_driver_write_word_reboot_checked(invalid_magic, EECONFIG_MAGIC);
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(EEPROM_CUSTOM)
+    era_nvm_result_t result = era_eeprom_driver_prepare_reboot_word(ERA_STORAGE_EECONFIG_MAGIC_ADDR, invalid_magic);
+    return result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE;
 #else
     eeprom_update_word(EECONFIG_MAGIC, invalid_magic);
     return eeprom_read_word(EECONFIG_MAGIC) == invalid_magic;

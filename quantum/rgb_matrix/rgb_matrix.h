@@ -124,6 +124,10 @@ bool rgb_matrix_render_status_kb(const rgb_matrix_render_policy_t *policy);
 bool rgb_matrix_render_status_user(const rgb_matrix_render_policy_t *policy);
 void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags);
 void rgb_matrix_render_policy_flush_user(uint8_t frame_flags);
+/* A board policy changed outside rgb_matrix_task(). Re-evaluate that policy on
+ * the next task pass instead of waiting for the ordinary 16-ms frame epoch.
+ * This changes no RGB configuration and coalesces repeated requests. */
+void rgb_matrix_render_policy_request_refresh(void);
 #endif
 
 struct rgb_matrix_limits_t rgb_matrix_get_limits(uint8_t iter);

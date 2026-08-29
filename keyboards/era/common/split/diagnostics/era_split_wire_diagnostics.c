@@ -17,7 +17,6 @@
 #include "usb_report_handling.h"
 #include "report.h"
 
-#include "../../system/era_flash_slice.h"
 #include "../../system/era_rp2040_matrix.h"
 #include "../era_split_authority_reducer.h"
 #include "../era_host_peer_matrix_link.h" /* the PEER key-path span, printed on the wire keypath line */
@@ -38,6 +37,7 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "../communication_core/era_split_communication_core_storage.h"
 #    include "../era_host_peer_storage.h"
+#    include "../../storage/era_eeprom_driver.h"
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #        include "era_via_macro_diagnostics.h"
 #    endif
@@ -133,84 +133,6 @@ void matrix_scan_raw_diagnostics_kb(uint32_t raw_read_us) {
     }
 }
 #endif
-
-/* R3.1's write-burst bracket, and the fold-in of R3's scan-rate-during-apply
-   instrument. One burst spans from the first EEPROM write block to the last
-   one before ERA_SPLIT_WRITE_BURST_QUIET_MS of write silence; it records the
-   elapsed width, the raw scans that ran inside it, and the block count. The
-   lost-scan arithmetic is the reader's, against the boot's own scan_hz —
-   recording rather than judging is what keeps the figure comparable across
-   images. Closed lazily, by the next burst's first block or by the print, so
-   it costs nothing outside a write or a diagnostic print. */
-#ifndef ERA_SPLIT_WRITE_BURST_QUIET_MS
-#    define ERA_SPLIT_WRITE_BURST_QUIET_MS 250U
-#endif
-
-typedef struct {
-    bool     active;
-    uint32_t start_ms;
-    uint32_t last_end_ms;
-    uint32_t scan_start;
-    uint32_t scan_last_end;
-    uint32_t blocks;
-    uint32_t total_count;
-    uint32_t total_ms;
-    uint32_t total_scans;
-    uint32_t total_blocks;
-    uint32_t last_ms;
-    uint32_t last_scans;
-    uint32_t last_blocks;
-} era_split_wire_diagnostics_write_burst_t;
-
-static era_split_wire_diagnostics_write_burst_t era_split_wire_diagnostics_write_burst;
-
-static uint32_t era_split_wire_diagnostics_write_burst_scan_now(void) {
-#ifdef MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
-    return era_split_wire_diagnostics_raw_matrix_scan_count;
-#else
-    return 0;
-#endif
-}
-
-static void era_split_wire_diagnostics_write_burst_close(era_split_wire_diagnostics_write_burst_t *burst) {
-    if (!burst->active) {
-        return;
-    }
-    burst->active      = false;
-    burst->last_ms     = burst->last_end_ms - burst->start_ms;
-    burst->last_scans  = burst->scan_last_end - burst->scan_start;
-    burst->last_blocks = burst->blocks;
-    burst->total_count++;
-    burst->total_ms += burst->last_ms;
-    burst->total_scans += burst->last_scans;
-    burst->total_blocks += burst->last_blocks;
-}
-
-void era_split_wire_diagnostics_note_write_block_begin(void) {
-    era_split_wire_diagnostics_write_burst_t *burst = &era_split_wire_diagnostics_write_burst;
-    uint32_t                                  now   = timer_read32();
-    if (burst->active && TIMER_DIFF_32(now, burst->last_end_ms) > ERA_SPLIT_WRITE_BURST_QUIET_MS) {
-        era_split_wire_diagnostics_write_burst_close(burst);
-    }
-    if (!burst->active) {
-        burst->active        = true;
-        burst->start_ms      = now;
-        burst->last_end_ms   = now;
-        burst->scan_start    = era_split_wire_diagnostics_write_burst_scan_now();
-        burst->scan_last_end = burst->scan_start;
-        burst->blocks        = 0;
-    }
-    burst->blocks++;
-}
-
-void era_split_wire_diagnostics_note_write_block_end(void) {
-    era_split_wire_diagnostics_write_burst_t *burst = &era_split_wire_diagnostics_write_burst;
-    if (!burst->active) {
-        return;
-    }
-    burst->last_end_ms   = timer_read32();
-    burst->scan_last_end = era_split_wire_diagnostics_write_burst_scan_now();
-}
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_storage_diagnostics_t *snapshot,
@@ -691,7 +613,7 @@ static bool era_split_wire_diagnostics_print_scheduler_line(const era_split_wire
             uprintf("wire qmk scan_hz=%lu raw=%lu raw_us=%lu raw_max=%lu smp_hz=%lu ovr=%lu rearm=%lu fd1=%X fw=%u\r\n", (unsigned long)wire->raw_matrix_scan_hz, (unsigned long)wire->raw_matrix_scan_count, (unsigned long)wire->raw_matrix_read_us_total, (unsigned long)wire->raw_matrix_read_us_max, (unsigned long)era_split_wire_diagnostics_state.pio_sample_hz, (unsigned long)era_split_wire_diagnostics_state.pio_snapshot.torn_retries, (unsigned long)era_split_wire_diagnostics_state.pio_snapshot.rearms, (unsigned)era_split_wire_diagnostics_state.pio_snapshot.fdebug, (unsigned)era_split_wire_diagnostics_state.pio_snapshot.frame_words);
             return true;
         case 2:
-            uprintf("wire sched initwork=%lu hkwork=%lu plan=%lu dirty=%02X due=%02X fwg=%lu open_ms=%u/%u\r\n", (unsigned long)diag->scheduler_init_call_count, (unsigned long)diag->scheduler_housekeeping_task_count, (unsigned long)diag->scheduler_plan_count, (unsigned)diag->scheduler_dirty_flags, (unsigned)diag->scheduler_route_due_flags, (unsigned long)diag->flash_write_guard_begin_count, (unsigned)diag->communication_core_start_entry_ms, (unsigned)diag->communication_core_start_exit_ms);
+            uprintf("wire sched initwork=%lu hkwork=%lu plan=%lu dirty=%02X due=%02X open_ms=%u/%u\r\n", (unsigned long)diag->scheduler_init_call_count, (unsigned long)diag->scheduler_housekeeping_task_count, (unsigned long)diag->scheduler_plan_count, (unsigned)diag->scheduler_dirty_flags, (unsigned)diag->scheduler_route_due_flags, (unsigned)diag->communication_core_start_entry_ms, (unsigned)diag->communication_core_start_exit_ms);
             return true;
         case 3:
             uprintf("wire route step=%lu owner=%lu/%u/%u\r\n", (unsigned long)diag->transport_step_call_count, (unsigned long)diag->owner_step_count, (unsigned)diag->owner_route_kind, (unsigned)diag->owner_route_reason);
@@ -739,17 +661,13 @@ static bool era_split_wire_diagnostics_print_scheduler_line(const era_split_wire
             return true;
         case 16:
             {
-                uint16_t stall_max_ms = 0;
-                uint32_t slice_count  = 0;
-                uint32_t scan_count   = 0;
-                uint32_t cross_count  = 0;
-                era_flash_slice_get_diagnostics(&stall_max_ms, &slice_count, &scan_count, &cross_count);
-                uprintf("wire edge flash active=%u max_ms=%u stall_ms=%u sl=%lu sy=%lu cross=%lu\r\n", (unsigned)(diag->edge_diagnostics.flash_write_guard_edge_started_ms != 0), (unsigned)diag->edge_diagnostics.flash_write_guard_edge_max_ms, (unsigned)stall_max_ms, (unsigned long)slice_count, (unsigned long)scan_count, (unsigned long)cross_count);
-                era_split_wire_diagnostics_write_burst_t *burst = &era_split_wire_diagnostics_write_burst;
-                if (burst->active && TIMER_DIFF_32(timer_read32(), burst->last_end_ms) > ERA_SPLIT_WRITE_BURST_QUIET_MS) {
-                    era_split_wire_diagnostics_write_burst_close(burst);
-                }
-                uprintf("wire edge burst n=%lu last=%lu/%lu/%lu tot=%lu/%lu/%lu\r\n", (unsigned long)burst->total_count, (unsigned long)burst->last_ms, (unsigned long)burst->last_scans, (unsigned long)burst->last_blocks, (unsigned long)burst->total_ms, (unsigned long)burst->total_scans, (unsigned long)burst->total_blocks);
+                era_nvm_diagnostics_t nvm;
+                era_eeprom_driver_get_nvm_diagnostics(&nvm);
+                uprintf("wire nvm pg=%lu pgfail=%lu er=%lu erfail=%lu\r\n",
+                        (unsigned long)nvm.program_count,
+                        (unsigned long)nvm.program_failure_count,
+                        (unsigned long)nvm.erase_count,
+                        (unsigned long)nvm.erase_failure_count);
             }
             return true;
         case 17:
@@ -772,7 +690,7 @@ static bool era_split_wire_diagnostics_print_scheduler_line(const era_split_wire
             uint32_t maint[ERA_SPLIT_SCHEDULER_MAINT_SOURCE_COUNT];
             memset(maint, 0, sizeof(maint));
             era_split_transport_scheduler_get_maintenance_source_counts(&maint_entry, maint);
-            uprintf("wire maint entry=%lu stor=%lu rsp=%lu stand=%lu init=%lu time=%lu mode=%lu route=%lu rsnp=%lu fpark=%lu/%lu\r\n", (unsigned long)maint_entry, (unsigned long)maint[0], (unsigned long)maint[1], (unsigned long)maint[2], (unsigned long)maint[3], (unsigned long)maint[4], (unsigned long)maint[5], (unsigned long)maint[6], (unsigned long)era_split_transport_scheduler_get_responder_snapshot_retry_count(), (unsigned long)era_split_transport_scheduler_get_responder_flash_suppress_count(), (unsigned long)era_split_transport_scheduler_get_responder_flash_suppress_inert_count());
+            uprintf("wire maint entry=%lu stor=%lu rsp=%lu stand=%lu init=%lu time=%lu mode=%lu route=%lu rsnp=%lu\r\n", (unsigned long)maint_entry, (unsigned long)maint[0], (unsigned long)maint[1], (unsigned long)maint[2], (unsigned long)maint[3], (unsigned long)maint[4], (unsigned long)maint[5], (unsigned long)maint[6], (unsigned long)era_split_transport_scheduler_get_responder_snapshot_retry_count());
             return true;
         }
         case 19: {

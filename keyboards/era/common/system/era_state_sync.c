@@ -5,11 +5,9 @@
 
 #include "via.h"
 #include "raw_hid.h"
-#include "nvm_eeprom_eeconfig_internal.h"
-#include "nvm_eeprom_via_internal.h"
-#include "nvm_dynamic_keymap.h"
 #include "keycode_config.h"
 #include "../storage/era_eeprom_layout.h"
+#include "../storage/era_storage_layout.h"
 
 #ifdef RGB_MATRIX_ENABLE
 #    include "rgb_matrix_types.h"
@@ -126,12 +124,15 @@ void era_state_sync_config_persist_end(void) {
 }
 
 void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
-    uint32_t keymap_start = nvm_dynamic_keymap_eeprom_address();
-    uint32_t macro_start  = nvm_dynamic_keymap_macro_eeprom_address();
+    uint32_t keymap_start = ERA_STORAGE_DYNAMIC_KEYMAP_ADDR;
+    uint32_t macro_start  = ERA_STORAGE_DYNAMIC_MACRO_ADDR;
     if (macro_start > keymap_start && era_state_sync_span_overlaps(offset, length, keymap_start, macro_start - keymap_start)) {
         era_state_sync_bump_keymap();
     }
-    if (era_state_sync_span_overlaps(offset, length, macro_start, nvm_dynamic_keymap_macro_size()) && !nvm_dynamic_keymap_macro_transaction_in_progress()) {
+    /* The custom NVM layer emits this notification only after a completed macro
+     * transaction. Opener/payload staging emits nothing, so no QMK transaction
+     * accessor or wider suppression belongs here. */
+    if (era_state_sync_span_overlaps(offset, length, macro_start, DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)) {
         era_state_sync_bump_macro();
     }
     if (era_state_sync_span_overlaps(offset, length, ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET, ERA_EEPROM_SYNCABLE_CONFIG_SIZE)) {
@@ -142,24 +143,22 @@ void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
         return;
     }
 #ifdef RGB_MATRIX_ENABLE
-    if (era_state_sync_span_overlaps(offset, length, (uint16_t)(uintptr_t)EECONFIG_RGB_MATRIX, sizeof(rgb_config_t))) {
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, sizeof(rgb_config_t))) {
         era_state_sync_bump_config();
         return;
     }
 #endif
-    if (era_state_sync_span_overlaps(offset, length, (uint16_t)(uintptr_t)EECONFIG_KEYMAP, sizeof(keymap_config_t))) {
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_KEYMAP_ADDR, sizeof(keymap_config_t))) {
         era_state_sync_bump_config();
         return;
     }
-    if (era_state_sync_span_overlaps(offset, length, (uint16_t)(uintptr_t)EECONFIG_DEFAULT_LAYER, sizeof(uint8_t))) {
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR, sizeof(uint8_t))) {
         era_state_sync_bump_config();
         return;
     }
-#ifdef VIA_EEPROM_LAYOUT_OPTIONS_ADDR
-    if (era_state_sync_span_overlaps(offset, length, VIA_EEPROM_LAYOUT_OPTIONS_ADDR, VIA_EEPROM_LAYOUT_OPTIONS_SIZE)) {
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR, VIA_EEPROM_LAYOUT_OPTIONS_SIZE)) {
         era_state_sync_bump_config();
     }
-#endif
 }
 
 void era_state_sync_note_storage_domain(uint8_t domain) {
@@ -249,14 +248,5 @@ void era_state_sync_set_revisions_for_testing(uint32_t keymap, uint32_t macro, u
 #ifndef ERA_VIA_SYSTEM_ENABLE
 bool via_command_kb(uint8_t *data, uint8_t length) {
     return era_state_sync_via_command(data, length);
-}
-#endif
-
-#ifndef ERA_HOST_PEER_STORAGE_V1_ENABLE
-void nvm_eeprom_changed_kb(uint16_t offset, uint16_t length) {
-    if (length == 0) {
-        return;
-    }
-    era_state_sync_note_eeprom_span(offset, length);
 }
 #endif

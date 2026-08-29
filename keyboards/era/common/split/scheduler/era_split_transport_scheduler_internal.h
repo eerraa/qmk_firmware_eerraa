@@ -194,9 +194,6 @@ typedef struct {
     bool     initiator_progress_observed;
     uint32_t initiator_progress_observed_count;
     uint32_t initiator_progress_observed_ms;
-#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    bool     storage_result_watch_active;
-#endif
     /* `host_peer_last_tx_valid`/`_ms` retired with the two routes they paced
        (R2). They were the HOST-PEER response-poll and liveness period anchors
        and had no other reader; the matrix push that still writes the wire does
@@ -302,38 +299,6 @@ typedef struct {
        invalidation beside it makes the first wake immediate; the latch is
        what carries retry across a failed publish. */
     bool     responder_snapshot_publish_due;
-    /* The section mask of the last snapshot this half successfully published,
-       kept because the flash-write suppression below needs to know whether the
-       responder currently advertises anything. Core1's own copy of it is
-       diagnostics-gated, and this decision runs in every profile. */
-    uint8_t  responder_published_section_mask;
-    /* Set for the width of a local flash write block, and the reason it exists
-       is that core0 inside a flash program runs no scheduler pass: nothing
-       drains a published result and no sent-state shadow retires, so an
-       edge-armed response section behaves level-triggered for the whole
-       outage. Every arriving poll then needs a result slot, the general ring
-       holds three, and the fourth poll is answered with nothing -- which the
-       initiator cannot tell from a dead wire. The 2026-08-09 cadence change
-       halved the tolerance to three poll periods of 10 ms and 1 ms, and the
-       failure itself is device-recorded at the older cadence (`full` and
-       `noack` +22/+23 in one session, on a half inside a flash write).
-
-       It suppresses the response *plan* and nothing else, which is the same
-       treatment and the same argument storage exclusivity already carries
-       below: the slot is still answered, with the one-byte control ACK that
-       reserves no slot, and every section stays due because the sent-state
-       shadows advance from the wire's own section byte and never from a plan.
-       It deliberately covers the durable cross-half apply too -- R4 moved
-       exclusivity's end before that write, so the apply is exposed by the same
-       mechanism, and the forced housekeeping between its slices republishes
-       the sections R4 reopened. */
-    bool     responder_flash_write_suppress;
-    /* Bracket depth, not a boolean, because `eeprom_write_block` nests: an
-       erase inside a write re-enters both hooks, and the sibling bracket two
-       lines away (`era_flash_slice_note_window_begin/end`) is depth-counted
-       for exactly that reason. A boolean would release the park at the inner
-       `end` and leave the rest of the outer write advertising sections. */
-    uint8_t  responder_flash_write_depth;
     uint8_t  maintenance_due_flags;
 
     era_split_mode_t         mode;
@@ -373,22 +338,6 @@ typedef struct {
     uint32_t dual_runtime_tx_count;
     uint32_t dual_runtime_rx_count;
     uint32_t responder_snapshot_publish_retry_count;
-    /* How many flash write blocks began while this half's responder was
-       actually advertising a section -- that is, how many times the ring
-       exposure above would have been live rather than how many writes ran.
-       It is the whole reason the suppression is observable: a run that reads
-       zero says the chain never existed on this image, and a run that reads
-       nonzero measures the exposure the fix removed, in the same sitting.
-       `fwg` beside it counts every write block, so the pair is the rate.
-
-       The second figure counts parks that were *attempted and refused*, and it
-       is not a curiosity: the publish can abort on a core1 claim or an
-       undrained result, and core0 cannot drain from inside the write, so a
-       refusal there is an outage that ran unprotected. Without the pair, an
-       inert park and an effective one read identically -- which would make
-       this instrument lie in exactly the case it exists to measure. */
-    uint32_t responder_flash_suppress_count;
-    uint32_t responder_flash_suppress_inert_count;
     /* The peer's storage news value as last delivered by the relation's lane
        (Slice 11.7 gave it that carrier; D2 changed what the carrier means). It
        prints as `pnews=` on `wire sess`, and era_capture_reading.md is the
@@ -408,14 +357,12 @@ typedef struct {
        thing the peer claimed" rather than "what it claims now". */
     uint8_t  peer_storage_news_observed;
     uint32_t transport_step_call_count;
-    uint32_t flash_write_guard_begin_count;
     /* Boot instants, in ms since timer_init() at the top of keyboard_init(), at
        which the explicit launch step was entered and at which it returned.
        Saturating: a boot that reaches post-init later than 65 s is not a case
        these are measuring. */
     uint16_t communication_core_start_entry_ms;
     uint16_t communication_core_start_exit_ms;
-    era_split_transport_scheduler_edge_diagnostics_t edge_diagnostics;
 #endif
 } era_split_transport_scheduler_state_t;
 

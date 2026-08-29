@@ -351,6 +351,14 @@ static void tomak_resume_rgb_matrix_for_caps_indicator(bool allow_without_usb_co
 void tomak_invalidate_indicator_render(bool allow_without_usb_configured) {
     tomak_mark_indicator_dirty();
     tomak_resume_rgb_matrix_for_caps_indicator(allow_without_usb_configured);
+#if defined(RGB_MATRIX_ENABLE) && defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    /* STATUS is a policy overlay, not an animation. A pending edge is therefore
+       a render deadline of its own: make the core policy state machine observe
+       it on the next pass instead of waiting for the next ordinary frame epoch.
+       The core helper preserves an already-buffered FLUSHING frame and then
+       starts the new policy frame immediately. */
+    rgb_matrix_render_policy_request_refresh();
+#endif
 }
 
 static bool tomak_set_caps_indicator_color(uint8_t led, uint8_t r, uint8_t g, uint8_t b, uint8_t led_min, uint8_t led_max) {

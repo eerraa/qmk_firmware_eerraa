@@ -109,10 +109,6 @@ void keyboard_setup(void);
 void keyboard_init(void);
 /* it runs repeatedly in main loop */
 void keyboard_task(void);
-/* one matrix scan plus the key events its result produced; the scan-and-process
-   half of keyboard_task(), separable so a caller that must not run the other
-   half can still keep the keyboard responsive */
-bool matrix_task(void);
 /* it runs whenever code has to behave differently on a slave */
 bool is_keyboard_master(void);
 /* it runs whenever code has to behave differently on left vs right split */

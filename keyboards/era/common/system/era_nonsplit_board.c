@@ -4,7 +4,6 @@
 #include "quantum.h"
 #include "era_nonsplit_board.h"
 #include "era_common_features.h"
-#include "era_flash_slice.h"
 #ifdef VIA_ENABLE
 #    include "era_common_via.h"
 #endif
@@ -43,7 +42,6 @@ __attribute__((weak)) void era_board_config_reset(void) {}
 void housekeeping_task_kb(void) {
     era_common_features_task();
     era_board_housekeeping_tick();
-    era_flash_slice_deferred_reset_task();
 }
 
 void matrix_init_kb(void) {
@@ -68,7 +66,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
     if (!process_record_user(keycode, record)) {
         return false;
     }
-    return era_flash_slice_defer_reset_action(keycode, record->event.pressed);
+    return true;
 }
 
 #ifdef VIA_ENABLE
