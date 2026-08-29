@@ -46,7 +46,8 @@ storage build.
 - ERA NVM mount/init;
 - stock QMK logical reads from ERA NVM's 24-KiB public RAM image;
 - stock QMK synchronous writes through the result-bearing NVM engine;
-- whole-store format/erase through `era_nvm_format()`;
+- whole-store format/erase through `era_nvm_format()` in
+  `storage/era_nvm.c`;
 - successful local committed-span notification;
 - result-bearing remote replacement and CLEAN prepare helpers;
 - one-sector inactive-bank background maintenance.
@@ -262,6 +263,30 @@ Each portable domain has a persisted convergence baseline CRC and a local
 config offsets `220..251`; the counters remain in the local policy block. They
 never cross as portable domain bytes.
 
+An invalid baseline remains conservative across boot: every domain reads as
+changed until the relation proves it. That rule is what makes a standalone or
+unilateral CLEAN a real local divergence instead of silently declaring its
+fresh defaults to be an already-shared pair baseline.
+
+Each confirmed domain convergence durably publishes that domain's agreed CRC
+and a zero divergence counter before its changed shadow is retired. Those two
+fields are disjoint in the protected layout, so the publication is one
+result-bearing ERA NVM replacement over config offsets `186..251`: all seven
+counter seats, the intervening link/reset bytes, and the baseline record. Only
+the converged domain's counter and baseline seat change; every intervening byte
+is copied unchanged. The one-record boundary matters: an I/O failure leaves
+both the old baseline and the old counter public/replayable instead of making
+one half of the recency decision durable. On the first MATCH after an invalid
+record, unknown neighbour CRC seats remain zero and therefore continue to read
+conservatively as changed until their own convergence closes.
+
+Recency baseline persistence uses the result-bearing
+`era_eeprom_driver_write_storage_metadata()` path
+(`storage/era_eeprom_driver.c`). Its NVM origin is internal storage metadata,
+not `LOCAL_QMK`: they create no State Sync revision and no portable dirty-domain
+notification. MATCH-only relation-open work remains display-provisional and
+causes no data transfer, remote Apply, or EEPROM SYNC lamp.
+
 A settled local capture compares its CRC with the baseline:
 
 - equal: changed=false and divergence counter becomes zero;
@@ -269,10 +294,23 @@ A settled local capture compares its CRC with the baseline:
   `UINT16_MAX`;
 - invalid baseline record: arbitration degrades conservatively to changed.
 
+The counter write is part of the settled-capture publication boundary. A failed
+counter write does not publish the new manifest, retire the domain's dirty gate,
+advance storage news, or arm a summary; the previous manifest/counter pair stays
+authoritative and the cold task retries after the ordinary storage backoff. A
+later local edit may coalesce into that still-dirty quiet window, but one failed
+attempt cannot become two counter advances because ERA NVM leaves the public
+counter unchanged on failure.
+
 At a confirmed convergence close, both sides write the agreed CRC as the new
-baseline and clear that domain's divergence counter. A boot with a valid
-baseline repairs only obviously stale counter state; it does not count the boot
-itself as an edit.
+baseline and clear that domain's divergence counter in the single convergence
+metadata publication above. A failed publication retires neither recency fact
+nor the changed shadow. A boot with a valid baseline repairs only obviously
+stale counter state; it does not count the boot itself as an edit. If that boot
+repair itself fails, the domain is held behind the normal dirty admission gate
+and the cold task retries the repair before any later settled capture. The
+repair never advances storage news; if a user edit arrives meanwhile, its quiet
+capture runs only after the old boot counter has been normalized.
 
 ## Arbitration
 
@@ -372,7 +410,8 @@ summary / probe
 The initiator publishes its immutable source and opens a push. The responder
 stages the acknowledged chunk stream, validates the whole candidate, receives
 the apply trigger, revalidates every fallible local precondition, then crosses
-the same ADMIT boundary and calls the same synchronous `era_nvm_replace()`.
+the same ADMIT boundary and calls the same synchronous `era_nvm_replace()` in
+`storage/era_nvm.c`.
 After durable success it reloads runtime state, publishes manifest/State Sync,
 declares durable, answers COMPLETE and performs the existing relation close /
 identity rotation rule.
@@ -474,7 +513,8 @@ exists.
 
 For ERA NVM, local PREPARE is one result-bearing write of
 `EECONFIG_MAGIC_NUMBER_OFF` through
-`era_eeprom_driver_prepare_reboot_word()`. PREPARED means more than RAM equality:
+`era_eeprom_driver_prepare_reboot_word()` in `storage/era_eeprom_driver.c`.
+PREPARED means more than RAM equality:
 the helper calls the same production mount/replay parser and proves an ordinary
 next boot recovers MAGIC_OFF from physical flash.
 
@@ -527,10 +567,20 @@ A published ready storage result is itself a core0 wake/ownership fact. It is
 not conditional on a separately cached runtime-role or result-watch bit. Core1
 may finish the first responder exchange in the narrow relation-transition
 window before core0 has entered the matching storage runtime role; core0 must
-still wake, drain/validate that result, and release its reservation. Otherwise
-the one responder-result slot remains occupied, later storage frames are
-accepted but cannot reserve a reply result, and the initiator sees a permanent
-response-timeout loop from one transient ordering race.
+still wake, drain/validate that result, and release its reservation. The same
+rule applies at the opposite edge: if relation rotation or admission loss leaves
+no matching HOST/PEER runtime, `era_host_peer_storage_runtime_task()`
+(`split/era_host_peer_storage.c`) calls
+`era_split_communication_core_storage_discard_ready_results()`
+(`split/communication_core/era_split_communication_core_storage.c`) before any
+unserviced early return. That terminally releases ready initiator/responder
+results without applying old-relation semantics and without retiring the source
+publication slots. A same-role transition may preserve the live Core1 lease and
+therefore does not imply a storage-capacity reset. Deferring retirement until a
+future relation would leave the one responder-result slot occupied and keep
+`storage_result_due()` asserted; later storage frames can then be accepted but
+cannot reserve a reply result, turning one transition ordering into either a
+permanent response-timeout loop or a permanent core0 housekeeping wake.
 
 ## Scheduler And Matrix Recovery
 

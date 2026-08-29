@@ -310,10 +310,11 @@ semantics — ADMIT, old-or-new authority, post-commit repair-forward and both
 storage directions — are canonical in `era_host_peer_storage_contract.md`.
 This contract owns the placement consequence:
 
-- Replacement Apply is one synchronous `era_nvm_replace()` after all fallible
-  prerequisites have been revalidated. Core0 may be unavailable for the whole
-  flash call. There is no recursive keyboard pass inside it and no per-page
-  route opportunity the scheduler may depend on.
+- Replacement Apply is one synchronous `era_nvm_replace()` in
+  `storage/era_nvm.c` after all fallible prerequisites have been revalidated.
+  Core0 may be unavailable for the whole flash call. There is no recursive
+  keyboard pass inside it and no per-page route opportunity the scheduler may
+  depend on.
 - Ordinary EEPROM readers continue from the NVM engine's one 24-KiB RAM image.
   That range stays old until commit and becomes new only after commit. No
   additional old-image buffer is resident for Apply.

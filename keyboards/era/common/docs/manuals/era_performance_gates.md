@@ -78,6 +78,7 @@ Run these in the WSL-local tree after the build automation has synchronized it:
 ```text
 make test:era_nvm
 make test:era_nvm_qmk_driver
+make test:era_host_peer_storage_recency_policy
 make test:era_split_restart_agreement
 make test:era_split_storage_publication_retire
 make test:era_via_exact_ms
@@ -95,17 +96,29 @@ generation authority, append commit ordering, 16-KiB atomic replacement,
 mandatory rotation, one-sector inactive maintenance, format, macro staging and
 CLEAN replay semantics. `era_nvm_qmk_driver` compiles the ERA custom adapter
 with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`; it pins ordinary
-read/write/update behavior, exact committed-span notification, the real 16-byte
-stock macro RESET transcript, the deferred RGB write inside an open macro,
-macro-touching refusal, failed close, whole-store erase, CLEAN replay proof and
-physical prepare failure. `era_via_exact_ms` owns the State Sync envelope and
+read/write/update behavior, exact committed-span notification, non-notifying
+durable internal storage metadata, faulted counter writes that keep the previous
+public/replay value, the atomic counter-through-baseline convergence envelope,
+the real 16-byte stock macro RESET transcript, the deferred RGB write inside an
+open macro, macro-touching refusal, failed close, whole-store erase, CLEAN
+replay proof and physical prepare failure. `era_via_exact_ms` owns the State Sync envelope and
 revision boundaries. The upstream wear-level set is intentionally unrelated to
 ERA production persistence now: it proves the QMK files restored during the
 cutover behave like stock QMK again.
 
+`era_host_peer_storage_recency_policy` is the narrow state-boundary proof beside
+those physical NVM fault tests: a failed increment/clear cannot publish a
+settled capture or signal departure, and a failed convergence metadata
+publication cannot retire recency. It tests the small production policy header
+rather than constructing a second fake HOST-PEER runtime.
+
 `era_split_storage_publication_retire` runs the exact production publication
 unit and proves CLEAN's terminal sentinel, ready/unclaimed discard and active
-claim drain on both storage directions. `era_split_restart_agreement` pins
+claim drain on both storage directions, plus the nonterminal relation-loss
+discard that clears ready result ownership while leaving source publication
+capacity reusable by the next relation; an in-flight non-ready reservation is
+left owned until Core1 publishes it ready, then the same discard closes it on a
+later Core0 pass. `era_split_restart_agreement` pins
 PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare
 failure and quarantine. Matrix PIO remains in the set because the storage
 cutover touches the SRAM-resident execution assumptions it shares.
