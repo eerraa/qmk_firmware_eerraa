@@ -60,14 +60,15 @@
 #    define ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_MAX_RESTARTS 4U
 #endif
 
-/* The state-handshake bound is 30000 us because the heartbeat lane is built:
-   a core1 that may be inside a heartbeat exchange when core0 waits on a state
-   transition needs the wider window, and the 10000 us this used to fall back
-   to was the no-heartbeat stage's value. That stage is retired -- the rules
-   file defines HEARTBEAT_ENABLE unconditionally and hard-errors on any stage
-   but CORE1_FULL -- so the fallback was unreachable, and unreachable is the
-   dangerous half here: a sweep that took the macro would have cut a live
-   timeout to a third with nothing to say so. */
+/* The state-handshake bound is 30000 us because the standing heartbeat
+   exchange is built: a core1 that may be inside that exchange when core0 waits
+   on a state transition needs the wider window, and the 10000 us this used to
+   fall back to was the no-heartbeat stage's value. That stage is retired --
+   era_split_qmk_rules.mk $(error)s if ERA_SPLIT_COMMUNICATION_CORE_HEARTBEAT_ENABLE
+   (or the other five legacy stage vars) is set, does not -D them, and
+   hard-errors on any stage but CORE1_FULL -- so the fallback was unreachable,
+   and unreachable is the dangerous half here: a sweep that took the macro
+   would have cut a live timeout to a third with nothing to say so. */
 #ifndef ERA_SPLIT_COMMUNICATION_CORE_STATE_TIMEOUT_US
 #    define ERA_SPLIT_COMMUNICATION_CORE_STATE_TIMEOUT_US 30000U
 #endif

@@ -126,8 +126,8 @@ constraint.
 
 **The reason is the shipped tree, not the development one, and reading it the
 other way is how a session comes to trust `git log`.** What ships is a
-four-commit orphan — pristine upstream, the firmware, this document set, the
-graph — and on it `git log -S` for a retired name reaches the one commit that
+four-commit orphan — pristine upstream, the firmware, this document set —
+and on it `git log -S` for a retired name reaches the one commit that
 landed everything, which is no answer at all. The branch this work happens on
 carries the full development history and answers such a query, so **a `git show`
 written into a document works for its author and fails for its reader.**

@@ -370,11 +370,15 @@ _Static_assert((ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK
    sets on the same envelope. One runtime architecture is a claim about when an
    exchange runs and which core decides it, not about what crosses.
 
-   Which heartbeat noun R2 took also matters here, because two survive and are
-   load-bearing. The *enqueuer* went with its routes. The HEARTBEAT *lane* id
-   and its four ok/miss/bad/fail counters are kept as capture surface, so a
-   HOST-PEER PEER's `hb=` reading 0/0 is a re-baselined diagnostic shape rather
-   than a dead relation (era_split_transport_scheduler_routes.c states both).
+   Which heartbeat noun R2 took also matters here. The *enqueuer* went with its
+   routes and the initiator HEARTBEAT *lane* enumerator went with it
+   (era_split_communication_core_initiator.h). Live initiator lanes are
+   INVALID, SESSION_STATUS, SOURCE_PUSH; those lanes keep per-lane
+   ok/miss/bad/fail. Standing HEARTBEAT and the responder HEARTBEAT result
+   kind remain load-bearing (era_split_communication_core_standing.c,
+   era_split_communication_core_responder.h). Wire-diag `hb=` is printed from
+   ERA_SPLIT_TRANSACTION_TIMING_BUCKET_HEARTBEAT_ACK in
+   era_split_wire_diagnostics.c, not from a retired initiator lane.
 
    A third noun used to be listed here and no longer is: this paragraph said
    ERA_SPLIT_COMMUNICATION_CORE_HEARTBEAT_ENABLE separately keyed
