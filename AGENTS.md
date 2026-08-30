@@ -153,6 +153,8 @@ Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어
   `python keyboards/era/common/tools/era_doc_refs.py --homeless`를 돌린다.
   집 없는 토큰은 승격 후보다 (**Evidence And Retirement**). 검사기는 인덱스가
   아니라 워킹 트리를 읽는다: 파일을 통째로 스테이징한다.
+- **죽은 코드·은퇴 아키텍처의 측정 목록은**
+  `manuals/era_dead_code_ledger.md`다.
 - **`git rm`은 즉시 스테이징되므로**, 이후의 범위 지정 `git add`도 그것을
   커밋한다 — 커밋 전에 status 첫 열을 본다. 다른 에이전트가 워크트리를
   공유하면 경로로만 스테이징하고, `-a`나 `-A`는 쓰지 않는다.
