@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_internal.h": {
-    "mtime": 1787107191.0868757,
-    "ast_hash": "2547b0f4d75a43fd8c8c00477dd4ec94",
+    "mtime": 1788057012.360181,
+    "ast_hash": "c9c0b9948b56e9bfcb7a6dc52f462b78",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_lifecycle.h": {
@@ -150,8 +150,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_responder.h": {
-    "mtime": 1787100865.7101402,
-    "ast_hash": "4e3845a0e768fd156fed3dfa2b56e07b",
+    "mtime": 1788057012.358176,
+    "ast_hash": "1184f3e9ef2c6b7dc590e0e9045443b3",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_responder_internal.h": {
@@ -160,13 +160,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_responder_service.c": {
-    "mtime": 1787100865.7101402,
-    "ast_hash": "2918d189b31c2a4806060365f5a25338",
+    "mtime": 1788057012.360181,
+    "ast_hash": "6d4595be574f07b0a8a1fa6ca34d53c7",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_storage.c": {
-    "mtime": 1788032254.248953,
-    "ast_hash": "9ebdf59d6201b4b135d496ad87fc936d",
+    "mtime": 1788052196.5613403,
+    "ast_hash": "ada99e44156d26012ece4a49ef651b02",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_storage.h": {
@@ -200,8 +200,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_response.c": {
-    "mtime": 1787186657.7539482,
-    "ast_hash": "747a20fe485871f184f74800c383988a",
+    "mtime": 1788055528.6790855,
+    "ast_hash": "6bd7597cecfa99f745486fc669356add",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_source_snapshot.c": {
@@ -215,18 +215,18 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_storage.c": {
-    "mtime": 1788042724.3913465,
-    "ast_hash": "9cc51f50b0e940683575464f3898ab2d",
+    "mtime": 1788061167.0340452,
+    "ast_hash": "0f07a9f1a8772e7f802b0a09da347d1d",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_storage.h": {
-    "mtime": 1788012174.2099416,
-    "ast_hash": "e490187561d701aec538a7ff81b1a1de",
+    "mtime": 1788060190.678452,
+    "ast_hash": "eddaa455fdcdb3f729f4d026e75d7698",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_host_peer_transaction.h": {
-    "mtime": 1787186595.7256722,
-    "ast_hash": "f6af7f6c718aa2cead7ed1032fc179c3",
+    "mtime": 1788055528.6780725,
+    "ast_hash": "b5125bf6f28ff5c661c7eb2a2a9f502e",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_authority_reducer.c": {
@@ -350,8 +350,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_transport_scheduler.c": {
-    "mtime": 1788012174.2179413,
-    "ast_hash": "deca138aee138f793f26a72ddd8a53c2",
+    "mtime": 1788060245.3353899,
+    "ast_hash": "2f029fa93440e8dfaf1c60f45920a9d1",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_transport_scheduler.h": {
@@ -415,13 +415,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/scheduler/era_split_transport_scheduler_internal.h": {
-    "mtime": 1788012174.2159486,
-    "ast_hash": "0cedda956d0e5d865285242680c73320",
+    "mtime": 1788057071.8735874,
+    "ast_hash": "bc1a9119246b0f110c93a2cfe825de40",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/scheduler/era_split_transport_scheduler_responder.c": {
-    "mtime": 1787955927.483317,
-    "ast_hash": "a5a7d3c7832b63b374da6213967d74d8",
+    "mtime": 1788060157.9323592,
+    "ast_hash": "6a5360c30ac7295e9f0b9a0348ca510c",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/scheduler/era_split_transport_scheduler_routes.c": {
@@ -465,13 +465,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/system/era_common_features.c": {
-    "mtime": 1787955887.1179626,
-    "ast_hash": "74959aa30a1abfb69d6b3ea9382d7d14",
+    "mtime": 1788043851.6761103,
+    "ast_hash": "3822d5064b8c5a314e355ccf467999e3",
     "semantic_hash": ""
   },
   "keyboards/era/common/system/era_common_features.h": {
-    "mtime": 1785143961.5339642,
-    "ast_hash": "634feddca99a4256049c7dbf1028f2cd",
+    "mtime": 1788043851.673603,
+    "ast_hash": "1cc65022ffc5c2dfaec56df5c66abd44",
     "semantic_hash": ""
   },
   "keyboards/era/common/system/era_common_via.c": {
@@ -1690,13 +1690,13 @@
     "semantic_hash": "0f76e144422fa444ae510f2c563873df"
   },
   "quantum/rgb_matrix/rgb_matrix.c": {
-    "mtime": 1788012201.49406,
-    "ast_hash": "c9c06f7a504ecf4ba9f36e87730539ee",
+    "mtime": 1788043851.6706028,
+    "ast_hash": "fea0a67d0e191a24b6eeb886c9924c19",
     "semantic_hash": ""
   },
   "quantum/rgb_matrix/rgb_matrix.h": {
-    "mtime": 1788010863.030539,
-    "ast_hash": "fa840412f2c24e41120646c9a69c3315",
+    "mtime": 1788043851.6676016,
+    "ast_hash": "35a85c1d1ca7035d3067c647b5d27c4a",
     "semantic_hash": ""
   },
   "quantum/rgb_matrix/rgb_matrix_drivers.c": {
@@ -2360,33 +2360,33 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_standing.c": {
-    "mtime": 1787876348.522726,
-    "ast_hash": "5a30f6300315560d6af4a427aa75b1e2",
+    "mtime": 1788059482.1016898,
+    "ast_hash": "6c8115b10d5101b5ab9eaf75d67f3bd8",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_standing.h": {
-    "mtime": 1787084332.6670365,
-    "ast_hash": "05e0c16050f78ddaf5460049eb743f4e",
+    "mtime": 1788059413.3380635,
+    "ast_hash": "cbecaf3dac6bff67f488ce552c89b20c",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_tap_activity.c": {
-    "mtime": 1786936930.1238275,
-    "ast_hash": "533e69037deb1db66c97d9430d4e8c2b",
+    "mtime": 1788056990.6503074,
+    "ast_hash": "98d05bc71c784d2aee67005700f3a7bb",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_tap_activity.h": {
-    "mtime": 1786936930.1238275,
-    "ast_hash": "62b41c27e6f6be1f8eef4da2c1e342b8",
+    "mtime": 1788056990.6493092,
+    "ast_hash": "343daaa8fd337aa0eb5beadf787c6aef",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_responder_projection.c": {
-    "mtime": 1786922442.8132265,
-    "ast_hash": "2a0a0877b11c297a735b8c2e3e1085a6",
+    "mtime": 1788056990.6473055,
+    "ast_hash": "2760c67d554be77192e8200ef899ab75",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_responder_projection.h": {
-    "mtime": 1786922442.8122275,
-    "ast_hash": "41db25b0df1d1ea5b1e3c5aab01cd388",
+    "mtime": 1788056990.6463058,
+    "ast_hash": "3d6ceb9faa948e51c2389c476fa7b72b",
     "semantic_hash": ""
   },
   "keyboards/era/common/tools/era_residency_gate.sh": {
@@ -2575,8 +2575,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_board.c": {
-    "mtime": 1787955887.1189628,
-    "ast_hash": "7c43d3cbc718240ff250c5e32e98c234",
+    "mtime": 1788043888.7488818,
+    "ast_hash": "1736059efcaf3fc7350c030b2fa9c674",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/era_split_board.h": {
@@ -2600,8 +2600,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/system/era_nonsplit_board.c": {
-    "mtime": 1787955887.1209636,
-    "ast_hash": "437c84db321042b63db1c83feccc52f0",
+    "mtime": 1788043851.6821144,
+    "ast_hash": "6ad70b0fb7dae5ab0324a47e475a5173",
     "semantic_hash": ""
   },
   "keyboards/era/newone/common/odessey_common.c": {
@@ -2655,13 +2655,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_host_peer_storage_contract.md": {
-    "mtime": 1788041797.4017134,
-    "ast_hash": "7d999573af25a11b273b4e8700b3b220",
+    "mtime": 1788061167.0369606,
+    "ast_hash": "852cfba3507bfb427ea6c595fb7d7ac4",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_invariants.md": {
-    "mtime": 1787961340.6047702,
-    "ast_hash": "8e707be1c0836340102aabe4c150eb90",
+    "mtime": 1788057237.5110402,
+    "ast_hash": "dd5b6cf7114f5881db2f6c76548c14ab",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_overview.md": {
@@ -2670,18 +2670,18 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_route_contract.md": {
-    "mtime": 1787961384.9026825,
-    "ast_hash": "9c1dc129c9ed9b97cf441f6b2bd52bf2",
+    "mtime": 1788059839.8451748,
+    "ast_hash": "6985985083b146e8673d597b8b2d93e4",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_sram_residency_contract.md": {
-    "mtime": 1788032569.2332146,
-    "ast_hash": "4a001b37a7b62c02b03bc72c3e882825",
+    "mtime": 1788044043.4625282,
+    "ast_hash": "e81fd15f1c51f42ca2433790c83cc44d",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/contracts/era_wire_contract.md": {
-    "mtime": 1787905347.625249,
-    "ast_hash": "9c38c2230418b5b99099ff5863109467",
+    "mtime": 1788055528.6840768,
+    "ast_hash": "360320e0fd509ad45cf90a5187af4820",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_board_adoption.md": {
@@ -2705,13 +2705,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_performance_gates.md": {
-    "mtime": 1788042462.547848,
-    "ast_hash": "a2590b6a35c2e1bb6b9005198328b43a",
+    "mtime": 1788061167.0369606,
+    "ast_hash": "a8c4ea3eb4a411cb3204839441937798",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_qmk_fork_ledger.md": {
-    "mtime": 1788011062.68421,
-    "ast_hash": "91c448049c8c07e47c8eae3644ede4d0",
+    "mtime": 1788044043.4660363,
+    "ast_hash": "547d6ce80fa445113a04cd1b5228fab2",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/maps/era_identifier_map.md": {
@@ -2720,8 +2720,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/maps/era_source_map.md": {
-    "mtime": 1788042462.5488484,
-    "ast_hash": "880bba641c670ff56c3e81fa02f9d6ff",
+    "mtime": 1788060216.4993823,
+    "ast_hash": "c675e3e118f9419276cf7b67e2b3b9ba",
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/maps/era_walkthrough.md": {
@@ -2730,13 +2730,13 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_diagnostics.c": {
-    "mtime": 1787102043.1010127,
-    "ast_hash": "dc3283189527a56da7651d2a7ea1785c",
+    "mtime": 1788057033.1209648,
+    "ast_hash": "309f4ee0bb859553c70d88f83cbe1024",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/communication_core/era_split_communication_core_diagnostics.h": {
-    "mtime": 1787102043.1010127,
-    "ast_hash": "20cc644ac993048597eabd2dba794f44",
+    "mtime": 1788057033.1199648,
+    "ast_hash": "01c3ad0341684872a9252a4b2ba64b4f",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/diagnostics/era_split_qwin_diagnostics.c": {
@@ -2760,8 +2760,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/split/diagnostics/era_split_wire_diagnostics.c": {
-    "mtime": 1787955950.4612565,
-    "ast_hash": "bb7b9e6e46c26c4f7082a682e504bd14",
+    "mtime": 1788060190.6794515,
+    "ast_hash": "811a96ee55bc363fa515477129c3eb5e",
     "semantic_hash": ""
   },
   "keyboards/era/common/split/diagnostics/era_split_wire_diagnostics.h": {
@@ -2800,8 +2800,8 @@
     "semantic_hash": ""
   },
   "keyboards/era/common/docs/manuals/era_capture_reading.md": {
-    "mtime": 1788011062.6832173,
-    "ast_hash": "40b0f080ae13cc9cd291155ca6fb72f3",
+    "mtime": 1788059839.8461716,
+    "ast_hash": "934152a9897a8a8ce0bbe6003ccad0e2",
     "semantic_hash": ""
   },
   "keyboards/era/common/tools/era_doc_refs.py": {
@@ -4642,6 +4642,16 @@
   "keyboards/era/common/split/era_host_peer_storage_recency_policy.h": {
     "mtime": 1788042439.670663,
     "ast_hash": "d0ac81116a7f7204699448b6ee21610d",
+    "semantic_hash": ""
+  },
+  "keyboards/era/common/split/era_host_peer_storage_indicator_policy.h": {
+    "mtime": 1788061167.032541,
+    "ast_hash": "0f987c157043e7b1b4b0c6b7d915a610",
+    "semantic_hash": ""
+  },
+  "keyboards/era/common/split/communication_core/era_split_communication_core_responder_result_policy.h": {
+    "mtime": 1788056614.8634424,
+    "ast_hash": "a7f30b87ae0c87248967856696a869a2",
     "semantic_hash": ""
   }
 }
