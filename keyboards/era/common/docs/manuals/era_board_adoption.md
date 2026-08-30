@@ -172,11 +172,18 @@ are not owners.
 board; that measurement is owed, and this paragraph is the only place it is
 written down.
 
-| Family | Boards | VIA channel | Menu prefix |
+Hardware families from the 23 `keyboard.json` files. VIA protocol channels
+are `quantum/via.h` (`id_qmk_backlight_channel` 1, `id_qmk_rgblight_channel`
+2, `id_qmk_rgb_matrix_channel` 3). JSON homes are the 26 `*-VIA.json` files
+beside each `via` keymap, identical in lighting commands and `qmk_*` string
+aliases to `the-via-eerraa/era-definitions/custom/v3` (peer extra: five H7S
+definitions, not QMK boards).
+
+| Family | Boards | Protocol | JSON home |
 | --- | --- | --- | --- |
-| RGB Matrix | 10 | 3 | `id_qmk_rgb_matrix_*` |
-| PWM backlight | 11 | 1 | `id_qmk_backlight_*` |
-| RGBLIGHT | 5 | 2 | `id_qmk_rgblight_*` |
+| RGB Matrix | 10 | channel 3, `id_qmk_rgb_matrix_*` | expanded channel-3 commands: `sirind/tomak` (six half files), `sirind/chickpad`, `linx3/fave65s`. String alias `"qmk_rgb_matrix"`: `sirind/brick65`, `linx3/n86`, `linx3/n87`, `sirind/klein_sd`. Indicator LEDs only, no RGB-matrix menu: `sirind/brick65s` |
+| PWM backlight | 11 | channel 1, `id_qmk_backlight_*` | none of the 26 files contain `id_qmk_backlight_*`. Eight effect boards use keyboard channel 0, ids `0..3` (`id_custom_backlight_*`, `id_custom_breathing_period`, `id_custom_blink_speed`) |
+| RGBLIGHT | 5 | channel 2, `id_qmk_rgblight_*` | channel 2 `id_qmk_rgblight_*` on `newone/odessey60s`, `newone/odessey60h`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless` |
 
 Two-family: `sirind/klein_sd` (backlight + per-key matrix),
 `comm/classicd_a1_ug` / `classicd_core` / `classicd_coreless` (backlight +
@@ -185,21 +192,21 @@ underglow). `newone/h1` is in none. Family conversion is an owner decision.
 **The ERA RGB improvements are RGB_MATRIX-only**
 (`RGB_MATRIX_RENDER_POLICY`, independent indicators, deferred config flush).
 
-Three boards want no lighting surface: `divine`, `sirind/klein_hs` and
+Three boards take no PWM-backlight VIA menu: `divine`, `sirind/klein_hs` and
 `sirind/klein_sd` (owner decision 2026-08-18). **Answering no is more than
 deleting the menu:** `ERA_BACKLIGHT_ALWAYS_ON` repairs a stored `enable = 0`
 before `backlight_init()` reads it. Brightness is `BACKLIGHT_DEFAULT_LEVEL`
-in that board's `config.h`.
+in that board's `config.h`. `klein_sd` still ships `"qmk_rgb_matrix"`.
 
 **The lighting-surface rule:** a lighting surface past VIA's own channel
 (RGB-matrix 3 / RGBLIGHT 2 / backlight 1) goes one of two homes. The common
-router runs first, so ids `0..3` are the backlight feature's wherever its
-selector is on.
+router in `system/era_common_via.c` runs first, so ids `0..3` are the
+backlight feature's wherever `ERA_BACKLIGHT_EFFECT_ENABLE` is on.
 
 | Home | When | Files / ids |
 | --- | --- | --- |
-| common feature | family behaviour | `features/era_backlight.[ch]` behind `ERA_BACKLIGHT_EFFECT_ENABLE`, ids `0..3` in `features/era_backlight_via.h`; `features/era_rgb_indicator.[ch]` behind `ERA_RGB_INDICATOR_ENABLE`, ids `6..12` in `features/era_rgb_indicator_via.h` |
-| board hooks | one product | weak `era_board_via_get_value()` / `era_board_via_set_value()` in `system/era_board_hooks.c`. Overriders: `newone/common/odessey_common.c`, `sirind/common/tomak_common.c` |
+| common feature | family behaviour | `features/era_backlight_via.h` ids `0..3` behind `ERA_BACKLIGHT_EFFECT_ENABLE` (eight boards: `era65`, `linx3/n8x`, `newone/a1`, `comm/et_tkl`, `comm/classicd_a1`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`). `features/era_rgb_indicator_via.h` ids `6..12` behind `ERA_RGB_INDICATOR_ENABLE`: `linx3/n86` and `linx3/n87` answer `6..12`; `sirind/brick65s` answers `7..12`; `linx3/fave65s` answers `7..9` |
+| board hooks | one product | weak `era_board_via_get_value()` / `era_board_via_set_value()` in `system/era_board_hooks.c`. Overriders: `sirind/common/tomak_common.c` ids `0..4`; `newone/common/odessey_common.c` ids `1..4` |
 
 A continuous lighting control's persistence is deferred by the gate that owns
 its save event. Four parts: the number is `ERA_STORAGE_QUIET_DEFER_MS` 500 and
@@ -273,7 +280,14 @@ source is `the-via-eerraa/era-definitions/custom/v3`; official ownership is
 `the-via/keyboards/v3`. QMK-local `*-VIA.json` files are usevia.app-compatible
 Draft Definitions: do not add Custom VIA-only controls. **Every board has a
 local copy** — a split board has two, one per half — as `<BOARD>-VIA.json`
-beside the `via` keymap (26 = 23 + 3).
+beside the `via` keymap (26 = 23 + 3). Lighting commands and `qmk_*` string
+aliases match the 26 peer v3 files of the same names. `FEATURE_COVERAGE` in
+`the-via-eerraa/tests/era-definition.test.ts` matches those 26 for
+`id_qmk_mousekey`, `id_qmk_custom_nkro`, `id_qmk_split_link` and
+`id_qmk_eeprom_sync` (`sirind/brick65` is in none: stock VIA, RGB-matrix
+alias only). The Draft/app delta is tap-dance terms (QMK legacy ids
+`36,41,…,71` and channel 15 id 1; peer exact-ms ids `72..79` and channel 15
+id 5), not lighting.
 
 Re-prove the non-split path after any change to the guard boundary:
 
