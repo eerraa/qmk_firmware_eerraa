@@ -21,15 +21,14 @@ git diff --name-only c93ef27143 HEAD -- tmk_core quantum platforms drivers build
 Do not substitute another ERA branch or a repository root commit. QMK history
 has multiple roots and those answer a different question.
 
-Session 2 deliberately restores storage-specific QMK forks to pristine. ERA
-NVM is below QMK's supported `EEPROM_DRIVER=custom` boundary, so A/B banks,
+ERA NVM is below QMK's supported `EEPROM_DRIVER=custom` boundary, so A/B banks,
 macro durability, local changed-span notification, remote Apply and CLEAN replay
 proof live under `keyboards/era/common/`, not in QMK Core.
 
 ## Current Working-Tree Surface
 
-At this Session 2 working tree the five-directory derivation contains **32
-files**. Every one is accounted for below.
+The five-directory derivation contains **32 files**. Every one is accounted for
+below.
 
 | Files | Current ERA reason | Gate / scope |
 | --- | --- | --- |
@@ -45,7 +44,7 @@ files**. Every one is accounted for below.
 | `quantum/mousekey.c`, `quantum/mousekey.h` | Inert-task early-out, missing runtime-variable declarations, and ERA-adjustable default accelerated-mode movement/wheel deltas. | Runtime deltas: `ERA_MOUSEKEY_RUNTIME_DELTA`; inert guard/declarations are behaviour-preserving ungated fixes. |
 | `quantum/process_keycode/process_tap_dance.c`, `.h`, `quantum/quantum.c` | Weak tap-dance keycode remap and tapping-term seams; `process_record_quantum()` applies the remap both before preprocessing and after a layer-changing relookup. | Weak upstream-defaulted hooks; ERA feature supplies the override. |
 | `quantum/rgb_matrix/animations/digital_rain_anim.h` | Uses lib8tion RNG when available so ERA images do not pull newlib allocator state through `rand()`. | `LIB8TION_ENABLE`; other keyboards retain QMK fallback. |
-| `quantum/rgb_matrix/rgb_matrix.c`, `quantum/rgb_matrix/rgb_matrix.h` | Accepted RGB Matrix persistence coalescing plus ERA render policy/idle and pass-phase performance hooks. The render-policy surface includes an explicit board-policy refresh request: a STATUS edge that arrives outside `rgb_matrix_task()` wakes the idle state on the next pass, or follows an already-buffered flush immediately, instead of waiting for the next animation epoch. Its read-only `rgb_matrix_render_policy_refresh_active()` remains true through the actual refreshed PWM flush (or an update that proves no frame is needed), which lets ERA's opportunistic NVM maintenance yield instead of inserting flash windows between a split indicator's multi-pass render states. The query carries presentation priority only; it is not NVM ownership. | `ERA_STORAGE_QUIET_DEFER_MS`, render-policy selectors, `RGB_MATRIX_IDLE_GATE_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; the small value-preserving performance guards are ungated. |
+| `quantum/rgb_matrix/rgb_matrix.c`, `quantum/rgb_matrix/rgb_matrix.h` | Accepted RGB Matrix persistence coalescing plus ERA render policy/idle and pass-phase performance hooks. Board-policy refresh and idle-wake live in `quantum/rgb_matrix/rgb_matrix.c`; read-only `rgb_matrix_render_policy_refresh_active()` remains true through the refreshed PWM flush or a no-frame update. Presentation priority only; not NVM ownership. | `ERA_STORAGE_QUIET_DEFER_MS`, render-policy selectors, `RGB_MATRIX_IDLE_GATE_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; the small value-preserving performance guards are ungated. |
 | `quantum/rgblight/rgblight.c`, `quantum/rgblight/rgblight.h` | Accepted VIA RGBLight quiet-save gate with flush-before-reset/suspend support; lib8tion RNG substitution avoids allocator linkage. | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; RNG: `LIB8TION_ENABLE`. |
 | `quantum/split_common/split_util.c`, `.h` | Extracts `split_hand_pin_is_left()` so ERA authority can sample the physical side without adopting QMK's boot-master policy. | Present only where `SPLIT_HAND_PIN` exists; weak upstream `is_keyboard_left_impl()` still delegates to it. |
 | `quantum/sync_timer.c`, `.h` | Replaces hardcoded keyboard-master time-source decisions with weak `sync_timer_is_time_source()`, defaulting to upstream mastery; ERA split overrides it with committed wire role. | Weak default; only ERA split scheduler changes semantics. |
@@ -63,25 +62,20 @@ Those tokens are Cirque's Extended Register Access (`ERA_ReadBytes`,
 `ERA_WriteByte`), not an ERA firmware edit, and the file is not part of the
 32-file fork surface.
 
-## Storage-Specific QMK Surface Restored In Session 2
+## Storage-Specific QMK Surface Restored
 
 The following storage-driven QMK files/edits are byte-identical to
-`c93ef27143` in the current working tree and therefore **do not belong in the
-current fork surface**:
-
-- `drivers/eeprom/eeprom_driver.h`;
-- `drivers/eeprom/eeprom_wear_leveling.c`;
-- `platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`;
-- `quantum/wear_leveling/wear_leveling.c` and `.h`;
-- `quantum/wear_leveling/tests/rules.mk` and
-  `quantum/wear_leveling/tests/wear_leveling_general.cpp`;
-- `quantum/nvm/eeprom/nvm_dynamic_keymap.c` and
-  `quantum/nvm/nvm_dynamic_keymap.h`;
-- `quantum/nvm/eeprom/nvm_eeconfig.c`;
-- `quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h`;
-- `quantum/nvm/eeprom/nvm_via.c`;
-- `quantum/keyboard.h` and the storage-only `matrix_task()` visibility change
-  formerly paired with it.
+`c93ef27143` and therefore **do not belong in the current fork surface**:
+`drivers/eeprom/eeprom_driver.h`; `drivers/eeprom/eeprom_wear_leveling.c`;
+`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`;
+`quantum/wear_leveling/wear_leveling.c` and `.h`;
+`quantum/wear_leveling/tests/rules.mk` and
+`quantum/wear_leveling/tests/wear_leveling_general.cpp`;
+`quantum/nvm/eeprom/nvm_dynamic_keymap.c` and
+`quantum/nvm/nvm_dynamic_keymap.h`; `quantum/nvm/eeprom/nvm_eeconfig.c`;
+`quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h`;
+`quantum/nvm/eeprom/nvm_via.c`; `quantum/keyboard.h` and the storage-only
+`matrix_task()` visibility change formerly paired with it.
 
 The stock QMK dynamic-macro RESET loop is now deliberately a dependency rather
 than a fork edit. ERA NVM recognizes its sequential 16-byte
@@ -90,12 +84,13 @@ regression that compiles stock `nvm_dynamic_keymap.c` itself are canonical in
 `era_host_peer_storage_contract.md` and `tests/era_nvm_qmk_driver`.
 
 The retained QMK quiet-save edits are not hidden storage ownership. They remain
-for one precise accepted behavior: VIA emits SAVE alongside continuous slider
-SET traffic, and immediate stock persistence would write each changed slider
-step durably. The ERA gate coalesces that approved stream and flushes a pending
-save before controlled reset/suspend. Removing it requires an explicit product
-decision to accept the extra physical writes or a cleaner equivalent
-QMK-external interception; reducing the diff count alone is not a reason.
+for one accepted behavior: VIA emits SAVE alongside continuous slider SET
+traffic, and the ERA gate coalesces that stream and flushes a pending save
+before controlled reset/suspend.
+
+> **REFUSED:** restore the quiet-save QMK edits to pristine to shrink the fork
+> **WHY:** VIA SAVE rides continuous slider SET traffic, and stock persistence writes each slider step durably.
+> **REOPENS:** an explicit product decision to accept the extra physical writes, or a cleaner QMK-external interception
 
 ## Matrix Boundary
 
