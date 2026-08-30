@@ -164,344 +164,262 @@ Storage-changed rides `STORAGE_NEWS` (`0x40`).
 
 ## `HOST_PEER_SOURCE_PUSH`
 
-Envelope: HOST-PEER Class, op `0x20`. Zero mask is invalid on this op
-(section-less request is the one-byte compact control).
+Envelope: HOST-PEER Class, op `0x20`. Two id spaces on purpose; unifying them
+would spend bits no consumer reads (`split/era_split_wire_protocol.h`).
+`era_split_wire_layout_source_push()` in `split/era_split_wire_payload.c`
+refuses `byte2 == 0` (section-less request is the one-byte compact control).
+`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MASK` is all eight bits.
 
-| Marker | Section | Bytes | Dir | Relation |
-| --- | --- | ---: | --- | --- |
-| `0x01` | MATRIX | `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` | push | HOST-PEER |
-| `0x02` | INPUT_LAYER | 1 | push | DUAL-HOST |
-| `0x04` | AUTHORITY | `ERA_SPLIT_WIRE_AUTHORITY_BYTES` 7 | push | both |
-| `0x08` | RGB_STATE | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES` 7 | push | DUAL-HOST |
-| `0x10` | ACTIVITY | `ERA_SPLIT_WIRE_ACTIVITY_BYTES` 11 | push | DUAL-HOST |
-| `0x20` | VISUAL | 8 | push | DUAL-HOST |
-| `0x40` | STORAGE_PENDING | 1 | push | both |
-| `0x80` | RESTART_ARM | `ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5 | push | both |
-| `0x01` | INPUT | 1 | rsp | DUAL-HOST |
-| `0x02` | ACTIVITY | `ERA_SPLIT_WIRE_ACTIVITY_BYTES` 11 | rsp | DUAL-HOST (reused marker) |
-| `0x04` | AUTHORITY | `ERA_SPLIT_WIRE_AUTHORITY_BYTES` 7 | rsp | both |
-| `0x08` | lock-state | 1 | rsp | HOST-PEER |
-| `0x10` | visual-resync | 8 | rsp | both (RGB-policy-gated) |
-| `0x20` | RGB-state | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES` 7 | rsp | both |
-| `0x40` | storage news | 1 | rsp | both |
-| `0x80` | time anchor | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES` 4 | rsp | both |
+| Marker | Push section | Push bytes | Rsp section | Rsp bytes |
+| --- | --- | ---: | --- | ---: |
+| `0x01` | MATRIX | `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` | INPUT | `ERA_SPLIT_WIRE_INPUT_LAYER_BYTES` 1 |
+| `0x02` | INPUT_LAYER | `ERA_SPLIT_WIRE_INPUT_LAYER_BYTES` 1 | ACTIVITY (reused) | `ERA_SPLIT_WIRE_ACTIVITY_BYTES` 11 |
+| `0x04` | AUTHORITY | `ERA_SPLIT_WIRE_AUTHORITY_BYTES` 7 | AUTHORITY | `ERA_SPLIT_WIRE_AUTHORITY_BYTES` 7 |
+| `0x08` | RGB_STATE | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES` 7 | lock-state | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_BYTES` 1 |
+| `0x10` | ACTIVITY | `ERA_SPLIT_WIRE_ACTIVITY_BYTES` 11 | visual-resync | reason + `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` |
+| `0x20` | VISUAL | reason + `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` | RGB-state | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES` 7 |
+| `0x40` | STORAGE_PENDING | `ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_BYTES` 1 | storage news | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_BYTES` 1 |
+| `0x80` | RESTART_ARM | `ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5 | time anchor | `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES` 4 |
 
-`ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` is a board fact: seven on the nine-column
-boards, nine on `sirind/tomak`. Visual width is reason plus that baseline
-(eight / ten).
+`ERA_SPLIT_WIRE_HALF_MATRIX_BYTES` is `(MATRIX_ROWS_PER_HAND * MATRIX_COLS + 7) / 8`: seven on the nine-column split boards, nine on `sirind/tomak`. Visual width is reason plus that baseline (eight / ten). Packed matrix and visual baseline share the bit address `row * MATRIX_COLS + col`; unused high bits of the last byte are reserved-zero (`split/era_split_matrix_frame.c`).
 
-| Relation | `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_*_PUSH` | `..._RSP` |
-| --- | --- | --- |
-| HOST-PEER | MATRIX, AUTHORITY, STORAGE_PENDING, RESTART_ARM | AUTHORITY, LOCK, VISUAL, RGB, NEWS, ANCHOR |
-| DUAL-HOST | INPUT, AUTHORITY, RGB, ACTIVITY, VISUAL, STORAGE_PENDING, RESTART_ARM (seven) | INPUT, ACTIVITY, AUTHORITY, VISUAL, NEWS, RGB, ANCHOR (seven) |
+`era_split_wire_layout_source_push()` and `era_split_wire_layout_host_source_rsp()` in `split/era_split_wire_payload.c` walk `byte2` in ascending marker-bit order, sum the declared bodies, and MUST land exactly on `payload_len`. A bit outside that direction's `SECTION_MASK` is refused. Both masks are `0xFF`.
 
-Storage-pending body:
+`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS` is MATRIX.
+
+MATRIX plus AUTHORITY is `3 + 7 + 7` against `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15; the walk refuses the dual mask. Visual plus RGB is `8+7` body against 12 left on nine-column boards (ten plus seven on `sirind/tomak`); no legal `payload_len`.
+
+## Section eligibility
+
+`g_era_split_wire_section_eligibility` in `split/era_split_wire_payload.c` is the only opener: send and admit AND against the same relation-keyed entry, sized by `ERA_SPLIT_WIRE_SECTION_ELIGIBILITY_MODES` 5.
+
+`LOCAL_NO_LINK` is empty in both directions. Both roles of one relation share one pair of bytes. The ELF gate reads those bytes (`era_performance_gates.md`). A planned section absent from the entry MUST NOT be sent; late clip leaves it permanently due.
+
+| Macro | Sections |
+| --- | --- |
+| `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_HOST_PEER_PUSH` | MATRIX, AUTHORITY, STORAGE_PENDING, RESTART_ARM |
+| `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_HOST_PEER_RSP` | AUTHORITY, LOCK, VISUAL, RGB, NEWS, ANCHOR |
+| `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_PUSH` | INPUT, AUTHORITY, RGB, ACTIVITY, VISUAL, STORAGE_PENDING, RESTART_ARM (seven) |
+| `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_RSP` | INPUT, ACTIVITY, AUTHORITY, VISUAL, NEWS, RGB, ANCHOR (seven) |
+
+AUTHORITY is the one section in all four serviced cells. STORAGE_PENDING and RESTART_ARM are push-only; STORAGE_NEWS and TIME_ANCHOR are rsp-only. LOCK is HOST-PEER rsp only. INPUT, ACTIVITY, RGB, and VISUAL in HOST-PEER: Closed ids.
+
+## Push bodies
+
+MATRIX: `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES`, reserved high bits clear.
+
+INPUT, both directions (`split/era_split_peer_layer.c` asserts `sizeof(layer_state_t)` against `ERA_SPLIT_WIRE_INPUT_LAYER_BYTES` 1). Every value is valid.
+
+AUTHORITY, identical in both directions (`ERA_SPLIT_WIRE_AUTHORITY_BYTES` 7). Session facts minus `bulk_page_supported`, plus restart intent. `ERA_SPLIT_WIRE_AUTHORITY_FLAG_MASK` is `0xFF` (`split/era_split_wire_protocol.h`). A consumer MUST leave the peer-cache `bulk_page_supported` field untouched (`era_authority_contract.md`). Shared validation with `SESSION_STATUS`: exactly one role bit, `matrix_ready` only on no-host.
 
 ```text
-byte2 bit6: storage-pending marker
-body byte0: bit0 unfinished pair work — settled divergence, decided cells, or a
-            content-moving episode not yet closed
-            (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING` `0x01`);
-            bits 1..7 reserved zero, validator-refused
+body byte0: bit0 host_open (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_HOST_OPEN`)
+            bit1 no_host (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_NO_HOST`)
+            bit2 matrix_ready (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_MATRIX_READY`)
+            bits3..4 param (`ERA_SPLIT_WIRE_AUTHORITY_RESTART_PARAM_MASK`)
+            bits5..6 act (`ERA_SPLIT_WIRE_AUTHORITY_RESTART_ACT_MASK`)
+            act 0 idle / 1 link / 2 CLEAN / 3 refused
+            bit7 qualified (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_RESTART_ARMED`)
+body byte1..2 usb_epoch, 3..4 host_open_gen, 5..6 host_close_gen, little-endian
 ```
 
-Composition and consumer: `era_host_peer_storage_contract.md`'s **Diagnostics**.
-INPUT-class **forced first cross** (zero included). Initiator copy this way;
-responder copy is `STORAGE_NEWS` bit7. **Summary and news do not stand in** —
-they carry the settled phase only, so dirty stays invisible until
-`ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` 1000.
+`era_split_restart_authority_valid()` in `split/era_split_restart_agreement.c` owns the live tuples. `era_split_wire_authority_equal()` in `split/era_split_wire_payload.c` is the sender shadow and receiver edge. `era_split_scheduler_session_note_peer_authority()` in `split/era_split_scheduler_session.c` does not include the restart fields.
 
-Restart arm body:
+| Act | param | bit7 | Meaning |
+| --- | ---: | ---: | --- |
+| idle | 0 | 0 | no restart state |
+| link speed | validated link-level parameter | 0 | request |
+| link speed | the same parameter | 1 | matching shared deadline adopted |
+| EEPROM CLEAN | 0 | 0 | `REQUEST` |
+| EEPROM CLEAN | 1 | 1 | `PREPARED` |
+| EEPROM CLEAN | 2 | 1 | `COMMIT_ARMED` |
+
+CLEAN `(param 1, bit7 0)`, `(param 2, bit7 0)`, `(param 0, bit7 1)` and every param-3 form are malformed. REQUEST before either qualified state. COMMIT_ARMED is the only arm confirmation.
+
+RGB_STATE: response body byte for byte (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RGB_STATE_BYTES`). DUAL-HOST: sleep bit zero at capture (`split/era_host_peer_source_snapshot.c`) and skipped at apply.
+
+ACTIVITY: response body byte for byte. Marker `0x10` in this id space.
+
+VISUAL: response visual-resync body at full fixed width. Hit tracker only; writes no matrix and reaches no action (`era_invariants.md`'s render-state clause). No reason-only form.
+
+STORAGE_PENDING (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_BYTES` 1):
 
 ```text
-byte2 bit7: restart-arm marker
-body byte0: bits0..1 param (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_PARAM_MASK` `0x03`);
-            bits2..3 act (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_MASK`);
-            act 0 idle / 1 link / 2 CLEAN / 3 refused; bits4..7 reserved zero, refused
+body byte0: bit0 pending (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING`)
+            bits 1..7 reserved zero, refused
+```
+
+Composition and consumer: `era_host_peer_storage_contract.md`'s **Diagnostics**. Responder copy rides STORAGE_NEWS bit7. Invalid sent shadow forces the current value across once per relation, zero included.
+
+RESTART_ARM (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5). Carries any act; acts are `split/era_split_restart_agreement.h`'s. `era_split_restart_arm_valid()` in `split/era_split_restart_agreement.c` owns the live tuples. CLEAN `param_max` is 0 in `split/era_split_keyboard.c`; wire phases 1 and 2 are not an application argument.
+
+```text
+body byte0: bits0..1 param (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_PARAM_MASK`)
+            bits2..3 act (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_MASK`)
+            act 0 idle / 1 link / 2 CLEAN / 3 refused
+            bits4..7 reserved zero, refused
 body byte1..4: T_commit, sync-timer ms, little-endian
 ```
 
-Initiator carrier for both halves; responder request/PREPARED/COMMIT_ARMED ride
-AUTHORITY. **Carries any act**; acts are `split/era_split_restart_agreement.h`'s.
-
-| Act | wire param | `T_commit` | Meaning |
+| Act | param | `T_commit` | Meaning |
 | --- | ---: | ---: | --- |
 | idle | 0 | 0 | canonical all-zero body |
-| link speed | the validated link-level parameter | nonzero | the existing shared-deadline arm |
-| EEPROM CLEAN | 1 | 0 | `PREPARE`; no deadline exists |
-| EEPROM CLEAN | 2 | nonzero | `COMMIT`; the shared deadline |
+| link speed | validated link-level parameter | nonzero | shared-deadline arm |
+| EEPROM CLEAN | 1 | 0 | `PREPARE` |
+| EEPROM CLEAN | 2 | nonzero | `COMMIT` |
 
-CLEAN param 0 or 3 is malformed. Act 3 is refused in every form. `param_max`
-stays 0; values 1 and 2 never reach local CLEAN dispatch as an application
-argument.
-
-`PREPARE` (zero timestamp, not a deadline) then `COMMIT` only after both local
-and peer PREPARED; a PREPARED echo is not COMMIT_ARMED. Why:
-`era_host_peer_storage_contract.md`'s **Why An EEPROM Clean Is An Agreed Restart**.
-
-**A nonzero deadline is absolute, not a countdown.** PREPARE is the one admitted
-zero-deadline live form (CLEAN/param-1). The section forces one cross per
-relation: idle as all-zero, a live arm as the same absolute deadline. Rotation
-retires an unconfirmed CLEAN COMMIT; a previous relation's PREPARED/COMMIT_ARMED
-is never current. Local quarantine and the prepare obligation survive identity
-change until the controlled reset in `era_host_peer_storage_contract.md`. Fresh
-boot publishes only idle.
-
-Yielding class's first claimant (`3+1+7+1+5` / `3+7+1+5` miss the budget). Fits
-beside AUTHORITY at `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15; not an
-apply-order promise.
-
-`VISUAL` is the pressed-baseline twin at the response width. Hit tracker only;
-no matrix, no action (`era_invariants.md`'s render-state clause). Reason is
-core1's (`RELATION_OPEN` once per relation/reopen, then `RENDER_RESET`).
-`RGB_STATE` is the response body byte for byte; DUAL-HOST sleep bit is zero at
-capture and skipped at apply.
-
-**`MATRIX` and `AUTHORITY` never share a HOST-PEER frame** (`3+7+7` over budget).
-Matrix keeps `HOST_PEER_MATRIX_SOURCE_PUSH`; authority rides the standing
-exchange (`era_route_contract.md`). A dual mask is a malformed frame.
-
-| Rule | Contract |
-| --- | --- |
-| mask walk | `byte2` is a section mask. The validator walks it, sums declared body lengths, and MUST land exactly on `payload_len`. An unassigned marker bit is a reserved-bit rejection |
-| zero mask | invalid on push (section-less request is the one-byte compact control). On response, `byte2 == 0x00` is the no-section envelope and stays valid |
-| eligibility | which sections a relation may send and accept is one linked `const` table at one send site and one admission site per direction. The gates read the table's bytes (`era_performance_gates.md`) |
-| `STORAGE_PENDING` | eligible in both relations' push cells (initiator = HOST-PEER PEER or DUAL-HOST Left). Responder's copy rides `STORAGE_NEWS` bit7. Joins the never-deferring one-byte facts |
-
-> **REFUSED:** restore the layout walk's variable-length machinery.
-> **WHY:** its bound is the `payload_len != 3 + fixed_total` arm, which
-> the parameter selected around rather than provided — the machinery
-> never carried the check it appeared to.
-> **REOPENS:** a section whose body length is genuinely variable.
-
-| Closed cell | Why | Assert |
-| --- | --- | --- |
-| full row-array matrix | forbidden | — |
-| digest-only matrix response | forbidden | — |
-| EEPROM DATA | forbidden | — |
-| RGB in HOST-PEER push | PEER is dark and renders the HOST's config; the response direction is that relation's only RGB carrier | `era_split_wire_protocol.h` beside the eligibility entry |
-| INPUT in HOST-PEER | PEER never resolves keycodes; HOST composed rows already carry a PEER-held layer key | same |
-| ACTIVITY in both HOST-PEER cells | that relation is one pipeline; the HOST tapping engine already sees every key of both halves as a local event | stays-closed asserts, both cells |
+CLEAN param 0 or 3 is malformed on this body. Act 3 is refused in every form. A nonzero deadline is absolute. PREPARE is the one admitted zero-deadline live form. Ordering: `era_host_peer_storage_contract.md`'s **Why An EEPROM Clean Is An Agreed Restart**. Fits beside AUTHORITY at `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15 (`3 + 7 + 5`).
 
 ## `HOST_PEER_HOST_SOURCE_RSP`
 
-Envelope: HOST-PEER Class, op `0x21`. `byte2 == 0x00` is a valid no-section
-envelope.
+Envelope: HOST-PEER Class, op `0x21`. `era_split_wire_layout_host_source_rsp()` in `split/era_split_wire_payload.c` admits `byte2 == 0` as the no-section envelope. `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_MASK` is all eight bits. Markers, widths and eligibility: tables above.
 
-Markers, widths and per-relation eligibility are the master table above.
+Lock-state is HOST-PEER rsp only: DUAL-HOST halves each receive their own host LED report. A DUAL-HOST lock-desync capture is the falsifier. **A new marker takes a value never assigned in either direction.** ACTIVITY rsp `0x02` reuse is the recorded exception (`era_capture_reading.md` `sec=`).
 
-**Every section in both id spaces is latest-state and edge-armed** — advertised
-while live value differs from the last confirmed, retired on confirm, no timer.
-Shadows drop on identity rotation; a sent shadow advances from the wire's
-section byte, so a section cannot retire without having crossed.
-
-**Lock-state (`0x08`) is HOST-PEER-only by structure**: DUAL-HOST halves each
-receive their own host LED report. A DUAL-HOST lock-desync capture is the
-falsifier. **A new marker takes a value never assigned in either direction**
-(`sec=` never ambiguous; same rule as the `0x20` ban). ACTIVITY `0x02` reuse
-is the recorded exception.
-
-**Visual-resync + RGB-state is invalid in either direction** (`8+7` body vs 12
-left): no legal `payload_len`; send-clip drops RGB when visual is present.
-
-Lock-state body:
+Lock-state (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_BYTES` 1):
 
 ```text
-byte2 bit3: lock-state marker
-body byte0: bits0..2 Num/Caps/Scroll (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_VALUE_MASK` `0x07`); bits 3..7 reserved zero
+body byte0: bits0..2 Num/Caps/Scroll (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_VALUE_MASK`)
+            bits 3..7 reserved zero, refused
 ```
 
-INPUT layer body:
+ACTIVITY, identical in both id spaces (`ERA_SPLIT_WIRE_ACTIVITY_BYTES` 11):
 
 ```text
-byte2 bit0: INPUT layer section marker
-body byte0: the sending half's layer_state
+body byte0: bit0 window open (`ERA_SPLIT_WIRE_ACTIVITY_FLAG_WINDOW_OPEN`); bits 1..7 reserved zero
+body byte1 press counter mod 256; byte2 release counter mod 256
+body byte3..6 last-press ms LE; byte7..10 last-release ms LE
 ```
 
-AUTHORITY body, identical in both directions:
+Window flag is derived from `features/era_tapping.c` (permissive hold, hold on other key press, retro tapping; all default off). Activity fields live only while the **peer's** window is up. Timestamps are the judgment; counters dedup. Press and release predominantly cross in one image, so a later-image-only rule starves. Invalid sent shadow compares against all-zero, not a forced send. DUAL-HOST no-added-hop is the product; skew is physical; arming is derived, not owned.
+
+> **REFUSED:** symmetric event replication, or a both-hosted composed relation, so that both halves judge from one event stream.
+> **WHY:** each adds the hop the DUAL-HOST gaming property forbids, and that property is the product rather than an implementation choice.
+> **REOPENS:** permanent while DUAL-HOST means two direct per-half reports.
+
+> **REFUSED:** an independent cross-half kill-switch for the family.
+> **WHY:** arming is derived, so a separate control is a way for the seam to disagree with the same keyboard's own tap-hold semantics.
+> **REOPENS:** a layout for which the derived arming is measurably wrong.
+
+> **REFUSED:** cross-half chords — S3, the ladder's third rung.
+> **WHY:** the section carries no key identity by design (`era_closed_surface_contract.md`), so a chord needs a wider body than any recorded demand pays for.
+> **REOPENS:** a recorded demand for cross-half chords.
+
+Approximations: one stamp per edge (newest wins); a pair whose LT release beats one-housekeeping delivery still taps.
+
+Visual-resync, both directions, full width only:
 
 ```text
-byte2 bit2: AUTHORITY marker (both directions)
-body byte0: bit0 host_open, bit1 no_host, bit2 matrix_ready,
-            bits3..4 param (`0x18`), bits5..6 act (`0x60`; 0 idle, 1 link, 2 CLEAN, 3 refused),
-            bit7 qualified (`0x80`; armed / PREPARED / COMMIT_ARMED)
-body byte1..2 usb_epoch, 3..4 host_open_gen, 5..6 host_close_gen (LE)
+byte0 reason: 0 RELATION_OPEN, 1 TX_OVERFLOW (no sender), 2 TICK_GAP,
+              3 RELATION_REOPEN (no sender), 4 RENDER_RESET (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_REASON_MAX`)
+byte1..: packed baseline, `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES`, bit = row * MATRIX_COLS + col; unused high bits zero
 ```
 
-Session facts minus `bulk_page_supported`, plus restart intent.
-`bulk_page_supported` cannot change inside a session (`era_authority_contract.md`);
-**a consumer MUST leave that peer-cache field untouched**. Shared validation:
-exactly one role bit, `matrix_ready` only on no-host. Mask `0xFF` asserted
-(`era_split_wire_protocol.h`). **The next fact needs its own home, not a hidden
-bit.**
+A capture whose visual section is one body byte is a pre-2026-08-10 image. Replay applies `RELATION_OPEN` and `TICK_GAP` (`split/era_host_peer_response.c`). Reasons 1 and 3 stay accepted (plain diff). Validator is deliberately not narrowed to the three producible reasons.
+
+RGB-state (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES` 7), both id spaces (`split/era_host_peer_response.c`):
+
+```text
+body byte0: bit0 enabled (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_FLAG_ENABLE`)
+            bit1 sleep (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_FLAG_SLEEP`)
+            bits2..7 zero, refused
+body byte1 mode (bits6..7 zero, refused); byte2 hue; byte3 sat; byte4 val; byte5 speed; byte6 LED flags
+```
+
+DUAL-HOST sleep bit is zero at capture and skipped at apply. Apply publishes the bit and does not write the render gate (`era_authority_contract.md`'s **Lighting Sleep Ownership**). HOST-PEER captured bit is that half's resolved sleep decision. Both-halves-dark belongs in the sleep decision, never a wire apply.
+
+Storage news (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_BYTES` 1):
+
+```text
+body byte0: bits0..6 value (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK` 127)
+            1 to 127 forward-only, 0 = nothing
+            bit7 pending (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING`)
+```
+
+No reserved bits. Bit7 set dates the image at or after 2026-08-14. The retired `SETTLED_DIRTY_MASK` spelling remains only as a comment in `communication_core/era_split_communication_core_standing.h`. Meaning: `era_host_peer_storage_contract.md`'s **Storage News Value And Relation-Open Audit**.
+
+Time anchor (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES` 4): responder sync-timer ms at snapshot publish, little-endian. Fits `3+8+4` on seven-byte half-matrix boards.
+
+INPUT, TIME_ANCHOR, and STORAGE_NEWS admit every value of their width.
+
+## Closed ids
+
+Retired payload kinds 4 (`ERROR_NACK`, class `0x40`) and 6 (`DUAL_HOST`, class `0x6x`): Compact Payload Kinds. Unmatched `0x22` and `0x23..0x2F` of class `0x20`: `default` reject.
+
+Stays-closed `_Static_assert`s sit beside the eligibility macros in `split/era_split_wire_protocol.h`. Row-array `transport_master()` / `transport_slave()` are absent from `split/era_split_transport.c` (a re-added caller fails at link).
+
+> **REFUSED:** restore the layout walk's variable-length machinery.
+> **WHY:** its bound is the `payload_len != 3 + fixed_total` arm, which the parameter selected around rather than provided — the machinery never carried the check it appeared to.
+> **REOPENS:** a section whose body length is genuinely variable.
 
 > **REFUSED:** widen the response section mask to 16 bits to free a marker.
-> **WHY:** it charges every section-carrying response frame a header byte
-> forever, and the eight assigned markers include the `3 + visual(8) +
-> anchor(4) = 15` combination the planner already relies on fitting.
-> **REOPENS:** a fact that needs a section of its own and cannot ride an
-> existing body, with a measurement that the extra header byte does not move
-> the poll-rate budget.
+> **WHY:** it charges every section-carrying response frame a header byte forever, and the eight assigned markers include the `3 + visual(8) + anchor(4) = 15` combination the planner already relies on fitting.
+> **REOPENS:** a fact that needs a section of its own and cannot ride an existing body, with a measurement that the extra header byte does not move the poll-rate budget.
 
 > **REFUSED:** retire a response section to free its marker.
 > **WHY:** all eight have live consumers; none is a compatibility remnant.
 > **REOPENS:** a feature retirement that leaves one genuinely unread.
 
 > **REFUSED:** widen the AUTHORITY body to eight bytes for a spare flags byte.
-> **WHY:** `3 + 8 + 5 = 16` against a 15-byte compact budget, so the arm and
-> the answer stop sharing a frame and every agreement costs an extra round
-> trip.
+> **WHY:** `3 + 8 + 5 = 16` against a 15-byte compact budget, so the arm and the answer stop sharing a frame and every agreement costs an extra round trip.
 > **REOPENS:** a compact budget wider than 15 bytes.
 
-Responder agreement rides this body because the response mask is full
-(`era_closed_surface_contract.md`). Five restart bits are one act-qualified
-state, not independent flags.
+> **REFUSED:** RGB in HOST-PEER push.
+> **WHY:** that PEER is dark and renders the HOST's config, so the response direction is already the relation's only RGB carrier.
+> **REOPENS:** a HOST-PEER PEER that owns its own lighting.
 
-| Act | wire param | bit7 | Meaning |
-| --- | ---: | ---: | --- |
-| idle | 0 | 0 | no restart state |
-| link speed | validated link-level parameter | 0 | request |
-| link speed | the same parameter | 1 | matching shared deadline adopted |
-| EEPROM CLEAN | 0 | 0 | `REQUEST` |
-| EEPROM CLEAN | 1 | 1 | local physical boot-replay proof complete: `PREPARED` |
-| EEPROM CLEAN | 2 | 1 | CLEAN COMMIT deadline adopted: `COMMIT_ARMED` |
+> **REFUSED:** INPUT in either HOST-PEER cell.
+> **WHY:** that PEER never resolves keycodes, so the HOST's composed rows already carry a PEER-held layer key.
+> **REOPENS:** a HOST-PEER PEER that resolves keycodes.
 
-CLEAN `(param 1, bit7 0)`, `(param 2, bit7 0)`, `(param 0, bit7 1)` and every
-param-3 form are malformed. The full tuple is in the sender shadow and receiver
-edge; relation identity is part of acceptance. **REQUEST before either qualified
-state.** COMMIT_ARMED is the only arm confirmation.
+> **REFUSED:** ACTIVITY in either HOST-PEER cell.
+> **WHY:** that relation is one pipeline; the HOST tapping engine already sees every key of both halves as a local event.
+> **REOPENS:** a HOST-PEER PEER that judges tap-hold from its own events.
 
-`era_split_wire_authority_equal()` in `split/era_split_wire_payload.c` is the
-sender shadow and receiver edge (intent must cross).
-`era_split_scheduler_session_note_peer_authority()` in
-`split/era_split_scheduler_session.c` ignores restart fields (not a session
-edge). The 16-bit values are change detection only. This section is why
-`SESSION_STATUS` can stop post-relation (`era_route_contract.md`).
+> **REFUSED:** VISUAL in HOST-PEER push.
+> **WHY:** the PEER's hits reach the HOST as projected matrix rows, and the HOST's hits already cross in the response direction.
+> **REOPENS:** a HOST-PEER PEER whose hits do not arrive as projected matrix.
 
-**INPUT is one byte** (`layer_state_t` 8-bit, asserted in
-`split/era_split_peer_layer.c`). Every value is valid.
+> **REFUSED:** MATRIX on DUAL-HOST.
+> **WHY:** key input stays off that wire; `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_PUSH` excludes the MATRIX marker.
+> **REOPENS:** a DUAL-HOST design that forwards key input.
 
-ACTIVITY body, identical in both id spaces (marker `0x02` here and `0x10` in
-the push direction):
+> **REFUSED:** LOCK on DUAL-HOST.
+> **WHY:** `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_RSP` excludes it; each half already receives its own host LED report.
+> **REOPENS:** a DUAL-HOST lock-desync capture that the local LED report does not explain.
 
-```text
-byte2 bit1: ACTIVITY marker
-body byte0: bit0 window open, bits 1..7 reserved zero
-body byte1 press counter mod 256; byte2 release counter mod 256
-body byte3..6 last-press ms LE; byte7..10 last-release ms LE
-```
+> **REFUSED:** a `DUAL_RUNTIME_BUNDLE` symbol or class `0x6x` id.
+> **WHY:** the class carries no compiled id and no reservation; the classifier rejects it through its `default` arm.
+> **REOPENS:** a new class with a compiled id, encoder, and contract row.
 
-Window flag is derived from `era_tapping`'s bridge (permissive hold, hold on
-other key press, retro tapping; all default off). Fields live only while the
-**peer's** window is up. **Timestamps are the judgment; counters dedup.**
-Press+release predominantly cross in one image, so a later-image-only rule
-starves. Invalid sent shadow compares against all-zero, not a forced send.
-**Marker `0x02` is reused** (owner decision); capture-era rule:
-`era_capture_reading.md` `sec=`.
+> **REFUSED:** a reason-only visual body.
+> **WHY:** no encoder in either direction can produce one; an accepted length no sender emits is a frame the receiver then has to invent a meaning for.
+> **REOPENS:** a sender that emits a reason without a baseline.
 
-Owner decisions: DUAL-HOST no-added-hop is the product; skew is physical;
-**arming is derived, not owned.**
+## Deferral order
 
-> **REFUSED:** symmetric event replication, or a both-hosted composed relation,
-> so that both halves judge from one event stream.
-> **WHY:** each adds the hop the DUAL-HOST gaming property forbids, and that
-> property is the product rather than an implementation choice.
-> **REOPENS:** permanent while DUAL-HOST means two direct per-half reports.
+**Every section in both id spaces is latest-state and edge-armed** — advertised
+while live value differs from the last confirmed, retired on confirm, no timer.
+Shadows drop on identity rotation; a sent shadow advances from the wire's
+section byte, so a section cannot retire without having crossed.
 
-> **REFUSED:** an independent cross-half kill-switch for the family.
-> **WHY:** arming is derived, so a separate control is a way for the seam to
-> disagree with the same keyboard's own tap-hold semantics.
-> **REOPENS:** a layout for which the derived arming is measurably wrong.
+Time authority is the responder in both relations. **Both ends corrected**
+(`ahold`, `era_capture_reading.md`'s **The shared clock and the time anchor**).
+Once per open/reopen, then a slow bounded cadence. Relation-scoped: no new
+shared-clock restart deadline until a TIME_ANCHOR from that relation applies.
 
-> **REFUSED:** cross-half chords — S3, the ladder's third rung.
-> **WHY:** the section carries no key identity by design
-> (`era_closed_surface_contract.md`), so a chord needs a wider body than any
-> recorded demand pays for.
-> **REOPENS:** a recorded demand for cross-half chords.
+News **asks, names nothing**. Zero is legal. Forced nonzero refresh on
+`ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` 1000; gate `value != 0` is boot-scoped.
+**Forced cross per open, zero included** (post-rotation `0x00` never crossed
+→ mirror stuck lit). Repeat stop is an **open question**. One carrier:
+`era_route_contract.md`'s **One carrier for the response section set**.
 
-Approximations: one stamp per edge (newest wins); a pair whose LT release beats
-one-housekeeping delivery still taps.
-
-Visual-resync body:
-
-```text
-byte2 bit4: visual-resync marker
-byte3 reason: 0 RELATION_OPEN, 1 TX_OVERFLOW (no sender), 2 TICK_GAP,
-              3 RELATION_REOPEN (no sender), 4 RENDER_RESET = `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_REASON_MAX`
-byte4..: packed baseline, N = ERA_SPLIT_WIRE_HALF_MATRIX_BYTES,
-         bit = row * MATRIX_COLS + col; unmapped/high bits zero
-```
-
-**The body is fixed at reason plus baseline in both directions, and there is no
-reason-only form.** A capture whose visual section is one body byte is a
-pre-2026-08-10 image.
-
-Reasons `1` and `3` have no sender; replay names only `RELATION_OPEN` and
-`TICK_GAP`. Those two values stay accepted (plain diff). **Validator is
-deliberately not narrowed** to the three producible reasons.
-
-RGB-state body (identical in the push id space at marker `0x08`):
-
-```text
-byte2 bit5: RGB-state marker
-body byte0: bit0 enabled, bit1 sleep, bits2..7 zero
-body byte1 mode (bits6..7 zero); byte2 hue; byte3 sat; byte4 val; byte5 speed; byte6 LED flags
-```
-
-**The sleep bit does not cross in DUAL-HOST.** Apply publishes the bit and
-does not write the render gate (`era_authority_contract.md`'s **Lighting Sleep
-Ownership**). Captured bit = HOST's resolved sleep decision. Both-halves-dark
-belongs in the sleep decision, never a wire apply.
-
-Storage news body:
-
-```text
-byte2 bit6: storage-news marker
-body byte0: bits0..6 value (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK` 127, hex `0x7F`);
-            1 to 127 forward-only, 0 = nothing; bit7 pending (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING` `0x80`)
-```
-
-Constant `ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_STORAGE_NEWS`;
-carriers `host_source_storage_news[_valid]`, `peer_storage_news[_valid]`,
-`send_storage_news`. Bit7 set dates the image at or after 2026-08-14; no
-reserved bits left. `SETTLED_DIRTY_MASK` survives only in
-`communication_core/era_split_communication_core_standing.h`. Meaning:
-`era_host_peer_storage_contract.md`'s **Storage News Value And Relation-Open Audit**.
-
-Relation time-anchor body:
-
-```text
-byte2 bit7: time-anchor marker
-body byte0..3: responder sync-timer ms at snapshot publish, little-endian
-```
-
-Encode order is ascending marker bit; priority differs for ACTIVITY. Valid
-`payload_len` is 3 plus declared bodies. RGB+visual has no legal length.
-Anchor fits `3+8+4` on seven-byte half-matrix boards.
-
-- Slot-only: HOST response to an admitted HOST-PEER PEER heartbeat or
-  source-push with matching ACK. HOST independent send is forbidden.
-- Time authority is the responder in both relations. **Both ends corrected**
-  (`ahold`, `era_capture_reading.md`'s **The shared clock and the time anchor**).
-  Once per open/reopen, then a slow bounded cadence. Relation-scoped: no new
-  shared-clock restart deadline until a TIME_ANCHOR from that relation applies.
-- News **asks, names nothing**. Zero is legal. Forced nonzero refresh on
-  `ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` 1000; gate `value != 0` is boot-scoped.
-  **Forced cross per open, zero included** (post-rotation `0x00` never crossed
-  → mirror stuck lit). Repeat stop is an **open question**. One carrier:
-  `era_route_contract.md`'s **One carrier for the response section set**.
-- Source-push answer is the bare ACK (no response section). Under storage
-  exclusivity the ACK is the whole response. **MUST NOT plan ineligible
-  sections** — late clip leaves them permanently due; time-anchor re-capture
-  storm was device-measured on a DUAL-HOST Right.
-- INPUT is **DUAL-HOST only** (seven push and seven response:
-  `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_PUSH`,
-  `ERA_SPLIT_WIRE_SECTION_ELIGIBLE_DUAL_HOST_RSP`). Section counter stays zero
-  across idle/no-layer-change; frame counter rises at the poll rate.
-- AUTHORITY is open in both relations and both directions. **Edge-consumed**:
-  a level in every reply returns `hkwork` to the poll rate; both ends hold a
-  shadow. **AUTHORITY never defers** — this is the deferral order's single
-  statement.
+INPUT is DUAL-HOST only. Section counter stays zero across idle/no-layer-change;
+frame counter rises at the poll rate. AUTHORITY is open in both relations and
+both directions. **Edge-consumed**: a level in every reply returns `hkwork` to
+the poll rate; both ends hold a shadow. **AUTHORITY never defers** — this is
+the deferral order's single statement. This section is why `SESSION_STATUS` can
+stop post-relation (`era_route_contract.md`).
 
 | Class | Members | Rank |
 | --- | --- | --- |
@@ -511,6 +429,7 @@ Anchor fits `3+8+4` on seven-byte half-matrix boards.
 
 Arm leads because it can set a commit deadline and fits beside AUTHORITY at
 fifteen. A one-poll deferral is noise against a 200 ms judgment window.
+Encode order is ascending marker bit; yield rank is not encode order.
 
 > **REFUSED:** a per-relation deferral order — HOST-PEER keeps its earlier one, DUAL-HOST inverts.
 > **WHY:** it preserves accepted behaviour bit-for-bit but adds a planner branch and keeps two orders forever, and the order it would preserve is a landing artifact rather than a judgement that a lighting refresh outranks AUTHORITY.
@@ -528,14 +447,6 @@ fifteen. A one-poll deferral is noise against a 200 ms judgment window.
 | ACTIVITY drain | eleven bytes fit beside *each* one-byte fact but not both at once |
 | arm beside AUTHORITY | `3 + 7 + 5` lands on fifteen |
 | AUTHORITY + RGB | 14 body bytes against 12; exclusion deliberately not asserted |
-
-- PEER runtime may accept `HOST_PEER_HOST_SOURCE_RSP` only as an alternate
-  response to an in-flight HOST-PEER request.
-- RGB apply is no-EEPROM, config plus sleep (DUAL-HOST: configuration only;
-  `era_authority_contract.md`). HOST-PEER push RGB, EEPROM, matrix, digest,
-  mirror, per-frame RGB remain forbidden. DUAL-HOST push RGB is an open
-  exception.
-- As an inbound request to the HOST responder, it is explicitly rejected.
 
 ## Control-Only Payloads
 
