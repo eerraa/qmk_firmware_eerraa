@@ -85,9 +85,13 @@ claims below are the twenty-two RP2040 boards.
 
 ## DELETE
 
-| ID | Surface | Proof |
+No pending DELETE rows.
+
+### Removed
+
+| ID | Removed | Proof |
 | --- | --- | --- |
-| DC-empty-ifdef | Leftover `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` … `#endif` in `split/communication_core/era_split_communication_core_diagnostics.c` wrapping only a comment | The snapshot function `era_split_communication_core_get_diagnostics_snapshot()` in that same `.c` is compiled regardless of the wire-diagnostics selector. A second `#ifdef` later in the file still fills responder snapshot fields under the live gate. Only the comment-only pair is leftover. |
+| DC-empty-ifdef | 2026-08-30, this PR | Re-measured before delete: the first `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` … `#endif` in `split/communication_core/era_split_communication_core_diagnostics.c` still wrapped only a comment (zero non-comment tokens). `era_split_communication_core_get_diagnostics_snapshot()` in that `.c` remains on the ungated `SRC` line in `split/era_split_qmk_rules.mk`. The later `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` in the same function still fills 33 responder snapshot assignments. The comment-only pair is gone; that live pair is not. |
 
 No other comment-only `#ifdef` / `#endif` pair exists under `keyboards/era`.
 No `#if 0` exists under `keyboards/era`.
@@ -227,19 +231,19 @@ Hunches that measured live, shipped, or out-of-scope.
 
 One claim-cluster per later session. Do not merge clusters.
 
-1. **DC-empty-ifdef** — comment-only `#ifdef` in
-   `era_split_communication_core_diagnostics.c`.
-2. **STALE-COMMENT cluster** — SC-fifteen, SC-vector-35, SC-hb-enable,
+DC-empty-ifdef is not pending; see **Removed** above.
+
+1. **STALE-COMMENT cluster** — SC-fifteen, SC-vector-35, SC-hb-enable,
    SC-hb-lane, SC-graph. Comments and document prose only.
-3. **Modes 5 and 6** — owner pick between the header sentence and
+2. **Modes 5 and 6** — owner pick between the header sentence and
    `maps/era_identifier_map.md`. Not a deletion until that pick.
-4. **Do not schedule** RI-due-bits, RI-result-full, RI-payload-4-6,
+3. **Do not schedule** RI-due-bits, RI-result-full, RI-payload-4-6,
    RI-session-0x20, RI-owner-1, RI-snap-src-1, RI-queue-kind-1, RI-via-sync-old
    as deletes.
-5. **PS-debounce-status** — only after the H7S / JSON / VIA pair is resolved.
-6. **PS-term-bands** — only after JSON, VIA peer, and firmware drop the same
+4. **PS-debounce-status** — only after the H7S / JSON / VIA pair is resolved.
+5. **PS-term-bands** — only after JSON, VIA peer, and firmware drop the same
    band together.
-7. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
+6. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
    fork as "ERA dead code".
 
 ## What this sitting did not verify
