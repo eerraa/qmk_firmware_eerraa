@@ -125,6 +125,50 @@ A final answer states: what behaviour or document scope changed; the
 verification check and its result; the commit any build evidence came from;
 and what was not verified, with why.
 
+## What Costs Time If You Do Not Know It
+
+Facts that are hard to discover by reading and expensive to learn by trial.
+Each names where the rule lives; none is canonical here.
+
+- **`sirind/brick65` takes none of the ERA layer.** It is atmega32u4 and a
+  permanent exception, not a debt: `era_active_index.md` **Current State**,
+  `manuals/era_board_adoption.md` **Copy-To-RAM Policy**.
+- **The copy-to-RAM image refuses to build without `ERA_BOARD_COMMON_ENABLE=yes`**
+  (`system/era_sram_resident_rules.mk`), and the residency gate refuses an image
+  with fewer than 32768 bytes of ram0 free (`tools/era_residency_gate.sh`):
+  `contracts/era_sram_residency_contract.md`.
+- **Both halves run one image and are flashed together**; nothing reads an
+  older firmware's stored format: `maps/era_source_map.md` **Stored-Data
+  Compatibility**. When a stored-data revision moves and when it must not:
+  `contracts/era_host_peer_storage_contract.md` **Source Revision And Identity**.
+- **Three things change together with the VIA app (`the-via-eerraa`)**, and no
+  check crosses the repositories — the pair is the check:
+
+  | fact | this repository | the app |
+  | --- | --- | --- |
+  | which board has which VIA menu | `keyboards/era/**/keymaps/via/*-VIA.json` (26 files, one per half) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
+  | a VIA label (`KKUK`, `Indicator Only`, …) | the 26 JSONs, `docs/user/readme.txt`, `docs/user/readme_split.txt`, the board `readme.md`s | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
+  | the durable-peer revision boundary | `split/era_host_peer_storage.c` | `the-via-eerraa/docs/adr/0001-state-sync-protocol.md` |
+
+- **Before deleting a document line**, run
+  `python keyboards/era/common/tools/era_doc_refs.py --homeless`; a homeless
+  token is a promotion candidate (**Evidence And Retirement**). The checker
+  reads the working tree, not the index: stage whole files.
+- **A `git rm` stages immediately**, so a later scoped `git add` still commits
+  it — check the first status column before committing. When another agent
+  shares the worktree, stage by path, never with `-a` or `-A`.
+- **History answers only on the development branch.** `git log -S` finds a
+  retired name here and nothing on the shipped orphan:
+  `era_active_index.md` **What This Repository Does Not Carry**.
+- **`post_rules.mk` runs after the keymap's `rules.mk`**, and `-e X=y` is not
+  the way to set an option — edit `keyboards/era/era_build_options.mk`:
+  `manuals/era_build_options.md`.
+- **A build offered as evidence** runs through `era-build keyboard:keymap` in
+  WSL from a synchronized tree — never on Windows, never from a stale tree:
+  `manuals/era_build_and_flash.md`, `manuals/era_performance_gates.md`.
+- **The commit check is a git hook**, armed per clone by
+  `git config core.hooksPath hooks`; a clone without it commits unchecked.
+
 ## Document Management Rules
 
 - Keep only document roles, read policy, and the storage map here. Do not
@@ -133,6 +177,12 @@ and what was not verified, with why.
 - The ERA agent document set is `keyboards/era/common/docs/contracts/`,
   `maps/` and `manuals/` plus the index above them, and that is the whole set.
   When and how a document retires is **Evidence And Retirement** below.
+
+**Everything else is not this set.** `docs/` (270 files) is upstream QMK's;
+`keyboards/era/**/readme.md` are the boards' QMK-facing readmes, required by
+`qmk lint` (`lib/python/qmk/cli/lint.py`), and carry neither a header nor an
+index entry; `docs/user/` is written for keyboard owners.
+
 - Do not duplicate the same fact across documents. Put each rule in its
   canonical active document and link to it elsewhere. Each document's own
   `Canonical for:` header is the authority on its scope, which is why this
@@ -257,6 +307,11 @@ thing a
 reader must believe, not as a label on an argument kept elsewhere — and if it
 cannot be written that way, the refusal was a preference rather than a
 constraint and does not belong here.
+
+This set follows agent-docs convention v1 (`eerraa-agent-docs`), deviating in
+three declared ways: one directory per genre (21 documents, above the
+convention's ~20 threshold), a separate entry router (`era_active_index.md`),
+and English prose.
 
 ## Startup Read Policy
 

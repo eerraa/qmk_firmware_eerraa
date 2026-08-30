@@ -103,6 +103,10 @@ serves is in `era_performance_gates.md`.
   check, not the file count. How it does each of those, and why, is commented
   in `.claude/tools/era-sync.sh`; do not restate it here. `git remote windows`
   points at the `/mnt/d` checkout.
+- `era-sync` copies with `rsync -rlt`, which preserves mtimes, so an
+  incremental build can report a changed source as up to date. When a
+  before/after comparison is the evidence, `touch` the changed files or delete
+  `.build/obj_*` between the two states.
 - `~/.profile` exports
   `ERA_EDIT_TREE=/mnt/d/Engineering/qmk_firmware_eerraa`. The gate launcher
   reads it to stop a build whose tree is stale against the edit tree, and
