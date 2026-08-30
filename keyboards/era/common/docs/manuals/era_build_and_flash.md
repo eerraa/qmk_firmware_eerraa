@@ -8,48 +8,33 @@ keyboard, and the short TOMAK_TKL release-image hardware handoff
 **Agent and evidence builds use the configured WSL local-build automation.**
 From the Windows edit tree the entry point is the host adapter's explicit
 `era-build keyboard:keymap` command, invoked through WSL as shown below. It
-synchronises into the WSL local filesystem before it builds. Do not run `qmk`
-in Windows, do not build on the `/mnt/` edit tree, and do not manually invoke
-the internal launcher. Installation and literal machine paths remain
-environment and therefore live in the host adapter (`CLAUDE.md`); the mandatory
-automated sequence lives here.
+synchronises into the WSL local filesystem before it builds. Installation and
+literal machine paths remain environment and therefore live in the host adapter
+(`CLAUDE.md`); the mandatory automated sequence lives here.
+
+> **REFUSED:** run `qmk` on Windows, build on the `/mnt/` edit tree, invoke the
+> internal launcher by hand, retry an automation refusal, bypass `era-build`
+> with a direct compile, or substitute a different host to get past a refusal
+> **WHY:** a figure from a different host or an unsynchronised tree is void, and
+> the automation's refusals are stop conditions.
+> **REOPENS:** this manual names a supported host other than the configured WSL
+> local-build automation.
+
+On a refusal, report the environment and stop.
 
 ## What The Build Needs
 
-- **A POSIX shell and Python 3.** Three of the five tools in
-  `keyboards/era/common/tools/` are `#!/usr/bin/env bash` and two —
-  `era_core1_stack_walk.py` and `era_doc_refs.py` — are
-  `#!/usr/bin/env python3`; the QMK build is a GNU make tree. A native Windows
-  shell is not a supported host for them. Python 3 is not a transitive
-  dependency of the launcher, which never invokes the `.py` tools: it is
-  required because the core1 stack figure is taken with
-  `python3 keyboards/era/common/tools/era_core1_stack_walk.py`
-  (`era_performance_gates.md`) and because the document-locatability check is
-  run by hand.
-  **A POSIX `awk` is enough**: the gates parse decimal `arm-none-eabi-size`
-  output on purpose, so mawk and gawk agree.
-- **The `qmk` CLI, with its own ARM toolchain first on `PATH`.** `qmk` installs
-  and injects an `arm-none-eabi-*` set of its own. A distribution's system
-  toolchain will usually shadow it for everything that is not `qmk compile` —
-  including the `arm-none-eabi-size`/`nm` calls the gate tools make — and a gate
-  read with a different toolchain than the build used is void. Confirm with
-  `arm-none-eabi-gcc --version` before trusting any figure.
-- **Initialised submodules.** `lib/chibios` and `lib/chibios-contrib` are ERA
-  forks pinned to a branch of their own; an incomplete worktree does not build
-  and silently shrinks the knowledge graph.
-- **A local filesystem.** Building over a network or cross-OS mount is not slow
-  but unusable, and the gate launcher refuses it rather than letting a build
-  hang.
-
-**The automation's refusals are stop conditions**: on a refusal, report the
-environment and stop. Do not retry, do not bypass `era-build` with a direct
-compile, and do not substitute a different host to get past it.
+| Need | Rule |
+| --- | --- |
+| POSIX shell and Python 3 | Three tools in `keyboards/era/common/tools/` are bash; `era_core1_stack_walk.py` and `era_doc_refs.py` are Python 3. QMK is GNU make. A native Windows shell is not a supported host. The core1 stack figure is taken with `python3 keyboards/era/common/tools/era_core1_stack_walk.py` (`era_performance_gates.md`); the document-locatability check is run by hand. A POSIX `awk` is enough: the gates parse decimal `arm-none-eabi-size` output. |
+| `qmk` CLI, its ARM toolchain first on `PATH` | A distribution toolchain that shadows `arm-none-eabi-size`/`nm` voids the gate figure. Confirm with `arm-none-eabi-gcc --version` before trusting any figure. |
+| Initialised submodules | `lib/chibios` and `lib/chibios-contrib` are ERA forks; an incomplete worktree does not build. |
+| Local filesystem | The gate launcher refuses a network or cross-OS mount. |
 
 ## Which Boards And Keymaps Exist
 
-A board is a directory under `keyboards/era/` with a `keyboard.json`, and its
-keymaps are the directories inside that board's own keymaps directory. Nothing
-here lists them, because a list goes stale and the tree does not:
+A board is a directory under `keyboards/era/` with a `keyboard.json`; its
+keymaps live in that board's keymaps directory. Do not list them here:
 
 ```sh
 ls keyboards/era/*/keyboard.json keyboards/era/*/*/keyboard.json
@@ -58,8 +43,8 @@ qmk list-keyboards | grep '^era/'
 
 Every board carries `default` and `via`; `sirind/tomak` carries four more
 layout variants. `sirind/brick65` is atmega32u4 and takes none of the
-copy-to-RAM image, which is why the gates below do not apply to it — that
-exception is canonical in `era_board_adoption.md`'s **Copy-To-RAM Policy**.
+copy-to-RAM image, so the gates below do not apply to it — that exception is
+canonical in `era_board_adoption.md`'s **Copy-To-RAM Policy**.
 
 ## Building
 
@@ -71,8 +56,7 @@ wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via'
 ```
 
 Omitting the variant means `standard` on every keyboard. Diagnostic names are
-also board-independent; the existing make preconditions, not a launcher board
-list, refuse an incompatible selection:
+board-independent; make preconditions refuse an incompatible selection:
 
 ```powershell
 wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via cause'
@@ -83,30 +67,27 @@ wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via standard wire qwin 
 `.claude/tools/era-build.sh` first runs `era-sync`, builds clean in
 `~/projects/qmk_firmware_eerraa`, invokes the common gate launcher, and returns
 only that invocation's manifest-declared artifacts to the Windows
-`.era-artifacts/` directory. A successful compile without that sync is not an
-ERA evidence build. Select the firmware and ELF from the `Manifest:` path the
-command reports; never select an artifact by modification time. Each artifact
-stem includes the first 16 hexadecimal digits of the firmware SHA-256, so a
-different uncommitted binary at the same HEAD cannot overwrite the image already
+`.era-artifacts/` directory. A compile without that sync is not an ERA
+evidence build. Select the firmware and ELF from the `Manifest:` path the
+command reports; never select an artifact by modification time. Each stem
+includes the first 16 hexadecimal digits of the firmware SHA-256, so a
+different uncommitted binary at the same HEAD cannot overwrite an image already
 handed to a device test.
 
-The filename contract is identical for all twenty-three keyboards:
+The filename contract for all twenty-three keyboards:
 `<keyboard>_<keymap>_<variant>_<git10>[_dirty][_<fixed-date>]_<sha16>.<format>`,
-with slashes converted to underscores. Only the platform-native final format
-differs: the twenty-two RP2040 boards produce `.uf2`, while atmega32u4
-`sirind/brick65` produces `.hex`. That extension is a flash format, not a
-board-specific naming rule.
+slashes converted to underscores. RP2040 boards produce `.uf2`; atmega32u4
+`sirind/brick65` produces `.hex`.
 
-`keyboards/era/common/tools/era_qmk_build.sh` is the automation's internal
-target launcher, not a second user entry point. It refuses a call without the
-completed sync marker, performs the clean compile, records the firmware, ELF,
-map, logs, hashes, toolchain and exact command, and runs
-`keyboards/era/common/tools/era_residency_gate.sh` automatically for every UF2
-image. Artifact and manifest both carry the selected `variant`; the recorded
-QMK command always contains `-e ERA_BUILD_VARIANT=<name>`, so diagnostics cannot
-hide under `standard`. The residency gate remains ELF-only so all copy-to-RAM
-boards are judged by the same checks. Its meaning and the additional checks a
-change may owe are `era_performance_gates.md`'s.
+`keyboards/era/common/tools/era_qmk_build.sh` is the internal launcher, not a
+second user entry point. It refuses a call without the completed sync marker,
+performs the clean compile, records firmware, ELF, map, logs, hashes,
+toolchain and exact command, and runs
+`keyboards/era/common/tools/era_residency_gate.sh` for every UF2. Artifact and
+manifest carry the selected `variant`; the recorded QMK command always contains
+`-e ERA_BUILD_VARIANT=<name>`. The residency gate is ELF-only so every
+copy-to-RAM board is judged by the same checks. What it checks,
+and what a change may also owe, is `era_performance_gates.md`'s.
 
 Which build selectors exist, what each costs, and where a new one is declared
 are canonical in `era_build_options.md`.
@@ -132,24 +113,22 @@ pair in a state nothing is written to recover.
 **A normal UF2 flash does not erase ERA NVM.** The firmware UF2 contains only
 the linked firmware load range; the linker-reserved ERA NVM starts at effective
 XIP `0x101E0000`, outside those UF2 blocks. A same-format upgrade therefore
-mounts the existing ERA NVM image. On this wear-level-to-ERA-NVM cutover the old
-physical bytes are intentionally not a compatible ERA NVM bank, so the new
-mount rejects them and constructs a fresh current-format bank. Logical-layout
-incompatibility remains a separate `ERA_EEPROM_RESET_KEY`/CLEAN decision.
+mounts the existing ERA NVM image. Incompatible physical bytes are rejected
+and a fresh current-format bank is constructed. Logical-layout incompatibility
+remains a separate `ERA_EEPROM_RESET_KEY`/CLEAN decision.
 
-**A VIA EEPROM CLEAN after flashing is an owner step, not a build step.** It is
-the way to discard a stored keymap that a keycode renumbering has made wrong;
-what a CLEAN boot costs is read with the wire diagnostics, which
-`era_performance_gates.md` says how to turn on and `era_capture_reading.md`
-says how to decode.
+**A VIA EEPROM CLEAN after flashing is an owner step, not a build step.** Use
+it to discard a stored keymap a keycode renumbering has made wrong. What a
+CLEAN boot costs is read with the wire diagnostics:
+`era_performance_gates.md` says how to turn them on and
+`era_capture_reading.md` says how to decode.
 
 ## TOMAK_TKL Hardware Acceptance Route
 
-This is the reusable hardware route for persistence, storage synchronization and
-controlled reset. It intentionally names no frozen commit, hash or historical
-artifact: build the current working tree through `era-build`, use the manifest
-and SHA-256 produced by that run, and record those exact identifiers with the
-device evidence.
+Build the current working tree through `era-build`, use the manifest and
+SHA-256 produced by that run, and record those exact identifiers with the
+device evidence. This route names no frozen commit, hash or historical
+artifact.
 
 ### Exact image and definitions
 
