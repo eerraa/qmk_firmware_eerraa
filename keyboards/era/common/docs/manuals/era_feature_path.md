@@ -11,8 +11,6 @@ step names the document that owns its decision, and the value here is the
 
 ## 1. Decide which layer owns it, before writing anything
 
-Four layers, and the wrong one is expensive to leave:
-
 | The behaviour is… | It lives in | Named by |
 | --- | --- | --- |
 | the same on every ERA board, split or not | `common/features/` or `common/system/` | `era_source_map.md` |
@@ -21,13 +19,11 @@ Four layers, and the wrong one is expensive to leave:
 | geometry — a matrix, a pin, an LED range | `keyboard.json` or the board's `config.h` | `era_board_adoption.md` |
 
 **A family unit may not reach the split class layer's internals and the class
-layer may not name a family type.** That boundary rule is stated in each
-family unit's own header, and it is what keeps the class skeleton from
-becoming one product's.
+layer may not name a family type.** That boundary is stated in each family
+unit's own header.
 
-**Nothing new goes in a board `.c`.** Two ERA families have none at all, and
-that is the target shape rather than an accident: what differs between boards
-of a family is geometry, and geometry needs no translation unit.
+**Nothing new goes in a board `.c`.** What differs between boards of a family
+is geometry, and geometry needs no translation unit.
 
 ## 2. Decide whether it crosses the wire
 
@@ -35,8 +31,6 @@ If the halves must agree about it, read `era_route_contract.md` **first** — th
 standing exchange grant and **One carrier for the response section set** govern
 the whole lane — then `era_wire_contract.md` for the marker, the body layout
 and the per-relation eligibility.
-
-Three constraints decide most of the design before any code:
 
 - **The response section set has one carrier.** A new fact does not get a lane;
   it gets a section on the standing answer, or it widens an existing body.
@@ -53,15 +47,15 @@ Three constraints decide most of the design before any code:
 A new option is declared in `keyboards/era/era_build_options.mk` with a
 default, and every fragment that reads one runs from a board's
 `post_rules.mk`. Three existing selectors are declared elsewhere for ordering
-reasons and none of them is a precedent for a fourth. **The classification rule that decides where a new option
-goes is canonical in `era_build_options.md`**, along with the three
-arrangements that were tried and rejected.
+reasons and none of them is a precedent for a fourth. **The classification
+rule that decides where a new option goes is canonical in
+`era_build_options.md`**, along with the three arrangements that were tried
+and rejected.
 
-Two facts that are only discoverable by having been caught by them: QMK
-includes `post_rules.mk` *after* the keymap's `rules.mk`, so `VIA_ENABLE` and
-every other QMK switch is visible there and not in `rules.mk`; and an option
-line placed *below* an `include` in a board's `post_rules.mk` is read after the
-fragment that would have used it, so it is silently ignored.
+QMK includes `post_rules.mk` *after* the keymap's `rules.mk`, so `VIA_ENABLE`
+and every other QMK switch is visible there and not in `rules.mk`. An option
+line placed *below* an `include` in a board's `post_rules.mk` is read after
+the fragment that would have used it, so it is silently ignored.
 
 ## 4. Give it a surface, if a user configures it
 
@@ -71,9 +65,7 @@ fragment that would have used it, so it is silently ignored.
   `era_identifier_map.md`'s.
 - **A keycode only when VIA cannot do it.** A keycode is a second control path
   over one state, it consumes a `QK_KB_*` slot, and renumbering that enum
-  invalidates every keymap already stored on a device. The tomak family's eight
-  indicator keycodes were removed for exactly this reason once the VIA surface
-  covered the same values.
+  invalidates every keymap already stored on a device.
 - **Persisted state** goes through the ERA EEPROM layout, not a new region, and
   it must fit the board config record the family's `_Static_assert` holds. If
   the halves must converge it, it is a storage domain and
@@ -81,12 +73,12 @@ fragment that would have used it, so it is silently ignored.
 
 ## 5. Keep it off the hot path
 
-`era_invariants.md` is always-on and bounds what a scan-bound path may do. The
-rule that catches most new work: **a matrix-scan path may read cached scalars
-and publish bounded latches, and may not capture EEPROM, compute a CRC, build a
-snapshot, enqueue, decode or apply.** Anything that must happen per
-millisecond rather than per pass hangs off the board housekeeping tick, which
-already gates itself to one call per millisecond.
+`era_invariants.md` is always-on and bounds what a scan-bound path may do.
+**A matrix-scan path may read cached scalars and publish bounded latches, and
+may not capture EEPROM, compute a CRC, build a snapshot, enqueue, decode or
+apply.** Work that must happen per millisecond rather than per pass hangs off
+the board housekeeping tick in `system/era_board_hooks.c`, one call per
+millisecond.
 
 If the feature adds core1 call depth, it owes a measured stack figure — the
 `_Static_assert` beside the reservation cannot report that one, and no
@@ -94,8 +86,7 @@ compile-time construct can.
 
 ## 6. Verify what the change actually touched
 
-`era_performance_gates.md` is canonical and scoped by what was touched. The
-short form:
+`era_performance_gates.md` is canonical and scoped by what was touched.
 
 - **Any build offered as evidence** runs through the launcher, from a tree
   synchronised to the change.
@@ -113,7 +104,6 @@ short form:
 
 ## 7. Land it in separated commits
 
-Contract content, source implementation, diagnostics-only change, index or
-policy update, and the graph regeneration are five concerns and five commits.
-**A commit that deletes documented content carries the reasoning that content
-held.** The whole rule set is in `AGENTS.md`'s **Commits**.
+Contract content, source implementation, diagnostics-only change, and index or
+policy update. **A commit that deletes documented content carries the reasoning
+that content held.** The whole rule set is in `AGENTS.md`'s **Commits**.
