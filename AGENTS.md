@@ -1,347 +1,340 @@
-# ERA Agent Index
+# ERA 에이전트 색인
 
-This is the first document agents read for ERA firmware work. It is a
-read-policy and storage map, not a session plan.
+ERA 펌웨어 작업에서 에이전트가 처음 읽는 문서다. 읽기 정책과 저장 지도이며, 세션
+계획이 아니다.
 
-ERA is one QMK firmware family over a shared common layer at
-`keyboards/era/common/`: 23 boards with a `keyboard.json`, split and non-split.
-The 22 RP2040 boards all take the copy-to-RAM image and the ERA matrix engine;
-`sirind/brick65` (atmega32u4) is a permanent exception. The architecture model
-and the glossary are canonical in
-`keyboards/era/common/docs/contracts/era_overview.md`, read first.
+ERA는 `keyboards/era/common/`의 공유 공통 층 위에 있는 QMK 펌웨어 한 가족이다.
+`keyboard.json`이 있는 보드는 23종, 스플릿과 비스플릿이 섞여 있다. RP2040 보드
+22종은 모두 copy-to-RAM 이미지와 ERA 매트릭스 엔진을 쓴다. `sirind/brick65`
+(atmega32u4)는 영구 예외다. 아키텍처 모델과 용어집은
+`keyboards/era/common/docs/contracts/era_overview.md`가 정본이며, 먼저 읽는다.
 
-## Agent Layer Ownership
+## 에이전트 계층 소유
 
-Agent documentation has two layers, and which layer a rule lives in is not a
-style preference.
+에이전트 문서는 두 층이고, 규칙이 어느 층에 있는지는 문체 취향이 아니다.
 
-**Tool-neutral canon** — the authority. Every agent, every tool.
+**도구 중립 canon** — 권위. 모든 에이전트, 모든 도구.
 
-- `AGENTS.md` — project identity, how to work on this firmware, document
-  management rules, startup read policy.
-- `keyboards/era/common/docs/` — `era_active_index.md`, the router into
-  everything below.
-- `keyboards/era/common/docs/contracts/`, `maps/`, `manuals/` — the agent
-  document set, one directory per `Genre:`. The header on each document is the
-  authority on its genre; the directory only groups them.
-- `keyboards/era/common/docs/user/` — the user-facing firmware docs.
+- `AGENTS.md` — 프로젝트 정체, 이 펌웨어에서 일하는 법, 문서 관리 규칙, 시작
+  읽기 정책.
+- `keyboards/era/common/docs/` — `era_active_index.md`, 아래 전부로 들어가는
+  라우터.
+- `keyboards/era/common/docs/contracts/`, `maps/`, `manuals/` — 에이전트 문서
+  집합. `Genre:`당 디렉터리 하나. 장르의 권위는 각 문서 헤더이고, 디렉터리는
+  묶기만 한다.
+- `keyboards/era/common/docs/user/` — 키보드 소유자용 펌웨어 문서.
 
-**Tool adapter** — mechanism only.
+**도구 어댑터** — 메커니즘만.
 
-- `CLAUDE.md` — the Claude Code entry point. Imports `AGENTS.md`.
-- `.claude/` — Claude wiring: settings, path-scoped rules, and the committed build scripts.
-- `hooks/pre-commit` + `hooks/era_commit_check.py` — the one commit-time
-  check, host-neutral: git runs it, so Claude, Codex, Grok and the owner's
-  terminal share one path
-- `hooks/test_era_commit_check.py` — its conformance test: wiring, absence of
-  any host PreToolUse path, and an end-to-end refused commit
-- Any equivalent entry point another tool needs.
+- `CLAUDE.md` — Claude Code 진입점. `AGENTS.md`를 가져온다.
+- `.claude/` — Claude 배선: 설정, 경로 범위 규칙, 커밋된 빌드 스크립트.
+- `hooks/pre-commit` + `hooks/era_commit_check.py` — 커밋 시점 검사 하나.
+  호스트에 묶이지 않는다: git이 돌리므로 Claude, Codex, Grok, 소유자 터미널이
+  한 경로를 공유한다
+- `hooks/test_era_commit_check.py` — 그 적합성 테스트: 배선, 호스트
+  PreToolUse 경로의 부재, 거절되는 커밋의 종단 검사
+- 다른 도구가 필요로 하는 동등한 진입점.
 
-An adapter may describe *how* a tool reaches or enforces canon; it may never
-define a project rule, a contract, a read policy, or a fact about the
-firmware. When an adapter and canon disagree, canon wins and the adapter is
-the bug. Adding a second tool must not require editing canon — if it would,
-what it needs was misfiled in canon. Environment and installation steps are
-always adapter, because canon is what must be true on every machine.
+어댑터는 도구가 canon에 *어떻게* 닿거나 강제하는지를 서술할 수 있다. 프로젝트
+규칙, 계약, 읽기 정책, 펌웨어에 대한 사실을 정의해서는 안 된다. 어댑터와
+canon이 어긋나면 canon이 이기고, 어댑터가 버그다. 도구를 하나 더 넣었다고
+canon을 고쳐야 한다면, 그 내용이 canon에 잘못 들어가 있는 것이다. 환경과 설치
+절차는 항상 어댑터다. canon은 모든 기계에서 참이어야 하는 것이기 때문이다.
 
-Canon carries no generic coding-hygiene layer, deliberately. A portable
-"do not assume / keep it simple / stay surgical" document was read at startup
-for the whole project history and did not prevent the failures it described.
-What changed behavior was mechanism — the commit-time checks, the
-  static-capacity asserts, the source/ELF gates, and the device-evidence rule.
-A rule earns a place in canon by being ERA-specific, or by being enforced by
-something other than the agent remembering it.
+canon에는 일반적인 코딩 위생 층을 두지 않는다. 고의다. 이식 가능한 "가정하지
+마라 / 단순하게 / 외과적으로" 문서를 프로젝트 역사 내내 시작 때 읽었고, 그
+문서가 서술한 실패를 막지 못했다. 행동을 바꾼 것은 메커니즘이다 — 커밋 시점
+검사, 정적 용량 assert, 소스/ELF 게이트, 기기 증거 규칙. 규칙이 canon에 자리
+얻으려면 ERA에 고유하거나, 에이전트가 기억하는 것 이외의 것이 강제해야 한다.
 
-## Working On This Firmware
+## 이 펌웨어에서 작업할 때
 
-### Scope
+### 범위
 
-- Name the governing active document before non-trivial edits.
-- Start architecture lookup from `era_active_index.md`. The read set — the
-  startup chain plus the task read matrix — is canonical only there.
-- **If the documents and the source disagree, stop before editing behaviour**
-  and report concrete source references and options. The documents are written
-  to be checkable for exactly this reason; a disagreement is a finding, not a
-  detail to work around.
-- If source review shows a simpler implementation that satisfies the same
-  accepted goals with less state, lower wire cost, or less scan-bound work,
-  propose it before implementing the heavier documented path.
+- 사소하지 않은 편집 앞에, 그 작업을 다스리는 활성 문서를 이름으로 댄다.
+- 아키텍처 조회는 `era_active_index.md`에서 시작한다. 읽기 집합 — 시작 체인과
+  작업 읽기 매트릭스 — 의 정본은 거기뿐이다. 매트릭스 행은 세 열이며 합치지
+  않는다: **Change**(편집 전 필독) / **Locate**(조회) / **Verify**(빌드·캡처·
+  판정 시). 표는 `era_active_index.md`'s **Task Read Matrix**에 있다.
+- **문서와 소스가 어긋나면, 동작을 고치기 전에 멈춘다.** 구체적인 소스 위치와
+  선택지를 보고한다. 문서가 바로 이 확인을 위해 쓰여 있다. 불일치는 우회할
+  세부사항이 아니라 발견이다.
+- 소스 검토가 같은 수락된 목표를 더 적은 상태, 더 낮은 와이어 비용, 더 적은
+  스캔 바운드 작업으로 만족하는 더 단순한 구현을 보여 주면, 문서화된 더 무거운
+  경로를 구현하기 전에 그것을 제안한다.
 
-### Change Rules
+### 변경 규칙
 
-- For shared split behavior, prefer `split`.
-- Keep hot-path decisions O(1) wherever practical.
-- Do not add allocation, broad source scans, CRC construction, EEPROM/RGB/INPUT
-  freshness calculation, or diagnostics snapshot construction to scan-bound
-  router paths unless an active document explicitly accepts that cost.
-- Keep diagnostics-only state out of release hot paths.
+**Change Rules.**
 
-### Verification
+- 공유 스플릿 동작은 `split`을 우선한다.
+- 핫 패스 결정은 실용적인 한 O(1)로 둔다.
+- 활성 문서가 그 비용을 명시적으로 수락하지 않는 한, 할당, 넓은 소스 스캔,
+  CRC 구성, EEPROM/RGB/INPUT 신선도 계산, 진단 스냅샷 구성을 스캔 바운드
+  라우터 경로에 넣지 않는다.
+- 진단 전용 상태는 릴리스 핫 패스 밖에 둔다.
 
-Every non-trivial change states what was verified and what was not.
+### 검증
 
-Which checks a change owes is canonical in
-`manuals/era_performance_gates.md`, scoped to what the change touched: a
-targeted build for touched source behavior, run in the supported build
-environment from a tree synchronized to the change; the Source Gate for
-closed-surface, retired-path and QMK core matrix changes; the Refactor
-Self-Check tier for a change whose whole claim is that it touched no
-behaviour. **A change that touches no source owes none of them, and saying so
-is the verification statement.** The commit-time checks run from
-`hooks/pre-commit`; a commit made with `--no-verify` is not a verified commit.
+사소하지 않은 변경은 무엇을 검증했고 무엇을 하지 않았는지를 말한다.
+
+변경이 지는 검사는 `manuals/era_performance_gates.md`가 정본이다. 닿은 것에
+범위가 한정된다: 닿은 소스 동작에 대한 대상 빌드, 지원되는 빌드 환경에서 그
+변경에 동기화된 트리로 실행; closed-surface, 은퇴 경로, QMK 코어 매트릭스
+변경의 Source Gate; 동작을 건드리지 않았다는 것이 주장의 전부인 변경의
+Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어떤 검사도
+지지 않으며, 그렇게 말하는 것이 검증 진술이다.** 커밋 시점 검사는
+`hooks/pre-commit`에서 돈다. `--no-verify`로 만든 커밋은 검증된 커밋이 아니다.
 
 ### Evidence And Retirement
 
-- **Device evidence outranks source inference.** When a model of the mechanism
-  and a measurement disagree, the measurement is right. Do not patch from a
-  mechanism you have not observed: one guard here was built on an assumed cause
-  twice, shipped inert both times, and had to be unfused before the third
-  attempt found the real one. The rule runs in both directions — refusing a
-  correct change by reasoning about a mechanism, without reading the paths that
-  already exercise it, is the same error pointed the other way.
-- **Record compact signatures only.** Raw device logs and raw EEPROM bytes
-  never enter a document or a commit message. This is the single statement of
-  that rule; other documents rely on it rather than repeating it.
-- Keep the documents focused on current contracts, maps and procedures.
-- **A superseded fact is replaced, not appended beside its replacement**, and
-  a closed plan is deleted rather than marked closed. Do not create a parallel
-  archive tree or a struck-through entry: both are still indexed, still read
-  out of context, and still carry a header that can be mistaken for current.
-- What survives a close is whatever still governs behavior, and it belongs in
-  the contract, map or manual that owns it.
+**Evidence And Retirement.**
+
+- **기기 증거가 소스 추론보다 앞선다.** 메커니즘 모델과 측정이 어긋나면 측정이
+  맞다. 관찰하지 않은 메커니즘으로 패치하지 마라: 여기 가드 하나는 가정된 원인
+  위에 두 번 만들어져, 두 번 모두 죽은 채로 출하되었고, 세 번째 시도가 진짜
+  원인을 찾기 전에 퓨즈를 풀어야 했다. 규칙은 양방향으로 간다 — 이미 그 경로를
+  타는 코드를 읽지 않고 메커니즘을 추론해 올바른 변경을 거절하는 것도, 같은
+  오류를 다른 쪽으로 가리킨 것이다.
+- **압축 시그니처만 기록한다.** 생 기기 로그와 생 EEPROM 바이트는 문서나 커밋
+  메시지에 넣지 않는다. 그 규칙의 유일한 진술이다. 다른 문서는 되풀이하지
+  않고 여기에 기댄다.
+- 문서는 현재 계약, 지도, 절차에 초점을 둔다.
+- **대체된 사실은 교체하지, 대체물 옆에 덧붙이지 않는다.** 닫힌 계획은 닫힘
+  표시로 남기지 않고 삭제한다. 평행 아카이브 트리도, 취소선 항목도 만들지
+  않는다: 둘 다 여전히 색인되고, 맥락 밖에서 읽히며, 현재로 오인될 수 있는
+  헤더를 그대로 든다.
+- 닫힘에서 살아남는 것은 여전히 동작을 다스리는 것이고, 그것을 소유하는
+  계약·지도·매뉴얼에 둔다.
 
 ### Commits
 
-- Separate commits by concern: contract content, source implementation,
-  diagnostics-only change, index or policy update.
-- **A commit that deletes documented content carries the reasoning that
-  content held**, because the deletion is otherwise the one unrecoverable move
-  available.
-- **Do not push unless the user explicitly asks.**
+**Commits.**
 
-### The Final Report
+- 관심사별로 커밋을 나눈다: 계약 내용, 소스 구현, 진단 전용 변경, 색인 또는
+  정책 갱신.
+- **문서 내용을 지우는 커밋은 그 내용이 들고 있던 판단을 담는다.** 삭제는 그
+  외에는 복구 불가능한 유일한 수이기 때문이다.
+- **사용자가 명시적으로 요청하지 않으면 push하지 않는다.**
 
-A final answer states: what behaviour or document scope changed; the
-verification check and its result; the commit any build evidence came from;
-and what was not verified, with why.
+### 최종 보고
 
-## What Costs Time If You Do Not Know It
+최종 답은 다음을 말한다: 어떤 동작 또는 문서 범위가 바뀌었는지; 검증 검사와
+그 결과; 빌드 증거가 나온 커밋; 검증하지 않은 것과 그 이유.
 
-Facts that are hard to discover by reading and expensive to learn by trial.
-Each names where the rule lives; none is canonical here.
+## 먼저 알아야 손해를 안 보는 것
 
-- **`sirind/brick65` takes none of the ERA layer.** It is atmega32u4 and a
-  permanent exception, not a debt: `era_active_index.md` **Current State**,
+**What Costs Time If You Do Not Know It.** 읽어서는 알기 어렵고, 시행착오로
+배우면 비싼 사실이다. 각 항목은 규칙이 사는 곳을 가리킨다. 이 절 자체는
+정본이 아니다.
+
+- **`sirind/brick65`는 ERA 층을 전혀 쓰지 않는다.** atmega32u4이고 영구
+  예외이지, 빚이 아니다: `era_active_index.md` **Current State**,
   `manuals/era_board_adoption.md` **Copy-To-RAM Policy**.
-- **The copy-to-RAM image refuses to build without `ERA_BOARD_COMMON_ENABLE=yes`**
-  (`system/era_sram_resident_rules.mk`), and the residency gate refuses an image
-  with fewer than 32768 bytes of ram0 free (`tools/era_residency_gate.sh`):
+- **copy-to-RAM 이미지는 `ERA_BOARD_COMMON_ENABLE=yes` 없이 빌드를 거절한다**
+  (`system/era_sram_resident_rules.mk`). residency 게이트는 ram0 여유가
+  32768바이트 미만인 이미지를 거절한다 (`tools/era_residency_gate.sh`):
   `contracts/era_sram_residency_contract.md`.
-- **Both halves run one image and are flashed together**; nothing reads an
-  older firmware's stored format: `maps/era_source_map.md` **Stored-Data
-  Compatibility**. When a stored-data revision moves and when it must not:
-  `contracts/era_host_peer_storage_contract.md` **Source Revision And Identity**.
-- **Three things change together with the VIA app (`the-via-eerraa`)**, and no
-  check crosses the repositories — the pair is the check:
+- **두 하프는 이미지 하나를 돌리고 함께 플래시한다.** 이전 펌웨어가 저장한
+  형식을 읽는 코드는 없다: `maps/era_source_map.md` **Stored-Data
+  Compatibility**. 저장 데이터 revision이 언제 움직이고 언제 움직이면 안
+  되는지: `contracts/era_host_peer_storage_contract.md` **Source Revision And
+  Identity**.
+- **VIA 앱(`the-via-eerraa`)과 함께 바뀌는 것이 셋이고**, 저장소를 가로지르는
+  검사는 없다 — 짝 자체가 검사다:
 
-  | fact | this repository | the app |
+  | 사실 | 이 저장소 | 앱 |
   | --- | --- | --- |
-  | which board has which VIA menu | `keyboards/era/**/keymaps/via/*-VIA.json` (26 files, one per half) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
-  | a VIA label (`KKUK`, `Indicator Only`, …) | the 26 JSONs, `docs/user/readme.txt`, `docs/user/readme_split.txt`, the board `readme.md`s | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
-  | the durable-peer revision boundary | `split/era_host_peer_storage.c` | `the-via-eerraa/docs/adr/0001-state-sync-protocol.md` |
+  | 어느 보드에 어느 VIA 메뉴가 있는가 | `keyboards/era/**/keymaps/via/*-VIA.json` (26개, 하프당 하나) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
+  | VIA 라벨 (`KKUK`, `Indicator Only`, …) | 26개 JSON, `docs/user/readme.txt`, `docs/user/readme_split.txt`, 보드 `readme.md` | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
+  | durable-peer revision 경계 | `split/era_host_peer_storage.c` | `the-via-eerraa/docs/adr/0001-state-sync-protocol.md` |
 
-- **Before deleting a document line**, run
-  `python keyboards/era/common/tools/era_doc_refs.py --homeless`; a homeless
-  token is a promotion candidate (**Evidence And Retirement**). The checker
-  reads the working tree, not the index: stage whole files.
-- **A `git rm` stages immediately**, so a later scoped `git add` still commits
-  it — check the first status column before committing. When another agent
-  shares the worktree, stage by path, never with `-a` or `-A`.
-- **History answers only on the development branch.** `git log -S` finds a
-  retired name here and nothing on the shipped orphan:
+- **문서 줄을 지우기 전에**
+  `python keyboards/era/common/tools/era_doc_refs.py --homeless`를 돌린다.
+  집 없는 토큰은 승격 후보다 (**Evidence And Retirement**). 검사기는 인덱스가
+  아니라 워킹 트리를 읽는다: 파일을 통째로 스테이징한다.
+- **`git rm`은 즉시 스테이징되므로**, 이후의 범위 지정 `git add`도 그것을
+  커밋한다 — 커밋 전에 status 첫 열을 본다. 다른 에이전트가 워크트리를
+  공유하면 경로로만 스테이징하고, `-a`나 `-A`는 쓰지 않는다.
+- **히스토리는 개발 브랜치에서만 답한다.** `git log -S`는 여기서 은퇴한 이름을
+  찾고, 출하된 orphan에서는 아무것도 찾지 못한다:
   `era_active_index.md` **What This Repository Does Not Carry**.
-- **`post_rules.mk` runs after the keymap's `rules.mk`**, and `-e X=y` is not
-  the way to set an option — edit `keyboards/era/era_build_options.mk`:
+- **`post_rules.mk`는 키맵의 `rules.mk` 뒤에 돈다.** `-e X=y`로 옵션을 정하는
+  길이 아니다 — `keyboards/era/era_build_options.mk`를 고친다:
   `manuals/era_build_options.md`.
-- **A build offered as evidence** runs through `era-build keyboard:keymap` in
-  WSL from a synchronized tree — never on Windows, never from a stale tree:
-  `manuals/era_build_and_flash.md`, `manuals/era_performance_gates.md`.
-- **The commit check is a git hook**, armed per clone by
-  `git config core.hooksPath hooks`; a clone without it commits unchecked.
+- **증거로 내놓는 빌드**는 동기화된 트리에서 WSL의
+  `era-build keyboard:keymap`으로 돈다 — Windows에서 돌리지 않고, 낡은
+  트리에서 돌리지 않는다: `manuals/era_build_and_flash.md`,
+  `manuals/era_performance_gates.md`.
+- **커밋 검사는 git 훅이다.** 클론마다 `git config core.hooksPath hooks`로
+  무장한다. 이 설정이 없는 클론은 검사 없이 커밋한다.
 
-## Document Management Rules
+## 문서 관리 규칙
 
-- Keep only document roles, read policy, and the storage map here. Do not
-  store session prompts, temporary command rules, temporary plans, raw logs,
-  or release notes.
-- The ERA agent document set is `keyboards/era/common/docs/contracts/`,
-  `maps/` and `manuals/` plus the index above them, and that is the whole set.
-  When and how a document retires is **Evidence And Retirement** below.
+- 여기에는 문서 역할, 읽기 정책, 저장 지도만 둔다. 세션 프롬프트, 임시 명령
+  규칙, 임시 계획, 생 로그, 릴리스 노트는 두지 않는다.
+- ERA 에이전트 문서 집합은 `keyboards/era/common/docs/contracts/`, `maps/`,
+  `manuals/`와 그 위의 색인이다. 집합은 그것이다. 문서가 언제 어떻게 은퇴하는지는
+  아래 **Evidence And Retirement**다.
+- **진입(`AGENTS.md`, 포인터를 넘는 `CLAUDE.md`)은 한국어다. Genre 헤더가 있는
+  계약·지도·매뉴얼·state는 영어다.**
 
-**Everything else is not this set.** `docs/` (270 files) is upstream QMK's;
-`keyboards/era/**/readme.md` are the boards' QMK-facing readmes, required by
-`qmk lint` (`lib/python/qmk/cli/lint.py`), and carry neither a header nor an
-index entry; `docs/user/` is written for keyboard owners.
+**이 집합이 아닌 것은 전부 이쪽이 아니다.** `docs/` (270개 파일)는 업스트림
+QMK의 것이다. `keyboards/era/**/readme.md`는 보드의 QMK용 readme이고,
+`qmk lint` (`lib/python/qmk/cli/lint.py`)가 요구하며, 헤더도 색인 항목도 없다.
+`docs/user/`는 키보드 소유자를 위해 쓰인다.
 
-- Do not duplicate the same fact across documents. Put each rule in its
-  canonical active document and link to it elsewhere. Each document's own
-  `Canonical for:` header is the authority on its scope, which is why this
-  file keeps no second list of document roles to drift against it.
-- If the document structure changes, update this file and
-  `keyboards/era/common/docs/era_active_index.md` in the same change.
+- 같은 사실을 문서 여러 곳에 복제하지 않는다. 규칙은 정본 활성 문서에 두고
+  다른 곳에서는 가리킨다. 각 문서의 `Canonical for:` 헤더가 그 범위의 권위다.
+  그래서 이 파일은 문서 역할의 두 번째 목록을 두지 않는다 — 그 목록은 헤더와
+  어긋나게 마련이다.
+- 문서 구조가 바뀌면 이 파일과
+  `keyboards/era/common/docs/era_active_index.md`를 같은 변경에서 고친다.
 
-### Genre decides what kind of sentence a document may hold
+### 장르가 문장이 담을 수 있는 종류를 결정한다
 
-Every agent document opens with two lines, `Genre:` and `Canonical for:`; the genre is one of:
+에이전트 문서는 모두 두 줄로 연다. `Genre:`와 `Canonical for:`. 장르는 다음 중
+하나다:
 
-- **contract** — what must be true. A rule stands until the design changes.
-- **map** — where a thing lives and what a name means. A row stands until the
-  code moves.
-- **manual** — how to run something. A procedure stands until the instrument
-  changes, and it may name the image a leg was proved on, because that is the
-  leg's entry condition and not a report about a day.
-- **state** — what is owed, what is waived, what a sitting measured.
-- **entry** — the startup chain itself: the read policy and the router.
+- **contract** — 무엇이 참이어야 하는가. 규칙은 설계가 바뀌기 전까지 선다.
+- **map** — 어디에 무엇이 있고 이름이 무엇을 뜻하는가. 행은 코드가 옮기기
+  전까지 선다.
+- **manual** — 어떻게 돌리는가. 절차는 계기가 바뀌기 전까지 선다. 한 다리가
+  증명된 이미지를 이름 댈 수 있다. 그것은 그날의 보고가 아니라 그 다리의 진입
+  조건이기 때문이다.
+- **state** — 무엇이 남아 있는가, 무엇이 면제됐는가, 한 측정이 무엇을 쟀는가.
+- **entry** — 시작 체인 자체: 읽기 정책과 라우터.
 
-**There is no state document, and that is the current shape rather than an
-omission.** The genre exists because a development campaign produces sentences
-no other genre may hold, and this firmware's campaign is finished: what it
-measured that still governs behaviour was moved into the contract or the manual
-that owns it, and what it measured about particular days was deleted. A future
-campaign may need one again; until then, an entry that wants to be state is a
-sign the work has restarted, not a sign the set is missing a file.
+**state 문서는 없고, 빠진 것이 아니라 지금의 모양이다.** 장르가 있는 이유는
+개발 캠페인이 다른 장르가 담을 수 없는 문장을 만들기 때문이다. 이 펌웨어의
+캠페인은 끝났다: 동작을 여전히 다스리는 측정은 그것을 소유하는 계약이나
+매뉴얼로 옮겼고, 특정 날에 대한 측정은 지웠다. 다음 캠페인은 다시 필요할 수
+있다. 그때까지 state가 되고 싶어 하는 항목은 집합에 파일이 없다는 신호가
+아니라, 일이 다시 시작됐다는 신호다.
 
-The line is not the date, it is who the sentence is written for. Evidence a
-rule cites to explain itself stays with the rule — an owner ruling names the
-sitting it was made on, and a fixed baseline names what it was measured on.
-What belongs in a state document is the *report*: what ran, what passed, what
-is still owed. So a dated run report, a pass tally and a `cause_` image stamp
-do not belong in a contract, a map or the entry layer. A missing or unknown
-`Genre:`, an empty `Canonical for:`, or a retired
-`Status:`/`Read when:` line is refused by `era_doc_refs.py`; the sentence *shapes* are not, and
-nothing mechanises them now — the tripwire that did was built when this project
-produced such sentences daily and retired with the campaign that produced them.
-This is the rule, and a writer keeps it.
+선은 날짜가 아니라, 그 문장이 누구를 위해 쓰였는가다. 규칙이 자신을 설명하려고
+인용하는 증거는 규칙과 함께 둔다 — 소유자 결정은 그 결정을 내린 측정을 이름
+대고, 고정 기준선은 무엇에서 쟀는지를 이름 댄다. state 문서에 들어갈 것은
+*보고*다: 무엇이 돌았고, 무엇이 통과했고, 무엇이 아직 남아 있는가. 그래서
+날짜가 있는 실행 보고, 통과 집계, `cause_` 이미지 스탬프는 계약, 지도, 진입
+층에 두지 않는다. 없거나 알 수 없는 `Genre:`, 빈 `Canonical for:`, 은퇴한
+`Status:`/`Read when:` 줄은 `era_doc_refs.py`가 거절한다. 문장 *모양*은 거절하지
+않으며, 지금은 그것을 기계화하는 것이 없다 — 그렇게 했던 트립와이어는 이
+프로젝트가 그런 문장을 매일 만들 때 만들어졌고, 그 문장을 만든 캠페인과 함께
+은퇴했다. 이것이 규칙이고, 쓰는 사람이 지킨다.
 
-### Which layer a rule goes in is decided by who has to be looking elsewhere
+### 규칙이 어느 층에 가는지는, 누가 다른 곳을 봐야 하는지가 정한다
 
-Source comments and the document set are the same size — measured 2026-08-18,
-the agent document set is 93,853 words and ERA's C comments 94,204, a 1:1
-investment. So "put it in both" is not a rounding error and "put it in one" is
-not obviously cheaper. The line:
+소스 주석과 문서 집합은 같은 크기다 — 2026-08-18 측정, 에이전트 문서 집합
+93,853단어, ERA C 주석 94,204단어, 1:1 투자. 그래서 "둘 다에 두기"는 반올림
+오차가 아니고 "한쪽에만 두기"가 분명히 더 싼 것도 아니다. 선은 이것이다:
 
-**A constraint on one file's own contents goes in that file, and a document
-names it without restating it. A constraint that binds files the editor is not
-looking at goes in the contract, and the site gets a pointer.**
+**한 파일 자신의 내용에 대한 제약은 그 파일에 두고, 문서는 되풀이하지 않고
+이름만 댄다. 편집자가 보고 있지 않은 파일을 묶는 제약은 계약에 두고, 그
+자리에는 포인터를 둔다.**
 
-That is the whole rule, and it decides both directions. A cadence constant with
-a `_Static_assert` beside it is the file's own business — a contract paragraph
-restating the arithmetic is a worse copy that drifts, and the copy that drifts
-is the document, because the compiler sits next to the other one. A rule about
-which of two headers may define a name, or about what three other units do with
-a mask, cannot be enforced by the file that happens to hold it and belongs in
-the contract.
+규칙의 전부이고, 양방향을 정한다. 옆에 `_Static_assert`가 있는 주기 상수는 그
+파일의 일이다 — 그 산술을 다시 쓰는 계약 문단은 더 나쁜 복사본이고 어긋난다.
+어긋나는 쪽은 문서다. 컴파일러가 다른 쪽 옆에 앉아 있기 때문이다. 두 헤더 중
+어느 쪽이 이름을 정의해도 되는지, 다른 세 유닛이 마스크로 무엇을 하는지에
+대한 규칙은, 마침 그것을 들고 있는 파일이 강제할 수 없고 계약에 둔다.
 
-**Neither layer is a trustworthy single source, which is why there are two.**
-Both drift, independently and in both directions: the sweep that produced this
-rule found a document stale where its comment was current and a comment stale
-where its document was current, in the same header. What settles it is not care
-but mechanism — on 2026-08-17, before `era_doc_refs.py` grew its source-comment
-arm, six of seven `path:line` citations in ERA source comments pointed
-somewhere else against zero findings in the document layer the same day. The
-checked surface was clean and the unchecked one was not.
+**어느 층도 믿을 수 있는 단일 원본이 아니므로, 둘이 있다.** 둘은 독립적으로,
+양방향으로 어긋난다: 이 규칙을 만든 쓸기에서, 같은 헤더 안에서 주석이 현재인데
+문서가 낡아 있었고, 문서가 현재인데 주석이 낡아 있었다. 정착시키는 것은 주의가
+아니라 메커니즘이다 — 2026-08-17, `era_doc_refs.py`가 소스 주석 팔을 갖기
+전에, ERA 소스 주석의 `path:line` 인용 일곱 중 여섯이 다른 곳을 가리켰고, 같은
+날 문서 층의 발견은 0이었다. 검사된 면은 깨끗했고 검사되지 않은 면은 아니었다.
 
-### A claim about what a function does names the file it lives in
+### 함수가 무엇을 한다는 주장은 그 함수가 사는 파일을 이름 댄다
 
-A document that says `foo()` returns, clears, gates or holds something is
-making a claim about the tree, and a claim nobody can locate is a claim nobody
-re-checks. Measured 2026-08-15: the set held 41 such paragraphs naming no file
-against 38 that named one, and the two worst defects the cross-document sweep
-found were both of this shape — prose describing behaviour the source had
-already stopped having, in one case a full day after the fix shipped.
+문서가 `foo()`가 반환하거나, 지우거나, 게이트하거나, 들고 있다고 말하면 트리에
+대한 주장이고, 아무도 찾을 수 없는 주장은 아무도 다시 확인하지 않는 주장이다.
+2026-08-15 측정: 집합에 파일을 대지 않은 그런 문단이 41, 댄 문단이 38이었고,
+문서 간 쓸기가 찾은 최악의 결함 둘이 둘 다 이 모양이었다 — 소스가 이미 그만둔
+동작을 산문이 서술하고, 한 경우는 수정이 출하된 지 하루가 지난 뒤였다.
 
-So the paragraph carries the file. **The unit is the paragraph, not the
-sentence**: a path in every sentence would cost more context than the check
-saves, and a reader needs it once. Repository-relative for core files
-(`quantum/keyboard.c`), common-layer-relative for ERA
-(`split/era_host_peer_storage.c`). A line number is optional and rots — six of
-twenty-four were pointing somewhere else when they were last checked — so add
-one only where the file alone would leave a reader searching.
+그래서 문단이 파일을 든다. **단위는 문단이지 문장이 아니다**: 문장마다 경로를
+두면 검사가 아끼는 것보다 맥락이 더 들고, 독자는 한 번이면 된다. 코어 파일은
+저장소 상대 (`quantum/keyboard.c`), ERA는 공통 층 상대
+(`split/era_host_peer_storage.c`). 줄 번호는 선택이고 썩는다 — 마지막으로
+확인했을 때 스물넷 중 여섯이 다른 곳을 가리키고 있었다 — 그래서 파일만으로는
+독자가 찾게 되는 곳에만 더한다.
 
-`era_doc_refs.py` refuses a paragraph that claims what a
-resolvable function does and names no file, and refuses a cited file or line
-that does not exist. What it cannot do is tell whether the *claim* is still
-true; naming the file is what makes finding out cheap.
+`era_doc_refs.py`는 해석 가능한 함수가 무엇을 한다고 하면서 파일을 대지 않은
+문단을 거절하고, 인용한 파일이나 줄이 없는 것도 거절한다. 할 수 없는 것은 그
+*주장*이 아직 참인지를 말하는 것이다. 파일을 대는 것은 알아내는 일을 싸게
+만든다.
 
-### A refusal is three lines, and it lives where the decision is made
+### 거절은 세 줄이고, 결정이 내려진 자리에 둔다
 
-A design that was tried and rejected is worth recording, because an agent's
-default is to propose the locally obvious simplification and this project has
-paid for that repeatedly. **What earns the space is the constraint, not the
-story of how it was found.** The constraint changes the next decision; the
-story is a second copy of a commit message.
+시도했다가 거절한 설계는 기록할 가치가 있다. 에이전트의 기본은 국소적으로
+명백한 단순화를 제안하는 것이고, 이 프로젝트는 그 대가를 반복해서 치렀다.
+**자리를 얻는 것은 제약이지, 어떻게 찾았는지의 이야기가 아니다.** 제약은 다음
+결정을 바꾸고, 이야기는 커밋 메시지의 두 번째 복사본이다.
 
-The form is fixed so that it stays a constraint:
+제약이 제약으로 남도록 형식은 고정이다:
 
 ```text
-> **REFUSED:** what was proposed
-> **WHY:** the consequence that refuses it, in one sentence
-> **REOPENS:** the evidence or change that would make it live again
+> **REFUSED:** 거절한 것
+> **WHY:** 거절하는 결과. 한 문장
+> **REOPENS:** 다시 살릴 증거 또는 변경
 ```
 
-Three lines, roughly thirty words, placed in the contract next to the rule it
-protects — never gathered into a list of their own, because a refusal read away
-from its decision is a fact nobody applies. `REOPENS` is what keeps it a rule
-rather than a tombstone: a refusal with no reopening condition is either
-permanent, and says so, or was never a decision.
+세 줄, 대략 서른 단어, 보호하는 규칙 옆의 계약에 둔다 — 자체 목록으로 모으지
+않는다. 결정에서 떨어진 거절은 아무도 적용하지 않는 사실이 되기 때문이다.
+`REOPENS`가 그것을 묘비가 아니라 규칙으로 남긴다: 재개방 조건이 없는 거절은
+영구이거나(그렇게 적거나), 처음부터 결정이 아니었다.
 
-**`WHY` has to stand on its own, because nothing stands behind it.** The block
-carried a fourth line naming the commit that settled it, on the trade that one
-`git show` beats loading the whole account into every session that never asks.
-The trade is gone because the reader of these documents is holding the shipped
-orphan, where that `git show` reaches a commit containing the whole firmware and
-therefore nothing — so the consequence sentence is now the entire argument.
-**A session on the development branch can run the `git show` and will get an
-answer; that it works here is exactly why the line has to go.** Write it as the
-thing a
-reader must believe, not as a label on an argument kept elsewhere — and if it
-cannot be written that way, the refusal was a preference rather than a
-constraint and does not belong here.
+**`WHY`는 홀로 서야 한다. 뒤에 서는 것이 없기 때문이다.** 블록은 그 결정을
+정착한 커밋을 이름 대는 네 번째 줄을 들고 있었다. 한 번의 `git show`가 묻지
+않는 모든 세션에 전체 기록을 넣는 것보다 낫다는 거래였다. 그 거래는 사라졌다.
+이 문서의 독자가 들고 있는 것은 출하된 orphan이고, 거기에서 그 `git show`는
+펌웨어 전체를 담은 커밋에 닿으므로 아무것도 아니기 때문이다 — 그래서 결과
+문장이 이제 논증의 전부다. **개발 브랜치의 세션은 `git show`를 돌려 답을 얻는다.
+여기서 된다는 것이 바로 그 줄을 빼야 하는 이유다.** 독자가 믿어야 하는 것으로
+쓰고, 다른 곳에 둔 논증의 라벨로 쓰지 마라 — 그렇게 쓸 수 없으면 그 거절은
+제약이 아니라 취향이었고, 여기 두지 않는다.
 
-This set follows agent-docs convention v1 (`eerraa-agent-docs`), deviating in
-three declared ways: one directory per genre (21 documents, above the
-convention's ~20 threshold), a separate entry router (`era_active_index.md`),
-and English prose.
+이 집합은 에이전트 문서 규약 v1
+([eerraa-agent-docs](https://github.com/eerraa/eerraa-agent-docs) 태그
+**v1**)을 따른다. 선언된 이탈은 셋이다: 장르별 디렉터리(21편, 규약의 약 20편
+임계를 넘음), 별도 진입 라우터(`era_active_index.md`), Genre 헤더가 있는
+계약·지도·매뉴얼·state의 영어 산문. 진입(`AGENTS.md`, 포인터를 넘는
+`CLAUDE.md`)은 한국어다.
 
-## Startup Read Policy
+## 시작 읽기 정책
 
-Always read, in this order:
+**Startup Read Policy.** 항상 이 순서로 읽는다:
 
 1. `AGENTS.md`
 2. `keyboards/era/common/docs/era_active_index.md`
 
-Then read only the task-specific active documents named by the active index.
-**If you do not already know this firmware, read
-`keyboards/era/common/docs/maps/era_walkthrough.md` once first** — it follows
-five paths end to end and names the file at every step, which is what makes the
-contracts decode on first contact.
+그다음 활성 색인이 이름 댄 작업별 활성 문서만 읽는다. 색인 행은 세 열이다 —
+**Change**(편집 전 필독) / **Locate**(조회) / **Verify**(빌드·캡처·판정). 세
+열을 한 목록으로 합치지 않는다. 표는 `era_active_index.md`'s **Task Read
+Matrix**에 있다.
 
-Do not bulk-load all active documents. **No document delegates a fact to a
-commit**, and none may: what ships is a four-commit orphan on which `git log -S`
-answers nothing, whatever the working branch answers. The measurement and the
-rule it serves are in `era_active_index.md`'s **What This Repository Does Not
-Carry**.
+**이 펌웨어를 아직 모르면, 먼저
+`keyboards/era/common/docs/maps/era_walkthrough.md`를 한 번 읽는다** — 경로 다섯
+개를 끝까지 따라가며 매 단계의 파일을 이름 댄다. 계약이 첫 접촉에서 풀리는
+이유다.
 
-The `docs/user/` tree is written for keyboard owners, not agents. Read it only
-when the prompt asks for release or user documentation, and do not shorten it
-to agent-context standards - it has a different reader.
+활성 문서를 한꺼번에 읽지 않는다. **어떤 문서도 사실을 커밋에 위임하지 않으며,
+위임해서는 안 된다.** 출하되는 것은 커밋 네 개의 orphan이고, 거기에서
+`git log -S`는 답이 없다. 작업 브랜치가 무엇에 답하든 상관없다. 그 측정과 그것이
+섬기는 규칙은 `era_active_index.md`'s **What This Repository Does Not
+Carry**에 있다.
+
+`docs/user/` 트리는 에이전트가 아니라 키보드 소유자를 위해 쓰인다. 프롬프트가
+릴리스 또는 사용자 문서를 물을 때만 읽고, 에이전트 맥락 기준으로 줄이지 않는다
+— 독자가 다르다.
 
 ## Navigation
 
-Structure questions are answered by the router (`era_active_index.md`) and a
-source search (`git grep -n`, `rg`); there is no derived index to consult or
-regenerate, and none may be reintroduced as an obligation.
+구조 질문은 라우터(`era_active_index.md`)와 소스 검색(`git grep -n`, `rg`)이
+답한다. 조회하거나 재생성할 파생 인덱스는 없고, 의무로 되살려서도 안 된다.
 
-> **REFUSED:** a mandatory knowledge graph, a search-before-read hook, or per-session generated context as the navigation layer.
-> **WHY:** the last one cost 424 MiB of local state and 9.5 MB tracked, a process on every shell call, and ~0.7 s per query against 0.1 s for a search, while its natural-language answers spread across hundreds of nodes; the router and a search answer the same questions.
-> **REOPENS:** a navigation tool whose per-call cost is below a shell search and whose answers are checked by something other than the agent reading them.
+> **REFUSED:** 의무 지식 그래프, 읽기 전 검색 훅, 세션마다 생성하는 컨텍스트를 탐색 층으로 두는 것.
+> **WHY:** 마지막 것은 로컬 상태 424 MiB와 추적 9.5 MB, 모든 셸 호출의 프로세스, 질의당 약 0.7 s를 남겼고 검색은 0.1 s였으며, 자연어 답은 수백 노드로 퍼졌다. 라우터와 검색이 같은 질문에 답한다.
+> **REOPENS:** 호출당 비용이 셸 검색보다 낮고, 답을 에이전트가 읽는 것 이외의 수단이 검사하는 탐색 도구.
