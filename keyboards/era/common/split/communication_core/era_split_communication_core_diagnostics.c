@@ -9,18 +9,6 @@
 #include "hal.h"
 #include "era_split_communication_core_owner.h"
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-/* Unconditional inside the diagnostics gate, which is the treatment its two
-   siblings in `..._lifecycle_rp2040.c` took in the same pass rather than a
-   third shape. There used to be an inner guard on a communication-core stage
-   macro here; the build system admits exactly one stage, so the guard selected
-   nothing, and its `#else return 0;` had already gone -- the pair that degrades
-   silently, because reinstating the guard would yield a non-void function
-   falling off its end rather than a build error. The macros themselves were
-   retired on 2026-08-11 once nothing read any of them. The counter behind this
-   is R2 capture surface, so a wrong value here reads as a dead relation. */
-#endif
-
 void era_split_communication_core_get_diagnostics_snapshot(era_split_communication_core_diagnostics_t *snapshot) {
     if (snapshot == NULL) {
         return;
