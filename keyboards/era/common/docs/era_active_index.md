@@ -114,7 +114,7 @@ opening it.
 | any build, build experiment, or artifact offered as evidence | — | — | `manuals/era_performance_gates.md` |
 | real-device capture or counter-delta review | — | `manuals/era_capture_reading.md` | `manuals/era_performance_gates.md` |
 | naming a new identifier, value id, diagnostic field or document, or resolving what a name means | — | `maps/era_identifier_map.md` | — |
-| documentation reorganization | `AGENTS.md`, `era_active_index.md` | `maps/era_source_map.md` | — |
+| documentation reorganization | `AGENTS.md`, `era_active_index.md` | `maps/era_source_map.md`, `manuals/era_dead_code_ledger.md` | — |
 | user-facing firmware/VIA docs | `user/readme.txt` for a one-piece board and `user/readme_split.txt` for a split one — two self-contained guides, because each ships beside one keyboard's firmware and its reader has only that keyboard. What differs is the SYNC family and the red status lights; a change to a shared feature is made in both | `user/via_keycodes.txt` | — |
 
 ## What This Repository Does Not Carry
