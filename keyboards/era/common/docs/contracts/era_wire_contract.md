@@ -134,33 +134,47 @@ Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That
 
 ## `SESSION_STATUS`
 
-Carries HOST/no-HOST, `matrix_ready`, `bulk_page_supported` (only where
-`ERA_HOST_PEER_STORAGE_V1_ENABLE` is compiled in), `usb_epoch`, host
-open/close generations, and the response-request bit.
+Compact, EXT set, `payload_len == 9`, byte1 `0x10`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
+
+```text
+byte0: control with EXT
+byte1: 0x10
+byte2: flags
+bytes 3..4: usb_epoch, little-endian
+bytes 5..6: host_open_generation, little-endian
+bytes 7..8: host_close_generation, little-endian
+```
+
+The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x10` exactly, not any `0x1x` nibble.
+
+Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protocol.h`):
 
 ```text
 0x01 accepted_host_open      0x10 status_response_requested
-0x02 accepted_no_host        0x20 retired (was dual_host_ready)
-0x04 retired (was storage changed hint)   0x40 matrix_ready
+0x02 accepted_no_host        0x20 retired (was dual_host_ready); reuse banned
+0x04 unassigned (was storage-changed hint)   0x40 matrix_ready
 0x08 unassigned              0x80 bulk_page_supported
 ```
 
-`era_split_wire_validate_session_status_payload()` in
-`split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9`
-and byte1 is `0x10`, then:
+`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x10`, then:
 
 | Check | Rule |
 | --- | --- |
-| reserved bits | refuse the **whole frame** for any bit outside `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK`. `0x04`, `0x08` and `0x20` are reserved-and-rejected, not reserved-and-ignored |
-| role | `flags & 0x03 ∈ {0x01, 0x02}`: exactly one role bit |
-| `matrix_ready` | refuse `0x40` without `0x02`. When a no-host half may set it: `era_authority_contract.md`'s **Matrix Ready** |
+| reserved bits | any bit outside `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` refuses the **whole frame**. `0x04`, `0x08` and `0x20` are reserved-and-rejected, not ignored. A capture that sets them dates the sender |
+| role | `flags & ERA_SPLIT_WIRE_SESSION_STATUS_AUTHORITY_MASK` (`0x03`) ∈ {`0x01`, `0x02`}: exactly one role bit |
+| `matrix_ready` | refuse `0x40` without `0x02`. When a no-host half may set it: `era_authority_contract.md` **Matrix Ready** |
 
-Each carrier refuses whatever it has no fact for. A new bit is one line in
-`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` and a whole-frame reject of older
-halves. **Reassigning `0x20` stays banned** (was `dual_host_ready`); `0x08`
-likewise dates its sender. Use:
-`era_route_contract.md`'s **SESSION_STATUS Discovery And Liveness**.
-Storage-changed rides `STORAGE_NEWS` (`0x40`).
+Shared with AUTHORITY: exactly one role bit, `matrix_ready` only on no-host. AUTHORITY has no reserved bit left (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_MASK` `0xFF`); reserved-zero is this frame's. Each carrier refuses whatever it has no fact for. A new flag is one line in `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK`. Storage-changed rides STORAGE_NEWS. `0x80` is the compile fact `ERA_HOST_PEER_STORAGE_V1_ENABLE` (`split/era_split_scheduler_session.c`), not route authority.
+
+`status_response_requested` is the builder's bit. `era_split_communication_core_responder_service_once()` in `split/communication_core/era_split_communication_core_responder_service.c` answers a decoded frame only when that bit is set. Discovery, bootstrap and recovery cadence: `era_route_contract.md` **SESSION_STATUS Discovery And Liveness**. Live-relation session facts ride AUTHORITY (`era_authority_contract.md` **Revalidation Authority**).
+
+> **REFUSED:** ignore unassigned `SESSION_STATUS` flag bits so mixed-revision peers still form a relation.
+> **WHY:** both halves run the identical image, and AUTHORITY already refuses bits it has no fact for; a frame one carrier admits and the other refuses is the disagreement the one-fact-set rule exists to prevent.
+> **REOPENS:** a supported mixed-revision pair.
+
+> **REFUSED:** reuse `SESSION_STATUS` flag `0x20`.
+> **WHY:** it was `dual_host_ready`; a capture with that bit set would become ambiguous between two eras.
+> **REOPENS:** never, while those captures remain readable.
 
 ## `HOST_PEER_SOURCE_PUSH`
 
@@ -396,55 +410,60 @@ Stays-closed `_Static_assert`s sit beside the eligibility macros in `split/era_s
 > **WHY:** no encoder in either direction can produce one; an accepted length no sender emits is a frame the receiver then has to invent a meaning for.
 > **REOPENS:** a sender that emits a reason without a baseline.
 
+## Section disciplines
+
+Every runtime section in both id spaces is latest-state and edge-armed: the current value, never a transition record; advertised while it differs from what the wire last confirmed; retired when the wire confirms it. Idle and typing-with-no-layer-change carry zero runtime sections while the poll runs, net of TIME_ANCHOR.
+
+Sent-state shadows advance from the wire's own section byte after a confirmed send, never from a plan (`era_split_communication_core_standing_service_once()` in `split/communication_core/era_split_communication_core_standing.c`; `era_host_peer_transaction_commit_responder_response()` in `split/era_host_peer_responder.c`). A deferred or suppressed section stays due.
+
+Relation rotation drops initiator standing shadows (`era_split_communication_core_standing_service_once()` memsets on `relation_generation` change) and every responder send-shadow except the lock's (`era_host_peer_transaction_forget_responder_input_layer()` in `split/era_host_peer_responder.c`). Lock survives rotation; `era_host_peer_transaction_force_responder_lock_state_response()` in the same file drops it on a matrix-relation flush.
+
+| Section | Invalid shadow | Forced refresh |
+| --- | --- | --- |
+| INPUT, AUTHORITY, lock, STORAGE_PENDING, RGB | force current value, zero included | none |
+| STORAGE_NEWS | force current value, zero included | `ERA_HOST_PEER_STORAGE_NEWS_FORCED_REFRESH_MS` 1000 while the byte is nonzero (value or pending bit7), for the life of the relation. `_Static_assert` equal to `ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` in `split/era_host_peer_responder.c` |
+| VISUAL | one `RELATION_OPEN` | rsp only: `ERA_HOST_PEER_VISUAL_SNAPSHOT_FORCED_REFRESH_MS` 1000 while a key is held or until the all-zero baseline has confirmed once (`era_host_peer_transaction_prepare_responder_response()` in `split/era_host_peer_responder.c`) |
+| TIME_ANCHOR | force current reading | rsp only: `ERA_SPLIT_TIME_ANCHOR_REFRESH_MS` 60000 |
+| ACTIVITY | compare against all-zero; fresh-defaults silent | none |
+| RESTART_ARM | force current tuple. A failed TX invalidates only this shadow | none |
+
+STORAGE_NEWS names no domain. Zero is legal. Meaning: `era_host_peer_storage_contract.md` **Storage News Value And Relation-Open Audit**. One carrier: `era_route_contract.md` **One carrier for the response section set**.
+
+> **REFUSED:** stop the storage-news forced refresh from source once the initiator "must have" applied.
+> **WHY:** the responder cannot observe what the initiator took, so the trade is a bounded repeat for an unbounded lost config edit.
+> **REOPENS:** a device reading that the initiator acted.
+
+The responder is the time authority in both relations. The initiator applies TIME_ANCHOR (`split/era_host_peer_response.c`). Held-time correction: `era_capture_reading.md` **The shared clock and the time anchor**. `era_split_restart_arm_ready()` in `split/era_split_keyboard.c` refuses a shared-clock `T_commit` until that initiator has applied one TIME_ANCHOR from the current relation; the responder needs none.
+
 ## Deferral order
 
-**Every section in both id spaces is latest-state and edge-armed** — advertised
-while live value differs from the last confirmed, retired on confirm, no timer.
-Shadows drop on identity rotation; a sent shadow advances from the wire's
-section byte, so a section cannot retire without having crossed.
+One order in both relations, in the one shared planner. Eligibility decides who is present. **AUTHORITY never defers** — this is the deferral order's single statement. Never-deferring sections skip the room check; yielding sections ask `era_split_wire_source_push_projected_len()` (push, `split/era_split_wire_payload.c`) or `era_host_peer_transaction_responder_projected_len()` (rsp, `split/era_host_peer_responder.c`) before adding themselves. Claim order is not encode order: bodies still append in ascending marker-bit order.
 
-Time authority is the responder in both relations. **Both ends corrected**
-(`ahold`, `era_capture_reading.md`'s **The shared clock and the time anchor**).
-Once per open/reopen, then a slow bounded cadence. Relation-scoped: no new
-shared-clock restart deadline until a TIME_ANCHOR from that relation applies.
+Push claim order in `era_split_communication_core_standing_service_once()` (`split/communication_core/era_split_communication_core_standing.c`): INPUT, AUTHORITY, STORAGE_PENDING, then RESTART_ARM, ACTIVITY, VISUAL, RGB.
 
-News **asks, names nothing**. Zero is legal. Forced nonzero refresh on
-`ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` 1000; gate `value != 0` is boot-scoped.
-**Forced cross per open, zero included** (post-rotation `0x00` never crossed
-→ mirror stuck lit). Repeat stop is an **open question**. One carrier:
-`era_route_contract.md`'s **One carrier for the response section set**.
-
-INPUT is DUAL-HOST only. Section counter stays zero across idle/no-layer-change;
-frame counter rises at the poll rate. AUTHORITY is open in both relations and
-both directions. **Edge-consumed**: a level in every reply returns `hkwork` to
-the poll rate; both ends hold a shadow. **AUTHORITY never defers** — this is
-the deferral order's single statement. This section is why `SESSION_STATUS` can
-stop post-relation (`era_route_contract.md`).
+Rsp claim order in `era_host_peer_transaction_prepare_responder_response()` (`split/era_host_peer_responder.c`): STORAGE_NEWS, INPUT, lock, AUTHORITY, then ACTIVITY, VISUAL, RGB, TIME_ANCHOR.
 
 | Class | Members | Rank |
 | --- | --- | --- |
-| never-deferring core | INPUT, lock, storage news, push STORAGE_PENDING, AUTHORITY | never defers |
+| never-deferring core | INPUT, lock, STORAGE_NEWS, push STORAGE_PENDING, AUTHORITY | never defers |
 | yielding | RESTART_ARM, ACTIVITY, visual, RGB | RESTART_ARM > ACTIVITY > visual > RGB |
 | anchor | TIME_ANCHOR | yields to everything |
 
-Arm leads because it can set a commit deadline and fits beside AUTHORITY at
-fifteen. A one-poll deferral is noise against a 200 ms judgment window.
-Encode order is ascending marker bit; yield rank is not encode order.
+Arm leads because five bytes do not fit beside the never-deferring core and the frame it wants is arm plus AUTHORITY at fifteen. A one-poll deferral is noise against a commit window of hundreds of milliseconds. ACTIVITY and RGB drain across consecutive polls when both are due. A one-byte fact plus full visual plus TIME_ANCHOR is 16 against 15, so the anchor defers one poll when visual is already claimed.
 
 > **REFUSED:** a per-relation deferral order — HOST-PEER keeps its earlier one, DUAL-HOST inverts.
 > **WHY:** it preserves accepted behaviour bit-for-bit but adds a planner branch and keeps two orders forever, and the order it would preserve is a landing artifact rather than a judgement that a lighting refresh outranks AUTHORITY.
 > **REOPENS:** a measurement that the two relations need different yielding ranks.
 
-`_Static_assert` family in `era_split_wire_protocol.h` against
-`ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15:
+`_Static_assert` family in `split/era_split_wire_protocol.h` against `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15:
 
 | Kind | Requirement |
 | --- | --- |
 | never-deferring DUAL-HOST | `3 + INPUT + AUTHORITY + STORAGE_NEWS` (rsp) and `3 + INPUT + AUTHORITY + STORAGE_PENDING` (push) |
 | never-deferring HOST-PEER | `3 + LOCK + AUTHORITY + STORAGE_NEWS` (rsp) and `3 + AUTHORITY + STORAGE_PENDING` (push) |
 | authority-only | `3 + AUTHORITY`; if this fails the relation has no carrier for its own revalidation |
-| drain | each deferrable (arm, RGB, ACTIVITY, visual, anchor) fits beside the never-deferring one-byte facts |
-| ACTIVITY drain | eleven bytes fit beside *each* one-byte fact but not both at once |
+| drain | each deferrable (arm, RGB, ACTIVITY, visual, TIME_ANCHOR) fits beside the never-deferring one-byte facts |
+| ACTIVITY drain | eleven bytes fit beside *each* one-byte fact but not both at once (`3 + 1 + 1 + 11` is 16); INPUT and news, or INPUT and pending, both due with ACTIVITY defers ACTIVITY one further poll |
 | arm beside AUTHORITY | `3 + 7 + 5` lands on fifteen |
 | AUTHORITY + RGB | 14 body bytes against 12; exclusion deliberately not asserted |
 
