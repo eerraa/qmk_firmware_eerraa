@@ -169,24 +169,14 @@ new firmware would write to the wrong channels. Zero upside, real hazard.
 and their numbers stay un-reused.
 `ERA_SPLIT_VIA_SYNC_EEPROM_SYNC_REQUESTED_VALUE_ID` (5) is the one
 relation-independent request the storage lane consumes, in every relation it
-is admitted for (there is one lane, not one family per relation — see
-`era_authority_contract.md`). RGB (7) is the DUAL-HOST RGB policy bit: the
-sender's arm gates capture and arming, the receiver's arm gates apply
-(`era_authority_contract.md`); HOST-PEER's RGB response is ungated by it.
+is admitted for (there is one lane, not one family per relation). INPUT (6)
+is live. RGB (7) is the DUAL-HOST RGB policy bit. Arms, gating, and
+HOST-PEER reach: `era_authority_contract.md` **Persisted Sync Policy**.
 
 **All three default ON**, 5 and 6 since storage version 4 and 7 since version 5
 (owner decision 2026-08-13). A capture or a bug report that predates version 5
 was taken with RGB off unless someone set it, and there is no console field that
 records which — see **USB Session** below.
-
-**INPUT (6) is live**, and its scope is exactly the DUAL-HOST INPUT-class
-runtime — the layer byte and the ACTIVITY body, both directions. Its default-on
-was the first of the three to be argued: gating a correctness fix behind a
-default-*off* toggle ships the defect, and a default-on bit does not. An off
-sender substitutes the neutral value rather than withholding the section, so the
-off state's steady wire cost is zero; HOST-PEER carries no INPUT-class section
-in either direction, asserted, so the bit reaches nothing there. Gating
-semantics are canonical in `era_authority_contract.md`.
 
 **A requested id carries no route and no execution authority.** The header
 states no such limit, so this line is the only statement of it.
