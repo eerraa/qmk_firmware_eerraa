@@ -62,12 +62,14 @@ claims below are the twenty-two RP2040 boards.
 > **REOPENS:** both firmwares and both definition trees drop the id, or an
 > owner names one winner
 
-> **REFUSED:** delete either VIA term band (legacy field ids 36, 41, … and
-> tapping channel 15 value 1, or exact-ms 72–79 and tapping channel 15 value 5)
-> **WHY:** firmware in `features/era_tapdance_via.c` and
-> `features/era_tapping_via.c` answers both; this tree's JSON still presents
-> legacy; the VIA peer presents exact-ms
-> **REOPENS:** JSON, VIA app, and firmware drop the same band together
+> **REFUSED:** pick a winner between the VIA exact-ms and legacy term bands,
+> or delete either band or the `keymaps/via` JSON
+> **WHY:** both bands stay; firmware in `features/era_tapdance_via.c` and
+> `features/era_tapping_via.c` answers both; tree JSON in each board's
+> `keymaps/via` folder is the stock-VIA/legacy surface; the VIA app
+> (`the-via-eerraa`) presents exact-ms; this is intentional dual compatibility
+> with usevia.app, not an unresolved mismatch
+> **REOPENS:** an explicit owner request to drop one surface
 
 > **REFUSED:** restore Graphify, or close H7S `state_open`
 > **WHY:** out of scope for this ledger; the tracked graphify-out directory is
@@ -181,24 +183,6 @@ delays via `era_matrix_debounce_config_set_single_delay()` in that file. This
 tree's JSON presents both ids. That mapping is live. Not dead. KEEP-debounce-get
 below.
 
-### PS-term-bands
-
-- **This firmware:** `features/era_tapdance_via.c` answers legacy field ids
-  32–71 (term fields 36, 41, 46, 51, 56, 61, 66, 71) and exact-ms ids 72–79.
-  `features/era_tapping_via.c` answers tapping channel values GLOBAL_TERM and
-  GLOBAL_TERM_EXACT.
-- **This tree JSON:** presents `id_qmk_tapdance_*_term` and
-  `id_qmk_tapping_global_term`. No `*_term_exact` string in this tree.
-- **VIA peer at the SHA above:** menus and tests use
-  `id_qmk_tapping_global_term_exact` and `id_qmk_tapdance_*_term_exact`.
-- **H7S at the SHA above:** firmware answers both bands;
-  H7S JSON still presents the legacy names (tap-dance term on a different
-  channel than this tree). Recorded, not judged.
-
-Do not delete either firmware band or this tree's JSON band without the other
-side. See REFUSED. `tests/era_via_exact_ms/` proves the exact-ms round-trip
-this firmware still implements.
-
 ## KEEP
 
 Hunches that measured live, shipped, or out-of-scope.
@@ -215,6 +199,7 @@ Hunches that measured live, shipped, or out-of-scope.
 | KEEP-macro-diag | `era_via_macro_diagnostics.c` is in SRC under cause timeline, not `VIA_ENABLE` | `split/era_split_qmk_rules.mk` adds that `.c` under `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE` (which already requires wire + EEPROM sync + storage). Callers: `quantum/via.c` (same define), `era_split_keyboard.c` task, wire-diagnostics snapshot. Live on the cause variant. Source-map "no release image compiles the unit" is about release, not unused. |
 | KEEP-nvm-quiet | `storage/era_nvm.c` names `ERA_STORAGE_QUIET_DEFER_MS` and does not `#ifdef` it | The comment points at `quantum/eeconfig.h` deferral of RGB toggle during macro upload. Readers of the constant are QMK core and `system/era_board_hooks.c`. Cross-file pointer, not a dead read. |
 | KEEP-debounce-get | GET TIME_PRE returns TIME_SINGLE's value, so one id is dead | Both GET arms in `features/era_debounce_via.c` return `era_matrix_debounce_config_get_press_delay()`. SET TIME_SINGLE still writes the balanced pair. JSON presents MODE, TIME_SINGLE, TIME_PRE, TIME_POST. Live mapping. |
+| KEEP-term-bands | one VIA term band is unused, or the two bands are a mismatch to resolve by dropping one | Owner 2026-08-31: both stay. `features/era_tapdance_via.c` answers legacy field ids 32–71 (term fields 36, 41, 46, 51, 56, 61, 66, 71) and exact-ms ids 72–79. `features/era_tapping_via.c` answers tapping channel GLOBAL_TERM and GLOBAL_TERM_EXACT. Tree JSON under `keyboards/era/**/keymaps/via/` presents `id_qmk_tapdance_*_term` and `id_qmk_tapping_global_term` — the stock-VIA / usevia.app legacy surface. The VIA app (`the-via-eerraa`) presents exact-ms. Intentional dual compatibility, not an unresolved mismatch. `tests/era_via_exact_ms/` proves the exact-ms round-trip. |
 
 ## Negative scans
 
@@ -244,10 +229,9 @@ STALE-COMMENT is not pending; see **Corrected** above.
    RI-session-0x20, RI-owner-1, RI-snap-src-1, RI-queue-kind-1, RI-via-sync-old
    as deletes.
 3. **PS-debounce-status** — only after the H7S / JSON / VIA pair is resolved.
-4. **PS-term-bands** — only after JSON, VIA peer, and firmware drop the same
-   band together.
-5. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
+4. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
    fork as "ERA dead code".
+5. **Do not delete** KEEP-term-bands: both VIA term bands stay.
 
 ## What this sitting did not verify
 
