@@ -275,6 +275,19 @@ core1 consumed without publishing a result, because the result ring was full.
 It unsticks on the next authority sample rather than through a poll, since that
 sample's deadline is always in the scheduler's deadline set.
 
+The responder side has one bounded exception to per-arrival result publication.
+While Core0 is unavailable, Core1 may answer repeated section-bearing
+HEARTBEATs from the same immutable responder snapshot. Once one successful
+result for the exact owner/relation/snapshot/section-mask tuple is pending, later
+successful HEARTBEAT replies do not reserve another general-ring slot: their
+only Core0 effect would be the same sent-shadow commit. Physical traffic is
+retained in monotonic bulk-fold counters, so ACK/projection/runtime-section
+diagnostics remain counts of what crossed. SESSION and both push result kinds
+never coalesce because they can carry peer input. Device evidence that opened
+this rule was the 2026-08-30 DUAL-HOST macro Apply: a ~125 ms responder Core0
+flash window accumulated `crsp full=32/noack=45` while the initiator's pending
+fall sat behind SESSION_STATUS revalidation for 115 ms.
+
 Route authority and runtime execution ownership are separate. Core0 selects
 routes and publishes immutable inputs; moving a transaction to core1 does not
 change which physical half may initiate it or what the peer may send. Backend
@@ -374,8 +387,18 @@ The rules, and each is a bound rather than a convention:
   pass, which is what that arrangement costs.
 - **The result is latest-state and not a queue.** Core1 overwrites it, so core0
   reading it late costs latency and never correctness, and a core0 that reads
-  it rarely loses nothing. A queue here would restore per-exchange work on the
-  drain side after removing it on the submit side.
+  it rarely loses nothing. Besides peer latest-state and the stop flag, it
+  carries the initiator's last successfully sent `STORAGE_PENDING` value as a
+  local confirmation edge; that edge exists only so the STATUS presentation can
+  hold a local fall until its zero really crossed, and therefore wakes Core0
+  only when that section changes rather than once per poll
+  (`split/communication_core/era_split_communication_core_standing.c`,
+  `split/era_split_transport_scheduler.c`). The responder needs no second
+  cross-core record for the same rule: its ordinary result already returns the
+  actual response section mask and plan to Core0, and the existing sent-shadow
+  commit is the successful `STORAGE_NEWS` confirmation
+  (`split/scheduler/era_split_transport_scheduler_responder.c`). A queue here would restore
+  per-exchange work on the drain side after removing it on the submit side.
 - **Publication uses the responder snapshot's discipline**: an odd/even publish
   sequence with a claim word, core1 claiming across the exchange. One
   discipline for both published records, not two.
@@ -680,7 +703,12 @@ that failed.
   The route layer supplies the evidence and the window. *The relation opened*
   means `SESSION_STATUS` has confirmed both halves at Low. The standing
   exchange then carries the time-anchor, which is what puts T_commit in one
-  domain; the initiator does not arm the link act until one has been applied.
+  domain; the initiator does not arm the link act until one has been applied
+  **in the current relation**. Relation rotation invalidates that adoption fact
+  without clearing the already corrected shared-clock reading. This distinction
+  is load-bearing when halves reboot at different times: an anchor accepted from
+  the old responder uptime cannot authorize a deadline against the newly
+  rebooted responder's epoch.
   The raise itself is `era_split_transport_scheduler_apply_link_level()` in
   `era_split_transport_scheduler.c` — the same owner-down / `set_speed` /
   serial-recover window the listener's step uses, fired on both halves at the

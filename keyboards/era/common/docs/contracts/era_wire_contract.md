@@ -815,7 +815,13 @@ Rules:
   the responder's sync-timer milliseconds — the responder is the time authority
   in both relations, the HOST in HOST-PEER and the Right in DUAL-HOST — and the
   initiator applies it through the one corrected setter so both halves share one
-  monotonic timeline. **Both ends of the delivery are corrected.** At the receive
+  monotonic timeline. **Anchor adoption is relation-scoped:** rotating the
+  relation withdraws the initiator's permission to create a new shared-clock
+  restart deadline until a TIME_ANCHOR from that new relation has actually been
+  applied; the existing sync-timer value itself is not cleared. This prevents an
+  initiator that outlives a sequential peer reboot from treating the old peer's
+  uptime as proof of the new peer's epoch. **Both ends of the delivery are
+  corrected.** At the receive
   end core1 stamps the receive instant beside the anchor and the setter adds the
   held time; at the send end core0 captures a `timerawl` stamp beside the
   sync-timer reading and core1 adds the elapsed at encode, so a snapshot serving

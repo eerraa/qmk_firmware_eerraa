@@ -79,9 +79,12 @@ Run these in the WSL-local tree after the build automation has synchronized it:
 make test:era_nvm
 make test:era_nvm_qmk_driver
 make test:era_host_peer_storage_recency_policy
+make test:era_host_peer_storage_indicator_policy
+make test:era_split_responder_result_policy
 make test:era_split_restart_agreement
 make test:era_split_storage_publication_retire
 make test:era_via_exact_ms
+make test:era_rgb_matrix_persistence
 make test:wear_leveling_general
 make test:wear_leveling_2byte_optimized_writes
 make test:wear_leveling_2byte
@@ -112,6 +115,25 @@ settled capture or signal departure, and a failed convergence metadata
 publication cannot retire recency. It tests the small production policy header
 rather than constructing a second fake HOST-PEER runtime.
 
+`era_host_peer_storage_indicator_policy` is the equally small presentation
+boundary: a serviced relation and the initiator's finite fast-recovery window
+both preserve the peer-pending mirror, while a backed-off no-link state retires
+it. It also proves the role-neutral local-carrier policy: a successfully sent
+one remains part of visible pair work after the local semantic arm falls until
+the role's existing sent-state boundary confirms zero; a one that never crossed
+creates no synthetic hold, a closed local gate cannot latch a new sent-one
+obligation, and closing that gate does not erase an already-confirmed one before
+its zero crosses. The scheduler
+owns whether the finite recovery window is active; the test does not clone
+scheduler or storage runtime state.
+
+`era_split_responder_result_policy` is the hardware-free capacity boundary for
+the responder general ring. It permits coalescing only an exact successful
+section-bearing HEARTBEAT already represented by the same immutable responder
+snapshot/mask, and rejects empty, changed-generation/mask, failed/unsent,
+SESSION and both push result kinds. It exists because a synchronous Core0 Apply
+can outlast all three usable general slots while Core1 continues answering.
+
 `era_split_storage_publication_retire` runs the exact production publication
 unit and proves CLEAN's terminal sentinel, ready/unclaimed discard and active
 claim drain on both storage directions, plus the nonterminal relation-loss
@@ -122,6 +144,12 @@ later Core0 pass. `era_split_restart_agreement` pins
 PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare
 failure and quarantine. Matrix PIO remains in the set because the storage
 cutover touches the SRAM-resident execution assumptions it shares.
+
+`era_rgb_matrix_persistence` covers both the deferred RGB Matrix save gate and
+the ERA render-policy refresh lifecycle. A policy edge stays refresh-active from
+its external request through the actual replacement PWM flush (or until the
+policy proves no frame is needed), which is the priority fact that keeps
+opportunistic NVM bank erasure out of a split STATUS transition.
 
 The make-only variant test attacks all six tuples through direct assignments,
 `MAKEFLAGS`, exported environment and `make -e`, and checks the non-split
@@ -305,8 +333,10 @@ Two rules bind whatever the tier:
 - Core1 code has no live matrix, RGB, VIA, EEPROM, host LED, USB or HID read and
   no EEPROM write. Bare core1 and its PIO IRQ path call no ChibiOS thread
   suspend/resume or scheduler-lock API.
-- No success response is sent before required result capacity is reserved and
-  accepted source-push/chunk data is copied.
+- No success response that introduces new Core0 work is sent before required
+  result capacity is reserved and accepted source-push/chunk data is copied. An
+  exact duplicate successful HEARTBEAT may reuse an already-pending result only
+  under the invariant above; SESSION/push or a changed snapshot/mask cannot.
 - **DUAL-HOST storage and runtime are not absence checks, and looking for absent
   symbols there proves nothing.** Both relations run the same engine and reuse
   the `0x20`/`0x21` envelope pair, so those ops are legitimately present in both
@@ -523,10 +553,12 @@ to four digits across the last two comparison points — which is what says the
 pass shortening is core0's alone. The PIO sampler's consumer costs **3.18 µs a
 pass**.
 
-**The core1 stack is 912 B used on `standard`, `qwin` and `qwin_phase`, and 992 B
-on `wire`, `cause` and `stale`, against a 2048 B reservation**, all with the
-exception frame included — so the acceptance is 1056 B of headroom in the worst
-image, not one number.
+**The core1 stack is 912 B used on `standard`, `qwin` and `qwin_phase`, 992 B on
+`wire` and `stale`, and 1000 B on `cause`, against a 2048 B reservation**, all
+with the exception frame included — so the acceptance is 1048 B of headroom in
+the worst image, not one number. `cause` is eight bytes deeper because its
+selector-only pending-path probe adds Core1 diagnostic calls; the committed
+stack walk is the authority on that measured cost.
 **The figure is per variant and a reading that does not name its image is not a
 reading**: the deepest chain in a diagnostics build is not the deepest chain in
 the shipping one. Re-derive with

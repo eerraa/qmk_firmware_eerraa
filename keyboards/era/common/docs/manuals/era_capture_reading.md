@@ -470,12 +470,15 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
 
 ### The EEPROM SYNC indicator shim
 
-- `eeprom shim ind vis/pnd/mir/gate/spans/rise/fall`: the indicator's whole
+- `eeprom shim ind vis/pnd/mir/gate/hold/spans/rise/fall`: the indicator's whole
   read. `vis` is the lamp as rendered (pending held to the 160 ms rise-anchored
-  floor). `pnd`/`mir`/`gate` are the fact's arms — the local pending arm, the
-  peer's advertised mirror, and the cached serviceability-and-policy gate — so
-  one capture says which arm holds a lit lamp and whether a dark one is gated or
-  genuinely idle. `pnd` is already the display-filtered local fact: raw
+  floor). `pnd`/`mir`/`gate` are the local pending arm, the peer's advertised
+  mirror, and the cached serviceability-and-policy gate. `hold=1` means this
+  half's local arm has fallen but its own zero has not yet been confirmed on its
+  active carrier — `STORAGE_PENDING` for an initiator, `STORAGE_NEWS` bit7 for a
+  responder — so the panel intentionally remains pending rather than getting
+  ahead of the peer's mirror apply.
+  `pnd` is already the display-filtered local fact: raw
   `chg`/cell bits covered by `prv` do not raise it until `cfm=1` or a transfer
   retires the active domain's provisional bit. `spans` counts rising edges of
   the pending fact; `rise`/`fall`
@@ -520,6 +523,10 @@ per-bucket timing on `hp peer_era` is a HOST-PEER instrument.
   state machine. It does not wait for a later animation epoch: an idle state is
   restarted on the next RGB task pass, while an already-buffered frame is
   flushed first and the pending policy refresh starts immediately afterward.
+  Background ERA-NVM bank maintenance yields from that request until the
+  refreshed policy reaches the PWM flush boundary, so a multi-pass
+  STARTING/RENDERING/FLUSHING transition cannot have a 4-KiB erase inserted
+  between each pass.
   Therefore a large `ron`/`roff` lag behind the corresponding `rise`/`fall`,
   after correcting the halves' local-clock offset, is a render-path finding and
   not an accepted scheduler delay.
@@ -677,6 +684,11 @@ measurement in `era_performance_gates.md`, not a derived sub-window.
   appends a trailing `service leave` event; when it follows the operation's
   final indicator fall it is extraction context and not the blink cause. A
   `service leave` before an in-operation indicator fall is instead a finding.
+  A storage-triggered fast revalidation is specifically **not** service leave:
+  the initiator preserves the peer mirror while bootstrap recovery remains
+  below its backoff threshold, so a healthy recovery must end by carrier fall
+  (`event 4`) rather than by `event 7`. If the peer remains absent until that
+  threshold, `event 7` is the bounded presentation retirement.
   Do not reboot the promoted half, because the record is RAM state.
 
   `wr` is the dynamic-macro EEPROM-change notification count;
@@ -726,11 +738,41 @@ measurement in `era_performance_gates.md`, not a derived sub-window.
   are in `quantum/via.c`; the state and endpoint-idle poll are in
   `split/diagnostics/era_via_macro_diagnostics.c`.
 
+- `wire storage ppath`: `cause`-only boundary timing for the initiator-to-
+  responder `STORAGE_PENDING` carrier. All timestamps are milliseconds from the
+  same `WIRE_DIAG` interval baseline as `wire storage edge`; `65535` means that
+  edge was not observed in the interval. Each `rise/fall` pair is one ownership
+  boundary: `pub` is Core0 publishing a changed standing plan, `tx` is the
+  initiator Core1 completing the wire exchange that carried that value, `rx` is
+  the responder Core1 decoding that section, and `app` is the responder Core0
+  applying it to the peer-pending mirror. The third `pub` field is the **fall**
+  context mask: bit0=`plan enabled`, bit1=`SESSION_STATUS revalidation pending`,
+  bit2=`storage route exclusive`.
+
+  **The four-stage clock is the RP2040 free-running hardware timer, read
+  directly on both cores.** It deliberately does not call QMK/ChibiOS
+  `timer_read32()`/`timer_elapsed32()` (`platforms/chibios/timer.c`): TX and RX
+  run on bare Core1, where that API's scheduler lock and Core0 timer-cache
+  mutation are not admitted. Each stage also owns its own validity/level bytes
+  rather than sharing a bitmask RMW with the other core. This is diagnostic
+  isolation, not storage behavior.
+
+  Read the gaps literally. A large `pub(fall) -> tx(fall)` belongs to the
+  initiator's standing/revalidation path; a large `tx -> rx` belongs to the wire
+  or responder admission; a large `rx -> app` belongs to responder-result/Core0
+  drain. `app(fall)` should coincide with edge event `4=mirror fall`, providing
+  an independent check that the probe did not change the meaning of the older
+  recorder. The rise is retained as the same-path control: if rise is poll-scale
+  and fall is not, the defect is transition-specific rather than general link
+  latency. This line localises an observed bound violation before any storage or
+  scheduler semantic change; it is compiled out of release builds.
+
   For a carrier-caused blink, the source's event `2` precedes the receiver's
   `4`, then the receiver's `6`. A source event `11` and event `9` before event
   `2`, followed by more macro notifications or `oq>0`, identifies a write
   stream that crossed the quiet boundary and temporarily retired every local
-  lamp arm. Event `7` instead identifies a service/role exit. Keep the adjacent
+  lamp arm. Event `7` instead identifies a service/role exit after any fast
+  recovery continuity has ended. Keep the adjacent
   `wire storage cause`, `wire storage`, and `eeprom shim ind` lines from the
   same snapshot; the edge line identifies the falling carrier while the storage
   lines identify its transfer/NVM context.
@@ -1098,10 +1140,17 @@ look**: the millisecond division is what steps the clock back.
 **The first apply of a relation era is the offset adoption, and it is counted
 into `back` like any other.** It consumes the difference between two halves'
 independently started clocks, so on a fresh pair it can set `back_max_ms` to a
-value the steady-state residual never approaches. `applies=1` with
-`interval_ms=0` is how that apply identifies itself. The relation's anchor sender
-is the responder in both relations (the HOST, or the DUAL-HOST Right), so this
-reads on the initiator half.
+value the steady-state residual never approaches. Relation rotation clears the
+behavioural *adopted* fact while leaving the corrected shared-clock value in
+place; LINK_SPEED/CLEAN cannot arm a fresh shared-clock deadline until the new
+relation's anchor arrives. This matters in sequential-reboot captures: a large
+new correction after the peer comes back is legitimate epoch adoption, while a
+deadline armed only because an older relation had once supplied an anchor is
+not. `applies=1` with `interval_ms=0` identifies only the first arrived anchor of
+the boot because the diagnostics stay cumulative; later relation adoptions keep
+the ordinary inter-arrival interval. The relation's anchor sender is the
+responder in both relations (the HOST, or the DUAL-HOST Right), so this reads on
+the initiator half.
 
 Read `sync=` against `wire pc last=` with the print pipeline in mind: `last=` is
 stamped once at capture and `wire sect` prints many paced 150 ms lines later, so
@@ -1309,10 +1358,11 @@ result counts; `last` result/failure/request-sent/route-kind/route-reason;
   Production responder snapshots require the gate to be ready before admission.
 - `gen`: owner epoch / relation generation / current snapshot generation / last
   drained result generation.
-- `pub/resv/full/acc/stale/drain/noack/arx/undec/quiet`: snapshot publish,
+- `pub/resv/full/acc/stale/drain/noack/arx/undec/quiet/coal`: snapshot publish,
   result-slot reserve, slot full, accepted-result publication, stale reject,
   core0 drain, no-response prevention, accepted-RX, undecodable-arrival and
-  quiet-answer counts. There is no `clr`: the responder rotates by
+  quiet-answer counts, then coalesced HEARTBEAT replies / the runtime sections
+  they physically carried. There is no `clr`: the responder rotates by
   republish-plus-generation-fence, not by an explicit clear.
 - **`arx` and `undec` are the two wire facts core0 reads off core1 outside
   diagnostics**, printed side by side. `arx` is every frame the transaction
@@ -1333,7 +1383,20 @@ result counts; `last` result/failure/request-sent/route-kind/route-reason;
 - **`quiet` is requests core1 answered without publishing a result**, because the
   response was a bare ACK that asks core0 for nothing but counters. Under the
   constant DUAL-HOST poll it is almost every request, and it is the field that
-  says so: **`prep - resv` reproduces `quiet`** as an independent reading.
+  says so. With no coalescing, **`prep - resv` reproduces `quiet`**; when
+  `coal` moves, its first value is the additional no-result HEARTBEAT count and
+  must be subtracted before using that identity.
+
+  `coal=heartbeat/runtime_sections` is different by construction. These are
+  section-bearing HEARTBEAT replies that **did cross the wire**, but whose exact
+  Core0 sent-shadow work was already represented by one successful pending
+  result for the same responder snapshot and actual section mask. They are bulk
+  folded into the responder projection/ACK/runtime counters, so `quiet` remains
+  strictly bare-ACK traffic. During the synchronous responder Apply that
+  motivated the field, a healthy pressure reading is `coal` increasing while
+  `full` and `noack` do not increase; `coal=0` with `full` increasing means the
+  repeated responses were not eligible duplicates and the capacity problem is
+  elsewhere.
 
   **Do not compute `resv - acc`: it is identically zero.** The reservation is
   taken only for a response that will publish

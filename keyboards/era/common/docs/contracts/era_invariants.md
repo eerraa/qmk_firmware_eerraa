@@ -368,11 +368,16 @@ Read when: every ERA split implementation or review session
 
   The qualifier is a sharpening, not a relaxation: the rule exists so a
   response that hands core0 work cannot be sent with nowhere to put the work.
-  A section-less ACK to a bare poll hands core0 nothing and publishes nothing,
-  and reserving a slot for it only to discard it was how a blocked core0 made
-  an otherwise willing responder mute — three slots fill in 150 ms against
-  measured core0 stalls in the hundreds. What may skip a reservation is exactly
-  the response that would have released it unused.
+  A section-less ACK to a bare poll hands core0 nothing and publishes nothing.
+  A second narrow case may also skip a new reservation: a successful
+  section-bearing HEARTBEAT whose **exact owner epoch, relation generation,
+  responder snapshot generation and actual section mask** already have one
+  successful result pending in the general ring. Its only Core0 work is the same
+  idempotent sent-shadow commit that pending result already owns. SESSION,
+  runtime/source-push, failed/unsent replies and any changed identity/mask remain
+  one-result-per-arrival. This distinction is what prevents a blocked Core0 from
+  filling the three usable general slots with duplicate sent-shadow work while
+  still forbidding loss of peer input.
 
 ## Stop Conditions
 

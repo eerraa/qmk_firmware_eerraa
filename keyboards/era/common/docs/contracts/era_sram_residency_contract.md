@@ -328,7 +328,12 @@ This contract owns the placement consequence:
 **Bank-maintenance stance.** The inactive 64-KiB bank is erased in verified
 4-KiB sectors, at most one sector per top-level housekeeping call. Each call
 returns to the normal keyboard loop before another sector is attempted. The
-engine itself never calls the loop.
+engine itself never calls the loop. The call is opportunistic rather than a
+deadline: the ERA class skeletons run their board presentation tick first, and
+`system/era_common_features.c` suppresses a sector while an RGB render-policy
+refresh is waiting to reach the PWM flush boundary. This prevents the
+non-recursive flash window from occupying each gap of a multi-pass STATUS
+transition while preserving the same one-sector-per-call NVM mechanism.
 
 If a new bank is required before background maintenance finishes, ERA NVM
 synchronously completes the remaining sector erases and constructs the bank.

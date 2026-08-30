@@ -342,9 +342,70 @@ not the hint, decides domains and direction.
 
 The advertised storage-pending bit is separate from the news value and carries
 the user-visible unfinished-work fact. The local indicator is this half's
-visible work union the peer's advertised pending mirror, gated by serviceability
-and local EEPROM sync policy. Boot-only conservative baseline uncertainty stays
-display-provisional until an actual transfer/fault proves pair work.
+visible work union the peer's advertised pending mirror and this half's last
+successfully sent pending=1 level. On an initiator that confirmation comes from
+the standing `STORAGE_PENDING` sent state; on a responder it comes from the
+existing `STORAGE_NEWS` sent-shadow commit. A local semantic fall therefore
+cannot retire the panel while the peer may still hold the previously confirmed
+one; a confirmed zero removes that term. A one that never crossed creates no
+synthetic hold. The local work arm is gated by serviceability and local EEPROM
+sync policy; the mirror and confirmed-sent level are pair-continuity facts.
+Turning the local policy off therefore prevents a new sent-one obligation from
+being created, but it does not erase a one the peer may already hold; only a
+confirmed zero or a real service departure retires that existing obligation.
+Boot-only conservative baseline
+uncertainty stays display-provisional until an actual transfer/fault proves pair
+work. This is wire-confirmed state, not a delay timer, and affects no
+arbitration, persistence or restart/CLEAN predicate
+(`split/era_host_peer_storage.c`, `split/communication_core/era_split_communication_core_standing.c`,
+`split/scheduler/era_split_transport_scheduler_responder.c`).
+
+The scheduler consumes both forms of successful local-carrier confirmation
+before it runs `era_host_peer_storage_runtime_task()` and therefore before that
+runtime may close an episode and drop the local semantic arm: responder results
+first, standing latest-state second, storage runtime later in the same
+housekeeping pass (`split/era_split_transport_scheduler.c`). That ordering is
+part of the pair-edge rule. Moving either confirmation drain below storage
+runtime would reopen the early-local-OFF race even though the sent-level itself
+remained correct.
+
+**Storage recovery does not end an operation merely because the mode label
+temporarily reads `LOCAL_NO_LINK`.** A responder-side storage relation rotation
+can force the initiator through peer forget + `SESSION_STATUS` recovery while
+the responder is still closing the durable episode. The initiator therefore
+keeps the peer-pending mirror through the scheduler's fast bootstrap-recovery
+window. If discovery reaches its existing bootstrap-backoff threshold without a
+peer, continuity ends and the mirror is retired as a real service departure.
+Only the initiator uses that streak-bounded hold: peer-unknown Right/responders
+do not originate discovery and therefore cannot safely own a miss-count hold.
+The pure continuity predicate is in
+`split/era_host_peer_storage_indicator_policy.h`; the scheduler supplies the
+bounded recovery fact and `split/era_host_peer_storage.c` applies it.
+
+That pair fact owns one visible edge on both panels. After local-clock offset is
+accounted for, the two logical rise/fall edges may differ only by the standing
+poll/housekeeping propagation needed to carry the latest-state mirror; **no
+opportunistic flash window may then delay one panel's STATUS frame while the
+other panel has already changed.** On RGB-Matrix ERA boards the class skeleton
+runs the board presentation tick before background NVM maintenance, and
+`era_common_features_maintenance_task()` (`system/era_common_features.c`) yields
+while `rgb_matrix_render_policy_refresh_active()`
+(`quantum/rgb_matrix/rgb_matrix.c`) says that policy edge has not reached its
+PWM flush yet. This applies to both rise and fall. It adds no storage wire phase:
+the existing pending mirror is already the agreement fact; the priority rule
+only prevents local background work from stretching its physical presentation.
+The carrier still owes prompt latest-state delivery: the mirror being the right
+fact does not make a delayed zero acceptable. Equally, neither wire role may
+retire its local panel merely because it has received the peer's zero while the
+last successfully sent local pending level is still one: a successful local
+carrier zero is the release authority. The `cause` profile's `wire storage
+ppath` probe timestamps standing-plan publication, initiator Core1 TX, responder
+Core1 RX and responder Core0 mirror apply so a device violation of the pair-edge
+bound is assigned to one existing ownership boundary before behavior is changed.
+That probe is diagnostic only and adds no wire phase or release-build state. Its
+two Core1 stages read only RP2040's free-running hardware timer and write
+stage-local diagnostic bytes; they do not enter QMK/ChibiOS timer locking or
+share a cross-core read-modify-write mask.
 
 ## Relation Admission
 
@@ -484,8 +545,12 @@ device acceptance requires `program_failure_count == 0` and
 
 After mount/rotation, the inactive bank is erased opportunistically by
 `era_eeprom_driver_maintenance_task()` (`storage/era_eeprom_driver.c`).
-`era_common_features_task()` (`system/era_common_features.c`) calls it at
-top-level keyboard cadence and each call erases at most one 4-KiB sector.
+`era_common_features_maintenance_task()` (`system/era_common_features.c`) calls
+it at top-level housekeeping cadence and each call erases at most one 4-KiB
+sector. Both ERA class skeletons place that maintenance call after their board
+presentation tick. When an RGB render-policy refresh is pending/in progress, the
+call yields without erasing; background bank hygiene resumes immediately after
+the refreshed frame reaches the PWM flush boundary.
 
 The NVM layer never calls keyboard, matrix, wire or scheduler work from inside a
 program/erase primitive. This is deliberately non-recursive. Returning to the
@@ -588,6 +653,17 @@ Storage transfer exclusivity still protects the bulk chunk stream. It ends once
 the complete candidate has been validated; the following NVM replacement is a
 local synchronous flash window while Core1 continues owning the standing
 relation/wire service from SRAM.
+
+That standing service must not depend on Core0 draining one result per poll
+during the flash window. The responder general ring has three usable entries;
+the same immutable response snapshot can therefore exhaust it before a measured
+macro replacement returns. Core1 keeps one successful section-bearing HEARTBEAT
+result as the sent-shadow commit owner and coalesces only exact duplicates of
+that owner/relation/snapshot/section-mask tuple until Core0 drains it. No storage
+wire phase, retry timer or indicator delay is added. SESSION and runtime/source
+push results retain per-arrival ownership because their bodies can carry peer
+state. The `cause` capture exposes this boundary on `wire crsp` as `coal=`;
+healthy Apply pressure may raise `coal` while `full/noack` stay flat.
 
 No keyboard pass is recursively invoked from ERA NVM. Relation liveness is a
 Core1 responsibility during the Core0 flash window. When Apply closes or a
