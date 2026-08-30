@@ -6,12 +6,12 @@ Canonical for: HOST-PEER source-push matrix semantics, snapshot/seq, HOST-side c
 ## Model
 
 - PEER owns its local matrix source, and publishes the latest debounced local
-  snapshot to the matrix engine's HOST-PEER source snapshot.
+  snapshot to the matrix engine's HOST-PEER source snapshot (`system/era_rp2040_matrix_core.c`).
 - PEER sends source-push only in confirmed HOST-PEER PEER mode; HOST receives
   it only in confirmed HOST-PEER HOST mode.
-- The HOST-PEER wire adapter packs and unpacks source-push matrix payloads and
-  owns no matrix state; HOST stores accepted PEER snapshots in the matrix
-  engine's peer matrix cache.
+- The HOST-PEER wire adapter in `split/era_host_peer_matrix_link.c` packs and
+  unpacks source-push matrix payloads and owns no matrix state; HOST stores
+  accepted PEER snapshots in the matrix engine's peer matrix cache.
 - **The engine owns the apply, not the scheduler.** It compares peer cache
   valid/seq state and applies or clears peer rows only when that state changes;
   the scheduler decides only whether HOST-PEER projection is active for the
@@ -26,9 +26,8 @@ Canonical for: HOST-PEER source-push matrix semantics, snapshot/seq, HOST-side c
 - `host_known_seq8` advances on the HOST's answer to the snapshot request, and
   only under the gate in **Communication-Core Handoff** below.
 - If a request is lost, PEER sends the latest current snapshot again later.
-- Intermediate press/release edges are not guaranteed: the wire fact is the
-  current state, so an edge that comes and goes between two deliveries is not
-  recoverable from this lane, by design.
+- Intermediate press/release edges are not guaranteed: an edge that comes and
+  goes between two deliveries is not recoverable from this lane.
 - **The accepted coalescing class**: a press and its release inside one
   delivery interval net to no change of state and are never observable to the
   HOST — a property of a latest-state snapshot, not a defect. The same class is
@@ -47,9 +46,8 @@ Canonical for: HOST-PEER source-push matrix semantics, snapshot/seq, HOST-side c
 
 - The first publishable local matrix snapshot marks matrix-ready dirty and
   schedules `SESSION_STATUS` revalidation so `matrix_ready` can be advertised.
-  That same edge is what arms the PEER's standing exchange, for the reason
-  canonical in `era_route_contract.md`'s grant section: the HOST answers a
-  heartbeat only once its session records this PEER as `matrix_ready`.
+  That same edge arms the PEER's standing exchange; the reason is canonical in
+  `era_route_contract.md`'s grant section.
 - Steady HOST-PEER PEER matrix dirty marks source-push route due and must not
   require full scheduler planning.
 - **Source-push is the one runtime route core0 selects in this relation** — the
@@ -57,34 +55,35 @@ Canonical for: HOST-PEER source-push matrix semantics, snapshot/seq, HOST-side c
   standing exchange — and it rides the same event route, rings, reserved
   capacity slot and priority as any core0 request. It preempts the standing
   exchange through core1's pass order rather than through a core0 predicate
-  (canonical in `era_route_contract.md`), which keeps the relation's key input
-  ahead of its runtime sections without either side arbitrating.
+  (canonical in `era_route_contract.md`).
 
 ## Communication-Core Handoff
 
 `CORE1_FULL` is the only accepted communication-core stage. Core0 captures the
 latest publishable source snapshot, packs the matrix bytes, and publishes those
-bytes plus `matrix_seq` in an immutable request. **Core1 must not read the
-matrix engine or call a live-state source-push encoder.**
+bytes plus `matrix_seq` in an immutable request (`split/era_host_peer_matrix_link.c`).
+**Core1 must not read the matrix engine or call a live-state source-push encoder.**
 
 Core1 owns wire control/transaction sequence construction, adds the source-push
 header around the copied snapshot, executes TX plus response RX, and returns
 the request sequence, matrix sequence, result, and decoded response summary.
 This lane's answer is the bare control ACK and carries no response section
 (`era_route_contract.md`'s **One carrier for the response section set**), so
-the summary is always empty here and core0 reads none of it — **and it is still
-returned anyway**, because the counters it feeds are the only measurement that
-the suppression is in force: a non-zero one falsifies it. Deleting that
-dead-looking return path deletes the measurement, not dead code.
+the summary is always empty here and core0 reads none of it.
+
+> **REFUSED:** delete the empty response-summary return as dead code.
+> **WHY:** the counters it feeds are the only measurement that the suppression is in force; a non-zero one falsifies it.
+> **REOPENS:** a different measurement that still falsifies a non-empty summary.
 
 Core0 advances `host_known_seq8` only after a generation-matching ACK result is
 applied, and a newer local snapshot stays due rather than being hidden by an
 older result.
 
 On the HOST responder, core1 must reserve the dedicated source-push result slot
-and copy the accepted packed matrix into it before sending the answer; **no
-slot means no ACK**, and general session or heartbeat results must not consume
-this slot. Core0 unpacks and applies the matrix only after
+and copy the accepted packed matrix into it before sending the answer
+(`split/communication_core/era_split_communication_core_responder_service.c`);
+**no slot means no ACK**, and general session or heartbeat results must not
+consume this slot. Core0 unpacks and applies the matrix only after
 owner/relation/snapshot generations match.
 
 ## Diagnostics Interpretation
