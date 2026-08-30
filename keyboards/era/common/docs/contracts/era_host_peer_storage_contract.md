@@ -2,8 +2,9 @@
 
 Genre: contract
 Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the seven-domain
-cross-half storage protocol, replacement Apply, dynamic-macro durability, State
-Sync revisions, EEPROM CLEAN, storage arbitration and recovery
+cross-half storage protocol, replacement Apply, dynamic-macro durability, the
+`GET_KEYBOARD_VALUE` `0x06` State Sync envelope, EEPROM CLEAN, storage
+arbitration and recovery
 
 ## Scope And Authority
 
@@ -300,30 +301,146 @@ stock reset loop unless this recognition rule is deliberately replaced.
 
 ## External H7S State-Sync And Macro Handoff
 
-H7S/VIA compatibility uses the existing 32-byte VIA RAW HID surface. No new
-command id, report, transaction id, capability bit or BUSY state is added.
+This is the QMK/ERA producer for the existing 32-byte VIA RAW HID surface.
+Producer: `system/era_state_sync.c`, compiled only under `VIA_ENABLE`
+(`system/era_common_qmk_rules.mk`). Entry is `via_command_kb()` in
+`system/era_via_system.c` when `ERA_VIA_SYSTEM_ENABLE`, else the same symbol in
+`system/era_state_sync.c`. Both call `era_state_sync_via_command()`. It is not
+an H7S implementation plan.
 
-State Sync is `GET_KEYBOARD_VALUE` (`0x02`), selector `0x06`, envelope version
-`0x01`:
+No new command id, report, transaction id, capability bit, or BUSY status is
+added. `VIA_PROTOCOL_VERSION` in `quantum/via.h` is `0x000C`. Stock GET
+selectors are `id_uptime` `0x01` .. `id_firmware_version` `0x04`; SET-only
+`id_device_indication` is `0x05`. Selector `ERA_STATE_SYNC_KEYBOARD_VALUE`
+`0x06` is unused on that stock GET/SET table. `id_set_keyboard_value` with
+selector `0x06` is not claimed by `era_state_sync_via_command()`; `quantum/via.c`
+marks `id_unhandled` `0xFF`.
 
-- request byte 3 and bytes `6..31` are zero;
-- bytes `4..5` are an opaque echoed tag;
-- OK status is `0x00` in byte 3;
-- byte 6 is domain mask `0x07`, byte 7 zero;
-- bytes 8, 12 and 16 hold nonzero big-endian 32-bit KEYMAP, MACRO and CONFIG
-  revisions;
-- bytes `20..31` remain zero.
+### Envelope v1
 
-| Revision | Advances when |
+`id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x06`) +
+`ERA_STATE_SYNC_ENVELOPE_VERSION` (`0x01`). Integers on the wire are big-endian.
+`era_state_sync_via_command()` in `system/era_state_sync.c` always
+`raw_hid_send()`s 32 bytes when it handles the report. The GET path does not
+read EEPROM, CRC, or NVM.
+
+Request (`system/era_state_sync.c`; names in `system/era_state_sync.h`):
+
+| Byte | Meaning |
+| ---: | --- |
+| `0` | `id_get_keyboard_value` `0x02` |
+| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` `0x06` |
+| `2` | request envelope version |
+| `3` | must be `0` |
+| `4..5` | opaque tag; copied back unchanged; this tree does not interpret them as an integer |
+| `6..31` | must be `0` |
+
+Response after the handler zeros bytes `2..31`, writes version `0x01`, and
+restores the tag:
+
+| Byte | Meaning |
+| ---: | --- |
+| `0` | `0x02` |
+| `1` | `0x06` |
+| `2` | `ERA_STATE_SYNC_ENVELOPE_VERSION` `0x01` (firmware writes this, not the request version byte) |
+| `3` | `ERA_STATE_SYNC_STATUS_OK` `0x00`, `ERA_STATE_SYNC_STATUS_UNSUPPORTED_VERSION` `0x01`, or `ERA_STATE_SYNC_STATUS_INVALID` `0x02` |
+| `4..5` | echoed tag |
+| `6` | OK writes `ERA_STATE_SYNC_DOMAIN_MASK_INITIAL` (`0x07`); error leaves the byte zero |
+| `7` | `0` |
+| `8..11` | OK only: KEYMAP revision, BE32 |
+| `12..15` | OK only: MACRO revision, BE32 |
+| `16..19` | OK only: CONFIG revision, BE32 |
+| `20..31` | `0` |
+
+Domain bits: `ERA_STATE_SYNC_DOMAIN_KEYMAP` `0x01`,
+`ERA_STATE_SYNC_DOMAIN_MACRO` `0x02`, `ERA_STATE_SYNC_DOMAIN_CONFIG` `0x04`.
+Version is checked before reserved bytes. A request version other than `0x01`
+is `UNSUPPORTED_VERSION` even if reserved bytes are also nonzero. A matching
+version with a nonzero reserved byte (`3` or `6..31`) is `INVALID`. On both
+error statuses the tag is still echoed and revisions are not filled. GET does
+not bump any revision.
+
+`tests/era_via_exact_ms/test_exact_ms.cpp` covers the OK envelope, reserved
+`INVALID`, unsupported version, tag echo, and the `length` 31 false return.
+
+> **REFUSED:** `BUSY`, extra status codes, a second report shape, a transaction
+> id, a capability bit, or a new command id on this selector.
+> **WHY:** v1 is GET `0x02` selector `0x06`, statuses `0`/`1`/`2`, one 32-byte
+> layout; a second shape would be another protocol.
+> **REOPENS:** a new envelope version, approved on this tree.
+
+### `length` and short packets (this tree)
+
+`era_state_sync_via_command()` in `system/era_state_sync.c` returns false with
+no `raw_hid_send()` when `data` is null, `length` is less than 2, the command
+is not GET selector `0x06`, or `length` is less than 32. Returning false leaves
+the report to `raw_hid_receive()` in `quantum/via.c`, which for an unknown GET
+selector writes `id_unhandled` `0xFF` and then `raw_hid_send()`s `data` with
+the same `length`. `send_raw_hid()` in `tmk_core/protocol/chibios/usb_main.c`
+drops a send when `length != RAW_EPSIZE`.
+
+On the USB RAW path that `length` is not the host OUT byte count.
+`raw_hid_task()` in `tmk_core/protocol/chibios/usb_main.c` calls
+`raw_hid_receive(buffer, sizeof(buffer))` with `RAW_EPSIZE` 32
+(`tmk_core/protocol/usb_descriptor.h`). The same fact is written on the custom
+value rail in `system/era_common_via.h`: a short OUT still arrives as 32 with
+the tail of an uninitialised stack buffer. A reserved-byte nonzero tail is
+therefore `INVALID` `0x02` on that path, not a `length < 32` miss. The C
+`length < 32` arm is what `tests/era_via_exact_ms/test_exact_ms.cpp` exercises;
+the USB path does not pass a `length` other than 32.
+
+### Peer observation (not edited, not decided here)
+
+Byte layout of the 32-byte v1 envelope matches this tree on the VIA ADR 0001
+and H7S `contract_via` §5 texts read for this re-measure. Peers document bytes
+`4..5` as BE16; this tree echoes the two bytes without combining them.
+
+Short-packet semantics do not match. This table records both sides and does
+not pick a winner.
+
+| Side | What it documents or does with `length < 32` |
 | --- | --- |
-| KEYMAP | the dynamic keymap/encoder image changed |
-| MACRO | a durably completed macro upload or standalone macro RESET only |
-| CONFIG | a GET-visible configuration value changed (SET-before-SAVE, an independent durable local write, or successful remote-domain publication) |
+| this tree, `era_state_sync_via_command()` | returns false; no send from this unit (`system/era_state_sync.c`; test above) |
+| this tree, USB RAW | `length` is always 32; short OUT is not visible as `length < 32`; garbage reserved bytes are `INVALID` |
+| this tree, VIA fallback after false | `quantum/via.c` writes `0xFF`; `send_raw_hid()` then drops a non-32 `length` |
+| H7S `contract_via` §5 | not `INVALID`; handler returns false; `via.c` writes `id_unhandled` `0xFF`; buffer is not rewritten as a v1 envelope. REFUSED answering `INVALID` on `length < 32`. H7S TX is `via_hid_task` enqueue of the same 32-byte buffer; H7S `raw_hid_send()` is an empty stub |
+| VIA ADR 0001 | `0xFF` is not an envelope; probe `0xFF` is the unhandled-selector fallback. H7S §5's peer note: app `parseStateSyncEnvelope` returns null when the IN length is not 32 (neither `0xFF` nor `INVALID`) |
 
-These are nonzero wrapping RAM generations, not durable NVM epochs.
+H7S previously documented `INVALID` for this case; current H7S `contract_via`
+§5 documents `0xFF`.
 
-**H7S must not copy:** ERA NVM banks, split authority, replacement Apply
-internals, or RP2040 flash policy.
+### Revisions
+
+Three RAM `uint32` tokens in `system/era_state_sync.c`, each starting at 1.
+`era_state_sync_next()` skips 0 on wrap. They are not NVM generations and not
+the wire source-revision.
+
+| Token | Advances when (`system/era_state_sync.c`) |
+| --- | --- |
+| KEYMAP | `era_state_sync_note_eeprom_span()` overlaps `[ERA_STORAGE_DYNAMIC_KEYMAP_ADDR, ERA_STORAGE_DYNAMIC_MACRO_ADDR)`, or `era_state_sync_note_storage_domain()` for `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP`. Schema 1 has no encoder map in that span |
+| MACRO | `era_state_sync_note_eeprom_span()` overlaps the 16-KiB macro domain, or `era_state_sync_note_storage_domain()` for `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO`. The custom adapter emits that span only after a completed macro transaction; opener/payload staging emits nothing. Transcript: **Dynamic Macro Transaction** |
+| CONFIG | SET-before-SAVE via `era_state_sync_note_config_semantic_commit()`; a later matching `era_eeprom_update_config()` persist in `storage/era_eeprom_config_io.c` is suppressed for that region only (`era_state_sync_config_persist_begin()` / `_end()`). Independent durable span: syncable ERA config (`ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 / size 176) except the suppressed region, plus RGB Matrix, `keymap_config`, default layer, and VIA layout options. Remote Apply: `era_state_sync_note_storage_domain()` for ERA_CONFIG, QMK_RGB_MATRIX, QMK_KEYMAP_CONFIG, QMK_DEFAULT_LAYER, VIA_LAYOUT_OPTIONS |
+
+Does not advance: protected ERA config, recency/storage-metadata origin,
+`REMOTE_APPLY` / `CLEAN_PREPARE` / `FORMAT` through
+`era_eeprom_driver_note_commit()` in `storage/era_eeprom_driver.c` (those
+origins return before notification; remote Apply uses
+`era_state_sync_note_storage_domain()` in `split/era_host_peer_storage.c`
+after durable success), an open macro's staging writes, and a no-op persist
+of a region already published by SET-before-SAVE.
+
+On a storage-adoption board, `era_eeprom_driver_note_commit()` forwards
+`LOCAL_QMK` and `MACRO_TRANSACTION` through
+`era_host_peer_storage_note_eeprom_commit()` in `split/era_host_peer_storage.c`,
+which calls `era_state_sync_note_eeprom_span()`. Without the storage engine,
+the same notifier calls `era_state_sync_note_eeprom_span()` directly.
+
+> **REFUSED:** H7S copying ERA NVM banks, split authority, replacement Apply
+> internals, or RP2040 flash policy.
+> **WHY:** this selector carries three RAM generations on the existing VIA GET;
+> those surfaces are not on the envelope and are not a portable domain.
+> **REOPENS:** a new envelope version that names those surfaces, approved on
+> this tree and both peers together.
 
 ## Recency Layer
 
