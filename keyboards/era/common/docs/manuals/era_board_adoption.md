@@ -1,13 +1,10 @@
 # ERA Board Adoption
 
-Status: active
 Genre: manual
 Canonical for: what a new ERA board needs, whole — the copy-to-RAM policy and
 what its marker changes beyond placement, the non-split capability boundary
 and baseline, the storage adoption bundle and its five preconditions, and the
 adoption checklist
-Read when: adding a board, migrating one onto the resident image, or changing
-anything a board must do to take the common layer
 
 Per-file source ownership is `era_source_map.md`'s, the placement rules
 `era_sram_residency_contract.md`'s, and the option declarations

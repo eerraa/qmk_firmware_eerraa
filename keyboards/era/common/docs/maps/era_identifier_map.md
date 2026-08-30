@@ -1,13 +1,10 @@
 # ERA Identifier Map
 
-Status: active
 Genre: map
 Canonical for: the identifier space no header owns — modes, routes and route
 reasons, storage service causes, payload and status ids, VIA sync value ids,
 the USB-session thresholds — and every retired number that stays reserved
 un-reused
-Read when: naming new code, diagnostics, routes, payloads or docs, or resolving
-an identifier a capture carries
 
 **A retired identifier's number is never recycled.** Captured console lines are
 dated by what their numbers meant when they were taken, so a re-use would make

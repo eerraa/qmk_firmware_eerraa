@@ -1,11 +1,9 @@
 # ERA QMK Fork Ledger
 
-Status: active
 Genre: manual
 Canonical for: every current ERA edit under QMK-owned source directories, why
 it exists, the gate it rides, and how to re-derive the surface against pristine
 upstream
-Read when: editing QMK core/platform code or preparing an upstream rebase
 
 The pristine reference is QMK commit `c93ef27143`. On a development working
 tree the authoritative current surface is:
@@ -47,8 +45,8 @@ files**. Every one is accounted for below.
 | `quantum/mousekey.c`, `quantum/mousekey.h` | Inert-task early-out, missing runtime-variable declarations, and ERA-adjustable default accelerated-mode movement/wheel deltas. | Runtime deltas: `ERA_MOUSEKEY_RUNTIME_DELTA`; inert guard/declarations are behaviour-preserving ungated fixes. |
 | `quantum/process_keycode/process_tap_dance.c`, `.h`, `quantum/quantum.c` | Weak tap-dance keycode remap and tapping-term seams; `process_record_quantum()` applies the remap both before preprocessing and after a layer-changing relookup. | Weak upstream-defaulted hooks; ERA feature supplies the override. |
 | `quantum/rgb_matrix/animations/digital_rain_anim.h` | Uses lib8tion RNG when available so ERA images do not pull newlib allocator state through `rand()`. | `LIB8TION_ENABLE`; other keyboards retain QMK fallback. |
-| `quantum/rgb_matrix/rgb_matrix.c`, `.h` | Accepted RGB Matrix persistence coalescing plus ERA render policy/idle and pass-phase performance hooks. The render-policy surface includes an explicit board-policy refresh request: a STATUS edge that arrives outside `rgb_matrix_task()` wakes the idle state on the next pass, or follows an already-buffered flush immediately, instead of waiting for the next animation epoch. Its read-only `rgb_matrix_render_policy_refresh_active()` remains true through the actual refreshed PWM flush (or an update that proves no frame is needed), which lets ERA's opportunistic NVM maintenance yield instead of inserting flash windows between a split indicator's multi-pass render states. The query carries presentation priority only; it is not NVM ownership. | `ERA_STORAGE_QUIET_DEFER_MS`, render-policy selectors, `RGB_MATRIX_IDLE_GATE_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; the small value-preserving performance guards are ungated. |
-| `quantum/rgblight/rgblight.c`, `.h` | Accepted VIA RGBLight quiet-save gate with flush-before-reset/suspend support; lib8tion RNG substitution avoids allocator linkage. | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; RNG: `LIB8TION_ENABLE`. |
+| `quantum/rgb_matrix/rgb_matrix.c`, `quantum/rgb_matrix/rgb_matrix.h` | Accepted RGB Matrix persistence coalescing plus ERA render policy/idle and pass-phase performance hooks. The render-policy surface includes an explicit board-policy refresh request: a STATUS edge that arrives outside `rgb_matrix_task()` wakes the idle state on the next pass, or follows an already-buffered flush immediately, instead of waiting for the next animation epoch. Its read-only `rgb_matrix_render_policy_refresh_active()` remains true through the actual refreshed PWM flush (or an update that proves no frame is needed), which lets ERA's opportunistic NVM maintenance yield instead of inserting flash windows between a split indicator's multi-pass render states. The query carries presentation priority only; it is not NVM ownership. | `ERA_STORAGE_QUIET_DEFER_MS`, render-policy selectors, `RGB_MATRIX_IDLE_GATE_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; the small value-preserving performance guards are ungated. |
+| `quantum/rgblight/rgblight.c`, `quantum/rgblight/rgblight.h` | Accepted VIA RGBLight quiet-save gate with flush-before-reset/suspend support; lib8tion RNG substitution avoids allocator linkage. | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; RNG: `LIB8TION_ENABLE`. |
 | `quantum/split_common/split_util.c`, `.h` | Extracts `split_hand_pin_is_left()` so ERA authority can sample the physical side without adopting QMK's boot-master policy. | Present only where `SPLIT_HAND_PIN` exists; weak upstream `is_keyboard_left_impl()` still delegates to it. |
 | `quantum/sync_timer.c`, `.h` | Replaces hardcoded keyboard-master time-source decisions with weak `sync_timer_is_time_source()`, defaulting to upstream mastery; ERA split overrides it with committed wire role. | Weak default; only ERA split scheduler changes semantics. |
 | `quantum/via.c` | Accepted deferred SAVE participation for QMK RGB Matrix/RGBLight channels plus cause-variant macro timing instrumentation. Dynamic macro persistence itself is stock QMK again. | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; timing: `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE`. |
@@ -59,6 +57,11 @@ files**. Every one is accounted for below.
 The table accounts for all 32 current files. A future current-tree derivation
 must reconcile both ways: a diff file without a row is an undocumented fork;
 a row whose files no longer differ is stale documentation.
+
+The commit-time `ERA_` grep also hits `drivers/sensors/cirque_pinnacle.c`.
+Those tokens are Cirque's Extended Register Access (`ERA_ReadBytes`,
+`ERA_WriteByte`), not an ERA firmware edit, and the file is not part of the
+32-file fork surface.
 
 ## Storage-Specific QMK Surface Restored In Session 2
 

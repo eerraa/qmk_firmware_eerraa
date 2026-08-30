@@ -142,7 +142,7 @@ and what was not verified, with why.
 
 ### Genre decides what kind of sentence a document may hold
 
-Every agent document declares a `Genre:` beside its `Status:`, one of:
+Every agent document opens with two lines, `Genre:` and `Canonical for:`; the genre is one of:
 
 - **contract** — what must be true. A rule stands until the design changes.
 - **map** — where a thing lives and what a name means. A row stands until the
@@ -167,7 +167,8 @@ sitting it was made on, and a fixed baseline names what it was measured on.
 What belongs in a state document is the *report*: what ran, what passed, what
 is still owed. So a dated run report, a pass tally and a `cause_` image stamp
 do not belong in a contract, a map or the entry layer. A missing or unknown
-`Genre:` is refused by `era_doc_refs.py`; the sentence *shapes* are not, and
+`Genre:`, an empty `Canonical for:`, or a retired
+`Status:`/`Read when:` line is refused by `era_doc_refs.py`; the sentence *shapes* are not, and
 nothing mechanises them now — the tripwire that did was built when this project
 produced such sentences daily and retired with the campaign that produced them.
 This is the rule, and a writer keeps it.

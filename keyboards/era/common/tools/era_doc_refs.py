@@ -27,9 +27,11 @@ Eight checks, run by default:
   * **sections** -- a document routed to by section name has that section.
     The set routes by section constantly and a renamed heading leaves a
     pointer that reads as live;
-  * **headers** -- every document under `docs/` declares `Status:`, `Genre:`,
-    `Canonical for:` and `Read when:`, and the genre is one AGENTS.md names.
-    The header is how a document states its own scope and sentence kind;
+  * **headers** -- every document under `docs/` declares `Genre:` and
+    `Canonical for:`, the genre is one AGENTS.md names, `Canonical for:` is
+    non-empty, and retired `Status:` / `Read when:` lines are absent. The
+    header is how a document states its own scope and sentence kind; the
+    index owns when a document is read;
   * **index** -- every document `era_active_index.md` names exists, and every
     agent document is reachable from it. AGENTS.md requires the two to move
     together;
@@ -77,29 +79,47 @@ import subprocess
 import sys
 from pathlib import Path
 
+# --- repository-specific, and the only part another repository has to change ---
 REPO = Path(__file__).resolve().parents[4]
 DOC_ROOT = "keyboards/era/common/docs"
 INDEX = f"{DOC_ROOT}/era_active_index.md"
 ENTRY = ("AGENTS.md", "CLAUDE.md")
-
+RULES_PREFIX = ".claude/rules/"
 # The spellings the documents use, tried in this order.
 BASES = ("", "keyboards/era/common/", "keyboards/era/", "keyboards/",
          DOC_ROOT + "/")
 GENRES = {"contract", "map", "manual", "state", "entry"}
-HEADERS = ("Status:", "Genre:", "Canonical for:", "Read when:")
+HEADERS = ("Genre:", "Canonical for:")
+FORBIDDEN_HEADERS = ("Status:", "Read when:")
+FOREIGN_REPOS = ("the-via-eerraa/", "eerraa-qmk-h7s-fw/", "eerraa-54lm20-fw/",
+                 "eerraa-agent-docs/")
+SRC_SUFFIX = (".c", ".h", ".md", ".py", ".sh", ".mk", ".ld", ".json",
+              ".txt", ".S", ".lds", ".yml", ".yaml")
+SKIP_PREFIX = ("http://", "https://", "~/", "/mnt/", "/usr/", "/etc/",
+               "C:", "D:", "$", "%")
+CLAIM_ROOTS = ("keyboards/era", "quantum", "platforms", "tmk_core", "drivers")
+CORE_COMMENT_ROOTS = ("quantum/", "platforms/", "tmk_core/", "drivers/",
+                      "builddefs/")
+CONST_PREFIXES = ("ERA_", "RGB_MATRIX_", "MATRIX_", "RP2040_")
+# The identifier alphabet the safety net tracks out of a deletion.
+TOKEN_ALPHABET = (
+    r"ERA_[A-Z0-9_]+"          # ERA macros
+    r"|[A-Z][A-Z0-9_]{3,}"     # other macros / enum names
+    r"|0x[0-9A-Fa-f]{2,}"      # hex constants / addresses
+    r"|era_[a-z0-9_]+"         # symbols, files, doc stems
+    r"|\b\d{3,}\b"             # sizes, cadences, counts
+)
+TOKEN_CHARS = r"^[A-Za-z0-9._/-]+$"
+# --- end repository-specific ---
 
 # Suffixes that make a token a path claim on their own. Build outputs name no
 # tracked file by design and are not claims about the tree.
-SRC_SUFFIX = (".c", ".h", ".md", ".py", ".sh", ".mk", ".ld", ".json",
-              ".txt", ".S", ".lds", ".yml", ".yaml")
 BUILD_SUFFIX = (".o", ".elf", ".uf2", ".hex", ".bin", ".map", ".d", ".lst")
 # QMK generates these into `.build/`; a document names them because the reader
 # will meet them, and no tree ever contains one.
 GENERATED = {"info_config.h", "info_rules.mk", "info_deps.mk"}
-SKIP_PREFIX = ("http://", "https://", "~/", "/mnt/", "/usr/", "/etc/",
-               "C:", "D:", "$", "%")
 
-TOKEN_OK = re.compile(r"^[A-Za-z0-9._/-]+$")
+TOKEN_OK = re.compile(TOKEN_CHARS)
 BACKTICK = re.compile(r"`([^`\n]+)`")
 MDLINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 CITE = re.compile(
@@ -201,6 +221,8 @@ def is_path_claim(token):
 def resolve(token, origin):
     """Repo-relative target, 'skip' when not a path claim, or None."""
     token = token.strip().rstrip(".,;:)")
+    if token.startswith(FOREIGN_REPOS):
+        return "skip"
     if not token or token.startswith(SKIP_PREFIX) or not TOKEN_OK.match(token):
         return "skip"
     if token.endswith(BUILD_SUFFIX) or set(token) <= set("./"):
@@ -271,7 +293,6 @@ CLAIM_FILEREF = re.compile(
     r"`[A-Za-z0-9_./-]*\.(?:c|h|mk|py|ld|json)`|"
     r"[A-Za-z0-9_./-]+\.(?:c|h|mk|py|ld):\d")
 CLAIM_DEF = r"^[A-Za-z_].*\b[a-z_][a-z0-9_]{4,}\("
-CLAIM_ROOTS = ("keyboards/era", "quantum", "platforms", "tmk_core", "drivers")
 
 
 def function_owners():
@@ -320,14 +341,7 @@ def check_claims(fails):
     return paragraphs
 
 
-# The identifier alphabet the safety net tracks out of a deletion.
-TOKEN = re.compile(
-    r"ERA_[A-Z0-9_]+"          # ERA macros
-    r"|[A-Z][A-Z0-9_]{3,}"     # other macros / enum names
-    r"|0x[0-9A-Fa-f]{2,}"      # hex constants / addresses
-    r"|era_[a-z0-9_]+"         # symbols, files, doc stems
-    r"|\b\d{3,}\b"             # sizes, cadences, counts
-)
+TOKEN = re.compile(TOKEN_ALPHABET)
 
 
 def homeless(range_spec):
@@ -365,7 +379,7 @@ def homeless(range_spec):
 
 def scan_set():
     docs = sorted(p for p in TRACKED if p.startswith(DOC_ROOT))
-    rules = sorted(p for p in TRACKED if p.startswith(".claude/rules/"))
+    rules = sorted(p for p in TRACKED if p.startswith(RULES_PREFIX))
     return docs + [e for e in ENTRY if e in TRACKED] + rules
 
 
@@ -471,8 +485,6 @@ def source_comment_set():
 # block qualifies when it mentions `era` at all. Upstream comment prose is not
 # this repository's to hold locatable, and scanning it would report findings
 # nobody here can fix.
-CORE_COMMENT_ROOTS = ("quantum/", "platforms/", "tmk_core/", "drivers/",
-                      "builddefs/")
 ERA_MENTION = re.compile(r"\bera\b|\bERA_|keyboards/era", re.I)
 
 # `foo.[ch]` is one address written for two files. Expanded rather than skipped,
@@ -549,7 +561,8 @@ def check_source_comments(fails):
 
 
 # A constant's name, as a document writes it.
-CONST_NAME = re.compile(r"\b((?:ERA_|RGB_MATRIX_|MATRIX_|RP2040_)[A-Z0-9_]{4,})\b")
+CONST_NAME = re.compile(
+    r"\b((?:" + "|".join(CONST_PREFIXES) + r")[A-Z0-9_]{4,})\b")
 CONST_DEF = re.compile(r"^#\s*define\s+([A-Z][A-Z0-9_]*)\s+(\S[^\n]*)$", re.M)
 MK_ASSIGN = re.compile(r"^([A-Z][A-Z0-9_]*)\s*\??=\s*(\S[^\n]*)$", re.M)
 # A bare integer in prose, not a version, a line number or part of a word.
@@ -679,16 +692,26 @@ def check_headers(fails):
     docs = [p for p in TRACKED
             if p.startswith(DOC_ROOT) and p.endswith(".md")]
     for rel in docs:
+        if rel.startswith(f"{DOC_ROOT}/user/"):
+            continue
         head = "\n".join((REPO / rel).read_text(
             encoding="utf-8", errors="replace").splitlines()[:14])
         for header in HEADERS:
             if header not in head:
                 fails.append(f"{rel}: no `{header}` header in its first lines")
+        for header in FORBIDDEN_HEADERS:
+            if header in head:
+                fails.append(
+                    f"{rel}: `{header}` header is retired — the index owns "
+                    "when a document is read")
         match = re.search(r"^Genre:\s*(\S+)", head, re.M)
         if match and match.group(1).strip().lower() not in GENRES:
             fails.append(f"{rel}: `Genre: {match.group(1)}` is not one of "
                          + ", ".join(sorted(GENRES)))
-    return len(docs)
+        canon = re.search(r"^Canonical for:\s*(.*)", head, re.M)
+        if canon and not canon.group(1).strip():
+            fails.append(f"{rel}: `Canonical for:` is empty")
+    return len([p for p in docs if not p.startswith(f"{DOC_ROOT}/user/")])
 
 
 def check_index(fails):

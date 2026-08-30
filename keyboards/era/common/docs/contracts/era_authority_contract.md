@@ -1,11 +1,9 @@
 # ERA Authority Contract
 
-Status: active
 Genre: contract
 Canonical for: relation authority and its derivation, local session facts, the
 persisted sync-policy bits and their EEPROM block, matrix readiness, storage
 direction authority, revalidation policy, and the authority/scheduler boundary
-Read when: editing reducer, mode planner, session, router, or responder gates
 
 ## Local Authority Facts
 

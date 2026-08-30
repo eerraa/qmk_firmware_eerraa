@@ -1,13 +1,10 @@
 # ERA Source Map
 
-Status: active
 Genre: map
 Canonical for: per-file and per-unit source ownership and edit boundaries;
 source editing rules; build selectors and where each is declared; the QMK core
 modification ledger; stored-data compatibility; the copy-to-RAM policy; the
 split/non-split board boundary
-Read when: locating an implementation owner, planning source changes, adding or
-changing a build option, editing a QMK core file, or adopting a board
 
 ## Relation, Policy, And Routing
 

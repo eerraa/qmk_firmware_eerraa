@@ -1,11 +1,8 @@
 # ERA Closed Surface Contract
 
-Status: active
 Genre: contract
 Canonical for: what is open on the split wire, what stays closed, and the
 Opening Rule any opening must pay
-Read when: editing classifiers, routes, scheduler domains, responder apply, or
-any section's eligibility
 
 ## Currently Open Exceptions
 

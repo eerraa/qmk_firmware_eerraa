@@ -1,12 +1,9 @@
 # ERA Build And Flash
 
-Status: active
 Genre: manual
 Canonical for: what the configured WSL automation must provide to build this
 firmware, its one build-and-gate entry point, how a built image reaches a
 keyboard, and the short TOMAK_TKL release-image hardware handoff
-Read when: building ERA firmware for the first time on a machine, flashing one,
-or running the TOMAK_TKL release-image hardware acceptance route
 
 **Agent and evidence builds use the configured WSL local-build automation.**
 From the Windows edit tree the entry point is the host adapter's explicit

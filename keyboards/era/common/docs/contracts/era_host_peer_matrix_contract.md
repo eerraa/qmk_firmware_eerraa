@@ -1,9 +1,7 @@
 # ERA HOST-PEER Matrix Contract
 
-Status: active
 Genre: contract
 Canonical for: HOST-PEER source-push matrix semantics, snapshot/seq, HOST-side cache projection, this lane's core0/core1 handoff, and the accepted coalescing class
-Read when: editing `era_host_peer_matrix_link`, scheduler transport hooks, or responder matrix admission
 
 ## Model
 

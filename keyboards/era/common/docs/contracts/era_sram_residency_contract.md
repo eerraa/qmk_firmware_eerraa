@@ -1,15 +1,10 @@
 # ERA SRAM-Resident Load Image Contract
 
-Status: active; in force.
 Genre: contract
 Canonical for: ERA RP2040 memory placement and the load layout, copy-to-RAM
 execution scope, the flash startup carve-out, the SRAM budget structure and
 growth reserves, the boot-ordering invariant, the durable-apply liveness
 design, and the closed placement surfaces
-Read when: changing the load layout, the linker script, the startup carve-out
-or the core1 halt inside it, memory placement or core1 launch resources,
-scan/transaction scheduling assumptions, the durable-apply liveness path, or
-migrating a board onto this image
 
 ## Why The Image Is Resident
 

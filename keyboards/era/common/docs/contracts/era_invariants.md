@@ -1,11 +1,9 @@
 # ERA Active Invariants
 
-Status: active
 Genre: contract
 Canonical for: non-negotiable ERA invariants — QMK fork hygiene, wire direction
 and traffic shape, the core0/core1 division, the boot-safety cluster, and the
 Stop Conditions
-Read when: every ERA split implementation or review session
 
 ## Hard Invariants
 

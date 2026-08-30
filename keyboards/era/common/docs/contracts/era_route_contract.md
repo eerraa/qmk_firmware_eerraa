@@ -1,12 +1,10 @@
 # ERA Route Contract
 
-Status: active
 Genre: contract
 Canonical for: route ownership and priority, route kind/reason, all service
 cadences and poll period values, the standing exchange grant, storage route
 admission and exclusivity, freshness handoff, stale recovery, the due/deadline
 model, and latch discipline
-Read when: editing router, scheduler, responder service, or mode planner
 
 ## Common Route Priority
 

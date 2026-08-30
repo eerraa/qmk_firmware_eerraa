@@ -1,12 +1,9 @@
 # ERA Performance Gates
 
-Status: active
 Genre: manual
 Canonical for: what a change owes before it is believed — the build, the source
 and static checks, the refactor tiers, and every standing figure a change must
 not regress
-Read when: changing scan-bound work, RAM placement, scheduler behaviour,
-communication-core ownership, or HOST-PEER storage
 
 **This document is forward-looking: it says what a *new* change must
 demonstrate.** It carries no record of which checks a past change ran, and it is

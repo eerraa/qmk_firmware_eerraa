@@ -1,10 +1,8 @@
 # ERA Active Index
 
-Status: active
 Genre: entry
 Canonical for: the current-state summary and the task read matrix — the router
 from a task area into the smallest correct set of active documents
-Read when: after `AGENTS.md`
 
 ## Current State
 
@@ -115,6 +113,7 @@ opening it.
 | the audited TOMAK_TKL UF2/manifest location or the shortest ordered release-image hardware acceptance route | — | `manuals/era_build_and_flash.md`'s **TOMAK_TKL Hardware Acceptance Route** | `manuals/era_capture_reading.md` only if an ambiguous overlap is escalated to a wire-diagnostic capture |
 | any build, build experiment, or artifact offered as evidence | — | — | `manuals/era_performance_gates.md` |
 | real-device capture or counter-delta review | — | `manuals/era_capture_reading.md` | `manuals/era_performance_gates.md` |
+| naming a new identifier, value id, diagnostic field or document, or resolving what a name means | — | `maps/era_identifier_map.md` | — |
 | documentation reorganization | `AGENTS.md`, `era_active_index.md` | `maps/era_source_map.md` | — |
 | user-facing firmware/VIA docs | `user/readme.txt` for a one-piece board and `user/readme_split.txt` for a split one — two self-contained guides, because each ships beside one keyboard's firmware and its reader has only that keyboard. What differs is the SYNC family and the red status lights; a change to a shared feature is made in both | `user/via_keycodes.txt` | — |
 

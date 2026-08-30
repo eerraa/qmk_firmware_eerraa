@@ -1,11 +1,9 @@
 # ERA Capture Reading
 
-Status: active
 Genre: manual
 Canonical for: decoding a `WIRE_DIAG` console line — every field's semantics,
 line pacing and sample skew, which counters are totals against deltas against
 rates, and the reading traps that decide whether a reading is valid at all
-Read when: reading a real-device capture, or deriving any figure from one
 
 The identifiers a capture carries — mode, route, payload, status and VIA value
 numbers, and every retired number that stays reserved — are

@@ -1,12 +1,9 @@
 # ERA Replacement Storage Contract
 
-Status: active
 Genre: contract
 Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the seven-domain
 cross-half storage protocol, replacement Apply, dynamic-macro durability, State
 Sync revisions, EEPROM CLEAN, storage arbitration and recovery
-Read when: changing any persistent ERA/VIA/QMK setting, the custom EEPROM
-adapter, ERA NVM, storage wire operations, State Sync, or EEPROM CLEAN
 
 This contract describes the current production architecture only. Git carries
 the retired implementation history; an active reader must not have to choose

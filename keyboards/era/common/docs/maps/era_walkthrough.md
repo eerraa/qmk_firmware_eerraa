@@ -1,12 +1,9 @@
 # ERA Walkthrough
 
-Status: active
 Genre: map
 Canonical for: the end-to-end paths — one keyboard pass, a key on each kind of
 half, a configuration change reaching both halves, boot up to the wire opening,
 and suspend through wake. It maps each path onto the files it passes through
-Read when: you need to know **where** a change goes, before you read the
-contract that says **what** it must preserve
 
 The contracts each describe one surface and assume the others. This document is
 the other axis: it follows five things all the way through and names the file at

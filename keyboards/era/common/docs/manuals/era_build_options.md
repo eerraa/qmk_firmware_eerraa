@@ -1,13 +1,10 @@
 # ERA Build Options
 
-Status: active
 Genre: manual
 Canonical for: where an ERA build option is declared and why that file rather
 than another, every selector with its default, the dependency edges and the
 layer each may be stated in, the arrangements considered and rejected, and
 what a build combination is expected to do
-Read when: adding or changing a build option, a feature enable/disable, or a
-new board/keymap combination
 
 Which source file reads an option is `era_source_map.md`'s; which board ships
 which feature set is that board's `post_rules.mk`.

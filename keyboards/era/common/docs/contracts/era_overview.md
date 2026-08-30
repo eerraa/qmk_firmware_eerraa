@@ -1,12 +1,9 @@
 # ERA Overview
 
-Status: active
 Genre: contract
 Canonical for: the ERA mental model and shared vocabulary. The plain-language
 architecture picture and the glossary live only here; every rule, ownership
 row, and symbol name stays canonical in the documents this file points to.
-Read when: first, before the invariants and the task-specific set, so the
-jargon-heavy documents below decode on first contact.
 
 ## What ERA Is
 

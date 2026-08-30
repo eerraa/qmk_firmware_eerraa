@@ -1,9 +1,7 @@
 # ERA Wire Contract
 
-Status: active
 Genre: contract
 Canonical for: compact wire payload ids and packet shapes, closed ids, section marker tables and body layouts, section eligibility, SESSION_STATUS frame validity, the section disciplines and the deferral order
-Read when: editing payload encode/decode, scheduler IO, responder, or router
 
 ## Compact Payload Kinds
 

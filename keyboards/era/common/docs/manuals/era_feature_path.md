@@ -1,10 +1,8 @@
 # ERA Feature Path
 
-Status: active
 Genre: manual
 Canonical for: the order a new ERA feature is added in, the decision each step
 makes, and what the finished feature owes before it is believed
-Read when: adding a behaviour this firmware does not have yet
 
 `era_board_adoption.md` is the same document for a new *board*. This one is for
 a new behaviour on the boards that exist. It defines no rule of its own: every
