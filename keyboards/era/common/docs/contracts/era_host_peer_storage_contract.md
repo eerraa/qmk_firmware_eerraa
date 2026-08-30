@@ -11,7 +11,7 @@ Sync revisions, EEPROM CLEAN, storage arbitration and recovery
 | --- | --- | --- |
 | VIA / eeconfig / dynamic keymap / ordinary QMK features | QMK | public EEPROM API and its logical layout |
 | stock QMK EEPROM API | QMK | void write surface |
-| `EEPROM_DRIVER=custom` | QMK / ERA boundary | `storage/era_storage_adoption.h` |
+| `EEPROM_DRIVER=custom` | QMK / ERA boundary | `storage/era_storage_adoption.h`, `storage/era_storage_adoption_rules.mk` |
 | custom adapter: mount/init; stock QMK logical reads from the 24-KiB public RAM image; stock QMK writes through the result-bearing NVM engine; committed-span notification; result-bearing remote replacement and CLEAN prepare; one-sector inactive-bank maintenance | ERA | `storage/era_eeprom_driver.c` |
 | ERA NVM v1, including whole-store format / erase via `era_nvm_format()` | ERA | `storage/era_nvm.c` |
 | RP2040 NOR backend | ERA | `storage/era_nvm_rp2040.c` |
@@ -20,11 +20,15 @@ QMK owns the public EEPROM API. ERA owns persistence below it. QMK Core does
 not know ERA NVM banks, journal records, flash verification, dirty domains,
 replacement transactions, or CLEAN replay proof.
 
-The QMK-visible logical EEPROM is exactly 24 KiB (`EEPROM_SIZE` 24576).
-Production ERA RP2040 storage builds select `EEPROM_DRIVER=custom` and that
-size. QMK wear-leveling is not linked. An ordinary QMK EEPROM write has no
-error return. Replacement Apply and CLEAN never derive durable success from a
-void QMK call; they use the result-bearing API below that surface.
+Logical EEPROM is `ERA_STORAGE_EEPROM_LOGICAL_SIZE` / `EEPROM_SIZE` 24576,
+asserted as `TOTAL_EEPROM_BYTE_COUNT` 24576 in
+`split/era_host_peer_storage.c`. The three split boards
+(`sirind/tomak`, `sirind/tomak79h`, `sirind/tomak79s`) include
+`storage/era_storage_adoption_rules.mk`, which sets `EEPROM_DRIVER=custom`
+and force-includes `storage/era_storage_adoption.h`. QMK wear-leveling is
+not linked. An ordinary QMK EEPROM write has no error return. Replacement
+Apply and CLEAN never derive durable success from a void QMK call; they use
+the result-bearing API below that surface (`storage/era_eeprom_driver.h`).
 
 ## ERA NVM Physical Contract
 
@@ -56,45 +60,104 @@ are separate compatibility decisions.
 
 ## Current Storage Inventory
 
-The seven portable domains synchronize semantic logical ranges, never physical
-NVM metadata. Schema 1 parameterises the dynamic keymap as four layers ×
-`MATRIX_ROWS` × `MATRIX_COLS` × two bytes; the macro base follows that range.
-Every other domain address and size is geometry-independent. Both halves of a
-pair run one identical image; probe/proof identity rejects schema or size
-mismatch before content moves.
+Seven portable domains. Table `g_era_host_peer_storage_domains` in
+`split/era_host_peer_storage.c`; ids `era_split_eeprom_sync_domain_t` in
+`split/era_split_eeprom_sync.h`; sizes bound across cores by
+`ERA_HOST_PEER_STORAGE_DOMAIN_*` in `split/era_host_peer_storage.h` and the
+matching `_Static_assert`s in that `.c`. Addresses from
+`storage/era_storage_layout.h` and `storage/era_eeprom_layout.h`. Semantic
+logical ranges only — never NVM banks, journal, or local metadata.
+`ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
+`ERA_HOST_PEER_STORAGE_SCHEMA_V1` 1 on every row. Probe/proof refuses a
+schema or size mismatch before content moves. Both halves of a pair run one
+identical image (`era_source_map.md` **Stored-Data Compatibility**).
 
-| Domain | Id | Logical owner/source range | Schema | Bytes | Target reload |
-| --- | ---: | --- | ---: | ---: | --- |
-| `ERA_CONFIG` | 0 | logical `37..212` | 1 | 176 | ERA common + board reload |
-| `DYNAMIC_KEYMAP` | 1 | base 297, 4 × rows × cols × 2 | 1 | geometry | none; QMK reads EEPROM image |
-| `DYNAMIC_MACRO` | 2 | immediately after keymap | 1 | 16384 | none; QMK reads EEPROM image |
-| `QMK_RGB_MATRIX` | 3 | logical offset 23 | 1 | 8 | RGB Matrix reload |
-| `QMK_KEYMAP_CONFIG` | 4 | logical offset 4 | 1 | 2 | `keymap_config` reload |
-| `QMK_DEFAULT_LAYER` | 5 | logical offset 3 | 1 | 1 | default-layer apply |
-| `VIA_LAYOUT_OPTIONS` | 6 | logical offset 296 | 1 | 1 | VIA layout-options apply |
+Reload is `era_split_eeprom_sync_reload_domain_kb()` in
+`sirind/common/tomak_common.c`. The weak default in
+`split/era_split_eeprom_sync.c` is empty. Keymap and macro have no reload:
+QMK reads the public EEPROM image.
 
-| Geometry | Keymap | Macro |
-| --- | --- | --- |
-| 12×9 | 864 B at `297..1160` | `1161..17544` |
-| 12×11 `sirind/tomak` | 1056 B | starts at `1353` |
+| Id | Domain | Address | Size | Reload |
+| ---: | --- | --- | --- | --- |
+| 0 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG` | `ERA_EEPROM_CONFIG_ADDR` 37 + `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 (`37..212`) | `ERA_EEPROM_SYNCABLE_CONFIG_SIZE` / `ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES` 176 | board keyboard-config + `era_split_keyboard_reload_features_from_eeprom()` in `split/era_split_keyboard.c` |
+| 1 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP` | `ERA_STORAGE_DYNAMIC_KEYMAP_ADDR` / `ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR` 297 | `ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS` 4 × `MATRIX_ROWS` × `MATRIX_COLS` × 2 | none |
+| 2 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO` | `ERA_STORAGE_DYNAMIC_MACRO_ADDR` (immediately after keymap) | `ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES` / `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` / `DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE` 16384 | none. Marker = final byte of this domain |
+| 3 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX` | `ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR` 23 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES` 8 (`sizeof(rgb_config_t)`) | RGB Matrix |
+| 4 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG` | `ERA_STORAGE_EECONFIG_KEYMAP_ADDR` 4 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES` 2 (`sizeof(keymap_config_t)`) | `keymap_config` |
+| 5 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER` | `ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR` 3 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES` 1 | default-layer apply |
+| 6 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS` | `ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR` 296 | `ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES` 1 (`VIA_EEPROM_LAYOUT_OPTIONS_SIZE`) | VIA layout-options apply |
 
-The ERA config block is `ERA_EEPROM_CONFIG_SIZE` 256 bytes starting at
-`ERA_EEPROM_CONFIG_ADDR` 37 — first 176 bytes portable `ERA_CONFIG`;
-bytes `176..255` are local/protected and never cross the storage wire. The
-interior owner map is canonical in `storage/era_eeprom_layout.h`. Rearranging
-that local map requires the existing `ERA_EEPROM_RESET_KEY` policy even when
-wire schema 1 stays the same.
+QMK prefix `ERA_EEPROM_QMK_CONFIG_SIZE` 37. Portable seats in it are domains
+3–5; the rest of that prefix is not a domain. `VIA_EEPROM_MAGIC_ADDR` is
+`ERA_EEPROM_CONFIG_END` 293 (three bytes `293..295`). Layout options follow
+at 296 because `VIA_EEPROM_LAYOUT_OPTIONS_SIZE` is 1 and
+`VIA_EEPROM_CUSTOM_CONFIG_SIZE` is 0. Keymap at 297 is that sum, asserted in
+`split/era_host_peer_storage.c`.
+
+Keymap bytes = `ERA_STORAGE_DYNAMIC_KEYMAP_BYTES`. Macro starts at
+keymap-base + keymap-bytes. No encoder map sits between them
+(`storage/era_storage_layout.h`; `ERA_HOST_PEER_STORAGE_DYNAMIC_ENCODER_ADDR`
+in `split/era_host_peer_storage.c` is defined and unused). Every other
+domain address and size is geometry-independent.
+
+| Board | Matrix | Keymap | Macro |
+| --- | --- | --- | --- |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 864 at `297..1160` | `1161..17544` |
+| `sirind/tomak` | 12×11 | 1056 at `297..1352` | `1353..17736` |
+
+ERA config block: `ERA_EEPROM_CONFIG_SIZE` 256 at `ERA_EEPROM_CONFIG_ADDR`
+37, ending at `ERA_EEPROM_CONFIG_END` 293. Interior owner map:
+`storage/era_eeprom_layout.h` (abutting `_Static_assert`s, not restated
+here). Domain 0 is the syncable half only:
+`ERA_EEPROM_SYNCABLE_CONFIG_SIZE` 176, `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0
+so the domain image is indexed by config-block offset. Candidate Apply of
+domain 0 walks `ERA_EEPROM_SYNCABLE_RESERVED_OFFSET` 164 /
+`ERA_EEPROM_SYNCABLE_RESERVED_SIZE` 12 and refuses the domain unless those
+bytes are zero (`era_host_peer_storage_reserved_era_config_is_zero()` in
+`split/era_host_peer_storage.c`). Protected
+`ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 /
+`ERA_EEPROM_PROTECTED_CONFIG_SIZE` 80 (`176..255` of the block, logical
+`213..292`) is not a domain. Local-policy 24-byte layout, version 5, and
+protected neighbors: `era_authority_contract.md` **Persisted Sync Policy**.
+Rearranging the ERA block still requires the `ERA_EEPROM_RESET_KEY` policy
+even when wire schema 1 is unchanged.
+
+> **REFUSED:** growing `ERA_EEPROM_CONFIG_SIZE` past 256, or declaring `EECONFIG_KB_DATA_SIZE` / `EECONFIG_USER_DATA_SIZE` on a storage-adoption board.
+> **WHY:** the first moves `VIA_EEPROM_MAGIC_ADDR` and the keymap base; either EECONFIG extra moves `ERA_EEPROM_CONFIG_ADDR` off 37 and the whole schema with it.
+> **REOPENS:** a new schema version that relocates VIA magic, keymap, and macro together, with `ERA_EEPROM_RESET_KEY` advanced.
+
+> **REFUSED:** a dynamic encoder map, or any other reserved span, between the keymap and macro domains without a schema change.
+> **WHY:** schema 1 places the macro immediately after the keymap (`ERA_STORAGE_DYNAMIC_MACRO_ADDR`); a silent insert would shift the macro on the first board that declared encoders.
+> **REOPENS:** a board that declares a dynamic encoder map, with the address formula and schema version changed together.
+
+> **REFUSED:** placing a live `ERA_CONFIG` field inside `ERA_EEPROM_SYNCABLE_RESERVED` without shrinking that reserve.
+> **WHY:** the reserved-zero walk refuses the whole domain unless those twelve bytes are zero, so a claim left inside fails every Apply that carries it.
+> **REOPENS:** the reserve offset and size shrink in `storage/era_eeprom_layout.h` and the walk follows.
+
+> **REFUSED:** extending domain 0 through the protected range `176..255`.
+> **WHY:** those bytes are half-local (sync policy, link level, reset guard, recency baseline) and must be allowed to differ; putting them on the wire would clone arbitration metadata and the link rate.
+> **REOPENS:** a design that makes those records identical on both halves without an agreed restart.
 
 ## Excluded Local State
 
-Never portable storage payload: local sync-policy flags and divergence
-counters; split link level; reset guard / EEPROM reset key record; per-domain
-convergence baseline record; protected reserve bytes; ERA NVM physical
-metadata, generations and journal structure; runtime transaction generations,
-route state and diagnostics.
+Not portable payload, and not in `g_era_host_peer_storage_domains`:
 
-The wire synchronizes owner content. It never clones physical storage state or
-local arbitration metadata.
+| Span | Content | Home |
+| --- | --- | --- |
+| rest of the QMK prefix inside `ERA_EEPROM_QMK_CONFIG_SIZE` 37 | magic, debug, and the eeconfig fields that are not domains 3–5 | QMK eeconfig; `storage/era_storage_layout.h` names only the three portable seats |
+| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
+| `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 220 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`220..251`) | **Recency Layer** |
+| `ERA_EEPROM_LINK_CONFIG_OFFSET` 200 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
+| `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 204 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; tomak family strict reset |
+| `VIA_EEPROM_MAGIC_ADDR` 293, three bytes | VIA magic | QMK VIA |
+| after macro to `EEPROM_SIZE` 24576 | unused logical | — |
+| ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |
+| runtime transaction generations, route state, diagnostics | not EEPROM | `split/era_host_peer_storage.c` |
+
+The wire synchronizes owner content. It never clones physical storage state
+or local arbitration metadata. A recency write uses
+`era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`
+and cannot re-dirty a domain: those spans sit outside every domain range.
 
 ## Normal Local Writes And Dirty Publication
 
@@ -204,8 +267,8 @@ internals, or RP2040 flash policy.
 
 | Record | Home |
 | --- | --- |
-| per-domain baseline CRC | protected local EEPROM offsets `220..251` (32 B) |
-| 16-bit divergence counters | local policy block; layout is `era_authority_contract.md` |
+| per-domain baseline CRC32 + guard | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 220 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 (`220..251`). Struct `era_host_peer_storage_baseline_record_t` in `split/era_host_peer_storage.c`: seven CRC32 then a guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
+| 16-bit LE divergence counters | local-policy `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10, seven × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2; layout `era_authority_contract.md` **Persisted Sync Policy** |
 
 They never cross as portable domain bytes.
 
@@ -218,9 +281,11 @@ They never cross as portable domain bytes.
 An invalid baseline remains conservative across boot: every domain reads as
 changed until the relation proves it, so a standalone or unilateral CLEAN is a
 real local divergence. Confirmed convergence is one result-bearing replacement
-over config offsets `186..251` via `era_eeprom_driver_write_storage_metadata()`
-in `storage/era_eeprom_driver.c` (agreed CRC and a zero counter; intervening
-bytes copied unchanged). I/O failure leaves both old facts public. First MATCH
+over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 176 +
+`ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10 through
+`ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 252 exclusive (`186..251`) via
+`era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`
+(agreed CRC and a zero counter; intervening link/reset bytes copied unchanged). I/O failure leaves both old facts public. First MATCH
 after an invalid record keeps unknown neighbour CRC seats at zero. The NVM
 origin is internal storage metadata, not `LOCAL_QMK`: no State Sync revision
 and no portable dirty-domain notification. MATCH-only relation-open work is
