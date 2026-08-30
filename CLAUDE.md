@@ -17,18 +17,15 @@ other tools follow the policy as written.
   a session touches a file in a task area, the matching rule loads and names
   that area's canonical read set. The matrix in `era_active_index.md` stays
   the authority; the rules only route to it.
-- The shared gate (`hooks/era_pretooluse.py`) runs
-  `keyboards/era/common/tools/era_doc_refs.py` on any commit touching what that
-  script reads — the agent-document layer, or a `.c`/`.h`/`.mk` under
-  `keyboards/era` or under one of the QMK core roots that carry ERA comments
-  (`quantum/`, `platforms/`, `tmk_core/`, `drivers/`, `builddefs/`) — and
-  reminds about that script's `--homeless` deletion
-  safety net when doc lines are deleted. The check is armed whole: every
-  finding it reports is a fact about the tree — a path, a line address, a
-  heading, a header — so there is no evidence-for-a-reader half to hold back.
-  The script is tool-neutral and runnable by hand; the hook only decides when
-  it must run. Claude reaches the gate from `.claude/settings.json`; the two
-  files under `.claude/hooks/` are shims for older Claude settings.
+- Commit-time checks are a git pre-commit hook (`hooks/pre-commit` →
+  `hooks/era_commit_check.py`), armed once per clone by
+  `git config core.hooksPath hooks` (Machine setup). It runs `era_doc_refs.py`
+  on any commit touching the agent-document layer or an ERA-commented
+  `.c`/`.h`/`.mk`, the fork-ledger check on any commit touching
+  `quantum/ platforms/ drivers/` or the ledger, and
+  `git diff --cached --check` always; a deletion of doc lines prints the
+  `--homeless` reminder. Claude has no project hooks; `.claude/settings.json`
+  carries only `permissions.deny`.
 
 ### graphify
 
@@ -92,6 +89,8 @@ query:
   `find . -path ./.git -prune -o -type f -print | awk '{print length($0)-2}' | sort -rn | head -1`.
   A `--recursive` clone that pulls `lib/chibios-contrib/ext/mcux-sdk` is the
   case that plausibly needs it, and that submodule is not checked out here.
+- `git config core.hooksPath hooks` — once per clone, in the edit tree. The
+  WSL build tree never commits and needs none.
 
 ### WSL2 build environment
 

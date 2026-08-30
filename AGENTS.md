@@ -30,24 +30,12 @@ style preference.
 
 - `CLAUDE.md` — the Claude Code entry point. Imports `AGENTS.md`.
 - `.claude/` — Claude wiring: settings, path-scoped rules, and the committed build scripts.
-- `.grok/` — Grok Build wiring. `.codex/` — Codex CLI wiring.
-- `hooks/era_pretooluse.py` — the one PreToolUse gate those three wirings call.
-  How each tool reaches it is adapter; what it enforces is already in this
-  file's Graphify section and in the commit-time `era_doc_refs.py` rule.
-- `hooks/test_era_pretooluse.py` — the conformance check for those adapters,
-  their host payloads, and the shared blocking path.
+- `hooks/pre-commit` + `hooks/era_commit_check.py` — the one commit-time
+  check, host-neutral: git runs it, so Claude, Codex, Grok and the owner's
+  terminal share one path
+- `hooks/test_era_commit_check.py` — its conformance test: wiring, absence of
+  any host PreToolUse path, and an end-to-end refused commit
 - Any equivalent entry point another tool needs.
-
-Each host MUST enter that gate through its own native project adapter. A
-foreign compatibility importer is not an ERA adapter: it may translate tool
-names, payloads, handler fields, or process launch differently. Grok therefore
-loads `.grok/hooks/` for ERA and does not import `.claude` hooks;
-`.grok/README.md` owns the machine setting. Turning that import off does not
-turn Grok's native project hooks off.
-
-> **REFUSED:** use one host's compatibility importer as another host's ERA wiring.
-> **WHY:** the importer is not a cross-host contract for handler fields, payloads, or process launch.
-> **REOPENS:** all supported hosts publish and pass one conformance suite for those surfaces.
 
 An adapter may describe *how* a tool reaches or enforces canon; it may never
 define a project rule, a contract, a read policy, or a fact about the
@@ -99,7 +87,8 @@ environment from a tree synchronized to the change; the Source Gate for
 closed-surface, retired-path and QMK core matrix changes; the Refactor
 Self-Check tier for a change whose whole claim is that it touched no
 behaviour. **A change that touches no source owes none of them, and saying so
-is the verification statement.**
+is the verification statement.** The commit-time checks run from
+`hooks/pre-commit`; a commit made with `--no-verify` is not a verified commit.
 
 ### Evidence And Retirement
 

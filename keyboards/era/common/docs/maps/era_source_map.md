@@ -338,7 +338,7 @@ Finding these three is a scan, and the scan does not live here:
 > **WHY:** they emit candidates, not violations, so nothing can arm them, and an
 > unarmed committed script is a surface to maintain with no failure it can
 > report; the half of that work that *does* emit violations — an unresolvable
-> reference — was folded into `era_doc_refs.py`, which the commit gate already
+> reference — was folded into `era_doc_refs.py`, which the pre-commit check already
 > runs.
 > **REOPENS:** a detector whose every finding is a fact about the tree, which is
 > the same bar `era_doc_refs.py` meets and the reason it is committed.

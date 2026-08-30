@@ -1,0 +1,11 @@
+#!/bin/sh
+# ERA pre-commit: the static checks a commit owes (whitespace, QMK fork
+# ledger, agent-document references). Activated once per clone with
+#   git config core.hooksPath hooks
+# Never bypass with --no-verify; fix the finding.
+# Prefer python3 (this clone and typical Linux); fall back to python
+# (Windows Git Bash / PATH python).
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$(git rev-parse --show-toplevel)/hooks/era_commit_check.py"
+fi
+exec python "$(git rev-parse --show-toplevel)/hooks/era_commit_check.py"
