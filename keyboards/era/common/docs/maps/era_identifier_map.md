@@ -110,8 +110,12 @@ odessey's band with a second slot that would have put a brightness slider on
 start above the contested band. **A new claimant on this channel checks the
 whole table above, not the band it was aiming at.**
 
-`72..79` does not reuse the legacy term field ids. Firmware still answers both
-bands. Channel 15 value id `5` is the matching exact global tapping term
+`72..79` does not reuse the legacy term field ids. Firmware in
+`features/era_tapdance_via.c` answers both bands; both stay. Tree JSON in
+each board's `keymaps/via` folder is the stock-VIA/legacy surface; the VIA
+app (`the-via-eerraa`) presents exact-ms. That split is intentional dual
+compatibility with usevia.app, not a mismatch to resolve. Channel 15 value
+id `5` is the matching exact global tapping term
 (`features/era_tapping_via.c`); ids `1..4` on that channel stay the legacy
 1-byte/10 ms global term and the three booleans.
 
