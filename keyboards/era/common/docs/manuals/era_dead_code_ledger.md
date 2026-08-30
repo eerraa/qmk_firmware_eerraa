@@ -91,7 +91,7 @@ No pending DELETE rows.
 
 | ID | Removed | Proof |
 | --- | --- | --- |
-| DC-empty-ifdef | 2026-08-30, this PR | Re-measured before delete: the first `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` … `#endif` in `split/communication_core/era_split_communication_core_diagnostics.c` still wrapped only a comment (zero non-comment tokens). `era_split_communication_core_get_diagnostics_snapshot()` in that `.c` remains on the ungated `SRC` line in `split/era_split_qmk_rules.mk`. The later `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` in the same function still fills 33 responder snapshot assignments. The comment-only pair is gone; that live pair is not. |
+| DC-empty-ifdef | 2026-08-30, PR 50 | Re-measured before delete: the first `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` … `#endif` in `split/communication_core/era_split_communication_core_diagnostics.c` still wrapped only a comment (zero non-comment tokens). `era_split_communication_core_get_diagnostics_snapshot()` in that `.c` remains on the ungated `SRC` line in `split/era_split_qmk_rules.mk`. The later `#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` in the same function still fills 33 responder snapshot assignments. The comment-only pair is gone; that live pair is not. |
 
 No other comment-only `#ifdef` / `#endif` pair exists under `keyboards/era`.
 No `#if 0` exists under `keyboards/era`.
