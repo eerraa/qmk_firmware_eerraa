@@ -119,11 +119,11 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    기능입니다. VIA CONFIGURE -> FEATURE -> SOCD에서 사용할 키 조합을
    지정하십시오.
 
-■ KKUK   ※ 이전 이름: Anti-Ghosting
+■ KKUK
    기본 키 두 개 이상을 가만히 누르고 있으면 그 묶음 전체를 주기적으로
    뗐다가 다시 눌러 줍니다. asd를 누르고 있으면 asddddd가 아니라
-   asdasdasd가 입력됩니다. 매트릭스 고스팅 방지와는 무관해 이름을
-   바꿨습니다. VIA CONFIGURE -> FEATURE -> KKUK에서 켜고 Delay/Repeat
+   asdasdasd가 입력됩니다. VIA CONFIGURE -> FEATURE -> KKUK에서 켜고
+   Delay/Repeat
    값을 조정하십시오. SOCD에 지정한 키는 제외됩니다.
 
 ■ DEBOUNCE
@@ -306,11 +306,11 @@ Key Features
    Keeps only the latest input when opposite directions are held together.
    Assign the key pairs in VIA CONFIGURE -> FEATURE -> SOCD.
 
-■ KKUK   (formerly named Anti-Ghosting)
+■ KKUK
    Hold two or more basic keys still and the whole group is released and
    pressed again on a timer: holding a, s and d types asdasdasd, not asddddd.
-   It has nothing to do with matrix ghosting, hence the new name. Enable it in
-   VIA CONFIGURE -> FEATURE -> KKUK and adjust Delay/Repeat as needed. Enabled
+   Enable it in VIA CONFIGURE -> FEATURE -> KKUK and adjust Delay/Repeat as
+   needed. Enabled
    SOCD keys are excluded.
 
 ■ DEBOUNCE

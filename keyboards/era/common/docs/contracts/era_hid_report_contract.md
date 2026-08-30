@@ -117,7 +117,7 @@ splits ship L/R); 25 carry the NKRO menu. Value id
 change is not reported in one format and released in the other. There is no
 `id_custom_save` arm.
 
-The same 25 files label the FEATURE submenu `KKUK` (no `Anti-Ghosting`).
+The same 25 files label the FEATURE submenu exactly `KKUK`.
 The Mode dropdown's only option is `Report Pulse`, value
 `ERA_KKUK_MODE_REPORT_PULSE` 1 (`features/era_kkuk.h`). The page is
 `ERA_VIA_KKUK_CHANNEL` 12 (`storage/era_eeprom_layout.h`); value ids
