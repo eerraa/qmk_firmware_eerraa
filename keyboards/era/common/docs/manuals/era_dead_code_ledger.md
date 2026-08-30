@@ -134,15 +134,19 @@ This ledger records both sentences. It does not pick. See REFUSED.
 
 ## STALE-COMMENT
 
-Code or make rules are live. The prose is false.
+Code or make rules are live. The prose was false.
 
-| ID | Where | What the prose says | What the tree holds |
-| --- | --- | --- | --- |
-| SC-fifteen | `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld` | copy-to-RAM on "all fifteen" boards | 23 `keyboard.json` files; 22 RP2040; `sirind/brick65` is atmega32u4. Lighting "fifteen boards" in `keyboards/era/era_build_options.mk` is a different count (boards that assign lighting selectors) and is not this sentence. |
-| SC-vector-35 | `system/era_vector_defaults.c` | `nm` listed "exactly these 35 names" | The file defines 38 `ERA_VECTOR_DEFAULT` aliases. Per-image count still varies with PWM / SPLIT / `RP_DMA_REQUIRED`. The residency gate in `tools/era_residency_gate.sh` reads table bytes, not this list. |
-| SC-hb-enable | `split/communication_core/era_split_communication_core_lifecycle_rp2040.c` | the rules file defines `HEARTBEAT_ENABLE` unconditionally | `split/era_split_qmk_rules.mk` errors if `ERA_SPLIT_COMMUNICATION_CORE_HEARTBEAT_ENABLE` (or the other five legacy stage vars) is set. It does not `-D` them. Stage must be `CORE1_FULL`. |
-| SC-hb-lane | `split/scheduler/era_split_transport_scheduler_routes.c` and `split/era_split_wire_protocol.h` | present tense: HEARTBEAT *lane* id and four ok/miss/bad/fail counters are kept | `split/communication_core/era_split_communication_core_initiator.h` has no HEARTBEAT lane enumerator. Live lanes are INVALID, SESSION_STATUS, SOURCE_PUSH. Per-lane ok/miss/bad/fail remain for those live lanes. Wire-diag `hb=` is printed from `ERA_SPLIT_TRANSACTION_TIMING_BUCKET_HEARTBEAT_ACK` in `split/diagnostics/era_split_wire_diagnostics.c`, not from a retired initiator lane. Standing/responder HEARTBEAT is live (KEEP-hb below). |
-| SC-graph | `era_active_index.md` **What This Repository Does Not Carry** | the shipped orphan includes "the graph" | `git ls-files` has no graphify-out directory and no graphifyignore file. `git grep` of this tree has no graphify token. |
+No pending STALE-COMMENT rows.
+
+### Corrected
+
+| ID | Corrected | Proof |
+| --- | --- | --- |
+| SC-fifteen | 2026-08-30, this PR | Re-measured: 23 `keyboard.json` files; 22 RP2040. 19 non-split `post_rules.mk` include `system/era_sram_resident_rules.mk`; three split boards take it via `split/era_split_qmk_rules.mk`. `sirind/brick65` is atmega32u4 and does not. Linker comment in `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld` now says twenty-two RP2040 boards. Lighting "fifteen boards" in `keyboards/era/era_build_options.mk` is a different count (boards that assign lighting selectors) and was not this sentence. |
+| SC-vector-35 | 2026-08-30, this PR | Re-measured: `system/era_vector_defaults.c` defines 38 `ERA_VECTOR_DEFAULT` aliases (33 unconditional + five conditional PWM/PIO/DMA). Per-image count still varies with PWM / SPLIT / `RP_DMA_REQUIRED`. The file no longer claims `nm` listed "exactly these 35 names" for the enumeration. The residency gate in `tools/era_residency_gate.sh` still reads table bytes, not this list. |
+| SC-hb-enable | 2026-08-30, this PR | Re-measured: `split/era_split_qmk_rules.mk` lists `ERA_SPLIT_COMMUNICATION_CORE_HEARTBEAT_ENABLE` in `ERA_SPLIT_COMMUNICATION_CORE_LEGACY_STAGE_VARS` and `$(error)`s if any is set. Zero `-D` of that name under `keyboards/era`, `quantum/`, `platforms/`, `drivers/`, `tmk_core/`. Stage must be `CORE1_FULL`. Comment in `split/communication_core/era_split_communication_core_lifecycle_rp2040.c` now states that. |
+| SC-hb-lane | 2026-08-30, this PR | Re-measured: `split/communication_core/era_split_communication_core_initiator.h` enumerates INVALID, SESSION_STATUS, SOURCE_PUSH only. Per-lane ok/miss/bad/fail remain for those live lanes in `split/diagnostics/era_split_wire_diagnostics.c`. Wire-diag `hb=` is `ERA_SPLIT_TRANSACTION_TIMING_BUCKET_HEARTBEAT_ACK` from `split/era_split_transaction_engine.c` via `split/diagnostics/era_split_wire_diagnostics.c`. Standing path in `split/communication_core/era_split_communication_core_standing.c` stamps `ERA_SPLIT_ROUTE_HOST_PEER_HEARTBEAT`; responder kind HEARTBEAT is live in `split/communication_core/era_split_communication_core_responder.h`. Present-tense "lane id kept" / `hb=` 0/0 prose in `split/scheduler/era_split_transport_scheduler_routes.c` and `split/era_split_wire_protocol.h` is corrected. KEEP-hb unchanged. |
+| SC-graph | 2026-08-30, this PR | Re-measured: `git ls-files` has no graphify-out directory and no graphifyignore file. `era_active_index.md` **What This Repository Does Not Carry** no longer lists the graph among what the orphan ships. `AGENTS.md` already omitted that payload (Korean pointer kept). Ledger mentions remain measurement notes. |
 
 Historical stack figures (Slice 11 952 B, old 1024 B reservation) in
 `split/communication_core/era_split_communication_core_lifecycle_rp2040.c` are
@@ -232,18 +236,17 @@ Hunches that measured live, shipped, or out-of-scope.
 One claim-cluster per later session. Do not merge clusters.
 
 DC-empty-ifdef is not pending; see **Removed** above.
+STALE-COMMENT is not pending; see **Corrected** above.
 
-1. **STALE-COMMENT cluster** — SC-fifteen, SC-vector-35, SC-hb-enable,
-   SC-hb-lane, SC-graph. Comments and document prose only.
-2. **Modes 5 and 6** — owner pick between the header sentence and
+1. **Modes 5 and 6** — owner pick between the header sentence and
    `maps/era_identifier_map.md`. Not a deletion until that pick.
-3. **Do not schedule** RI-due-bits, RI-result-full, RI-payload-4-6,
+2. **Do not schedule** RI-due-bits, RI-result-full, RI-payload-4-6,
    RI-session-0x20, RI-owner-1, RI-snap-src-1, RI-queue-kind-1, RI-via-sync-old
    as deletes.
-4. **PS-debounce-status** — only after the H7S / JSON / VIA pair is resolved.
-5. **PS-term-bands** — only after JSON, VIA peer, and firmware drop the same
+3. **PS-debounce-status** — only after the H7S / JSON / VIA pair is resolved.
+4. **PS-term-bands** — only after JSON, VIA peer, and firmware drop the same
    band together.
-6. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
+5. **Do not delete** KEEP-transport / KEEP-serial / KEEP-matrix-if from this
    fork as "ERA dead code".
 
 ## What this sitting did not verify
