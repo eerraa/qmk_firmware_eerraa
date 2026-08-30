@@ -20,10 +20,14 @@
   `hooks/era_commit_check.py`). 클론마다 한 번
   `git config core.hooksPath hooks`(Machine setup)로 무장한다. 에이전트 문서
   층 또는 ERA 주석이 있는 `.c`/`.h`/`.mk`를 건드리는 커밋에서
-  `era_doc_refs.py`를 돌리고, `quantum/` `platforms/` `drivers/` 또는 ledger를
-  건드리는 커밋에서 fork-ledger 검사를 돌리며, `git diff --cached --check`는
-  항상 돈다. 문서 줄을 지우면 `--homeless` 안내를 출력한다. Claude에는
-  프로젝트 훅이 없다. `.claude/settings.json`은 `permissions.deny`만 든다.
+  `era_doc_refs.py`를 돌리고, 다섯 QMK core 루트 또는 ledger를 건드리는
+  커밋에서 fork-ledger 검사를 깨운다. 그 검사가 기계적으로 소유하는 token 표면은
+  `manuals/era_qmk_fork_ledger.md`에 있다. fork 검사는 staged index를 pristine
+  QMK와 비교한다. 문서 검사는 무시되지 않은 워킹 트리 전체를 재사용하므로
+  스테이징하지 않은 차이나 untracked 경로가 있으면 훅이 먼저 거절한다.
+  `git diff --cached --check`는 항상 돌고, 문서 줄을 지우면 `--homeless` 안내를
+  출력한다. Claude에는 프로젝트 훅이 없다. `.claude/settings.json`은
+  `permissions.deny`만 든다.
 
 ### Push
 

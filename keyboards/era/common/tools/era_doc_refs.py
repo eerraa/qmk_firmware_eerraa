@@ -118,6 +118,7 @@ BUILD_SUFFIX = (".o", ".elf", ".uf2", ".hex", ".bin", ".map", ".d", ".lst")
 # QMK generates these into `.build/`; a document names them because the reader
 # will meet them, and no tree ever contains one.
 GENERATED = {"info_config.h", "info_rules.mk", "info_deps.mk"}
+GENERATED_DIRS = {".era-artifacts"}
 
 TOKEN_OK = re.compile(TOKEN_CHARS)
 BACKTICK = re.compile(r"`([^`\n]+)`")
@@ -176,7 +177,12 @@ TRACKED = {
 if not TRACKED:
     sys.exit("git ls-files reported no live working-tree files, so every check below "
              "would scan nothing and pass. That is a failure to measure, not "
-             "a clean tree.")
+              "a clean tree.")
+GITLINKS = {
+    parts[3]
+    for line in git("ls-files", "--stage").splitlines()
+    if len(parts := line.split(None, 3)) == 4 and parts[0] == "160000"
+}
 DIRS = set()
 for _p in TRACKED:
     _parts = _p.split("/")
@@ -201,9 +207,16 @@ def submodule_tails():
         if base.is_dir():
             for f in base.rglob("*"):
                 if f.is_file():
+                    rel = str(f.relative_to(REPO)).replace("\\", "/")
+                    if not any(rel.startswith(link + "/") for link in GITLINKS):
+                        continue
                     _submodule_tails.setdefault(f.name, []).append(
-                        str(f.relative_to(REPO)).replace("\\", "/"))
+                        rel)
     return _submodule_tails
+
+
+def under_submodule(path):
+    return any(path.startswith(link + "/") for link in GITLINKS)
 
 
 def norm(path):
@@ -232,12 +245,19 @@ def resolve(token, origin):
     if not is_path_claim(token):
         return "skip"
     bare = token.rstrip("/")
+    if bare in GENERATED_DIRS:
+        return "skip"
     if bare.rsplit("/", 1)[-1] in GENERATED:
         return "skip"
     candidates = [norm(base + bare) for base in BASES]
     candidates.append(norm(origin.rsplit("/", 1)[0] + "/" + bare))
     for cand in candidates:
-        if cand in TRACKED or cand in DIRS or (REPO / cand).exists():
+        # Ignored working-tree files are not part of a commit and must not make
+        # a committed pointer appear valid. Live cached and non-ignored paths
+        # are already in TRACKED; submodule contents have the explicit
+        # filename fallback below.
+        if (cand in TRACKED or cand in DIRS
+                or (under_submodule(cand) and (REPO / cand).exists())):
             return cand
     if bare.endswith(SRC_SUFFIX):
         # A filename the documents cite without its directory: a reader finds

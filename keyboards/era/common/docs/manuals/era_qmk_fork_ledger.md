@@ -2,15 +2,14 @@
 
 Genre: manual
 Canonical for: every current ERA edit under QMK-owned source directories, why
-it exists, the gate it rides, the remainder the commit-time fork check does not
-own, and how to re-derive that remainder against the vendored pristine snapshot
+it exists, the gate it rides, and how the whole five-directory surface is
+re-derived against the vendored pristine snapshot
 
-The commit-time check in `hooks/era_commit_check.py` greps `ERA_` under
-`quantum/`, `platforms/`, and `drivers/`, plus
-`RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING`. Every hit must appear below.
-This file owns the reason and the gate. It also owns fork edits that grep does
-not see: anything under `tmk_core/` or `builddefs/`, and any edit under
-`quantum/`, `platforms/`, or `drivers/` that carries neither token.
+The commit-time check in `hooks/era_commit_check.py` compares the staged index
+under `quantum/`, `platforms/`, `tmk_core/`, `drivers/`, and `builddefs/` with
+the pristine snapshot named below. Every differing path must appear in
+**Current Fork Edits**. The ledger is read from the staged index too, so neither
+an unstaged core file nor an unstaged ledger can change the commit's answer.
 
 The vendored pristine QMK snapshot is named `c93ef27143`. Do not compare against
 another ERA branch.
@@ -44,14 +43,15 @@ proof live under `keyboards/era/common/`, not in QMK Core.
 | `tmk_core/protocol/chibios/usb_report_handling.c` | Zero-fills unsupported GET_REPORT storage and paces host-requested idle-report walks to millisecond cadence. | Zero-fill ungated; pacing under `ERA_TIMER_MS_CACHE`. |
 | `tmk_core/protocol/usb_descriptor.[ch]` | Weak device/product/serial descriptor override hooks used by ERA split USB identity. | `USB_DEVICE_DESCRIPTOR_OVERRIDE_ENABLE`, `USB_PRODUCT_STRING_OVERRIDE_ENABLE`, `USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE`. |
 
-`drivers/sensors/cirque_pinnacle.c` matches the hook `ERA_` grep. Those tokens
-are Cirque's Extended Register Access (`ERA_ReadBytes`, `ERA_WriteByte`), not an
-ERA firmware edit. The file is identical to the vendored pristine snapshot.
+`drivers/sensors/cirque_pinnacle.c` contains `ERA_ReadBytes` and
+`ERA_WriteByte`, where ERA means Cirque's Extended Register Access, not this
+firmware. The file is identical to the vendored pristine snapshot and therefore
+does not enter the staged-index difference set.
 
 A row whose files no longer differ from that snapshot is stale. A five-directory
-edit with no row is an undocumented fork. The hook enforces only the
-`ERA_` / `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING` direction under
-`quantum/`, `platforms/`, and `drivers/`.
+edit with no row is an undocumented fork. The hook parses only the first column
+of **Current Fork Edits**, expands `.[ch]`, and refuses either mismatch: a
+difference with no row or a row whose files have returned to pristine.
 
 ## Storage-Specific QMK Surface Restored
 
@@ -99,17 +99,16 @@ One ERA platform edit is outside `tmk_core/`, `quantum/`, `platforms/`,
 `lib/chibios-contrib` use the `custom/qmk-rp-usb` branch; the ChibiOS pin
 supplies the remote-wake status hook consumed by the ERA RP2040 USB sleep
 synchronization path. Re-derive that with `git submodule status` and the branch
-recorded in `.gitmodules`, not with the commit-time `ERA_` grep.
+recorded in `.gitmodules`, not with the five-directory commit check.
 
 ## Rebase Rule
 
 For every rebase or QMK-core edit:
 
-1. let `hooks/era_commit_check.py` recompute the `ERA_` /
-   `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING` set under `quantum/`,
-   `platforms/`, and `drivers/`;
+1. let `hooks/era_commit_check.py` compare the staged five-directory index with
+   the pristine snapshot named above;
 2. reconcile every current fork file to this table in both directions, including
-   remainder the hook does not grep;
+   removal of a row whose file returned to pristine;
 3. verify that the storage-restoration list remains absent unless a newly
    approved independent QMK reason is documented;
 4. run the Source Gate and the tests in `era_performance_gates.md`;

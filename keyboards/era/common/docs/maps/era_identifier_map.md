@@ -21,7 +21,13 @@ it is why a capture from an older image still decodes against this file.
 
 `era_split_mode_planner.h` names five values: `LOCAL_NO_LINK` 0, the two
 HOST-PEER roles 1–2, the two DUAL-HOST roles 3–4. Values 5 and 6 have no
-enumerator (were `HOST_HOST_LEFT`/`HOST_HOST_RIGHT`) and stay un-reused.
+enumerator (they were `HOST_HOST_LEFT`/`HOST_HOST_RIGHT`). Their reuse policy
+is unresolved: this map's retired-number rule keeps both un-reused, while the
+header says 5 is available to the next relation.
+
+> **REFUSED:** classify mode values 5 and 6 as reusable or permanently retired
+> **WHY:** the header opens 5 while this map reserves both, so either choice silently discards a current owner statement.
+> **REOPENS:** the owner chooses which statement governs and the header and this map move together
 
 ## Routes And Route Reasons
 
@@ -145,7 +151,11 @@ would write to the wrong channels.
 | `14` | debounce (`features/era_debounce_via.c`) |
 | `15` | tapping (`features/era_tapping_via.c`) |
 
-SYSTEM value ids: DFU, three EEPROM-clean confirms, EEPROM/INPUT/RGB requested, link level, link Apply — in that order, starting at one (`system/era_via_system.h`, `split/era_split_via_sync.h`, `split/era_split_via_link.h`). SOCD (both channels) and KKUK each use enable, then two data fields, then mode, starting at one. Mousekey uses six cursor/wheel fields starting at one. Debounce uses mode then three delays starting at one. Tapping uses the legacy global term, three booleans, then the exact global term, starting at one.
+SYSTEM value ids: DFU, three EEPROM-clean confirms, EEPROM/INPUT/RGB requested, link level, link Apply — in that order, starting at one (`system/era_via_system.h`, `split/era_split_via_sync.h`, `split/era_split_via_link.h`). SOCD (both channels) and KKUK each use enable, then two data fields, then mode, starting at one. Mousekey uses six cursor/wheel fields starting at one. Debounce uses mode, three delays, then compatibility STATUS as values 1..5 (`features/era_debounce_via.c`). Tapping uses the legacy global term, three booleans, then the exact global term, starting at one.
+
+> **REFUSED:** delete debounce channel 14 value 5 (`STATUS`)
+> **WHY:** H7S still addresses `id_qmk_debounce_status`; this firmware's GET/SET compatibility arm in `features/era_debounce_via.c` is the paired endpoint.
+> **REOPENS:** both firmware families and both VIA definition surfaces drop the id, or the owner explicitly selects one survivor
 
 **`13` was never allocated when `10`, `11`, `12`, `14` and `15` arrived**, and
 is not a retired identifier. The mouse page taking it recycles nothing. H7S

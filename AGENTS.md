@@ -31,8 +31,8 @@ ERA는 `keyboards/era/common/`의 공유 공통 층 위에 있는 QMK 펌웨어 
 - `hooks/pre-commit` + `hooks/era_commit_check.py` — 커밋 시점 검사 하나.
   호스트에 묶이지 않는다: git이 돌리므로 Claude, Codex, Grok, 소유자 터미널이
   한 경로를 공유한다
-- `hooks/test_era_commit_check.py` — 그 적합성 테스트: 배선, 호스트
-  PreToolUse 경로의 부재, 거절되는 커밋의 종단 검사
+- `hooks/test_era_commit_check.py` — 그 적합성 테스트: 배선, 은퇴한 호스트
+  PreToolUse 배선의 부재, 부분 스테이징 거절, 거절되는 커밋의 종단 검사
 - 다른 도구가 필요로 하는 동등한 진입점.
 
 어댑터는 도구가 canon에 *어떻게* 닿거나 강제하는지를 서술할 수 있다. 프로젝트
@@ -151,10 +151,10 @@ Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어
 
 - **문서 줄을 지우기 전에**
   `python keyboards/era/common/tools/era_doc_refs.py --homeless`를 돌린다.
-  집 없는 토큰은 승격 후보다 (**Evidence And Retirement**). 검사기는 인덱스가
-  아니라 워킹 트리를 읽는다: 파일을 통째로 스테이징한다.
-- **죽은 코드·은퇴 아키텍처의 측정 목록은**
-  `manuals/era_dead_code_ledger.md`다.
+  집 없는 토큰은 승격 후보다 (**Evidence And Retirement**). 검사기는 무시되지
+  않은 워킹 트리 전체에서 이름과 대상을 만들므로, 문서 검사가 무장된 커밋은
+  스테이징하지 않은 차이나 untracked 경로가 하나라도 있으면 거절한다: 파일을
+  통째로 스테이징한다.
 - **`git rm`은 즉시 스테이징되므로**, 이후의 범위 지정 `git add`도 그것을
   커밋한다 — 커밋 전에 status 첫 열을 본다. 다른 에이전트가 워크트리를
   공유하면 경로로만 스테이징하고, `-a`나 `-A`는 쓰지 않는다.
@@ -168,8 +168,8 @@ Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어
   `era-build keyboard:keymap`으로 돈다 — Windows에서 돌리지 않고, 낡은
   트리에서 돌리지 않는다: `manuals/era_build_and_flash.md`,
   `manuals/era_performance_gates.md`.
-- **커밋 검사는 git 훅이다.** 클론마다 `git config core.hooksPath hooks`로
-  무장한다. 이 설정이 없는 클론은 검사 없이 커밋한다.
+- **커밋 검사는 git 훅이다.** 클론마다 도구 어댑터가 무장한다. 정확한 설치
+  명령은 어댑터에 두며, 무장하지 않은 클론은 검사 없이 커밋한다.
 
 ## 문서 관리 규칙
 
@@ -300,8 +300,8 @@ QMK의 것이다. `keyboards/era/**/readme.md`는 보드의 QMK용 readme이고,
 
 이 집합은 에이전트 문서 규약 v1
 ([eerraa-agent-docs](https://github.com/eerraa/eerraa-agent-docs) 태그
-**v1**)을 따른다. 선언된 이탈은 셋이다: 장르별 디렉터리(21편, 규약의 약 20편
-임계를 넘음), 별도 진입 라우터(`era_active_index.md`), Genre 헤더가 있는
+**v1**)을 따른다. 선언된 이탈은 셋이다: 장르별 디렉터리(20편, 규약의 약 20편
+경계), 별도 진입 라우터(`era_active_index.md`), Genre 헤더가 있는
 계약·지도·매뉴얼·state의 영어 산문. 진입(`AGENTS.md`, 포인터를 넘는
 `CLAUDE.md`)은 한국어다.
 

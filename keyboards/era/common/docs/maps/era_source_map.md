@@ -172,7 +172,6 @@ are canonical in `era_board_adoption.md`.
 | `split/diagnostics/era_via_macro_diagnostics.[ch]` | cause-variant-only decomposition of a dynamic-macro RAW-HID exchange. No release image compiles the unit |
 | `split/diagnostics/era_split_qwin_diagnostics.[ch]` | silent qwin counter window and compact result; printer for the pass-phase instrument |
 | `system/era_pass_phase_diagnostics.[ch]` | twelve contiguous segments tiling one `keyboard_task()` iteration. Decode: `era_capture_reading.md` **The `qwin_phase` rung** |
-| `manuals/era_dead_code_ledger.md` | measured unused/retired ERA surfaces in this tree (inventory; not VIA/H7S) |
 
 Formatting and snapshot construction remain outside matrix scan. Only
 compile-time count/raw hooks may be scan-bound.
