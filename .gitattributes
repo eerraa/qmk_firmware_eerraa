@@ -32,6 +32,7 @@
 *.scm    text eol=lf
 *.scss   text eol=lf
 *.sh     text eol=lf
+hooks/pre-commit text eol=lf
 *.sql    text eol=lf
 *.styl   text eol=lf
 *.ts     text eol=lf
