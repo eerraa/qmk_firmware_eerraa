@@ -3,8 +3,9 @@
  *
  * Not one board's: `system/era_sram_resident_rules.mk` selects it as
  * MCU_LDSCRIPT for whichever board includes the copy-to-RAM bundle, which is
- * all fifteen of them. The header named TOMAK79H while that was the only
- * board that had adopted it.
+ * all twenty-two RP2040 boards under `keyboards/era`. `sirind/brick65` is
+ * atmega32u4 and takes none of it. The header named TOMAK79H while that was
+ * the only board that had adopted it.
  *
  * Whole-image copy-to-RAM layout: flash keeps only boot2, the vectors
  * LMA at the boot2-hardcoded 0x10000100, a flash-resident startup

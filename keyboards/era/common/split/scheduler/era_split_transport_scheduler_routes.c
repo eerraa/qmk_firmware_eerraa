@@ -250,12 +250,15 @@ static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
    Core1's standing service builds the identical frame -- one compact control
    byte, GRANT_ACK expected with HOST_PEER_HOST_SOURCE_RSP as the alternate --
    from its own period rather than from a queued request, which is the whole of
-   what moved. The HEARTBEAT *lane* is deliberately left standing on the core1
-   side: its id, its four ok/miss/bad/fail counters and the matrix-link
-   heartbeat count are capture surface, and retiring them is a diagnostics
-   decision this slice did not take. It is unreachable in the meantime, and a
-   HOST-PEER PEER's `hb=` now reads 0/0 as a consequence -- one of the
-   re-baselined diagnostic shapes R2 owes, not a silent relation. */
+   what moved. The core0 HEARTBEAT *lane* enumerator is gone
+   (era_split_communication_core_initiator.h); live initiator lanes are
+   INVALID, SESSION_STATUS, SOURCE_PUSH, and those lanes keep per-lane
+   ok/miss/bad/fail. Standing HEARTBEAT remains the wire operation
+   (era_split_communication_core_standing.c stamps
+   ERA_SPLIT_ROUTE_HOST_PEER_HEARTBEAT) and the responder result kind is live
+   (era_split_communication_core_responder.h). Wire-diag `hb=` is the
+   HEARTBEAT_ACK timing bucket in era_split_wire_diagnostics.c, not a retired
+   initiator-lane counter. */
 
 static bool era_split_transport_scheduler_try_enqueue_host_peer_source_push(void) {
     era_split_communication_core_initiator_request_t request;
@@ -319,10 +322,10 @@ static void era_split_transport_scheduler_apply_core1_host_peer_result(const era
     era_split_transaction_engine_result_t lane_result_code = (era_split_transaction_engine_result_t)result->result;
     bool                                  request_sent    = result->request_sent != 0;
 
-    /* There is no HEARTBEAT arm here. That lane has had no enqueuer since R2 and
-       the arm was reachable by nothing; its counters are kept as capture
-       surface -- a counter that must read zero is an instrument -- but the code
-       that would have moved them is not capture surface, it is code. */
+    /* There is no HEARTBEAT arm here. The initiator HEARTBEAT lane enumerator
+       is gone (era_split_communication_core_initiator.h); this function applies
+       SOURCE_PUSH results. SESSION_STATUS has its own apply. Standing/responder
+       HEARTBEAT does not land on this apply path. */
     if (result->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
         /* One lane, one section set again since R2, and since D3 the section
            set is the request's alone. The matrix-link bookkeeping belongs to

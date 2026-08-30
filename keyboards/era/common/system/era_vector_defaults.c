@@ -23,11 +23,13 @@
  * is what this file does. Every one of them is .weak in vectors.S, so this
  * needs no ChibiOS or QMK edit and no change to the carve-out selector list.
  *
- * The enumeration below is the set that was resolving to the weak default, and
- * it is derived rather than guessed: `nm` on the linked ELF lists exactly these
- * 35 names at the collapsed address, the vectors.S table order fixes which slot
- * each occupies, and `objdump -s -j .vectors` confirms the same 35 words. The
- * list is therefore build-configuration dependent, and it is wrong in only two
+ * The enumeration below is the set that fills those weak defaults, and it is
+ * derived rather than guessed. A first `nm` sitting listed 35 names at the
+ * collapsed address; this file now defines 38 ERA_VECTOR_DEFAULT aliases
+ * (33 unconditional plus five conditional PWM / PIO / DMA slots). How many a
+ * given image links still varies with PWM, SPLIT / SERIAL_PIO_USE_PIO1, and
+ * RP_DMA_REQUIRED. The vectors.S table order fixes which slot each occupies.
+ * The list is therefore build-configuration dependent, and it is wrong in only two
  * directions, both of which fail loudly rather than silently:
  *
  *   - A driver that starts installing one of these collides with the strong
