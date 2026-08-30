@@ -3,22 +3,50 @@
 Genre: contract
 Canonical for: compact wire payload ids and packet shapes, closed ids, section marker tables and body layouts, section eligibility, SESSION_STATUS frame validity, the section disciplines and the deferral order
 
+## Frame
+
+Two lanes. Multi-byte fields are little-endian (`split/era_split_wire_protocol.h`).
+
+| Lane | Header | Integrity | Payload | Frame |
+| --- | --- | --- | --- | --- |
+| compact | byte0 = `ERA_SPLIT_WIRE_FRAME_MARKER` `0xA0` \| direction `0x10` \| length `1..15` | CRC8 of marker plus payload (`payload_len + 1` bytes), last byte | `1..15` (`ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15) | payload + 2; max `ERA_SPLIT_WIRE_COMPACT_MAX_FRAME_LEN` 17 |
+| bulk page | byte0 = marker \| direction \| `ERA_SPLIT_WIRE_BULK_LENGTH_ESCAPE` 0; bytes 1..2 payload length | CRC32 of marker, length and payload (`payload_len + 3` bytes), last four bytes | `1..264` (`ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN` 264) | payload + 7; max `ERA_SPLIT_WIRE_BULK_PAGE_MAX_FRAME_LEN` 271 |
+
+Direction bit set = `SECONDARY_TO_PRIMARY`. Compact length 0 is the bulk escape, not a compact frame. Bulk `frame_len` of 271 is also `ERA_SPLIT_COMMUNICATION_CORE_STORAGE_WIRE_FRAME_BYTES`.
+
+## Control Byte
+
+Payload byte0 on every lane (`split/era_split_wire_frame.c`):
+
+| Bits | Field |
+| --- | --- |
+| 0..2 | `tx_seq` (`ERA_SPLIT_WIRE_CONTROL_TX_SEQ_MASK` 7). Sequence 1 through 7; zero is refused |
+| 3..5 | `ack_seq` (`ERA_SPLIT_WIRE_CONTROL_ACK_SEQ_MASK` `0x38`) |
+| 6 | `ERA_SPLIT_WIRE_CONTROL_EXT` `0x40` |
+| 7 | `ERA_SPLIT_WIRE_CONTROL_RESERVED` `0x80`; any set bit refuses the frame |
+
+`era_split_wire_next_seq()` in `split/era_split_wire_frame.c` walks 1..7.
+
 ## Compact Payload Kinds
 
-| Payload | Wire shape | Status |
-| --- | --- | --- |
-| `GRANT_ACK` | 1-byte compact control | open |
-| `SESSION_STATUS` | compact control + status body | open |
-| `HOST_PEER_SOURCE_PUSH` | compact control + class/op + section mask + bodies | open |
-| `HOST_PEER_HEARTBEAT` | 1-byte compact control by route context | open |
-| `HOST_PEER_ACK_STATUS` | 1-byte compact control by route context | open |
-| `HOST_PEER_HOST_SOURCE_RSP` | class/op response | response-slot only; zero-section envelope plus the eight-section set |
-| `EEPROM_SYNC` | replacement class `0xE0`; compact control plus one admitted bulk response kind | in force; PEER request/HOST response-slot only |
+`era_split_wire_payload_kind_t` in `split/era_split_wire_protocol.h`. `era_split_wire_classify_payload()` in `split/era_split_wire_payload.c` reports the kind. Class is `payload[1] & 0xF0` when EXT is set.
+
+| Kind | Name | Packet |
+| ---: | --- | --- |
+| 1 | `GRANT_ACK` | compact, EXT clear, `payload_len == 1` |
+| 2 | `SESSION_STATUS` | compact, EXT set, byte1 `0x10`, `payload_len == 9` |
+| 3 | `EEPROM_SYNC` | class `0xE0`; compact fifteen-byte ops, or bulk-page `CHUNK_RSP` / `PUSH_CHUNK_REQ` |
+| 4 | retired (`ERROR_NACK`, class `0x40`) | no encoder; `default` reject. Number stays allocated |
+| 5 | `HOST_PEER` | class `ERA_SPLIT_WIRE_HOST_PEER_CLASS` `0x20`, op `0x20` |
+| 6 | retired (`DUAL_HOST`, class `0x6x`) | no compiled id and no reservation; `default` reject. Number stays allocated |
+| 7 | `HOST_PEER_HOST_SOURCE_RSP` | class `0x20`, op `0x21` |
+
+`HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over kind 1. They MUST NOT take class/op ids. Unmatched class/op, including `0x22` and `0x23..0x2F` of class `0x20`, is `default` reject.
 
 ## HOST-PEER Class
 
 ```text
-HOST_PEER_CLASS = 0x20
+ERA_SPLIT_WIRE_HOST_PEER_CLASS = 0x20
 
 0x20: HOST_PEER_SOURCE_PUSH
 0x21: HOST_PEER_HOST_SOURCE_RSP
@@ -26,60 +54,83 @@ HOST_PEER_CLASS = 0x20
 0x23..0x2F: reserved
 ```
 
-Both ops are **relation-neutral**; eligibility, not the op id, decides sections.
-Renaming the `HOST_PEER` envelope was declined as churn. Class `0x6x` carries
-no reservation. `HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` MUST NOT
-consume class/op ids. `era_split_wire_classify_payload()` in
-`split/era_split_wire_payload.c` rejects unmatched ids (`0x22`, the reserved
-window) through its `default` arm.
+Shared envelope, both ops (`split/era_split_wire_protocol.h`):
+
+```text
+byte0: control with EXT
+byte1: op
+byte2: 8-bit section mask
+byte3..: bodies in ascending marker-bit order
+```
+
+Ops do not encode relation. The `HOST_PEER` envelope name is historical; renaming was declined as churn. Class `0x6x` carries no reservation. Markers, eligibility and closed cells: below.
 
 ## HOST-PEER Replacement Storage Class
 
-Body layout, domain table, state machine, capacity, retry, and durable apply
-live in `era_host_peer_storage_contract.md` (**Fixed Wire Contract**,
-**Transaction State Machine**, **Retry, Duplicate, And Failure Semantics**).
+Body layout of the seven domains, state machine, capacity, retry, and durable apply: `era_host_peer_storage_contract.md`. Status ids: `era_identifier_map.md`. Identical-image rule: `era_source_map.md`'s **Stored-Data Compatibility**. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
 
 ```text
-EEPROM_SYNC_CLASS = 0xE0
+ERA_SPLIT_EEPROM_SYNC_CLASS = 0xE0   (split/era_split_eeprom_sync.h)
 
-0xE0: PROBE_REQ       compact PEER request
-0xE1: PROOF_RSP       compact admitted HOST response
-0xE2: CHUNK_REQ       compact PEER request
-0xE3: CHUNK_RSP       bulk-page admitted HOST response
-0xE4: APPLY_REQ       compact PEER request
-0xE5: APPLY_RSP       compact admitted HOST response
-0xE6: COMPLETE_REQ    compact PEER request
-0xE7: CLOSE_RSP       compact admitted HOST response
-0xE8: ABORT_REQ       compact PEER request
-0xE9: ABORT_RSP       compact admitted HOST response
-0xEA: SYNC_STATUS_REQ compact PEER request (arbitration; summary or per-conflict)
-0xEB: SYNC_STATUS_RSP compact admitted HOST response
-0xEC: PUSH_CHUNK_REQ  bulk-page PEER request (the one initiator-sent bulk frame)
-0xED: PUSH_RSP        compact admitted HOST response
-0xEE: PUSH_CTL_REQ    compact PEER request (phases open/apply/complete/abort)
+0xE0: PROBE_REQ       compact request
+0xE1: PROOF_RSP       compact response
+0xE2: CHUNK_REQ       compact request
+0xE3: CHUNK_RSP       bulk-page response
+0xE4: APPLY_REQ       compact request
+0xE5: APPLY_RSP       compact response
+0xE6: COMPLETE_REQ    compact request
+0xE7: CLOSE_RSP       compact response
+0xE8: ABORT_REQ       compact request
+0xE9: ABORT_RSP       compact response
+0xEA: SYNC_STATUS_REQ compact request
+0xEB: SYNC_STATUS_RSP compact response
+0xEC: PUSH_CHUNK_REQ  bulk-page request
+0xED: PUSH_RSP        compact response
+0xEE: PUSH_CTL_REQ    compact request
 0xEF: reserved
 ```
 
-| Rule | Contract |
+`era_split_eeprom_sync_response_operation()` in `split/era_split_eeprom_sync.h` pairs each request to one response. `PUSH_CHUNK_REQ` and `PUSH_CTL_REQ` both pair to `PUSH_RSP`. The sole alternate: an admitted `CHUNK_REQ` may also take `ABORT_RSP` with `SOURCE_CHANGED`. No other request accepts an alternate response operation.
+
+Compact storage payload is always `ERA_SPLIT_COMMUNICATION_CORE_STORAGE_COMPACT_PAYLOAD_BYTES` 15 (`split/communication_core/era_split_communication_core_storage.h`), asserted equal to the compact max. Prefix, every compact and bulk storage op:
+
+```text
+byte0: control with EXT
+byte1: op
+byte2: domain
+byte3: schema (`ERA_HOST_PEER_STORAGE_SCHEMA_V1` 1)
+bytes 4..5: transaction generation, little-endian, must be nonzero
+```
+
+Remainder of the compact 15 (`split/communication_core/era_split_communication_core_storage.c`):
+
+| Op | Bytes 6..14 |
 | --- | --- |
-| compact body | exactly 15 bytes; prefix is control, operation, domain, schema, 16-bit storage transaction generation |
-| `SYNC_STATUS_REQ/RSP` | domain `0xFF` = whole-family summary (changed mask + baseline validity); a real domain id = per-conflict form plus 16-bit divergence counter. Summary RSP bytes 8..11 are the relation time-anchor seat; the validator REQUIRES them **permanently** zero: `TIME_ANCHOR` is the anchor's one carrier |
-| `PUSH_CTL_REQ` | phases (open/apply/complete/abort) in byte 6 with the push source revision and, outside abort, the episode's full-image CRC32. `PUSH_RSP` answers every push request in the `APPLY_RSP` shape |
-| `PUSH_CHUNK_REQ` | the one initiator-sent bulk-page frame; mirrors the `CHUNK_RSP` prefix (push source revision, chunk id, 1..252 data — no zero-length form; no delta-hint mirror) |
-| bulk frames | `CHUNK_RSP` and `PUSH_CHUNK_REQ` only, one per direction. Payload at most 264 bytes; complete frame at most 271. Data 0..252 (`CHUNK_RSP`) / 1..252 (`PUSH_CHUNK_REQ`). A zero-length `CHUNK_RSP` is the content-match ACK for a `CHUNK_REQ` that carried a nonzero 24-bit chunk-CRC hint in bytes 12..14 |
-| sole alternate op | `ABORT_RSP/SOURCE_CHANGED` is the only alternate accepted for an admitted `CHUNK_REQ` (same transaction/domain/schema/source revision when the pinned publication is no longer current). No other request accepts an alternate response operation |
-| direction | PEER sends every request. HOST may return a storage response only in the admitted response slot with matching ACK sequence. HOST independent storage send is forbidden |
-| `bulk_page_supported` | `SESSION_STATUS.bulk_page_supported` mirrors `ERA_HOST_PEER_STORAGE_V1_ENABLE` at compile time, derived from `ERA_SPLIT_EEPROM_SYNC_ENABLE` (`split/era_split_qmk_rules.mk` `$(error)` if the engine is enabled without the feature). Capability fact, not route authority |
+| `PROBE_REQ` | 6..7 policy generation; 8..9 image size, nonzero; 10..13 image CRC32; 14 zero |
+| `PROOF_RSP` | 6 status; 7..10 source revision (nonzero when status is `MATCH` or `TRANSFER`); 11..14 image CRC32 |
+| `CHUNK_REQ` | 6..9 source revision, nonzero; 10 chunk id `< ERA_HOST_PEER_STORAGE_MAX_CHUNKS` 66; 11 length `1..ERA_HOST_PEER_STORAGE_CHUNK_BYTES` 252; 12..14 24-bit chunk-CRC hint (0 = no hint) |
+| `APPLY_REQ`, `COMPLETE_REQ` | 6..9 source revision, nonzero; 10..13 image CRC32; 14 zero |
+| `APPLY_RSP`, `CLOSE_RSP`, `PUSH_RSP` | 6 status; 7..10 source revision; 11..14 image CRC32. `PUSH_RSP` is this shape for every push request |
+| `ABORT_REQ`, `ABORT_RSP` | 6..9 source revision; 10 status; 11..14 reserved zero |
+| `SYNC_STATUS_REQ` / `RSP`, domain `ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE` 255 (`0xFF`) | 6 changed mask, bit7 clear; 7 baseline validity 0 or 1; 8..14 reserved zero. Summary RSP bytes 8..11 are the relation time-anchor seat: the validator REQUIRES them **permanently** zero. `TIME_ANCHOR` is the anchor's one carrier |
+| `SYNC_STATUS_REQ` / `RSP`, real domain | 6 changed flag 0 or 1; 7 baseline validity 0 or 1; 8..9 16-bit divergence counter; 10..14 reserved zero |
+| `PUSH_CTL_REQ` | 6 phase (`OPEN` 0 / `APPLY` 1 / `COMPLETE` 2 / `ABORT` 3); 7..10 source revision, nonzero. Abort: 11 abort-reason status, 12..14 zero. Else 11..14 full-image CRC32 |
 
-**Both halves must run the same replacement-protocol revision**
-(`era_source_map.md`'s **Stored-Data Compatibility**). Flash both halves
-together. Mixed-revision `SESSION_STATUS` reserved bits form no relation.
+Bulk-page ops `CHUNK_RSP` and `PUSH_CHUNK_REQ` only, one per direction. Shared 12-byte prefix then data; `payload_len == 12 + byte11`; payload at most 264; complete frame at most 271.
 
-V16 `ATTEST/BEGIN/DATA/COMMIT/ABORT` is not a compatibility surface. CRC and
-source-revision roles live in `era_host_peer_storage_contract.md`. Classification
-accepts only compact `0xE0..0xE2`, `0xE4..0xEB`, `0xED`, `0xEE` and the exact
-`CHUNK_RSP` / `PUSH_CHUNK_REQ` bulk forms (`split/communication_core/era_split_communication_core_storage.c`,
-reached from `era_split_wire_classify_payload()` in `split/era_split_wire_payload.c`).
+```text
+bytes 0..5: prefix as above
+bytes 6..9: source revision, nonzero
+byte10: chunk id
+byte11: data length
+bytes 12..: data
+```
+
+`CHUNK_RSP` data length `0..252`. Length 0 is the content-match ACK for a `CHUNK_REQ` whose 24-bit hint was nonzero and matched the served chunk CRC. `PUSH_CHUNK_REQ` data length `1..252`, domain must be real; no zero-length form and no delta-hint mirror.
+
+Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That bit on `SESSION_STATUS` is the same compile fact, not route authority (`split/era_split_qmk_rules.mk`).
+
+`era_split_communication_core_storage_validate_wire_payload()` in `split/communication_core/era_split_communication_core_storage.c` admits compact `0xE0..0xE2`, `0xE4..0xEB`, `0xED`, `0xEE` and the two bulk forms; `era_split_wire_classify_payload()` in `split/era_split_wire_payload.c` reaches it.
 
 ## `SESSION_STATUS`
 
@@ -113,16 +164,8 @@ Storage-changed rides `STORAGE_NEWS` (`0x40`).
 
 ## `HOST_PEER_SOURCE_PUSH`
 
-```text
-byte0: compact control with extension bit
-byte1: HOST_PEER_SOURCE_PUSH
-byte2: section mask
-byte3..: section bodies in ascending marker-bit order
-```
-
-The response envelope is the same three-byte header with
-`HOST_PEER_HOST_SOURCE_RSP` in byte1. `byte2` is a plain 8-bit section mask
-in both id spaces (`era_split_wire_protocol.h`).
+Envelope: HOST-PEER Class, op `0x20`. Zero mask is invalid on this op
+(section-less request is the one-byte compact control).
 
 | Marker | Section | Bytes | Dir | Relation |
 | --- | --- | ---: | --- | --- |
@@ -242,12 +285,8 @@ exchange (`era_route_contract.md`). A dual mask is a malformed frame.
 
 ## `HOST_PEER_HOST_SOURCE_RSP`
 
-```text
-byte0: compact control with extension bit
-byte1: HOST_PEER_HOST_SOURCE_RSP
-byte2: section mask
-byte3..: one body per set marker, in ascending marker-bit order
-```
+Envelope: HOST-PEER Class, op `0x21`. `byte2 == 0x00` is a valid no-section
+envelope.
 
 Markers, widths and per-relation eligibility are the master table above.
 
@@ -500,8 +539,7 @@ fifteen. A one-poll deferral is noise against a 200 ms judgment window.
 
 ## Control-Only Payloads
 
-- HEARTBEAT request and ACK_STATUS response are both one-byte compact control
-  payloads, and neither takes a class/op id (the HOST-PEER class MUST NOT).
-- Semantics come from route kind, relation mode, direction, and expected
-  response context.
-- `HOST_PEER_ACK_STATUS` is the no-section HOST response.
+Kind 1 (`GRANT_ACK`): compact, EXT clear, `payload_len == 1`.
+`HOST_PEER_HEARTBEAT` (request) and `HOST_PEER_ACK_STATUS` (response) are that
+packet. Neither takes a class/op id. Semantics come from route kind, relation
+mode, direction, and expected response context — not from a second wire id.
