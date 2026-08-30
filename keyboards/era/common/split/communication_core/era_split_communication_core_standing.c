@@ -345,7 +345,8 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
 
     /* The grant's three identities, and core1 stops on any of them. Core0
      * moves the epoch on a wire-role change, bumps the generation on a
-     * relation rotation, and clears the bit for storage exclusivity or a
+     * relation rotation, and clears the bit for storage standing suppression
+     * (transfer exclusivity or a push initiator's remote-Apply wait) or a
      * pending status revalidation.
      *
      * **The bit is the odd one out and only it** (Slice 11.7): the other two
@@ -396,9 +397,12 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
      * confirmed on the wire. The shadow lives here now because core1 is what
      * confirms. Both sections follow the identical rule, which is why the
      * authority one is three lines rather than a mechanism. */
-    /* Under liveness alone the frame carries nothing, and that is the contract
-     * rather than an omission: storage exclusivity suppresses content, and this
-     * exchange exists to prove the half is alive rather than to move state. The
+    /* Under liveness alone the request carries nothing, and that is the contract
+     * rather than an omission: storage standing suppression keeps every push
+     * section due, and this exchange exists to prove the half is alive rather
+     * than to move initiator state. During a responder's synchronous push Apply,
+     * its blocking snapshot was already published under transfer suppression,
+     * so the response remains section-less through that Core0 outage as well. The
      * sent-state shadows are therefore untouched, so every section stays due
      * and crosses on the first cadence poll after the episode. */
     uint8_t push_sections = 0;

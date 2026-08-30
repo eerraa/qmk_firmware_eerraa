@@ -138,10 +138,12 @@ void era_split_transport_scheduler_mark_maintenance_due(uint8_t flags) {
    Core1 decides when, and nothing else.
 
    `enabled` is where SESSION_STATUS and storage keep their precedence. A
-   pending status revalidation or an exclusive storage transfer clears it, so
-   the standing exchange suspends without a teardown and resumes when the bit
-   returns -- which is the same Common Route Priority the router applies to
-   every other route, expressed once instead of re-derived on core1.
+   pending status revalidation, an exclusive storage transfer, or the push
+   initiator's wait for the responder's synchronous Apply clears it, so the
+   standing exchange suspends without a teardown and resumes when the bit
+   returns. The last case is deliberately narrower than route exclusivity:
+   storage control traffic keeps running while the responder Core0 is blocked,
+   but runtime pushes must not fill its general result ring.
 
    **Every serviced relation's initiator builds one, per-relation period**
    (R2). The switch below is the whole of the difference: DUAL-HOST polls at
@@ -190,7 +192,7 @@ static void era_split_transport_scheduler_build_standing_plan(era_split_communic
 
     bool enabled = !g_era_split_transport_scheduler.local_status_pending;
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    enabled = enabled && !era_host_peer_storage_route_exclusive();
+    enabled = enabled && !era_host_peer_storage_standing_suppressed();
 #endif
 
     plan->owner_epoch            = era_split_communication_core_owner_epoch();

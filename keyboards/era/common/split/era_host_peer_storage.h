@@ -500,6 +500,12 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
  * until that result is consumed or cancelled; no shared record is read. */
 bool era_host_peer_storage_initiator_request_pending(void);
 bool era_host_peer_storage_route_exclusive(void);
+/* Standing-runtime suppression is slightly wider than transfer exclusivity.
+ * After a push's transfer is verified, the initiator keeps Core0 running while
+ * the responder may be inside synchronous NVM Apply; only the standing cadence
+ * stays suppressed until COMPLETE. Storage control traffic and ordinary route
+ * admission keep their existing ownership. */
+bool era_host_peer_storage_standing_suppressed(void);
 /* The EEPROM SYNC indicator's one fact (2026-08-14 redesign, baseline-
  * provenance refinement): this half knows of unfinished *visible* pair-level
  * storage work. It is the union of the local arm — dirty content inside its

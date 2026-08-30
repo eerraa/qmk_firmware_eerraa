@@ -38,9 +38,14 @@ window starts after BEGIN
 
 **The exclusive span is the transfer phase, not the episode** — validated
 `TRANSFER` through each role's transfer-verified boundary and an abort's
-bounded cleanup. Apply is local flash; Core1's standing exchange holds
-liveness while Core0 is synchronously unavailable. Per-role boundaries:
-`era_host_peer_storage_contract.md`.
+bounded cleanup. Apply is local flash. One narrower gate outlives exclusivity
+on a push initiator: from the final chunk ACK through COMPLETE, the standing
+runtime cadence stays disabled while the responder may be inside synchronous
+Core0 Apply. Storage APPLY/COMPLETE control remains admitted, and route
+admission outside the standing cadence is unchanged. This prevents per-arrival
+runtime-push results from filling the blocked responder's general result ring
+without widening the result-coalescing exemption
+(`split/era_host_peer_storage.c`, `split/era_split_transport_scheduler.c`).
 
 CLEAN quarantine is stronger than transfer exclusivity. Installed before
 CLEAN PREPARED through COMMIT and controlled reset, it forbids
@@ -173,15 +178,16 @@ sequence with a claim word.
 > **REOPENS:** a snapshot that already carries the plan for another reason.
 
 **The grant stops on any of the three identities changing** — owner epoch,
-relation generation, enable bit. Rotation bumps generation; storage
-exclusivity clears enable; a wire-role change moves the epoch.
+relation generation, enable bit. Rotation bumps generation; storage standing
+suppression (transfer exclusivity or a push initiator's remote-Apply wait)
+clears enable; a wire-role change moves the epoch.
 
 **The enable bit stops the cadence and does not stop liveness.** While it is
 clear but the other two hold, core1 still runs one section-less exchange
 after `ERA_SPLIT_STANDING_LIVENESS_MS` 50 (half of
 `ERA_SPLIT_RESPONDER_SILENCE_MS` 100) of wire quiet. Not per-relation. It
-exists because exclusivity hands the wire back to core0 at the moment core0
-is about to be unavailable inside a flash write. A stop on a failed exchange
+exists because storage can clear the cadence at the moment one Core0 is about
+to be unavailable inside a flash write. A stop on a failed exchange
 stops the beat too. Core1 never retries; failure is core0's. **A stop raises
 revalidation and does not declare the peer stale.** A stop inside a durable
 Apply is a relation failure, not a persistence rollback.
@@ -246,8 +252,11 @@ a storage route.
 
 Unpinned `BUSY`/core0 pin handoff is nonexclusive. Validated `TRANSFER`
 clamps owner routes and the grant enable bit as a mask down to
-`ATTACH_STATUS`. **It lifts at transfer-verified.** Cancel on authority,
-relation, policy, owner, or source-revision change.
+`ATTACH_STATUS`. **Transfer exclusivity lifts at transfer-verified.** A push
+initiator then keeps only the standing grant disabled until COMPLETE while the
+remote responder may be inside synchronous Apply; the rest of route admission
+is not part of that narrower gate. Cancel on authority, relation, policy,
+owner, or source-revision change.
 
 **Exclusivity suppresses owner routes and never a responder's answer** —
 **Common Route Priority**.

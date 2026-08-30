@@ -59,6 +59,7 @@ make test:era_nvm
 make test:era_nvm_qmk_driver
 make test:era_host_peer_storage_recency_policy
 make test:era_host_peer_storage_indicator_policy
+make test:era_host_peer_storage_standing_policy
 make test:era_split_responder_result_policy
 make test:era_split_restart_agreement
 make test:era_split_storage_publication_retire
@@ -79,6 +80,7 @@ bash tests/era_build_variant_rules/test_variant_rules.sh
 | `era_nvm_qmk_driver` | ERA custom adapter compiled with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`: ordinary read/write/update, exact committed-span notification, non-notifying durable internal storage metadata, faulted counter writes that keep the previous public/replay value, the atomic counter-through-baseline convergence envelope, the real 16-byte stock macro RESET transcript, deferred RGB write inside an open macro, macro-touching refusal, failed close, whole-store erase, CLEAN replay, physical prepare failure |
 | `era_host_peer_storage_recency_policy` | failed increment/clear cannot publish a settled capture or signal departure; failed convergence-metadata publication cannot retire recency. Tests the production policy header; does not construct a second fake HOST-PEER runtime |
 | `era_host_peer_storage_indicator_policy` | a serviced relation and the initiator's finite fast-recovery window both preserve the peer-pending mirror; a backed-off no-link state retires it. A successfully sent one stays visible-pair work after the local semantic arm falls until that role's sent-state boundary confirms zero; a one that never crossed creates no synthetic hold; a closed local gate cannot latch a new sent-one obligation and does not erase an already-confirmed one before its zero crosses. The scheduler owns whether the recovery window is active; the test clones neither scheduler nor storage runtime |
+| `era_host_peer_storage_standing_policy` | standing cadence remains admitted in ordinary service and is suppressed by either transfer exclusivity or the push initiator's remote-responder Apply wait. The latter does not widen route exclusivity or responder-result coalescing |
 | `era_split_responder_result_policy` | responder general-ring capacity. Coalesce only an exact successful section-bearing HEARTBEAT already represented by the same immutable responder snapshot/mask; reject empty, changed-generation/mask, failed/unsent, SESSION and both push result kinds. A synchronous Core0 Apply can outlast all three usable general slots while Core1 keeps answering |
 | `era_split_restart_agreement` | PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare failure, quarantine |
 | `era_split_storage_publication_retire` | production publication unit: CLEAN terminal sentinel, ready/unclaimed discard and active claim drain on both storage directions; nonterminal relation-loss discard that clears ready result ownership and leaves source publication capacity reusable; an in-flight non-ready reservation stays owned until Core1 publishes it ready, then the same discard closes it on a later Core0 pass |

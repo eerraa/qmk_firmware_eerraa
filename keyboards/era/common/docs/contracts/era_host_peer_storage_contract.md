@@ -462,11 +462,18 @@ permanent core0 housekeeping wake.
 
 Storage transfer exclusivity protects the bulk chunk stream and ends once the
 complete candidate has been validated. The following NVM replacement is a local
-synchronous flash window; Core1 keeps the standing relation/wire service from
-SRAM. The responder general ring has three usable entries, so Core1 coalesces
-only an exact successful section-bearing HEARTBEAT already represented by the
-same immutable owner/relation/snapshot/section-mask tuple until Core0 drains
-it. SESSION and runtime/source-push results stay per-arrival.
+synchronous flash window. For a push, the initiator keeps only the standing
+runtime cadence suppressed from its final chunk ACK through COMPLETE while the
+responder Core0 may be inside that window; storage APPLY/COMPLETE control keeps
+running on its dedicated lane. The transfer's already-disabled standing plan
+makes this suppression continuous, and the responder snapshot serving the
+blocking Apply was published with transfer content suppressed. The responder
+general ring has three usable entries, so Core1 coalesces only an exact
+successful section-bearing HEARTBEAT already represented by the same immutable
+owner/relation/snapshot/section-mask tuple until Core0 drains it. SESSION and
+runtime/source-push results stay per-arrival; the remote-Apply gate prevents
+those runtime pushes from being originated rather than weakening that rule
+(`split/era_host_peer_storage.c`, `split/era_split_transport_scheduler.c`).
 
 No keyboard pass is recursively invoked from ERA NVM. Relation liveness is a
 Core1 responsibility during the Core0 flash window. Scheduler recovery never

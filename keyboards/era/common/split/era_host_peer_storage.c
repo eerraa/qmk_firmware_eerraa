@@ -3,6 +3,7 @@
 
 #include "era_host_peer_storage.h"
 #include "era_host_peer_storage_indicator_policy.h"
+#include "era_host_peer_storage_standing_policy.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -2968,12 +2969,16 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
                         if (era_host_peer_storage_chunk_length(g_era_host_peer_storage_runtime.image_size,
                                                                g_era_host_peer_storage_runtime.next_chunk) == 0) {
                             g_era_host_peer_storage_runtime.state = ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_APPLY;
-                            /* The push initiator's transfer ends at its last
-                             * acknowledged chunk (R4): what follows is the
-                             * apply trigger and complete polls — compact
-                             * exchanges that interleave with normal routes.
-                             * The responder's own CRC validation is its
-                             * boundary, on its half. */
+                            /* The push initiator's transfer exclusivity ends at
+                             * its last acknowledged chunk (R4): what follows is
+                             * the apply trigger and complete polls on the
+                             * dedicated storage lane. Ordinary route admission
+                             * reopens here, but the standing runtime cadence has
+                             * its narrower remote-Apply suppression until
+                             * COMPLETE so the responder's blocked Core0 is not
+                             * fed general runtime-push results. The responder's
+                             * own CRC validation is its transfer boundary, on
+                             * its half. */
                             g_era_host_peer_storage_runtime.flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE;
                         }
                     } else if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_CHUNKS) {
@@ -3892,6 +3897,23 @@ bool era_host_peer_storage_initiator_request_pending(void) {
 
 bool era_host_peer_storage_route_exclusive(void) {
     return (g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE) != 0;
+}
+
+bool era_host_peer_storage_standing_suppressed(void) {
+    /* A push is asymmetric after its last chunk: this half (the initiator) is
+     * still running Core0 while the responder can be inside one synchronous
+     * ERA NVM Apply. The storage APPLY/COMPLETE control requests remain on the
+     * dedicated lane and are enough to keep the relation serviced; reopening
+     * the standing runtime cadence here instead generates general responder
+     * results that the blocked Core0 cannot drain. The old transfer-exclusive
+     * plan is already disabled when PEER_PUSH_APPLY is entered, so extending
+     * only the standing gate through COMPLETE is continuous rather than a new
+     * wire phase. */
+    return era_host_peer_storage_standing_policy_suppressed(
+        era_host_peer_storage_route_exclusive(),
+        g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER,
+        g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_APPLY,
+        g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_COMPLETE);
 }
 
 /* "Data is moving": the episode span whose boundaries are two-sided
