@@ -162,6 +162,8 @@ void era_split_communication_core_get_diagnostics_snapshot(era_split_communicati
     snapshot->responder_accepted_rx_count          = g_era_split_communication_core.responder_accepted_rx_count;
     snapshot->responder_undecodable_rx_count       = g_era_split_communication_core.responder_undecodable_rx_count;
     snapshot->responder_quiet_count                = g_era_split_communication_core.responder_quiet_count;
+    snapshot->responder_coalesced_heartbeat_count  = g_era_split_communication_core.responder_coalesced_heartbeat_count;
+    snapshot->responder_coalesced_runtime_section_count = g_era_split_communication_core.responder_coalesced_runtime_section_count;
     snapshot->responder_response_prepare_count     = g_era_split_communication_core.responder_response_prepare_count;
     snapshot->responder_response_prepare_fail_count = g_era_split_communication_core.responder_response_prepare_fail_count;
     snapshot->responder_last_matrix_seq            = g_era_split_communication_core.responder_last_matrix_seq;

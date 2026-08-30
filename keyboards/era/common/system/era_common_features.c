@@ -104,16 +104,6 @@ void era_common_features_reload_from_eeprom(void) {
 }
 
 void era_common_features_task(void) {
-#ifdef EEPROM_CUSTOM
-    /* Background A/B hygiene: at most one inactive 4-KiB sector per top-level
-       keyboard pass. No callback from the NVM layer runs keyboard/wire work, so
-       each successful erase naturally returns to a complete pass before the
-       next sector is considered. This keeps mandatory rotations exceptional
-       without recreating the retired recursive flash-yield architecture. */
-    bool nvm_maintenance_did_work = false;
-    (void)era_eeprom_driver_maintenance_task(&nvm_maintenance_did_work);
-#endif
-
     /* The frame-loss half of the ERA sleep decision. Here rather than in a
        board file because it is a fact about USB, not about a keyboard, and
        every ERA board reaches this function once per pass. */
@@ -130,6 +120,29 @@ void era_common_features_task(void) {
 #endif
 #if defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET) && defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING)
     rp2040_bootloader_double_tap_reset_task();
+#endif
+}
+
+void era_common_features_maintenance_task(void) {
+#ifdef EEPROM_CUSTOM
+#    if defined(RGB_MATRIX_ENABLE) && defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    /* Background bank erasure is opportunistic; a board-policy edge is a
+     * presentation deadline. RGB policy refreshes can span several ordinary
+     * rgb_matrix_task() passes (STARTING -> RENDERING -> FLUSHING), and putting
+     * one synchronous 4-KiB erase between each pass turns a pair-synchronous
+     * storage indication into visibly different panel edges. The class
+     * skeletons call this only after their board tick, so a fresh STATUS edge
+     * has already armed this predicate before maintenance gets a chance. */
+    if (rgb_matrix_render_policy_refresh_active()) {
+        return;
+    }
+#    endif
+    /* Background A/B hygiene: at most one inactive 4-KiB sector per top-level
+       housekeeping call. No callback from the NVM layer runs keyboard/wire
+       work, so each successful erase returns all the way to the normal loop
+       before another sector is considered. */
+    bool nvm_maintenance_did_work = false;
+    (void)era_eeprom_driver_maintenance_task(&nvm_maintenance_did_work);
 #endif
 }
 

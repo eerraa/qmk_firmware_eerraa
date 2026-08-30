@@ -8,6 +8,7 @@
 
 #include "../era_split_authority_reducer.h"
 #include "../era_split_mode_planner.h"
+#include "../communication_core/era_split_communication_core_responder.h"
 /* For the maintenance-source indices: the state below sizes an array from them
    and the accessor that reads it is public, so the constants live there. */
 #include "../era_split_transport_scheduler.h"
@@ -268,6 +269,7 @@ typedef struct {
     /* How many of core1's unpublished bare-ACK responses this half has already
        folded into its diagnostic projection. A watermark, not a counter. */
     uint32_t responder_quiet_folded;
+    era_split_communication_core_responder_coalesced_counts_t responder_coalesced_folded;
 
     bool     local_wire_available;
     bool     local_wire_initiator;

@@ -13,6 +13,9 @@
 
 #include "era_split_communication_core_internal.h"
 #include "era_split_communication_core_owner.h"
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+#    include "../era_host_peer_storage.h"
+#endif
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_backend.h"
 #include "../era_split_transaction_engine.h"
@@ -40,7 +43,8 @@ static era_split_communication_core_standing_state_t g_era_split_communication_c
  * every exchange, because every exchange updates the counters.
  *
  * `state_change_seq` is the wake: it moves only when a field core0 acts on has
- * actually changed -- the peer layer byte, or the stop flag. Splitting them is
+ * actually changed -- peer latest-state, the initiator's storage-pending sent
+ * confirmation, or the stop flag. Splitting them is
  * not tidiness. With one sequence, `exchange_count++` made the record differ
  * every exchange, so core0's housekeeping woke once per poll and the standing
  * grant's whole claim -- that core0's cost does not scale with the poll rate --
@@ -644,6 +648,19 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        era_host_peer_storage_cause_note_pending_path(
+            ERA_HOST_PEER_STORAGE_CAUSE_PENDING_INITIATOR_TX,
+            (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0,
+            0);
+#endif
+        uint8_t sent_pending =
+            (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0 ? 1U : 0U;
+        if (!state.local_storage_pending_valid || state.local_storage_pending != sent_pending) {
+            notify = true;
+        }
+        state.local_storage_pending       = sent_pending;
+        state.local_storage_pending_valid = 1;
         g_era_split_communication_core_standing_private.sent_storage_pending       = plan.storage_pending;
         g_era_split_communication_core_standing_private.sent_storage_pending_valid = 1;
         state.tx_section_count++;

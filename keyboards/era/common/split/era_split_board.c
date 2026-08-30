@@ -5,6 +5,7 @@
 #include "era_split_board.h"
 #include "era_split_keyboard.h"
 #include "../system/era_board_hooks.h"
+#include "../system/era_common_features.h"
 #ifdef VIA_ENABLE
 #    include "../system/era_common_via.h"
 #endif
@@ -61,6 +62,10 @@ __attribute__((weak)) void era_split_board_post_init(void) {}
 void housekeeping_task_kb(void) {
     era_split_keyboard_task();
     era_board_housekeeping_tick();
+    /* Presentation edges are discovered by the board tick above. Only after
+       that may opportunistic NVM maintenance claim a blocking flash window; the
+       common maintenance owner yields while the refreshed frame is unfinished. */
+    era_common_features_maintenance_task();
     // No need to invoke the user-specific callback, as it's been called
     // already.
 }

@@ -157,6 +157,8 @@ typedef struct {
     uint32_t responder_accepted_rx_count;
     uint32_t responder_undecodable_rx_count;
     uint32_t responder_quiet_count;
+    uint32_t responder_coalesced_heartbeat_count;
+    uint32_t responder_coalesced_runtime_section_count;
     uint32_t responder_response_prepare_count;
     uint32_t responder_response_prepare_fail_count;
     uint8_t  responder_last_matrix_seq;

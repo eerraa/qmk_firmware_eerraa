@@ -182,6 +182,15 @@ typedef struct {
        this count into its responder projection in bulk, at whatever cadence it
        happens to run -- which is the whole point. */
     volatile uint32_t responder_quiet_count;
+    /* Successful/failed duplicate HEARTBEAT replies that intentionally publish
+       no second Core0 result. `quiet_count` remains strictly section-less ACKs. */
+    volatile uint32_t responder_coalesced_heartbeat_count;
+    volatile uint32_t responder_coalesced_response_count;
+    volatile uint32_t responder_coalesced_visual_count;
+    volatile uint32_t responder_coalesced_rgb_count;
+    volatile uint32_t responder_coalesced_runtime_section_count;
+    volatile uint32_t responder_coalesced_activity_count;
+    volatile uint32_t responder_coalesced_bad_count;
     volatile uint32_t responder_response_prepare_count;
     volatile uint32_t responder_response_prepare_fail_count;
     volatile uint32_t responder_accepted_rx_count;

@@ -37,4 +37,9 @@ void era_split_responder_projection_note_result(bool session,
    skipping the publish removed, so they arrive as a delta at whatever cadence
    core0 happens to run. */
 void era_split_responder_projection_note_quiet(uint32_t count);
+/* Bulk fold for duplicate HEARTBEAT replies whose Core0 result was coalesced.
+   `count` is received HEARTBEAT frames; visual/rgb are successfully sent
+   physical response sections, and bad_count preserves the per-result BAD
+   projection without restoring one Core0 wake per duplicate. */
+void era_split_responder_projection_note_coalesced(uint32_t count, uint32_t visual_count, uint32_t rgb_count, uint32_t bad_count);
 void era_split_responder_projection_get(era_split_responder_projection_t *snapshot);

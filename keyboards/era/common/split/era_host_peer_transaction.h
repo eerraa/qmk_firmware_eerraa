@@ -152,11 +152,18 @@ bool era_host_peer_transaction_apply_rgb_state(const era_host_peer_rgb_state_t *
    receive instant, and the one correction lives here with the anchor watch that
    measures it. */
 void era_host_peer_transaction_apply_time_anchor(uint32_t anchor_ms, uint32_t rx_us);
-/* True after this half has applied at least one relation time-anchor. The
-   link raise's initiator asks this before it arms, so T_commit is in the
-   shared-clock domain (`era_split_link.h`'s **Reconciliation**). The
-   responder is the clock source and does not apply. */
+/* True after this half has applied at least one time-anchor from the CURRENT
+   relation. A relation rotation invalidates the fact even though the already
+   corrected sync_timer value itself is left alone: a newly rebooted responder
+   may have a different local epoch, so an old relation's adoption cannot prove
+   that a fresh T_commit is in the new responder's clock domain. The link
+   raise's initiator asks this before it arms (`era_split_link.h`'s
+   **Reconciliation**). The responder is the clock source and does not apply. */
 bool era_host_peer_transaction_time_anchor_adopted(void);
+/* Relation-rotation half of the rule above. This invalidates only readiness to
+   create a new shared-clock deadline; it deliberately does not step or clear
+   sync_timer itself. The next TIME_ANCHOR apply re-establishes readiness. */
+void era_host_peer_transaction_forget_time_anchor(void);
 #if defined(SPLIT_KEYBOARD) && defined(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)
 /* Anchor applies, backwards steps, and the worst backwards step in ms. Read
    after a PEER era, because the half that applies an anchor has no console

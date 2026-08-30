@@ -140,6 +140,7 @@ static rgb_matrix_render_policy_t rgb_active_render_policy;
 static rgb_matrix_render_policy_t rgb_last_render_policy;
 static bool                       rgb_render_policy_valid;
 static bool                       rgb_render_policy_refresh_pending;
+static bool                       rgb_render_policy_refresh_in_progress;
 static uint8_t                    rgb_render_frame_flags;
 
 static bool rgb_matrix_render_policy_has(uint16_t flag) {
@@ -247,6 +248,15 @@ static void rgb_matrix_render_policy_update(uint8_t effect) {
     rgb_matrix_render_policy_kb(&policy);
     rgb_matrix_render_policy_sanitize(&policy);
 
+    /* A board hook may request another policy refresh from inside the update
+     * itself (TOMAK retires a held STATUS proof this way), so sample the request
+     * only after the hook has run. Once consumed, keep a separate in-progress
+     * fact until the resulting frame is actually flushed. Clearing the request
+     * here without that second fact let opportunistic flash maintenance occupy
+     * every top-level gap of a multi-pass render and delay one split half's
+     * STATUS edge by hundreds of milliseconds. */
+    const bool refresh_requested = rgb_render_policy_refresh_pending;
+
     const bool mode_changed             = rgb_matrix_render_policy_mode_changed(&policy);
     const bool indicator_effect_refresh = !mode_changed &&
                                           rgb_effect_params.iter == 0 &&
@@ -271,6 +281,9 @@ static void rgb_matrix_render_policy_update(uint8_t effect) {
     rgb_last_render_policy   = policy;
     rgb_render_policy_valid  = true;
     rgb_render_policy_refresh_pending = false;
+    if (refresh_requested) {
+        rgb_render_policy_refresh_in_progress = true;
+    }
 }
 
 void rgb_matrix_render_policy_request_refresh(void) {
@@ -280,6 +293,10 @@ void rgb_matrix_render_policy_request_refresh(void) {
      * machine and consumes the request at the top of its next pass. If a frame
      * is already rendering/flushing, rgb_task_flush() below carries the pending
      * request into STARTING after the buffered frame is safely pushed. */
+}
+
+bool rgb_matrix_render_policy_refresh_active(void) {
+    return rgb_render_policy_refresh_pending || rgb_render_policy_refresh_in_progress;
 }
 #endif
 
@@ -694,6 +711,10 @@ static void rgb_task_flush(uint8_t effect) {
      * ordinary effect frames carried a nonzero flag and called this already. */
     rgb_matrix_render_policy_flush_kb(rgb_render_frame_flags);
     rgb_render_frame_flags = 0;
+    /* The updated policy is now represented by a hardware push. A newer request
+     * that arrived during this flush remains visible through `_pending` below,
+     * so clearing only the consumed in-progress generation is race-safe. */
+    rgb_render_policy_refresh_in_progress = false;
 #endif
 
     // next task. A board-side policy edge may have arrived after the previous
@@ -835,6 +856,13 @@ void rgb_matrix_task(void) {
         case RENDERING:
 #if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
             rgb_matrix_task_render_with_policy(effect);
+            /* Some refreshes change no rendered pixels. They legitimately end
+             * in SYNCING without a PWM push; retire the in-progress generation
+             * here so background maintenance is not blocked by a frame that
+             * does not exist. */
+            if (rgb_task_state == SYNCING && !rgb_render_policy_refresh_pending) {
+                rgb_render_policy_refresh_in_progress = false;
+            }
 #else
             rgb_task_render(effect);
             if (effect) {

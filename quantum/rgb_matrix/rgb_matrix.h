@@ -128,6 +128,11 @@ void rgb_matrix_render_policy_flush_user(uint8_t frame_flags);
  * the next task pass instead of waiting for the ordinary 16-ms frame epoch.
  * This changes no RGB configuration and coalesces repeated requests. */
 void rgb_matrix_render_policy_request_refresh(void);
+/* True from an external policy-refresh request until the refreshed policy has
+ * either reached the PWM flush boundary or proved that no new frame is needed.
+ * ERA's opportunistic flash maintenance uses this as a priority fact: a
+ * background erase may wait, a user-visible policy edge may not. */
+bool rgb_matrix_render_policy_refresh_active(void);
 #endif
 
 struct rgb_matrix_limits_t rgb_matrix_get_limits(uint8_t iter);

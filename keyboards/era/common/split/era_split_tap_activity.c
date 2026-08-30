@@ -339,6 +339,10 @@ void era_split_tap_activity_note_sent(void) {
     g_era_split_tap_activity.counters.sent_count++;
 }
 
+void era_split_tap_activity_note_sent_bulk(uint32_t count) {
+    g_era_split_tap_activity.counters.sent_count += count;
+}
+
 void era_split_tap_activity_get_diagnostics(era_split_tap_activity_diagnostics_t *out) {
     if (out != NULL) {
         *out = g_era_split_tap_activity.counters;

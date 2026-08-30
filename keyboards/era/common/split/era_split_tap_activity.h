@@ -69,6 +69,7 @@ void era_split_tap_activity_relation_reset(void);
 
 // Responder-confirmed activity send, from the wire's own section byte.
 void era_split_tap_activity_note_sent(void);
+void era_split_tap_activity_note_sent_bulk(uint32_t count);
 
 typedef struct {
     uint32_t speculative_activate_count;

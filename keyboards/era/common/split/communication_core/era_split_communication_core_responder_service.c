@@ -3,6 +3,7 @@
 
 #include "era_split_communication_core_internal.h"
 #include "era_split_communication_core_responder_internal.h"
+#include "era_split_communication_core_responder_result_policy.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -16,6 +17,9 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "era_split_communication_core_storage.h"
 #    include "era_split_communication_core_storage_service.h"
+#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+#        include "../era_host_peer_storage.h"
+#    endif
 #endif
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_engine.h"
@@ -149,6 +153,38 @@ static bool era_split_communication_core_responder_prepare_result_slot(bool sour
     g_era_split_communication_core.responder_source_push_slot_reserved = source_push ? 1 : 0;
     g_era_split_communication_core.responder_slot_reserve_count++;
     return true;
+}
+
+/* Core1 is the sole writer of the general SPSC ring and Core0 only advances
+ * `read`. Snapshot publication is refused while either result ring is non-empty,
+ * and a live Core1 snapshot claim additionally blocks publication, so every
+ * entry observed here is immutable while this service call inspects it.
+ *
+ * Core0 may advance `read` while the walk runs. Seeing an entry it just consumed
+ * is a safe false positive: the matching successful HEARTBEAT result is already
+ * owned by Core0 and will perform (or has performed) the exact sent-shadow commit
+ * this duplicate would request. Missing such an entry is only a false negative
+ * and falls back to the ordinary reservation/publish path. */
+static bool era_split_communication_core_responder_heartbeat_result_pending(
+    const era_split_communication_core_responder_snapshot_t *snapshot) {
+    if (snapshot == NULL || snapshot->response_section_mask == 0) {
+        return false;
+    }
+
+    __DMB();
+    uint32_t read  = g_era_split_communication_core_responder_general_read;
+    uint32_t write = g_era_split_communication_core_responder_general_write;
+    __DMB();
+
+    while (read != write) {
+        if (era_split_communication_core_responder_heartbeat_result_covers_snapshot(
+                snapshot, &g_era_split_communication_core_responder_general_results[read])) {
+            return true;
+        }
+        read = era_split_communication_core_responder_ring_next(
+            read, ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS);
+    }
+    return false;
 }
 
 static void era_split_communication_core_responder_publish_result_slot(bool source_push, uint32_t write, uint32_t next, const era_split_communication_core_responder_result_t *result) {
@@ -516,6 +552,12 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
                 (uint8_t)(frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING)] &
                           ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_MASK);
             result.peer_storage_pending_valid = 1;
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+            era_host_peer_storage_cause_note_pending_path(
+                ERA_HOST_PEER_STORAGE_CAUSE_PENDING_RESPONDER_RX,
+                result.peer_storage_pending != 0,
+                0);
+#endif
         }
         if (era_split_wire_section_present(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)) {
             const uint8_t *arm_body       = &frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)];
@@ -572,8 +614,13 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
      * section can produce no section, so the only thing that could still want a
      * result is a failed send -- and a failed bare ACK tells core0 nothing it
      * can act on that its own counters do not already carry. */
-    bool result_slot_needed = result.kind != ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_HEARTBEAT ||
-                              snapshot.response_section_mask != 0;
+    bool heartbeat_result_already_pending =
+        result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_HEARTBEAT &&
+        era_split_communication_core_responder_heartbeat_result_pending(&snapshot);
+    bool result_slot_needed =
+        (result.kind != ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_HEARTBEAT ||
+         snapshot.response_section_mask != 0) &&
+        !heartbeat_result_already_pending;
     uint32_t write = 0;
     uint32_t next  = 0;
     if (result_slot_needed &&
@@ -618,6 +665,38 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
                                   result.result != ERA_SPLIT_TRANSACTION_RESULT_OK);
     if (core0_action_required) {
         era_split_communication_core_responder_publish_result_slot(source_push, write, next, &result);
+    } else if (heartbeat_result_already_pending) {
+        /* This was not a quiet ACK. The duplicate HEARTBEAT really ran and may
+         * have carried sections; only its duplicate Core0 sent-shadow work was
+         * removed. Keep physical traffic in separate monotonic counters for a
+         * later cold fold. */
+        g_era_split_communication_core.responder_coalesced_heartbeat_count++;
+        if (result.result == ERA_SPLIT_TRANSACTION_RESULT_BAD) {
+            g_era_split_communication_core.responder_coalesced_bad_count++;
+        }
+        if (result.response_sent) {
+            uint8_t section_mask = result.response_section_mask;
+            g_era_split_communication_core.responder_coalesced_response_count++;
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_VISUAL_RESYNC) != 0) {
+                g_era_split_communication_core.responder_coalesced_visual_count++;
+            }
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_RGB_STATE) != 0) {
+                g_era_split_communication_core.responder_coalesced_rgb_count++;
+            }
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_INPUT_LAYER) != 0) {
+                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
+            }
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY) != 0) {
+                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
+            }
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_RGB_STATE) != 0) {
+                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
+            }
+            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_ACTIVITY) != 0) {
+                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
+                g_era_split_communication_core.responder_coalesced_activity_count++;
+            }
+        }
     } else {
         g_era_split_communication_core.responder_quiet_count++;
     }
@@ -635,4 +714,20 @@ uint32_t era_split_communication_core_responder_undecodable_rx_count(void) {
 
 uint32_t era_split_communication_core_responder_quiet_count(void) {
     return g_era_split_communication_core.responder_quiet_count;
+}
+
+void era_split_communication_core_responder_get_coalesced_counts(era_split_communication_core_responder_coalesced_counts_t *counts) {
+    if (counts == NULL) {
+        return;
+    }
+    /* Core1 is the sole writer and every field is one aligned monotonic word.
+       A boundary landing between fields is folded on this or the next Core0
+       pass, exactly like the existing quiet-count watermark. */
+    counts->heartbeat_count       = g_era_split_communication_core.responder_coalesced_heartbeat_count;
+    counts->response_count        = g_era_split_communication_core.responder_coalesced_response_count;
+    counts->visual_count          = g_era_split_communication_core.responder_coalesced_visual_count;
+    counts->rgb_count             = g_era_split_communication_core.responder_coalesced_rgb_count;
+    counts->runtime_section_count = g_era_split_communication_core.responder_coalesced_runtime_section_count;
+    counts->activity_count        = g_era_split_communication_core.responder_coalesced_activity_count;
+    counts->bad_count             = g_era_split_communication_core.responder_coalesced_bad_count;
 }

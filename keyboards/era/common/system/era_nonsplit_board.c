@@ -42,6 +42,7 @@ __attribute__((weak)) void era_board_config_reset(void) {}
 void housekeeping_task_kb(void) {
     era_common_features_task();
     era_board_housekeeping_tick();
+    era_common_features_maintenance_task();
 }
 
 void matrix_init_kb(void) {

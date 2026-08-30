@@ -34,6 +34,16 @@ bool     g_rearm_during_write;
 uint32_t g_write_count;
 bool     g_status_policy_active;
 
+void enter_idle_none_policy(void) {
+    rgb_matrix_config.enable = 0;
+    rgb_matrix_enable_noeeprom();
+    rgb_matrix_config.mode = RGB_MATRIX_NONE;
+    rgb_matrix_task(); // STARTING -> RENDERING
+    rgb_matrix_task(); // RENDERING -> FLUSHING (initial NONE frame)
+    rgb_matrix_task(); // FLUSHING -> SYNCING
+    g_driver_flush_count = 0;
+}
+
 class EraRgbMatrixPersistence : public testing::Test {
    protected:
     void SetUp() override {
@@ -124,18 +134,43 @@ TEST_F(EraRgbMatrixPersistence, RenderPolicyRefreshDoesNotWaitForNextFrameEpoch)
     /* Put the state machine into its idle SYNCING arm at time zero. With no
        explicit refresh, RGB_MATRIX_LED_FLUSH_LIMIT would keep it there until
        16 ms. */
-    rgb_matrix_config.enable = 0;
-    rgb_matrix_enable_noeeprom();
-    rgb_matrix_config.mode = RGB_MATRIX_NONE;
-    rgb_matrix_task(); // STARTING -> RENDERING
-    rgb_matrix_task(); // RENDERING -> SYNCING for NONE
+    enter_idle_none_policy();
     ASSERT_EQ(g_driver_flush_count, 0U);
+
+    g_status_policy_active = true;
+    rgb_matrix_render_policy_request_refresh();
+    EXPECT_TRUE(rgb_matrix_render_policy_refresh_active());
+    rgb_matrix_task(); // STARTING -> RENDERING
+    EXPECT_TRUE(rgb_matrix_render_policy_refresh_active());
+    rgb_matrix_task(); // RENDERING -> FLUSHING (STATUS)
+    EXPECT_TRUE(rgb_matrix_render_policy_refresh_active());
+    rgb_matrix_task(); // FLUSHING -> hardware push
+
+    EXPECT_EQ(g_driver_flush_count, 1U);
+    EXPECT_FALSE(rgb_matrix_render_policy_refresh_active());
+}
+
+TEST_F(EraRgbMatrixPersistence, StatusRetirementKeepsRefreshActiveUntilNormalFrameFlushes) {
+    enter_idle_none_policy();
 
     g_status_policy_active = true;
     rgb_matrix_render_policy_request_refresh();
     rgb_matrix_task(); // STARTING -> RENDERING
     rgb_matrix_task(); // RENDERING -> FLUSHING (STATUS)
-    rgb_matrix_task(); // FLUSHING -> hardware push
+    rgb_matrix_task(); // FLUSHING -> STATUS hardware push
+    ASSERT_FALSE(rgb_matrix_render_policy_refresh_active());
+    g_driver_flush_count = 0;
+
+    g_status_policy_active = false;
+    rgb_matrix_render_policy_request_refresh();
+    ASSERT_TRUE(rgb_matrix_render_policy_refresh_active());
+    rgb_matrix_task(); // STARTING -> RENDERING
+    EXPECT_TRUE(rgb_matrix_render_policy_refresh_active());
+    rgb_matrix_task(); // RENDERING -> FLUSHING (normal/NONE replacement frame)
+    EXPECT_TRUE(rgb_matrix_render_policy_refresh_active());
+    EXPECT_EQ(g_driver_flush_count, 0U);
+    rgb_matrix_task(); // FLUSHING -> replacement hardware push
 
     EXPECT_EQ(g_driver_flush_count, 1U);
+    EXPECT_FALSE(rgb_matrix_render_policy_refresh_active());
 }

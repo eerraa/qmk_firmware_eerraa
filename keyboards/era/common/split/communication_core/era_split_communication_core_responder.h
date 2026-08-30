@@ -150,6 +150,20 @@ typedef struct {
     era_host_peer_visual_snapshot_t peer_visual_snapshot;
 } era_split_communication_core_responder_result_t;
 
+/* Core1-only aggregation for HEARTBEAT replies whose duplicate Core0 result
+   was coalesced behind an already-pending exact successful result. The reply
+   still crossed the wire, so cold Core0 diagnostics fold these monotonic
+   counts later instead of misclassifying it as a bare ACK. */
+typedef struct {
+    uint32_t heartbeat_count;
+    uint32_t response_count;
+    uint32_t visual_count;
+    uint32_t rgb_count;
+    uint32_t runtime_section_count;
+    uint32_t activity_count;
+    uint32_t bad_count;
+} era_split_communication_core_responder_coalesced_counts_t;
+
 bool era_split_communication_core_publish_responder_snapshot(const era_split_communication_core_responder_snapshot_t *snapshot);
 bool era_split_communication_core_responder_result_ready(void);
 bool era_split_communication_core_drain_responder_result(era_split_communication_core_responder_result_t *result);
@@ -164,3 +178,4 @@ uint32_t era_split_communication_core_responder_undecodable_rx_count(void);
 /* Free-running count of requests answered without publishing a result, for the
    bulk diagnostic fold on core0. */
 uint32_t era_split_communication_core_responder_quiet_count(void);
+void era_split_communication_core_responder_get_coalesced_counts(era_split_communication_core_responder_coalesced_counts_t *counts);

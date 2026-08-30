@@ -367,7 +367,27 @@ static bool era_split_transport_scheduler_publish_standing_plan(void) {
        review that forced this found the ungated watch firing every 100 ms
        on a healthy powered-without-USB pair. */
     g_era_split_transport_scheduler.standing_plan_granted = plan.relation_generation != 0;
-    return era_split_communication_core_publish_standing_plan(&plan);
+    bool published = era_split_communication_core_publish_standing_plan(&plan);
+#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE)
+    if (published &&
+        (plan.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
+        uint8_t context = 0;
+        if (plan.enabled) {
+            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_ENABLED;
+        }
+        if (g_era_split_transport_scheduler.local_status_pending) {
+            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_STATUS_PENDING;
+        }
+        if (era_host_peer_storage_route_exclusive()) {
+            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_EXCLUSIVE;
+        }
+        era_host_peer_storage_cause_note_pending_path(
+            ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH,
+            (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0,
+            context);
+    }
+#endif
+    return published;
 }
 
 /* The other half of the grant: what core1 reports back. Latest-state, so a
@@ -436,6 +456,9 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
     }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (state.local_storage_pending_valid) {
+        era_host_peer_storage_note_local_pending_sent(state.local_storage_pending != 0);
+    }
     /* The responder's settled-dirty mask section, on the same accept-clip and
        into the same consumer HOST-PEER feeds (Slice 11.7). This is what
        replaced the 50 ms `SESSION_STATUS` hint poll: one carrier and one
@@ -1058,6 +1081,16 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
     if (g_era_split_transport_scheduler.core1_initiator_relation_generation == 0) {
         g_era_split_transport_scheduler.core1_initiator_relation_generation = 1;
     }
+    /* The shared-clock adoption is relation-scoped for the same reason every
+       peer cache below is. A sequential firmware reflash can leave the Left
+       alive long enough to adopt the old Right's uptime, then reboot Right to
+       a new epoch. If this bit survived that relation rotation, the Left could
+       satisfy restart_arm_ready() before receiving the new Right's anchor and
+       schedule a LINK_SPEED/CLEAN deadline in the dead relation's time domain.
+       Do not alter sync_timer here: consumers may keep the last corrected
+       reading while the new relation forms; only deadline admission waits for
+       the new relation's forced TIME_ANCHOR cross. */
+    era_host_peer_transaction_forget_time_anchor();
     /* A peer layer value belongs to the relation era it arrived in, exactly
        like the peer matrix cache. Rotating the identity token is what makes
        this half stop resolving keycodes on a layer the peer may no longer be
@@ -1671,6 +1704,14 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STORAGE, era_host_peer_storage_task(now_ms));
 #endif
+    /* Pair-pending presentation ordering: consume both wire roles' successful
+       local-pending confirmations before storage_runtime_task() below is
+       allowed to retire the local semantic arm. The initiator confirmation is
+       in the standing latest-state; the responder confirmation is its ordinary
+       result/sent-shadow commit. If either drain moved below storage runtime, a
+       Core0 close could again make this panel dark while the peer still held a
+       previously confirmed pending=1. This is an ordering constraint, not a
+       diagnostic preference (era_host_peer_storage_contract.md). */
     maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_RESPONDER_DRAIN, era_split_transport_scheduler_drain_communication_core_responder_results()) || maintenance_performed;
     maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STANDING_STATE, era_split_transport_scheduler_apply_standing_state()) || maintenance_performed;
     era_split_transport_scheduler_publish_host_peer_responder_rgb_state(now_ms);
@@ -1762,6 +1803,18 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         .local_initiator           = g_era_split_transport_scheduler.local_wire_initiator ? 1 : 0,
         .general_initiator_pending = era_split_transport_scheduler_core1_initiator_pending() ? 1 : 0,
         .status_revalidation_due   = era_split_transport_scheduler_local_status_revalidation_due() ? 1 : 0,
+        /* Keep the storage initiator's peer mirror across the short recovery
+           window produced by a responder-side storage relation rotation. The
+           initiator is the side that can actually run peer-unknown discovery,
+           so its existing miss streak gives this hold a finite end on a real
+           cable loss. A peer-unknown responder never sends discovery and must
+           not inherit a streak-based hold it could never retire. */
+        .indicator_fast_recovery_active =
+            g_era_split_transport_scheduler.local_wire_initiator &&
+                    g_era_split_transport_scheduler.local_status_pending &&
+                    g_era_split_transport_scheduler.attach_status_miss_streak < ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER ?
+                1 :
+                0,
         .local_policy_requested    = policy.requested[ERA_SPLIT_SYNC_POLICY_FIELD_EEPROM],
         .local_bulk_page_supported = session.local_bulk_page_supported,
         .peer_known                = session.peer_known,

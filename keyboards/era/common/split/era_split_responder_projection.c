@@ -50,6 +50,21 @@ void era_split_responder_projection_note_quiet(uint32_t count) {
     }
 }
 
+void era_split_responder_projection_note_coalesced(uint32_t count, uint32_t visual_count, uint32_t rgb_count, uint32_t bad_count) {
+    if (count == 0 && visual_count == 0 && rgb_count == 0 && bad_count == 0) {
+        return;
+    }
+    era_split_responder_projection_init();
+    ATOMIC_BLOCK_RESTORESTATE {
+        g_era_split_responder.frame_rx_count += count;
+        g_era_split_responder.relation_request_rx_count += count;
+        g_era_split_responder.host_peer_heartbeat_rx_count += count;
+        g_era_split_responder.host_peer_visual_snapshot_tx_count += visual_count;
+        g_era_split_responder.host_peer_rgb_state_tx_count += rgb_count;
+        g_era_split_responder.ignored_frame_count += bad_count;
+    }
+}
+
 void era_split_responder_projection_note_result(bool session,
                                                         bool source_push,
                                                         bool response_sent,

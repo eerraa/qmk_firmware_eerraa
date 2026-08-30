@@ -73,7 +73,7 @@ enum {
 #endif
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 8,
+    ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 9,
 #    else
     ERA_SPLIT_WIRE_DIAGNOSTICS_STORAGE_LINES = 5,
 #    endif
@@ -286,6 +286,21 @@ static bool era_split_wire_diagnostics_print_storage_line(const era_host_peer_st
                     (unsigned)via_macro_snapshot->response_overlap_count,
                     (unsigned)via_macro_snapshot->intervening_raw_count,
                     (unsigned)via_macro_snapshot->response_pending);
+            return true;
+        case 8:
+            if (cause_edge_snapshot == NULL) {
+                return false;
+            }
+            uprintf("wire storage ppath pub=%u/%u/%02X tx=%u/%u rx=%u/%u app=%u/%u\r\n",
+                    (unsigned)cause_edge_snapshot->pending_path_rise_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH],
+                    (unsigned)cause_edge_snapshot->pending_path_fall_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH],
+                    (unsigned)cause_edge_snapshot->pending_publish_fall_context,
+                    (unsigned)cause_edge_snapshot->pending_path_rise_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_INITIATOR_TX],
+                    (unsigned)cause_edge_snapshot->pending_path_fall_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_INITIATOR_TX],
+                    (unsigned)cause_edge_snapshot->pending_path_rise_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_RESPONDER_RX],
+                    (unsigned)cause_edge_snapshot->pending_path_fall_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_RESPONDER_RX],
+                    (unsigned)cause_edge_snapshot->pending_path_rise_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_MIRROR_APPLY],
+                    (unsigned)cause_edge_snapshot->pending_path_fall_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_MIRROR_APPLY]);
             return true;
 #endif
         default:
@@ -563,7 +578,7 @@ static bool era_split_wire_diagnostics_print_communication_core_line(const era_s
                     (unsigned)diag->source_push_rx_wait_mode);
             return true;
         case ERA_SPLIT_WIRE_DIAGNOSTICS_COMMUNICATION_CORE_BASE_LINES:
-            uprintf("wire crsp av=%u src=%u snap=%u slot=%u ready=%u own=%u/%lu/%lu gen=%u/%u/%u/%u pub=%lu resv=%lu full=%lu acc=%lu stale=%lu drain=%lu noack=%lu arx=%lu undec=%lu quiet=%lu prep=%lu/%lu last=%u/%02X/%02X plen=%u vr=%u ahold=%lu/%lu\r\n",
+            uprintf("wire crsp av=%u src=%u snap=%u slot=%u ready=%u own=%u/%lu/%lu gen=%u/%u/%u/%u pub=%lu resv=%lu full=%lu acc=%lu stale=%lu drain=%lu noack=%lu arx=%lu undec=%lu quiet=%lu coal=%lu/%lu prep=%lu/%lu last=%u/%02X/%02X plen=%u vr=%u ahold=%lu/%lu\r\n",
                     (unsigned)diag->responder_available,
                     (unsigned)diag->responder_snapshot_source,
                     (unsigned)diag->responder_snapshot_valid,
@@ -586,6 +601,8 @@ static bool era_split_wire_diagnostics_print_communication_core_line(const era_s
                     (unsigned long)diag->responder_accepted_rx_count,
                     (unsigned long)diag->responder_undecodable_rx_count,
                     (unsigned long)diag->responder_quiet_count,
+                    (unsigned long)diag->responder_coalesced_heartbeat_count,
+                    (unsigned long)diag->responder_coalesced_runtime_section_count,
                     (unsigned long)diag->responder_response_prepare_count,
                     (unsigned long)diag->responder_response_prepare_fail_count,
                     (unsigned)diag->responder_last_matrix_seq,
@@ -833,12 +850,14 @@ static bool era_split_wire_diagnostics_print_eeprom_line(const era_split_eeprom_
     switch (line) {
         case 0:
             /* The redesigned indicator's whole read (era_capture_reading.md):
-               `vis` is the lamp now, `pnd`/`mir`/`gate` are the fact's arms
-               (local, peer mirror, serviceability gate), `spans`/`rise`/
+               `vis` is the lamp now, `pnd`/`mir`/`gate` are the fact's arms;
+               `hold` is the derived case where the local semantic arm is zero
+               while this role's last successfully sent peer-facing pending
+               level is still one. `spans`/`rise`/
                `fall` are the pending fact's edge stamps — fall is the last
                pending pass, so the two halves' falls compare within the
                known clock offset with no bridge arithmetic left to check. */
-            uprintf("eeprom shim ind vis=%u pnd=%u mir=%u gate=%u spans=%lu rise=%lu fall=%lu\r\n", (unsigned)eeprom_sync.visible, (unsigned)(eeprom_sync.pending_bits & 0x01), (unsigned)((eeprom_sync.pending_bits >> 1) & 0x01), (unsigned)((eeprom_sync.pending_bits >> 2) & 0x01), (unsigned long)eeprom_sync.span_count, (unsigned long)eeprom_sync.span_rise_ms, (unsigned long)eeprom_sync.span_fall_ms);
+            uprintf("eeprom shim ind vis=%u pnd=%u mir=%u gate=%u hold=%u spans=%lu rise=%lu fall=%lu\r\n", (unsigned)eeprom_sync.visible, (unsigned)(eeprom_sync.pending_bits & 0x01), (unsigned)((eeprom_sync.pending_bits >> 1) & 0x01), (unsigned)((eeprom_sync.pending_bits >> 2) & 0x01), (unsigned)((eeprom_sync.pending_bits >> 3) & 0x01), (unsigned long)eeprom_sync.span_count, (unsigned long)eeprom_sync.span_rise_ms, (unsigned long)eeprom_sync.span_fall_ms);
             return true;
         case 1:
             {

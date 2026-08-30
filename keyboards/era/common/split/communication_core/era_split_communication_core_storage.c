@@ -126,10 +126,14 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    and 20048 -> 20124 for the diagnostic request timestamp and two copies of
    the 36-byte retained queue/preceding-route context. ERA NVM then removes the
    40-byte slice/raw-facade state and the 8-byte flash-edge live/snapshot pair:
-   20124 -> 20076.
+   20124 -> 20076. The cause-only STORAGE_PENDING path probe adds four rise/fall
+   timestamp pairs, a raw-hardware interval epoch, and stage-local validity/level
+   bytes to each edge record (664 -> 696), so the two live/snapshot records add
+   64 bytes: 20076 -> 20140. The stage-local bytes deliberately avoid cross-core
+   read-modify-write masks; the raw epoch lets Core1 stay off ChibiOS timers.
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20076U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20140U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE

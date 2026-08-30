@@ -230,7 +230,7 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
 #    define ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES 112U
 #    define ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES (ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES * 2U)
 #    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY 64U
-#    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES 664U
+#    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES 696U
 #    define ERA_HOST_PEER_STORAGE_CAUSE_EDGE_STATIC_BYTES (ERA_HOST_PEER_STORAGE_CAUSE_EDGE_RECORD_BYTES * 2U)
 /* The cause records are a selector-gated diagnostic surface and never a
    production build (`era_performance_gates.md`), so they sit on top of the
@@ -294,6 +294,25 @@ typedef enum {
     ERA_HOST_PEER_STORAGE_CAUSE_EDGE_DIRTY_FALL,
 } era_host_peer_storage_cause_edge_event_t;
 
+/* Cause-build-only path probe for the DUAL-HOST initiator's STORAGE_PENDING
+ * latest-state carrier. The four stages are ownership boundaries rather than
+ * another interpretation of storage state: Core0 standing-plan publication,
+ * Core1 confirmed wire TX, responder Core1 decode, and responder Core0 mirror
+ * apply. A large interval therefore names the layer that owns it. */
+typedef enum {
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH = 0,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_INITIATOR_TX,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_RESPONDER_RX,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_MIRROR_APPLY,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT,
+} era_host_peer_storage_cause_pending_stage_t;
+
+enum {
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_ENABLED        = 1U << 0,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_STATUS_PENDING = 1U << 1,
+    ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_EXCLUSIVE      = 1U << 2,
+};
+
 enum {
     ERA_HOST_PEER_STORAGE_CAUSE_ARM_DIRTY            = 1U << 0,
     ERA_HOST_PEER_STORAGE_CAUSE_ARM_CHANGED          = 1U << 1,
@@ -307,6 +326,10 @@ enum {
 
 typedef struct {
     uint32_t interval_start_ms;
+    /* Raw RP2040 timer epoch for the four-stage pending-path probe. Two stages
+     * run on bare Core1, so this timeline may not call QMK/ChibiOS timer APIs:
+     * timer_hw->timerawl is the one counter both cores can read directly. */
+    uint32_t pending_path_interval_start_us;
     uint32_t macro_dirty_count;
     uint16_t macro_first_elapsed_ms;
     uint16_t macro_last_elapsed_ms;
@@ -327,6 +350,17 @@ typedef struct {
     uint8_t  changed_mask[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
     uint16_t transaction_generation[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
     uint16_t elapsed_ms[ERA_HOST_PEER_STORAGE_CAUSE_EDGE_EVENT_CAPACITY];
+    /* `WIRE_DIAG` interval-relative timestamps. UINT16_MAX means that edge did
+     * not occur. Each stage has exactly one writer (Core0, Core1, Core1, Core0
+     * in enum order), so validity and level are stage-local bytes rather than
+     * shared read-modify-write masks. An initial observed zero is a baseline
+     * rather than a fabricated fall. Only PLAN_PUBLISH uses the contexts. */
+    uint16_t pending_path_rise_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT];
+    uint16_t pending_path_fall_ms[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT];
+    uint8_t  pending_path_valid[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT];
+    uint8_t  pending_path_level[ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT];
+    uint8_t  pending_publish_rise_context;
+    uint8_t  pending_publish_fall_context;
 } era_host_peer_storage_cause_edge_t;
 
 _Static_assert(sizeof(era_host_peer_storage_cause_timeline_t) == ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_RECORD_BYTES,
@@ -407,6 +441,7 @@ typedef struct {
     uint8_t  local_initiator;
     uint8_t  general_initiator_pending;
     uint8_t  status_revalidation_due;
+    uint8_t  indicator_fast_recovery_active;
     uint8_t  local_policy_requested;
     uint8_t  local_bulk_page_supported;
     uint8_t  peer_known;
@@ -479,7 +514,11 @@ bool era_host_peer_storage_route_exclusive(void);
  * the rise. Every term falls on a two-sided exchange or on the fact that
  * produced it, so both halves' lamps end within one poll of the initiator's
  * last close — the fixed trailing bridge this replaces stood in for the
- * mirror term. A missing boot baseline remains fully conservative for
+ * mirror term. A short scheduler recovery that temporarily classifies the
+ * relation LOCAL_NO_LINK does not retire that mirror: the pair operation still
+ * exists and the fast bootstrap recovery is trying to re-establish its carrier.
+ * If discovery reaches its backoff boundary, that continuity ends and the
+ * ordinary service-leave retirement applies. A missing boot baseline remains fully conservative for
  * arbitration and restart safety but is display-provisional: MATCH-only audit
  * work stays dark, while TRANSFER or a real retry fault immediately promotes
  * the round. Doctrines preserved: an episode that moves nothing shows nothing
@@ -503,6 +542,13 @@ bool era_host_peer_storage_indicator_pending(void);
  * fourth sitting's owner ruling opened the news byte's reserved bit7 as the
  * missing carrier. */
 bool era_host_peer_storage_advertised_pending(void);
+/* Local presentation handshake around the active pending carrier. The
+ * initiator publishes STORAGE_PENDING; the responder publishes STORAGE_NEWS
+ * bit7. The role's existing sent-state boundary reports the last successfully
+ * sent level, so a peer-confirmed one keeps this panel pending until a zero is
+ * likewise confirmed. This is display-only and feeds neither arbitration nor
+ * restart/CLEAN safety. */
+void era_host_peer_storage_note_local_pending_sent(bool pending);
 /* True while a storage episode is in flight that a link raise would tear:
  * a dirty write stream, decided cells, an in-session summary, or a moving
  * span. This is the raw functional view and never consults the indicator's
@@ -520,16 +566,19 @@ bool era_host_peer_storage_restart_quarantine_ready(void);
  * the responder drain latches the STORAGE_PENDING push section, the
  * initiator drain latches STORAGE_NEWS bit7 — so the two callers never
  * contend. Cleared when the relation leaves service; kept across identity
- * rotations, because the fact it mirrors survives them and the live carrier
- * re-crosses on the fresh relation either way. */
+ * rotations and their fast revalidation window, because the fact it mirrors
+ * survives them and the live carrier re-crosses on the fresh relation either
+ * way. A recovery that reaches bootstrap backoff is a real service departure
+ * for presentation and retires it. */
 void era_host_peer_storage_note_peer_pending(bool pending);
 /* Successful LOCAL_QMK/MACRO commit notification from ERA's custom EEPROM
  * adapter. Remote Apply bypasses this path so convergence never re-dirties
  * itself as a local edit. */
 void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length);
 /* Diagnostics-only view of the indicator fact's arms: bit0 local arm, bit1
- * peer mirror, bit2 serviceability gate. For the wire console's eeprom shim
- * line; not a behavioral surface. */
+ * peer mirror, bit2 serviceability gate, bit3 derived wire-confirmed hold
+ * (`local arm == 0 && last successfully sent local pending == 1`). For the wire
+ * console's eeprom shim line; not a behavioral surface. */
 uint8_t era_host_peer_storage_indicator_diag(void);
 /* True while this half's core0 is inside a sliced durable apply, in either
    role. The scheduler's housekeeping gate reads it to pump the slices
@@ -553,6 +602,7 @@ void era_host_peer_storage_cause_timeline_note_stale(uint16_t watch_age_ms, uint
 void era_host_peer_storage_get_cause_timeline_snapshot(era_host_peer_storage_cause_timeline_t *snapshot);
 void era_host_peer_storage_cause_note_advertised(bool pending);
 void era_host_peer_storage_cause_note_indicator(bool pending);
+void era_host_peer_storage_cause_note_pending_path(era_host_peer_storage_cause_pending_stage_t stage, bool pending, uint8_t context);
 void era_host_peer_storage_get_cause_edge_snapshot(era_host_peer_storage_cause_edge_t *snapshot);
 void era_host_peer_storage_reset_cause_edge(void);
 #endif

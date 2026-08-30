@@ -341,6 +341,12 @@ static void era_split_transport_scheduler_commit_communication_core_host_respons
         .activity_sent        = result->response_sent && (result->response_section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_ACTIVITY) != 0,
     };
     era_host_peer_transaction_commit_responder_response(&result->response_plan, &response);
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (response.result == ERA_SPLIT_TRANSACTION_RESULT_OK && response.storage_news_sent) {
+        era_host_peer_storage_note_local_pending_sent(
+            (result->response_plan.storage_news & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING) != 0);
+    }
+#endif
     if (response.ack_status_sent) {
         era_host_peer_matrix_link_note_ack_status_sent();
     }
@@ -527,13 +533,35 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
 static void era_split_transport_scheduler_fold_quiet_responses(void) {
     uint32_t current = era_split_communication_core_responder_quiet_count();
     uint32_t folded  = g_era_split_transport_scheduler.responder_quiet_folded;
-    if (current == folded) {
-        return;
+    if (current != folded) {
+        uint32_t delta = current - folded;
+        g_era_split_transport_scheduler.responder_quiet_folded = current;
+        era_split_responder_projection_note_quiet(delta);
+        era_host_peer_matrix_link_note_ack_status_sent_bulk(delta);
     }
-    uint32_t delta = current - folded;
-    g_era_split_transport_scheduler.responder_quiet_folded = current;
-    era_split_responder_projection_note_quiet(delta);
-    era_host_peer_matrix_link_note_ack_status_sent_bulk(delta);
+
+    era_split_communication_core_responder_coalesced_counts_t coalesced;
+    era_split_communication_core_responder_get_coalesced_counts(&coalesced);
+    era_split_communication_core_responder_coalesced_counts_t *coalesced_folded =
+        &g_era_split_transport_scheduler.responder_coalesced_folded;
+    uint32_t heartbeat_delta = coalesced.heartbeat_count - coalesced_folded->heartbeat_count;
+    uint32_t response_delta  = coalesced.response_count - coalesced_folded->response_count;
+    uint32_t visual_delta    = coalesced.visual_count - coalesced_folded->visual_count;
+    uint32_t rgb_delta       = coalesced.rgb_count - coalesced_folded->rgb_count;
+    uint32_t runtime_delta   = coalesced.runtime_section_count - coalesced_folded->runtime_section_count;
+    uint32_t activity_delta  = coalesced.activity_count - coalesced_folded->activity_count;
+    uint32_t bad_delta       = coalesced.bad_count - coalesced_folded->bad_count;
+    *coalesced_folded = coalesced;
+
+    era_split_responder_projection_note_coalesced(heartbeat_delta, visual_delta, rgb_delta, bad_delta);
+    era_host_peer_matrix_link_note_ack_status_sent_bulk(response_delta);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    g_era_split_transport_scheduler.dual_runtime_tx_count += runtime_delta;
+    era_split_tap_activity_note_sent_bulk(activity_delta);
+#else
+    (void)runtime_delta;
+    (void)activity_delta;
+#endif
 }
 
 bool era_split_transport_scheduler_drain_communication_core_responder_results(void) {

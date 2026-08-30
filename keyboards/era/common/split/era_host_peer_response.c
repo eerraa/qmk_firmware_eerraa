@@ -358,6 +358,17 @@ bool era_host_peer_transaction_time_anchor_adopted(void) {
     return g_era_host_peer_transaction_time_anchor_adopted;
 }
 
+void era_host_peer_transaction_forget_time_anchor(void) {
+    /* Relation identity, not boot lifetime, is the proof boundary. In
+       particular a sequential half reflash can leave this initiator running
+       after it adopted the OLD responder's uptime; when the responder reboots,
+       carrying this true across the relation rotation lets LINK_SPEED/CLEAN
+       arm a deadline before any anchor from the new uptime has arrived. Keep
+       the corrected clock value for ordinary consumers, but withdraw exactly
+       the permission to derive a new pair deadline from it. */
+    g_era_host_peer_transaction_time_anchor_adopted = false;
+}
+
 void era_host_peer_transaction_apply_time_anchor(uint32_t anchor_ms, uint32_t rx_us) {
     // Transport time service: align the shared sync timer to the HOST's
     // timeline so every sync-timer consumer (RGB effect phase first) runs

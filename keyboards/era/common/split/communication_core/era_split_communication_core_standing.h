@@ -242,6 +242,13 @@ typedef struct {
      * resume on its own. Core0's ordinary stale/revalidation path is what
      * restarts it, by republishing the plan for a reconfirmed relation. */
     uint8_t  stopped;
+    /* Initiator-side confirmation of the last STORAGE_PENDING value that
+     * completed a successful standing transaction. This is not another wire
+     * fact: it reflects the existing sent-state shadow so core0 can keep the
+     * local STATUS lamp up across a pending 1 -> 0 edge until the responder has
+     * actually seen that zero. It changes only when that section crosses. */
+    uint8_t  local_storage_pending;
+    uint8_t  local_storage_pending_valid;
     /* No per-exchange result/failure/request-sent mirrors, and no plan
      * generation. This record is latest-state for the fields core0 acts on;
      * those four were written on every exchange, read by nobody, and had no

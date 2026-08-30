@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_host_peer_storage.h"
+#include "era_host_peer_storage_indicator_policy.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -175,14 +176,15 @@ typedef struct {
     uint8_t  peer_changed_mask;
     uint8_t  arbitration_flags;
     uint8_t  idle_due_kind;
-    /* The indicator's two cold-produced facts (2026-08-14 redesign), one
-     * byte: bit0 is the peer's advertised storage-pending mirror (the
-     * STORAGE_PENDING push section's last applied value), bit1 the cached
-     * serviceability-and-policy gate. The mirror deliberately survives the
+    /* The indicator's cold-produced facts, one byte. The peer mirror and the
+     * cached serviceability/policy gate are the pair state; one local-carrier
+     * bookkeeping bit remembers the last confirmed peer-facing pending=1 until
+     * Core1 confirms its zero crossed successfully. The mirror and that sent
+     * level deliberately survive the
      * relation identity rotation — the fact it mirrors does, and the live
-     * section re-crosses on the fresh relation — and clears only when the
-     * relation leaves service, so a standalone half never wears a stale
-     * lamp. */
+     * section re-crosses on the fresh relation — and all bits clear only when
+     * the relation leaves service, so a standalone half never wears stale
+     * presentation state. */
     uint8_t  indicator_bits;
     /* Display-only provenance for cells classified conservatively from an
      * invalid baseline, plus the initiator-round latch that promotes them
@@ -191,11 +193,6 @@ typedef struct {
     uint8_t  provisional_cell_mask;
     uint8_t  indicator_round_confirmed;
 } era_host_peer_storage_relation_state_t;
-
-enum {
-    ERA_HOST_PEER_STORAGE_INDICATOR_PEER_PENDING = 1U << 0,
-    ERA_HOST_PEER_STORAGE_INDICATOR_GATE         = 1U << 1,
-};
 
 enum {
     ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_DONE    = 1U << 0,
@@ -724,6 +721,49 @@ void era_host_peer_storage_cause_note_indicator(bool pending) {
                                                    ERA_HOST_PEER_STORAGE_CAUSE_EDGE_INDICATOR_FALL);
 }
 
+void era_host_peer_storage_cause_note_pending_path(era_host_peer_storage_cause_pending_stage_t stage, bool pending, uint8_t context) {
+    if ((uint8_t)stage >= (uint8_t)ERA_HOST_PEER_STORAGE_CAUSE_PENDING_STAGE_COUNT) {
+        return;
+    }
+    const uint8_t index    = (uint8_t)stage;
+    const bool    valid    = g_era_host_peer_storage_cause_edge.pending_path_valid[index] != 0;
+    const bool    previous = g_era_host_peer_storage_cause_edge.pending_path_level[index] != 0;
+    if (!valid) {
+        g_era_host_peer_storage_cause_edge.pending_path_valid[index] = 1;
+    } else if (previous == pending) {
+        return;
+    }
+
+    g_era_host_peer_storage_cause_edge.pending_path_level[index] = pending ? 1 : 0;
+
+    /* Initial zero establishes the stage baseline. Recording it as a fall would
+     * let an ordinary quiet frame after WIRE_DIAG impersonate the operation's
+     * retirement. Initial one is a real rise and remains useful as a control. */
+    if (!valid && !pending) {
+        return;
+    }
+
+    /* Core1 owns TX/RX and is a bare RP2040 actor. Do not route this diagnostic
+     * through timer_elapsed32()/timer_read32(): the ChibiOS implementation takes
+     * a scheduler lock and mutates Core0 timer-cache state. The hardware timer is
+     * free-running, shared by both cores, and already the timebase used by the
+     * communication core for its own deadlines. */
+    uint32_t elapsed_us = timer_hw->timerawl - g_era_host_peer_storage_cause_edge.pending_path_interval_start_us;
+    uint16_t elapsed_ms = era_host_peer_storage_cause_elapsed16(elapsed_us / 1000U);
+    if (pending) {
+        g_era_host_peer_storage_cause_edge.pending_path_rise_ms[index] = elapsed_ms;
+        if (stage == ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH) {
+            g_era_host_peer_storage_cause_edge.pending_publish_rise_context = context;
+        }
+    } else {
+        g_era_host_peer_storage_cause_edge.pending_path_fall_ms[index] = elapsed_ms;
+        if (stage == ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH) {
+            g_era_host_peer_storage_cause_edge.pending_publish_fall_context = context;
+        }
+    }
+    __DMB();
+}
+
 void era_host_peer_storage_get_cause_edge_snapshot(era_host_peer_storage_cause_edge_t *snapshot) {
     if (snapshot == NULL) {
         return;
@@ -735,7 +775,12 @@ void era_host_peer_storage_get_cause_edge_snapshot(era_host_peer_storage_cause_e
 
 void era_host_peer_storage_reset_cause_edge(void) {
     memset(&g_era_host_peer_storage_cause_edge, 0, sizeof(g_era_host_peer_storage_cause_edge));
+    memset(g_era_host_peer_storage_cause_edge.pending_path_rise_ms, UINT8_MAX,
+           sizeof(g_era_host_peer_storage_cause_edge.pending_path_rise_ms));
+    memset(g_era_host_peer_storage_cause_edge.pending_path_fall_ms, UINT8_MAX,
+           sizeof(g_era_host_peer_storage_cause_edge.pending_path_fall_ms));
     g_era_host_peer_storage_cause_edge.interval_start_ms = timer_read32();
+    g_era_host_peer_storage_cause_edge.pending_path_interval_start_us = timer_hw->timerawl;
 }
 #endif
 
@@ -1849,13 +1894,16 @@ static bool era_host_peer_storage_relation_serviced(const era_host_peer_storage_
            context->mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT || context->mode == ERA_SPLIT_MODE_DUAL_HOST_RIGHT;
 }
 
-/* The indicator belongs to the serviced relation, not to one pass's runtime
- * admission. Owner/capability/session facts can be temporarily unready while a
- * relation identity rotates; clearing the peer mirror in that gap turns one
- * continuous pair operation into two visible spans. Only a real departure from
- * the four serviced modes retires the mirror. */
-static void era_host_peer_storage_update_indicator_relation(bool relation_serviced, bool local_policy_requested) {
-    if (relation_serviced) {
+/* The indicator belongs to relation continuity, not to one pass's mode label.
+ * A storage close can force SESSION_STATUS recovery and transiently forget the
+ * peer; during the scheduler's fast bootstrap window that same physical pair is
+ * still recovering one operation. Clearing the peer mirror there made a large
+ * layout-load push end early on the initiator while the responder was still
+ * finishing its durable close. The scheduler explicitly tells us whether that
+ * fast recovery is still active. Once it reaches bootstrap backoff, continuity
+ * is over for presentation and the ordinary service-leave retirement applies. */
+static void era_host_peer_storage_update_indicator_relation(bool relation_continuous, bool local_policy_requested) {
+    if (relation_continuous) {
         g_era_host_peer_storage_relation.indicator_bits =
             (uint8_t)((g_era_host_peer_storage_relation.indicator_bits &
                        (uint8_t)~ERA_HOST_PEER_STORAGE_INDICATOR_GATE) |
@@ -3751,7 +3799,9 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
     }
 
     bool relation_serviced = era_host_peer_storage_relation_serviced(context);
-    era_host_peer_storage_update_indicator_relation(relation_serviced, context->local_policy_requested);
+    bool indicator_relation_continuous = era_host_peer_storage_indicator_relation_continuous(
+        relation_serviced, context->indicator_fast_recovery_active != 0);
+    era_host_peer_storage_update_indicator_relation(indicator_relation_continuous, context->local_policy_requested);
     bool context_peer = era_host_peer_storage_context_peer(context);
     bool context_host = era_host_peer_storage_context_host(context);
     bool retired_unowned_result = false;
@@ -4035,15 +4085,18 @@ bool era_host_peer_storage_indicator_pending(void) {
     if (!g_era_host_peer_storage_local.initialized) {
         return false;
     }
-    /* The mirror rides outside the gate: it is the peer's claim under the
-     * peer's own gate, retired by its carrier's zero crossing (the
-     * STORAGE_PENDING push section or STORAGE_NEWS bit7, whichever direction
-     * feeds this half) or by this half leaving service — never by this
-     * half's policy. */
-    if ((g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_PEER_PENDING) != 0) {
-        return true;
+    return era_host_peer_storage_indicator_pair_pending(
+        g_era_host_peer_storage_relation.indicator_bits,
+        era_host_peer_storage_advertised_pending());
+}
+
+void era_host_peer_storage_note_local_pending_sent(bool pending) {
+    if (!g_era_host_peer_storage_local.initialized) {
+        return;
     }
-    return era_host_peer_storage_advertised_pending();
+    g_era_host_peer_storage_relation.indicator_bits =
+        era_host_peer_storage_indicator_note_local_sent(
+            g_era_host_peer_storage_relation.indicator_bits, pending);
 }
 
 void era_host_peer_storage_note_peer_pending(bool pending) {
@@ -4060,6 +4113,7 @@ void era_host_peer_storage_note_peer_pending(bool pending) {
     }
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     if (previous != pending) {
+        era_host_peer_storage_cause_note_pending_path(ERA_HOST_PEER_STORAGE_CAUSE_PENDING_MIRROR_APPLY, pending, 0);
         era_host_peer_storage_cause_edge_note(pending ? ERA_HOST_PEER_STORAGE_CAUSE_EDGE_MIRROR_RISE :
                                                        ERA_HOST_PEER_STORAGE_CAUSE_EDGE_MIRROR_FALL);
     }
@@ -4076,6 +4130,10 @@ uint8_t era_host_peer_storage_indicator_diag(void) {
     }
     if ((g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_GATE) != 0) {
         bits |= 0x04;
+    }
+    if (!era_host_peer_storage_advertised_pending() &&
+        (g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_LOCAL_SENT_PENDING) != 0) {
+        bits |= 0x08;
     }
     return bits;
 }
