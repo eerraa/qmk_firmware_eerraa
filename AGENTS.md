@@ -18,7 +18,7 @@ style preference.
 **Tool-neutral canon** — the authority. Every agent, every tool.
 
 - `AGENTS.md` — project identity, how to work on this firmware, document
-  management rules, startup read policy, graphify usage policy.
+  management rules, startup read policy.
 - `keyboards/era/common/docs/` — `era_active_index.md`, the router into
   everything below.
 - `keyboards/era/common/docs/contracts/`, `maps/`, `manuals/` — the agent
@@ -47,8 +47,8 @@ always adapter, because canon is what must be true on every machine.
 Canon carries no generic coding-hygiene layer, deliberately. A portable
 "do not assume / keep it simple / stay surgical" document was read at startup
 for the whole project history and did not prevent the failures it described.
-What changed behavior was mechanism — the graphify-first hooks, the
-static-capacity asserts, the source/ELF gates, and the device-evidence rule.
+What changed behavior was mechanism — the commit-time checks, the
+  static-capacity asserts, the source/ELF gates, and the device-evidence rule.
 A rule earns a place in canon by being ERA-specific, or by being enforced by
 something other than the agent remembering it.
 
@@ -113,8 +113,7 @@ is the verification statement.** The commit-time checks run from
 ### Commits
 
 - Separate commits by concern: contract content, source implementation,
-  diagnostics-only change, index or policy update, and the graphify
-  regeneration that follows.
+  diagnostics-only change, index or policy update.
 - **A commit that deletes documented content carries the reasoning that
   content held**, because the deletion is otherwise the one unrecoverable move
   available.
@@ -281,27 +280,12 @@ The `docs/user/` tree is written for keyboard owners, not agents. Read it only
 when the prompt asks for release or user documentation, and do not shorten it
 to agent-context standards - it has a different reader.
 
-## Graphify
+## Navigation
 
-The committed knowledge graph at `graphify-out/` covers `keyboards/era`, the
-exact `era/sirind/tomak79h:via` compile closure (including its quantum
-subset), and the agent entry layer (`AGENTS.md`, `CLAUDE.md`).
-`.graphifyignore` reproduces that scope in any worktree.
+Structure questions are answered by the router (`era_active_index.md`) and a
+source search (`git grep -n`, `rg`); there is no derived index to consult or
+regenerate, and none may be reintroduced as an obligation.
 
-- For code structure, relationship, or impact questions, run
-  `graphify query "<question>"` before raw browsing; use
-  `graphify path "<A>" "<B>"` and `graphify explain "<concept>"` for
-  relationships and focused concepts.
-- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review.
-- The graph is derived navigation, never authority. Active documents and
-  source remain canonical.
-- After modifying code or documents, run `graphify update .` from the
-  repository root (AST-only, no LLM) and commit the regenerated
-  `graphify-out/` outputs. Running it from a subdirectory creates a second
-  nested `graphify-out/` tree. Initialize git submodules first; an incomplete
-  worktree silently shrinks the graph. A benign "kept 4 node(s) ...
-  quantum/nvm/readme.md" notice is expected, and fresh checkouts produce an
-  mtime-only `graphify-out/manifest.json` diff.
-
-Installation is machine and tool specific, so it lives in the adapter layer:
-see `CLAUDE.md`.
+> **REFUSED:** a mandatory knowledge graph, a search-before-read hook, or per-session generated context as the navigation layer.
+> **WHY:** the last one cost 424 MiB of local state and 9.5 MB tracked, a process on every shell call, and ~0.7 s per query against 0.1 s for a search, while its natural-language answers spread across hundreds of nodes; the router and a search answer the same questions.
+> **REOPENS:** a navigation tool whose per-call cost is below a shell search and whose answers are checked by something other than the agent reading them.

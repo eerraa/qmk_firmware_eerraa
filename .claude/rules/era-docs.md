@@ -11,5 +11,4 @@ deletions, run the safety net:
 `python keyboards/era/common/tools/era_doc_refs.py --homeless` — a homeless
 token is a promotion candidate, not a deletion candidate. The pre-commit hook
 (`hooks/pre-commit`) runs the same script with no argument automatically,
-which is the locatability check. After doc changes: `graphify update .` from the repository root,
-regenerated outputs in a separate `chore:` commit.
+which is the locatability check.

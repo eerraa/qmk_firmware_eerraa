@@ -27,22 +27,6 @@ other tools follow the policy as written.
   `--homeless` reminder. Claude has no project hooks; `.claude/settings.json`
   carries only `permissions.deny`.
 
-### graphify
-
-Policy, scope, authority ordering, and the update rule are in the Graphify
-section of AGENTS.md (imported above). Adapter mechanism:
-
-- The same gate enforces graphify-first navigation: the session's first raw
-  read of an indexed **source** file is blocked until one
-  `graphify query "<question>"` has run. The agent document layer
-  (`keyboards/era/common/docs/`, `AGENTS.md`, `CLAUDE.md`, `.claude/`) is
-  exempt — the Startup Read Policy mandates those reads first, and canon
-  outranks the gate. Hook reminders after the first query are informational.
-  Regenerating the graph resets the gate, so a second query may be required
-  mid-session.
-- The search arm matches Grep and a shell search (`rg`, `grep`, …).
-- Include the graphify-first rule in every subagent prompt that explores code.
-
 ### Push
 
 `permissions.deny` no longer lists `git push` (owner decision 2026-07-28, on
@@ -69,16 +53,6 @@ it before believing it: `git rev-parse release/clean-repo^{tree}` against
 `git rev-parse HEAD^{tree}`.
 
 ### Machine setup
-
-**Install graphify before the first session, not after it.** The hooks below
-run `python -m graphify` on the first `Bash`, `Grep` or `Read` of the session,
-so a checkout without it fails at the first tool call rather than at the first
-query:
-
-- `python -m pip install graphifyy==0.9.20` — PyPI distribution `graphifyy`,
-  import and CLI name `graphify`. Install into the interpreter that `python`
-  resolves to, because the hooks invoke `python -m graphify`. Add pip's
-  Scripts directory to PATH if the bare `graphify` CLI is wanted.
 
 - On Windows, set `core.autocrlf=true` in each submodule config so the
   submodules read clean. `git config core.longpaths true` is also worth setting
