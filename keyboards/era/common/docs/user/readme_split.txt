@@ -9,6 +9,8 @@ Firmware Quick Guide - 분리형 키보드 (TOMAK 시리즈)
 펌웨어
 ----------------------------------------------------------------------
 
+릴리스: 260901R1
+
 수정 QMK 펌웨어입니다. RP2040 기반 키보드는 매트릭스 스캔에
 PIO/DMA 구조를 도입하여 스캔 성능을 약 4 kHz에서 48 kHz 수준으로
 높였고, 조명 효과가 스캔레이트에 미치는 영향도 줄였습니다. 통신 전용
@@ -100,6 +102,11 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
 ----------------------------------------------------------------------
 주요 기능
 ----------------------------------------------------------------------
+
+■ VERSION
+   VIA CONFIGURE -> SYSTEM -> VERSION에서 지금 USB로 연결한 유닛의
+   펌웨어 릴리스를 확인합니다. 260901R1처럼 표시되는 읽기 전용 값이며
+   VIA에서 바꿀 수 없습니다. 양쪽 유닛에는 같은 릴리스가 보여야 합니다.
 
 ■ TAPDANCE
    한 키에 네 가지 동작을 담습니다.
@@ -214,6 +221,8 @@ This guide covers the firmware for a split keyboard.
 Firmware
 ----------------------------------------------------------------------
 
+Release: 260901R1
+
 This is modified QMK firmware. RP2040-based keyboards use a PIO/DMA matrix
 scanner to raise performance from about 4 kHz to around 48 kHz, with further
 optimization to reduce the scan-rate impact of lighting effects. A dedicated
@@ -301,6 +310,11 @@ first if you want to keep it.
 ----------------------------------------------------------------------
 Key Features
 ----------------------------------------------------------------------
+
+■ VERSION
+   Read the firmware release of the unit currently connected by USB in VIA
+   CONFIGURE -> SYSTEM -> VERSION. It is a read-only value such as 260901R1
+   and cannot be changed in VIA. Both units should show the same release.
 
 ■ TAPDANCE
    Four actions on one key.

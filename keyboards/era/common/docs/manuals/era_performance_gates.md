@@ -57,7 +57,7 @@ refusals as stop conditions — is `era_build_and_flash.md`'s.
 ### Focused host-test set
 
 Run these in the WSL-local tree after the build automation has synchronized
-it. `tests/era_*` is seventeen directories; wear-level lives under
+it. `tests/era_*` is nineteen directories; wear-level lives under
 `quantum/wear_leveling/tests/`.
 
 ```text
@@ -72,6 +72,7 @@ make test:era_split_storage_publication_retire
 make test:era_usb_session_policy
 make test:era_split_rgb_sleep_policy
 make test:era_via_exact_ms
+make test:era_firmware_version
 make test:era_rgb_matrix_persistence
 make test:wear_leveling_general
 make test:wear_leveling_2byte_optimized_writes
@@ -80,6 +81,8 @@ make test:wear_leveling_4byte
 make test:wear_leveling_8byte
 make test:era_rp2040_matrix_pio
 bash tests/era_build_variant_rules/test_variant_rules.sh
+python tests/era_firmware_version/test_definitions.py
+python -B tests/era_release_260901R1/test_release.py
 ```
 
 | Test | Pins |
@@ -95,6 +98,8 @@ bash tests/era_build_variant_rules/test_variant_rules.sh
 | `era_usb_session_policy` | remote-wake SOF ownership verdict: a pending DEV_SOF is arrival evidence; without one, both the uninterrupted ISR-ownership interval and the last-observed-frame age must reach the 300 ms threshold before frame loss. Tests the production pure policy in `system/era_usb_session_policy.h` without reading the side-effect SOFRD register |
 | `era_split_rgb_sleep_policy` | local sleep is the OR of explicit suspend, frame loss, and matrix-idle timeout; zero disables only the optional idle term; stock preset validation is exactly 1/3/5/10/30/60 minutes; exact seconds project down on GET without modifying storage. Tests `split/era_split_rgb_sleep_policy.h` |
 | `era_via_exact_ms` | State Sync envelope, unsupported-version once, 7-storage-to-3-UI domain map, revision wrap skips zero, exact-ms / tap-dance / legacy grid, Jump-to-BOOT SET/SAVE/State-Sync/RAW-IN lifecycle + fallback, local CLEAN quiet-gate regression |
+| `era_firmware_version` | exact compile-time identity, complete NUL-terminated custom-GET payload, VIA-only common-router claim, and unchanged-buffer refusal of SET, SAVE and invalid addresses. Its definition script derives the 23-board inventory, requires the exact label binding on all 25 RP2040 JSON files, excludes Brick65, compares split L/R controls, and pins the three indicator wrappers |
+| `era_release_260901R1` | Git-derived 22-board/25-definition inventory, clean fixed-date build-manifest and ELF VERSION receipts, exact split/non-split ZIP surfaces, deterministic metadata/rebuild, app-validator commit/blob binding, and refusal of dirty refs, stale evidence, tamper and traversal. It performs no keyboard build; the versioned release adapter supplies those 22 evidence builds |
 | `era_rgb_matrix_persistence` | deferred RGB Matrix save gate and ERA render-policy refresh. A policy edge stays refresh-active from its external request through the replacement PWM flush (or until the policy proves no frame is needed), which keeps opportunistic NVM bank erasure out of a split STATUS transition |
 | wear-level set | the five `wear_leveling_*` targets in `quantum/wear_leveling/tests/` prove the QMK files restored at cutover behave like stock QMK again; they are not ERA production persistence |
 | `era_rp2040_matrix_pio` | PIO instruction encodings against the RP2040 datasheet; shipped settle 128 / release 64 program (195 slot cycles); tomak79h LEFT/RIGHT pin patterns; decode tables against the header reference rule; ring latest-complete frame and torn copy |

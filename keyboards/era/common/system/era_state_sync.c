@@ -6,6 +6,7 @@
 #include "via.h"
 #include "raw_hid.h"
 #include "keycode_config.h"
+#include "dynamic_keymap.h"
 #include "../storage/era_eeprom_layout.h"
 #include "../storage/era_storage_layout.h"
 
@@ -132,7 +133,7 @@ void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     /* The custom NVM layer emits this notification only after a completed macro
      * transaction. Opener/payload staging emits nothing, so no QMK transaction
      * accessor or wider suppression belongs here. */
-    if (era_state_sync_span_overlaps(offset, length, macro_start, DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)) {
+    if (era_state_sync_span_overlaps(offset, length, macro_start, dynamic_keymap_macro_get_buffer_size())) {
         era_state_sync_bump_macro();
     }
     if (era_state_sync_span_overlaps(offset, length, ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET, ERA_EEPROM_SYNCABLE_CONFIG_SIZE)) {

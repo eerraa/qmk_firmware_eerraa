@@ -57,6 +57,9 @@
       "label": "INDICATOR",
       "content": [
         {
+          "label": "Lock Indicators",
+          "content": [
+        {
           "label": "Indicator Enable",
           "type": "toggle",
           "content": [
@@ -167,6 +170,8 @@
             "id_qmk_custom_ind_2_color",
             0,
             12
+          ]
+        }
           ]
         }
       ]
@@ -2404,6 +2409,20 @@
     {
       "label": "SYSTEM",
       "content": [
+        {
+          "label": "VERSION",
+          "content": [
+            {
+              "label": "VERSION",
+              "type": "label",
+              "content": [
+                "id_qmk_firmware_version",
+                8,
+                1
+              ]
+            }
+          ]
+        },
         {
           "label": "BOOT",
           "content": [

@@ -160,6 +160,7 @@ are canonical in `era_board_adoption.md`.
 | `system/era_boot_core1_halt.c` | pre-copy window: core1 hardware halt and double-tap bootloader arm, pinned by `.flash_startup`. Carve-out rules: `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld` |
 | `system/era_vector_defaults.c` | strong SRAM definitions for ChibiOS weak vector slots. Linker consumes it. Answer a driver change with the driver's own condition, never by deleting the entry |
 | `system/era_usb_session.[ch]`, `system/era_usb_session_policy.h` | local USB session facts as ERA reads them, including the frame-loss sleep detector and, non-split only, the suspend apply pair; the pure remote-wake ISR-ownership verdict has host proof in `tests/era_usb_session_policy/` |
+| `system/era_firmware_version.[ch]` | canonical compile-time `ERA_FIRMWARE_VERSION`, stable `era_firmware_version[]` ELF symbol, and read-only custom-VIA GET on channel 8, value id 1. It owns no runtime or stored state |
 | `system/era_via_system.[ch]` | ERA system VIA router and task: deferred Jump-to-BOOT lifecycle (SET -> SAVE -> State Sync -> RAW IN drain, with bounded missing-phase fallback), EEPROM CLEAN confirm mask, the one restart-quiet policy, `era_via_system_restart_quiet_ok()`, and `era_via_system_eeprom_invalidate()`. Split clean hand-off: `split/era_split_keyboard.c` |
 | `keyboards/era/newone/common/odessey_common.[ch]` | odessey family board content for `odessey60h` and `odessey60s`. Neither board keeps a `.c` |
 
@@ -185,7 +186,10 @@ compile-time count/raw hooks may be scan-bound.
 | `system/era_show_options.mk` | derived ERA option printer (`ERA_SHOW_OPTIONS=yes`); included last from post_rules |
 | `system/era_rgb_matrix_rules.mk` | per-board RGB Matrix render-policy `OPT_DEFS` and sub-option refusals. RGB Matrix only |
 | `tools/era_qmk_build.sh` | automation-only explicit-target QMK clean build, identity checks, copy-to-RAM gate, and labelled artifact capture |
+| `release/260901R1.json`, `release/260901R1-tooling.md` | immutable 260901R1 board/package inventory and its receipt/package/verification procedure. This is versioned release input, not an agent-document genre |
+| `tools/era_release_260901R1_lib.py`, `tools/era_release_260901R1_receipt.py`, `tools/era_release_260901R1_package.py`, `tools/era_release_260901R1_verify.py` | fresh-manifest receipts, ELF VERSION witness, deterministic per-keyboard UF2/ZIP packaging, app-validator provenance, extraction and byte-equality verification. WSL host adapters: `.claude/tools/era-release-260901R1-build.sh`, `.claude/tools/era-release-260901R1-via-validator.sh` |
 | `tests/era_build_variant_rules/` | make-time proof of canonical variant tuples, overrides, non-split `standard`, diagnostic refusal, and retired profile rejection |
+| `tests/era_release_260901R1/` | host proof of the versioned inventory, receipt, package, external-validator and negative verification gates; it compiles no firmware |
 | `tests/era_nvm/` | fault-injection proof of the production A/B format and NVM engine |
 | `tests/era_nvm_qmk_driver/` | stock-QMK-facing adapter integration |
 | `tests/era_rp2040_matrix_pio/` | host proof of `system/era_rp2040_matrix_pio_frame.h` |
@@ -198,6 +202,7 @@ compile-time count/raw hooks may be scan-bound.
 | `tests/era_usb_session_policy/` | host proof of remote-wake SOF ISR-ownership frame-loss classification |
 | `tests/era_split_rgb_sleep_policy/` | host proof of local RGB sleep reasons and stock preset projection |
 | `tests/era_via_exact_ms/` | host proof of exact-ms tapping/tapdance round-trip, State Sync `0x06` envelope mapping, and VIA system Jump-to-BOOT terminal lifecycle/fallback |
+| `tests/era_firmware_version/` | host proof of the compile-time VERSION payload and GET-only common routing; definition proof of the RP2040 JSON inventory, exact VERSION binding, split L/R equality, Brick65 exclusion, and the three indicator wrappers |
 | `tests/era_rgb_matrix_persistence/` | host proof of deferred RGB eeconfig quiet flush |
 | `tools/era_qmk_fixed_builddate_wrapper.sh` | explicit fixed-magic test-only `QMK_BUILDDATE` generation override |
 | `tools/era_core1_stack_walk.py` | ELF gate's core1 stack disassembly walk. Changing its method invalidates every figure taken with it |
@@ -341,6 +346,11 @@ fact and points at VIA's SAVE and LOAD in both user guides
 owner's stored data is explicitly not a consideration. Every path that survives
 only to accept an older stored layout is a deletion candidate — and the
 deletion, not the finding, is where the difficulty is.
+
+`ERA_FIRMWARE_VERSION` in `system/era_firmware_version.h` is compile-time
+identity only. Changing it adds no EEPROM bytes and by itself moves neither
+`ERA_EEPROM_RESET_KEY`, `ERA_NVM_FORMAT_VERSION`, the sync-policy storage
+version, nor any State Sync or storage source revision.
 
 **Deleting an old-format acceptance is safe only when the code that runs
 instead treats the old block as invalid and writes a fresh one.** Trace the

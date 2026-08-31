@@ -231,6 +231,7 @@ endif
 # when it is not.
 ifeq ($(strip $(VIA_ENABLE)), yes)
     SRC += keyboards/era/common/system/era_common_via.c
+    SRC += keyboards/era/common/system/era_firmware_version.c
     SRC += keyboards/era/common/system/era_state_sync.c
     SRC += $(ERA_COMMON_VIA_SRCS)
 

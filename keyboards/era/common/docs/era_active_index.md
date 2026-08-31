@@ -125,11 +125,9 @@ matters, it is written where it binds, and if it is not written it is not a
 constraint.
 
 **The reason is the shipped tree, not the development one, and reading it the
-other way is how a session comes to trust `git log`.** What ships is a
-four-commit orphan — pristine upstream, the firmware, this document set —
-and on it `git log -S` for a retired name reaches the one commit that
-landed everything, which is no answer at all. The branch this work happens on
-carries the full development history and answers such a query, so **a `git show`
-written into a document works for its author and fails for its reader.**
-Measured 2026-08-17: `git rev-list --count HEAD -- keyboards/era` reads 768 on
-the working branch and 3 on `release/clean-repo`.
+other way is how a session comes to trust `git log`.** What ships starts at the
+exact original QMK fork point and keeps only a short concern-oriented ERA
+history. On it, `git log -S` for a retired name reaches a large final import or
+nothing; neither recovers the development decision. The development branch
+carries that chronology and can answer such a query, so **a `git show` written
+into a document works for its author and fails for its reader.**

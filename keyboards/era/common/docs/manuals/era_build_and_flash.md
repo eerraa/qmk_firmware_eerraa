@@ -92,6 +92,23 @@ and what a change may also owe, is `era_performance_gates.md`'s.
 Which build selectors exist, what each costs, and where a new one is declared
 are canonical in `era_build_options.md`.
 
+## 260901R1 Multi-Board Release
+
+The fixed release inventory is `release/260901R1.json`: all twenty-two RP2040
+ERA `:via` targets at `standard`, with the ATmega32U4 `sirind/brick65` excluded.
+`.claude/tools/era-release-260901R1-build.sh` requires clean local `main` at an
+explicit full SHA, synchronises the WSL-local tree, and invokes the same
+`era-build` entry point once per inventory target with the fixed build date. It
+accepts only that invocation's manifest and creates a complete receipt set only
+after every target supplies a fresh UF2, ELF VERSION witness, residency result
+and vector result.
+
+The versioned package and verification commands, app-validator boundary and
+exact ZIP surface live beside the inventory in
+`release/260901R1-tooling.md`. They consume only that receipt set and Git blobs
+from the release SHA. Existing build outputs or a partial receipt directory are
+not package inputs.
+
 ## Flashing
 
 Every ERA RP2040 board flashes as a UF2 mass-storage copy. There is no vendor

@@ -2283,6 +2283,20 @@
       "label": "SYSTEM",
       "content": [
         {
+          "label": "VERSION",
+          "content": [
+            {
+              "label": "VERSION",
+              "type": "label",
+              "content": [
+                "id_qmk_firmware_version",
+                8,
+                1
+              ]
+            }
+          ]
+        },
+        {
           "label": "BOOT",
           "content": [
             {
