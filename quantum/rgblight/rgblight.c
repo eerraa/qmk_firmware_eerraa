@@ -179,6 +179,76 @@ void eeconfig_update_rgblight_current(void) {
     eeconfig_update_rgblight(&rgblight_config);
 }
 
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+/* ERA: the VIA underglow menu's quiet write gate.
+ *
+ * `via_qmk_rgblight_save()` wrote here directly, and a VIA client pairs a save
+ * with every set -- so dragging Underglow Brightness, Effect Speed or the
+ * colour wheel put one flash write behind every step of the drag, each with a
+ * different value. This is the same shape `quantum/rgb_matrix/rgb_matrix.c`
+ * already carries through `EECONFIG_QUIET_DEBOUNCE_HELPER`, written out here
+ * instead of instantiated because that macro hardcodes `eeconfig_update_##name`
+ * and this module's save primitive is `eeconfig_update_rgblight_current()` --
+ * the one that runs `rgblight_check_config()` first. Taking the macro would
+ * silently drop that clamp.
+ *
+ * The arm is the save and only the save. The ~15 internal callers of
+ * `eeconfig_update_rgblight()` -- the eeprom-writing keycode helpers, the
+ * defaults writer, the split sync apply -- are untouched and still write
+ * immediately, because each of them is either its own approval or a path that
+ * must be durable before the next statement runs.
+ *
+ * Nothing is added to `rgblight_task()`. The flush runs from the ERA
+ * once-per-millisecond housekeeping tick (`keyboards/era/common/system/
+ * era_board_hooks.c`), which is where the keyboard channel's gate already runs,
+ * so a keyboard outside that layer compiles nothing new into any per-pass path
+ * -- and no board defines this marker except an ERA one.
+ */
+static bool     rgblight_deferred_pending;
+static uint16_t rgblight_deferred_timer;
+
+void eeconfig_defer_flush_rgblight(void) {
+    rgblight_deferred_pending = true;
+    rgblight_deferred_timer   = timer_read();
+}
+
+/* Consumed before the synchronous write for the reason the ERA gate's own
+ * commit states. A sliced erase can run `matrix_task()` inside this call, but
+ * reset actions reached there are held until top-level housekeeping after the
+ * write returns; the gate task itself is not re-entered from the gap. */
+static void rgblight_deferred_commit(void) {
+    rgblight_deferred_pending = false;
+    eeconfig_update_rgblight_current();
+}
+
+void eeconfig_flush_rgblight_deferred_task(void) {
+    if (!rgblight_deferred_pending || timer_elapsed(rgblight_deferred_timer) <= ERA_STORAGE_QUIET_DEFER_MS) {
+        return;
+    }
+    rgblight_deferred_commit();
+}
+
+/* Commit now, ignoring the quiet timer, and write nothing when nothing is
+ * pending. The second half is load-bearing here and not a tidy: `rgblight_
+ * suspend()` writes `rgblight_config.enable = 0` into the live object without
+ * approving persistence, so an unconditional write from a suspend or reset path
+ * would store the suspend's darkness as the user's setting. `RGBLIGHT_SLEEP` is
+ * on for three of the five ERA boards that ship an underglow menu, so that is a
+ * configuration in the tree rather than a hypothesis.
+ *
+ * The callers are the controlled-reset and suspend hooks in
+ * `keyboards/era/common/system/`, and the suspend one runs from
+ * `suspend_power_down_kb()` -- ahead of everything `suspend_power_down_quantum()`
+ * does to the live lighting objects, which is what makes the ordering hold.
+ */
+void eeconfig_flush_rgblight_deferred_now(void) {
+    if (!rgblight_deferred_pending) {
+        return;
+    }
+    rgblight_deferred_commit();
+}
+#endif
+
 void eeconfig_update_rgblight_default(void) {
     rgblight_config.enable    = RGBLIGHT_DEFAULT_ON;
     rgblight_config.velocikey = 0;
@@ -1362,6 +1432,21 @@ typedef struct PACKED {
 
 static TwinkleState led_twinkle_state[RGBLIGHT_LED_COUNT];
 
+/* ERA: lib8tion random8 where lib8tion is linked, newlib rand() otherwise.
+   rand()'s reent path drags in malloc, and no ERA image may link an allocator
+   (era_invariants.md, the Source Gate). This is the RGBLIGHT instance of the
+   substitution the RGB Matrix side already took in digital_rain_anim.h; it
+   went unfixed until 2026-08-11 because no ERA board on RGBLIGHT had ever been
+   run through the allocator gate, and newone/odessey60s had been shipping the
+   violation since it went copy-to-RAM. The predicate is whether lib8tion is in
+   the build rather than an ERA marker, so a keyboard outside this fork's ERA
+   layer keeps exactly what it had. lib8tion.h is already included above. */
+#if defined(LIB8TION_ENABLE)
+#    define RGBLIGHT_TWINKLE_RAND() random8()
+#else
+#    define RGBLIGHT_TWINKLE_RAND() ((uint8_t)rand())
+#endif
+
 void rgblight_effect_twinkle(animation_status_t *anim) {
     const bool random_color = anim->delta / 3;
     const bool restart      = anim->pos == 0;
@@ -1397,11 +1482,11 @@ void rgblight_effect_twinkle(animation_status_t *anim) {
             t->life--;
             uint8_t unscaled = frac(breathe_calc(frac(t->life, t->max_life)) - bottom, top - bottom);
             c->v             = scale(rgblight_config.val, unscaled);
-        } else if ((rand() % 0xFF) < trigger) {
+        } else if ((RGBLIGHT_TWINKLE_RAND() % 0xFF) < trigger) {
             // This LED is off, but was randomly selected to start brightening
             if (random_color) {
-                c->h = rand() % 0xFF;
-                c->s = (rand() % (rgblight_config.sat / 2)) + (rgblight_config.sat / 2);
+                c->h = RGBLIGHT_TWINKLE_RAND() % 0xFF;
+                c->s = (RGBLIGHT_TWINKLE_RAND() % (rgblight_config.sat / 2)) + (rgblight_config.sat / 2);
             }
             c->v        = 0;
             t->max_life = MAX(20, MIN(RGBLIGHT_EFFECT_TWINKLE_LIFE, rgblight_config.val));

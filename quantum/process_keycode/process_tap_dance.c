@@ -33,6 +33,14 @@ static tap_dance_state_t tap_dance_states[TAP_DANCE_MAX_SIMULTANEOUS];
 
 static uint16_t last_tap_time;
 
+__attribute__((weak)) uint16_t tap_dance_remap_keycode(uint16_t keycode) {
+    return keycode;
+}
+
+__attribute__((weak)) uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record) {
+    return GET_TAPPING_TERM(keycode, record);
+}
+
 static tap_dance_state_t *tap_dance_get_or_allocate_state(uint8_t tap_dance_idx, bool allocate) {
     uint8_t i;
     if (tap_dance_idx >= tap_dance_count()) {
@@ -235,7 +243,7 @@ void tap_dance_task(void) {
     tap_dance_action_t *action;
     tap_dance_state_t  *state;
 
-    if (!active_td || timer_elapsed(last_tap_time) <= GET_TAPPING_TERM(active_td, &(keyrecord_t){})) return;
+    if (!active_td || timer_elapsed(last_tap_time) <= tap_dance_get_tapping_term(active_td, &(keyrecord_t){})) return;
 
     action = tap_dance_get(QK_TAP_DANCE_GET_INDEX(active_td));
     state  = tap_dance_get_state(QK_TAP_DANCE_GET_INDEX(active_td));

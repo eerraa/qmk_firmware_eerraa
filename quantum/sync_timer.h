@@ -25,6 +25,7 @@ SOFTWARE.
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "timer.h"
 
@@ -33,6 +34,7 @@ extern "C" {
 #endif
 
 #if defined(SPLIT_KEYBOARD) && !defined(DISABLE_SYNC_TIMER)
+bool     sync_timer_is_time_source(void);
 void     sync_timer_init(void);
 void     sync_timer_update(uint32_t time);
 uint16_t sync_timer_read(void);
@@ -42,6 +44,7 @@ uint32_t sync_timer_elapsed32(uint32_t last);
 #else
 #    define sync_timer_init()
 #    define sync_timer_clear()
+#    define sync_timer_is_time_source() true
 #    define sync_timer_update(t)
 #    define sync_timer_read() timer_read()
 #    define sync_timer_read32() timer_read32()

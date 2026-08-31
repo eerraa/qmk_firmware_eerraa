@@ -3,9 +3,6 @@
     "keyboard_name": "FAve65S",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "bootmagic": true,
@@ -36,6 +33,7 @@
             "cycle_pinwheel": true,
             "cycle_spiral": true,
             "cycle_up_down": true,
+            "digital_rain": true,
             "dual_beacon": true,
             "flower_blooming": true,
             "gradient_left_right": true,
@@ -44,6 +42,7 @@
             "hue_pendulum": true,
             "hue_wave": true,
             "jellybean_raindrops": true,
+            "multisplash": true,
             "pixel_flow": true,
             "pixel_fractal": true,
             "pixel_rain": true,
@@ -52,9 +51,22 @@
             "rainbow_pinwheels": true,
             "raindrops": true,
             "riverflow": true,
+            "solid_multisplash": true,
+            "solid_reactive": true,
+            "solid_reactive_cross": true,
+            "solid_reactive_multicross": true,
+            "solid_reactive_multinexus": true,
+            "solid_reactive_multiwide": true,
+            "solid_reactive_nexus": true,
+            "solid_reactive_simple": true,
+            "solid_reactive_wide": true,
+            "solid_splash": true,
+            "splash": true,
             "starlight": true,
             "starlight_dual_hue": true,
-            "starlight_dual_sat": true
+            "starlight_dual_sat": true,
+            "starlight_smooth": true,
+            "typing_heatmap": true
         },
         "default": {
             "animation": "rainbow_moving_chevron"
@@ -107,6 +119,7 @@
             {"x": 0, "y": 26, "flags": 2},
             {"x": 0, "y": 13, "flags": 2}
         ],
+        "led_process_limit": 4,
         "sleep": true
     },
     "usb": {

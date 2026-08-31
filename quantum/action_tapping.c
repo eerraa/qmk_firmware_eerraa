@@ -66,7 +66,42 @@ static uint8_t           speculative_mods                        = 0;
 
 /** Handler to be called on incoming press events. */
 static void speculative_key_press(keyrecord_t *record);
-#    endif // SPECULATIVE_HOLD
+
+#        ifdef ERA_SPECULATIVE_LAYER_ENABLE
+/* ERA FA-2 S1: the layer-tap half of the speculative family. Upstream
+ * Speculative Hold is mod-tap only because mods ride the HID report and cross
+ * to another USB device through the OS; a layer is firmware-local, so the LT
+ * half exists for the split INPUT section to carry the speculative bit to the
+ * peer. Both halves arm through the same get_speculative_hold() callback.
+ *
+ * The revert runs at the top of process_record for BOTH settlements, not only
+ * the tap: the record's action lookup (store_or_get_action) happens after this
+ * hook, so reverting first keeps every settle resolving on the layers the key
+ * was pressed on. A hold re-registers its layer through the ordinary
+ * ACT_LAYER_TAP path microseconds later; the off-on inside one process_record
+ * is invisible to the wire's latest-state INPUT section.
+ *
+ * The counter sink lives in the split layer; declared here rather than
+ * included because keyboards/era is not on core's include path (the
+ * era_split_peer_layer precedent). */
+typedef struct {
+    keypos_t key;
+    uint8_t  layer;
+} era_speculative_layer_t;
+#            define ERA_SPECULATIVE_LAYERS_SIZE 8
+static era_speculative_layer_t era_speculative_layers[ERA_SPECULATIVE_LAYERS_SIZE] = {};
+static uint8_t                 era_num_speculative_layers                          = 0;
+
+#            define ERA_SPECULATIVE_NOTE_ACTIVATE 0
+#            define ERA_SPECULATIVE_NOTE_REVERT 1
+#            define ERA_SPECULATIVE_NOTE_ABORT 2
+void era_split_tap_activity_note_speculative(uint8_t event);
+
+static void era_speculative_layer_press(keyrecord_t *record);
+static bool era_speculative_layer_settled(keyrecord_t *record);
+static void era_speculative_layer_abort(void);
+#        endif // ERA_SPECULATIVE_LAYER_ENABLE
+#    endif     // SPECULATIVE_HOLD
 
 #    if defined(CHORDAL_HOLD) || defined(FLOW_TAP_TERM)
 #        define REGISTERED_TAPS_SIZE 8
@@ -132,6 +167,17 @@ static keyrecord_t waiting_buffer[WAITING_BUFFER_SIZE] = {};
 static uint8_t     waiting_buffer_head                 = 0;
 static uint8_t     waiting_buffer_tail                 = 0;
 
+#    ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+/* ERA FA-2 S2: the cross-half judgment seam. The split layer keeps the
+ * window, the peer's activity cache and the shared-clock ordering; this file
+ * contributes exactly two calls -- the window derivation at the end of every
+ * action_tapping_process() pass, and the in-flight judgment below, consulted
+ * for ticks as well so a peer press settles a hold without any local event.
+ * Declared here rather than included (the era_split_peer_layer precedent). */
+void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t event_time);
+bool era_split_tap_activity_judge_hold(bool own_release, uint16_t own_release_event_time);
+#    endif // ERA_SPLIT_TAP_ACTIVITY_ENABLE
+
 static bool process_tapping(keyrecord_t *record);
 static bool waiting_buffer_enq(keyrecord_t record);
 static void waiting_buffer_clear(void);
@@ -150,6 +196,9 @@ void action_tapping_process(keyrecord_t record) {
     prev_speculative_mods = speculative_mods;
     if (record.event.pressed) {
         speculative_key_press(&record);
+#        ifdef ERA_SPECULATIVE_LAYER_ENABLE
+        era_speculative_layer_press(&record);
+#        endif
     }
 #    endif // SPECULATIVE_HOLD
 
@@ -166,6 +215,11 @@ void action_tapping_process(keyrecord_t record) {
             clear_keyboard();
             waiting_buffer_clear();
             tapping_key = (keyrecord_t){0};
+#    if defined(SPECULATIVE_HOLD) && defined(ERA_SPECULATIVE_LAYER_ENABLE)
+            // clear_keyboard() drops mods but not layers, so a speculative
+            // layer bit would survive the reset with nothing left to revert it.
+            era_speculative_layer_abort();
+#    endif
         }
     }
 
@@ -197,6 +251,17 @@ void action_tapping_process(keyrecord_t record) {
         }
 #    endif // FLOW_TAP_TERM
     }
+
+#    ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+    /* One derivation site instead of instrumenting every tapping_key
+     * assignment: whatever this pass did, the engine's in-flight fact is
+     * simply read off the state machine. The split layer turns its edges into
+     * the judgment window; with the window closed and nothing in flight this
+     * is two compares per pass. */
+    era_split_tap_activity_engine_window(tapping_key.event.pressed && tapping_key.tap.count == 0 && IS_EVENT(tapping_key.event),
+                                         tapping_key.event.key,
+                                         tapping_key.event.time);
+#    endif // ERA_SPLIT_TAP_ACTIVITY_ENABLE
 }
 
 /* Some conditionally defined helper macros to keep process_tapping more
@@ -303,6 +368,25 @@ bool process_tapping(keyrecord_t *keyp) {
     // process "pressed" tapping key state
     if (tapping_key.event.pressed) {
         if (WITHIN_TAPPING_TERM(event) || MAYBE_RETRO_SHIFTING(event, keyp)) {
+#    ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+            /* ERA FA-2 S2: the peer's key input cannot arrive as an event, so
+             * the cross-half HOLD_ON_OTHER_KEY_PRESS / PERMISSIVE_HOLD
+             * judgment is consulted here, before the tick early-return --
+             * ticks are its main carrier -- and before the local tap-settle
+             * branches, so a peer press that the shared clock orders ahead of
+             * the tapping key's own release still wins the settle. The settle
+             * below mirrors the local HOLD_ON_OTHER_KEY_PRESS block; the
+             * returned false enqueues the current event for reprocessing and
+             * enqueues nothing for a tick. */
+            if (tapping_key.tap.count == 0 &&
+                era_split_tap_activity_judge_hold(IS_EVENT(event) && IS_TAPPING_RECORD(keyp) && !event.pressed, event.time)) {
+                ac_dprintf("Tapping: End. No tap. Interfered by peer press\n");
+                process_record(&tapping_key);
+                tapping_key = (keyrecord_t){0};
+                debug_tapping_key();
+                return false;
+            }
+#    endif // ERA_SPLIT_TAP_ACTIVITY_ENABLE
             if (IS_NOEVENT(event)) {
                 // early return for tick events
                 return true;
@@ -817,6 +901,16 @@ __attribute__((weak)) bool get_speculative_hold(uint16_t keycode, keyrecord_t *r
 }
 
 void speculative_key_settled(keyrecord_t *record) {
+#        ifdef ERA_SPECULATIVE_LAYER_ENABLE
+    // Guarded on the tracking count so default-off typing pays one load and
+    // compare here and nothing else. A tracked LT hold press returns early —
+    // like an MT hold press, it cancels no other speculation — while a tracked
+    // LT tap press falls through so speculated mods cannot reach the emitted
+    // tap keycode, the same rule every tap press below applies.
+    if (era_num_speculative_layers != 0 && era_speculative_layer_settled(record) && record->tap.count == 0) {
+        return;
+    }
+#        endif // ERA_SPECULATIVE_LAYER_ENABLE
     if (num_speculative_keys == 0) {
         return; // Early return when there are no active speculative keys.
     }
@@ -877,7 +971,93 @@ void speculative_key_settled(keyrecord_t *record) {
         debug_speculative_keys();
     }
 }
-#    endif // SPECULATIVE_HOLD
+
+#        ifdef ERA_SPECULATIVE_LAYER_ENABLE
+static void era_speculative_layer_press(keyrecord_t *record) {
+    if (era_num_speculative_layers >= ERA_SPECULATIVE_LAYERS_SIZE) {
+        return; // Don't trigger: tracking is full.
+    }
+    for (uint8_t i = 0; i < era_num_speculative_layers; ++i) {
+        if (KEYEQ(era_speculative_layers[i].key, record->event.key)) {
+            return; // Don't trigger: key is already tracked.
+        }
+    }
+
+    const uint16_t keycode = get_record_keycode(record, false);
+    if (!IS_QK_LAYER_TAP(keycode)) {
+        return; // Don't trigger: not a layer-tap key.
+    }
+
+    const uint8_t layer = QK_LAYER_TAP_GET_LAYER(keycode);
+    if (layer_state_is(layer)) {
+        // Don't trigger: the layer is already active locally, and a revert
+        // would turn off a layer this key did not turn on.
+        return;
+    }
+
+    // Same ordering guard as the mod-tap half: don't speculate over
+    // non-speculated buffered events.
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+        if (!waiting_buffer[i].tap.speculated) {
+            return;
+        }
+    }
+
+    if (get_speculative_hold(keycode, record)) {
+        record->tap.speculated = true;
+        layer_on(layer);
+        era_speculative_layers[era_num_speculative_layers] = (era_speculative_layer_t){
+            .key   = record->event.key,
+            .layer = layer,
+        };
+        ++era_num_speculative_layers;
+        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_ACTIVATE);
+
+        ac_dprintf("Speculative Layer: on %u\n", layer);
+    }
+}
+
+/** Reverts a tracked key's speculative layer before its settle resolves.
+ *
+ * Returns true when the record's key was tracked. Runs for both settlements
+ * (see the block comment at the type): the tap must resolve its keycode on the
+ * un-speculated layers, and the hold re-registers the layer through the
+ * ordinary ACT_LAYER_TAP path immediately after.
+ */
+static bool era_speculative_layer_settled(keyrecord_t *record) {
+    uint8_t i;
+    for (i = 0; i < era_num_speculative_layers; ++i) {
+        if (KEYEQ(era_speculative_layers[i].key, record->event.key)) {
+            break;
+        }
+    }
+    if (i >= era_num_speculative_layers) {
+        return false;
+    }
+
+    layer_off(era_speculative_layers[i].layer);
+    ac_dprintf("Speculative Layer: settled(%u) off %u\n", record->tap.count, era_speculative_layers[i].layer);
+
+    --era_num_speculative_layers;
+    for (uint8_t j = i; j < era_num_speculative_layers; ++j) {
+        era_speculative_layers[j] = era_speculative_layers[j + 1];
+    }
+
+    if (record->tap.count > 0) {
+        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_REVERT);
+    }
+    return true;
+}
+
+static void era_speculative_layer_abort(void) {
+    while (era_num_speculative_layers > 0) {
+        --era_num_speculative_layers;
+        layer_off(era_speculative_layers[era_num_speculative_layers].layer);
+        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_ABORT);
+    }
+}
+#        endif // ERA_SPECULATIVE_LAYER_ENABLE
+#    endif     // SPECULATIVE_HOLD
 
 #    if defined(CHORDAL_HOLD) || defined(FLOW_TAP_TERM)
 static void registered_taps_add(keypos_t key) {

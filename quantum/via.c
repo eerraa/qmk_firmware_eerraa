@@ -287,9 +287,21 @@ __attribute__((weak)) bool via_command_kb(uint8_t *data, uint8_t length) {
     return false;
 }
 
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+/* Cause-variant hooks are declared here rather than by including a keyboard
+ * header into QMK core. They compile away from every other image. */
+void era_via_macro_diagnostics_receive(uint8_t command_id);
+void era_via_macro_diagnostics_response_begin(void);
+void era_via_macro_diagnostics_response_end(void);
+#endif
+
 void raw_hid_receive(uint8_t *data, uint8_t length) {
     uint8_t *command_id   = &(data[0]);
     uint8_t *command_data = &(data[1]);
+
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_receive(*command_id);
+#endif
 
     // If via_command_kb() returns true, the command was fully
     // handled, including calling raw_hid_send()
@@ -478,7 +490,13 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 
     // Return the same buffer, optionally with values changed
     // (i.e. returning state to the host, or the unhandled state).
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_response_begin();
+#endif
     raw_hid_send(data, length);
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+    era_via_macro_diagnostics_response_end();
+#endif
 }
 
 #if defined(BACKLIGHT_ENABLE)
@@ -647,7 +665,14 @@ void via_qmk_rgblight_set_value(uint8_t *data) {
 }
 
 void via_qmk_rgblight_save(void) {
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+    /* ERA: arm the module's quiet gate rather than writing here, exactly as
+       `via_qmk_rgb_matrix_save()` below does for its own domain. The client
+       sends one of these per slider step. */
+    eeconfig_defer_flush_rgblight();
+#else
     eeconfig_update_rgblight_current();
+#endif
 }
 
 #endif // QMK_RGBLIGHT_ENABLE
@@ -735,7 +760,11 @@ void via_qmk_rgb_matrix_set_value(uint8_t *data) {
 }
 
 void via_qmk_rgb_matrix_save(void) {
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+    eeconfig_defer_flush_rgb_matrix();
+#else
     eeconfig_force_flush_rgb_matrix();
+#endif
 }
 
 #endif // RGB_MATRIX_ENABLE

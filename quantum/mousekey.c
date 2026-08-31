@@ -85,6 +85,20 @@ uint8_t mk_wheel_interval = MOUSEKEY_WHEEL_INTERVAL;
 #    endif
 uint8_t mk_wheel_max_speed   = MOUSEKEY_WHEEL_MAX_SPEED;
 uint8_t mk_wheel_time_to_max = MOUSEKEY_WHEEL_TIME_TO_MAX;
+/* ERA: the per-event step sizes as runtime values, initialised from the macros
+ * exactly as the eight above are. **Gated, unlike the guard at the head of
+ * mousekey_task()**, and the two are different kinds of edit: the guard's
+ * argument is universal and costs nothing, while these cost a byte of RAM each
+ * on a keyboard that has no way to change them. With the gate undefined the
+ * names collapse back to the macros and the object is unchanged, which is what
+ * lets the default-mode arms below name one thing either way. */
+#    ifdef ERA_MOUSEKEY_RUNTIME_DELTA
+uint8_t mk_move_delta  = MOUSEKEY_MOVE_DELTA;
+uint8_t mk_wheel_delta = MOUSEKEY_WHEEL_DELTA;
+#    else
+#        define mk_move_delta MOUSEKEY_MOVE_DELTA
+#        define mk_wheel_delta MOUSEKEY_WHEEL_DELTA
+#    endif
 
 #    ifndef MK_COMBINED
 #        ifndef MK_KINETIC_SPEED
@@ -95,17 +109,17 @@ uint8_t mk_wheel_time_to_max = MOUSEKEY_WHEEL_TIME_TO_MAX;
 static uint8_t move_unit(void) {
     uint16_t unit;
     if (mousekey_accel & (1 << 0)) {
-        unit = (MOUSEKEY_MOVE_DELTA * mk_max_speed) / 4;
+        unit = (mk_move_delta * mk_max_speed) / 4;
     } else if (mousekey_accel & (1 << 1)) {
-        unit = (MOUSEKEY_MOVE_DELTA * mk_max_speed) / 2;
+        unit = (mk_move_delta * mk_max_speed) / 2;
     } else if (mousekey_accel & (1 << 2)) {
-        unit = (MOUSEKEY_MOVE_DELTA * mk_max_speed);
+        unit = (mk_move_delta * mk_max_speed);
     } else if (mousekey_repeat == 0) {
-        unit = MOUSEKEY_MOVE_DELTA;
+        unit = mk_move_delta;
     } else if (mousekey_repeat >= mk_time_to_max) {
-        unit = MOUSEKEY_MOVE_DELTA * mk_max_speed;
+        unit = mk_move_delta * mk_max_speed;
     } else {
-        unit = (MOUSEKEY_MOVE_DELTA * mk_max_speed * mousekey_repeat) / mk_time_to_max;
+        unit = (mk_move_delta * mk_max_speed * mousekey_repeat) / mk_time_to_max;
     }
     return (unit > MOUSEKEY_MOVE_MAX ? MOUSEKEY_MOVE_MAX : (unit == 0 ? 1 : unit));
 }
@@ -160,17 +174,17 @@ static int8_t move_unit(uint8_t axis) {
 static uint8_t wheel_unit(void) {
     uint16_t unit;
     if (mousekey_accel & (1 << 0)) {
-        unit = (MOUSEKEY_WHEEL_DELTA * mk_wheel_max_speed) / 4;
+        unit = (mk_wheel_delta * mk_wheel_max_speed) / 4;
     } else if (mousekey_accel & (1 << 1)) {
-        unit = (MOUSEKEY_WHEEL_DELTA * mk_wheel_max_speed) / 2;
+        unit = (mk_wheel_delta * mk_wheel_max_speed) / 2;
     } else if (mousekey_accel & (1 << 2)) {
-        unit = (MOUSEKEY_WHEEL_DELTA * mk_wheel_max_speed);
+        unit = (mk_wheel_delta * mk_wheel_max_speed);
     } else if (mousekey_wheel_repeat == 0) {
-        unit = MOUSEKEY_WHEEL_DELTA;
+        unit = mk_wheel_delta;
     } else if (mousekey_wheel_repeat >= mk_wheel_time_to_max) {
-        unit = MOUSEKEY_WHEEL_DELTA * mk_wheel_max_speed;
+        unit = mk_wheel_delta * mk_wheel_max_speed;
     } else {
-        unit = (MOUSEKEY_WHEEL_DELTA * mk_wheel_max_speed * mousekey_wheel_repeat) / mk_wheel_time_to_max;
+        unit = (mk_wheel_delta * mk_wheel_max_speed * mousekey_wheel_repeat) / mk_wheel_time_to_max;
     }
     return (unit > MOUSEKEY_WHEEL_MAX ? MOUSEKEY_WHEEL_MAX : (unit == 0 ? 1 : unit));
 }
@@ -305,6 +319,43 @@ static int8_t calc_inertia(int8_t direction, int8_t velocity) {
 #    endif
 
 void mousekey_task(void) {
+#    ifndef MOUSEKEY_INERTIA
+    /* ERA: nothing below this can change anything while the four movement
+       fields are zero, so return instead of proving it again forty thousand
+       times a second.
+
+       The proof is data flow rather than timing, so it holds on every platform.
+       With x, y, v and h all zero at entry: `tmpmr` is a copy of
+       `mouse_report`, so the four stores put zero over zero; both movement
+       blocks are gated on `tmpmr.x || tmpmr.y` and `tmpmr.v || tmpmr.h` and are
+       skipped; `has_mouse_report_changed()` (tmk_core/protocol/report.c) reduces
+       to comparing `buttons` between a struct and its own copy, which is false,
+       every other term of it requiring a *new* field to be non-zero; and
+       `should_mousekey_report_send()` is the disjunction of those same four
+       zeros. The trailing memcpy then restores bytes that never moved.
+
+       It cannot swallow a release. `mousekey_off()` only clears fields, and
+       `quantum/action.c` sends the report from the key event itself, so no
+       report has ever originated in this task on a pass with nothing held --
+       which is the same statement as the paragraph above, arrived at from the
+       caller instead of from the body.
+
+       Priced before it was written, on device: 2.35 us of every 20.21 us scan
+       pass, reproduced on both halves of a split pair to 0.03 us, by running
+       the identical firmware with MOUSEKEY_ENABLE off
+       (`era_performance_gates.md`, Fixed Baselines). Two byte-loop memcpys of a
+       six-byte struct and two predicate calls, on a keyboard nobody is moving a
+       cursor on.
+
+       The inertia arm is deliberately outside this guard: its first block is
+       gated on `mousekey_frame` rather than on the report, so an animation can
+       be in progress with the report already zero and the premise above does
+       not reach it. */
+    if (mouse_report.x == 0 && mouse_report.y == 0 && mouse_report.v == 0 && mouse_report.h == 0) {
+        return;
+    }
+#    endif
+
     // report cursor and scroll movement independently
     report_mouse_t tmpmr = mouse_report;
 

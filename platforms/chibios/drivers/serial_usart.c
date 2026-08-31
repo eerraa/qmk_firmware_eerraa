@@ -156,7 +156,11 @@ inline bool serial_transport_send(const uint8_t* source, const size_t size) {
 }
 
 inline bool serial_transport_receive(uint8_t* destination, const size_t size) {
-    bool success = (size_t)chnReadTimeout(serial_driver, destination, size, TIME_MS2I(SERIAL_USART_TIMEOUT)) == size;
+    return serial_transport_receive_timeout(destination, size, SERIAL_USART_TIMEOUT);
+}
+
+inline bool serial_transport_receive_timeout(uint8_t* destination, const size_t size, uint16_t timeout_ms) {
+    bool success = (size_t)chnReadTimeout(serial_driver, destination, size, TIME_MS2I(timeout_ms)) == size;
     return success;
 }
 

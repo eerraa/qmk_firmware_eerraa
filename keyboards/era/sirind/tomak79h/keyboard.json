@@ -3,9 +3,6 @@
     "keyboard_name": "Tomak79H",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "bootmagic": true,
@@ -68,6 +65,7 @@
             "starlight": true,
             "starlight_dual_hue": true,
             "starlight_dual_sat": true,
+            "starlight_smooth": true,
             "typing_heatmap": true
         },
         "driver": "ws2812",
@@ -169,6 +167,8 @@
             {"x": 224, "y": 41, "flags": 2},
             {"x": 224, "y": 39, "flags": 2}
         ],
+        "led_process_limit": 4,
+        "max_brightness": 200,
         "sleep": true,
         "split_count": [41, 55]
     },
@@ -185,20 +185,11 @@
                 "cols": ["GP25", "GP24", "GP23", "GP22", "GP7", "GP6", "GP5", "GP4", "GP2"],
                 "rows": ["GP29", "GP28", "GP27", "GP26", "GP11", "GP3"]
             }
-        },
-        "serial": {
-            "driver": "vendor"
-        },
-        "transport": {
-            "sync": {
-                "indicators": true,
-                "layer_state": true,
-                "matrix_state": true
-            }
         }
     },
+    "url": "",
     "usb": {
-        "device_version": "1.0.0",
+        "device_version": "1.1.0",
         "pid": "0x0014",
         "vid": "0x4552"
     },

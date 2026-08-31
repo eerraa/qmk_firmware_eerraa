@@ -9,9 +9,6 @@
         "pin": "GP3"
     },
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "backlight": true,
@@ -1133,7 +1130,7 @@
                 {"matrix": [5, 15], "x": 16.25, "y": 5.25},
                 {"matrix": [5, 16], "x": 17.25, "y": 5.25}
             ]
-        }
+        },
         "LAYOUT_tkl_iso_wkl_split_bs_rshift": {
             "layout": [
                 {"matrix": [0, 0], "x": 0, "y": 0},

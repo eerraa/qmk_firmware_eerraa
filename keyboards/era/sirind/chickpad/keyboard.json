@@ -3,9 +3,6 @@
     "keyboard_name": "ChickPad",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "bootmagic": true,
@@ -68,6 +65,7 @@
             "starlight": true,
             "starlight_dual_hue": true,
             "starlight_dual_sat": true,
+            "starlight_smooth": true,
             "typing_heatmap": true
         },
         "driver": "ws2812",
@@ -86,6 +84,7 @@
             {"matrix": [2, 3], "x": 168, "y": 64, "flags": 4},
             {"matrix": [2, 4], "x": 224, "y": 64, "flags": 4}
         ],
+        "led_process_limit": 4,
         "sleep": true
     },
     "usb": {

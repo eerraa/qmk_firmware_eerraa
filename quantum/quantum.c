@@ -311,10 +311,11 @@ bool process_record_quantum(keyrecord_t *record) {
 #endif
 
 #ifdef TAP_DANCE_ENABLE
+    keycode = tap_dance_remap_keycode(keycode);
     if (preprocess_tap_dance(keycode, record)) {
         // The tap dance might have updated the layer state, therefore the
         // result of the keycode lookup might change.
-        keycode = get_record_keycode(record, true);
+        keycode = tap_dance_remap_keycode(get_record_keycode(record, true));
     }
 #endif
 

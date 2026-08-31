@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include "usb_driver.h"
-#include "util.h"
 
 /*===========================================================================*/
 /* Driver local functions.                                                   */
@@ -273,14 +272,21 @@ bool usb_endpoint_in_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size
         size_t sent = obqWriteTimeout(&endpoint->obqueue, data, size, timeout);
 
         if (sent < size) {
+            bool active;
             osalSysLock();
             endpoint->timed_out |= sent == 0;
             bqSuspendI(&endpoint->obqueue);
             obqResetI(&endpoint->obqueue);
-            bqResumeX(&endpoint->obqueue);
-            osalOsRescheduleS();
+            active = usbGetDriverStateI(endpoint->config.usbp) == USB_ACTIVE;
+            if (active) {
+                bqResumeX(&endpoint->obqueue);
+                osalOsRescheduleS();
+            }
             osalSysUnlock();
-            continue;
+            if (active) {
+                continue;
+            }
+            return false;
         }
 
         if (!buffered) {
@@ -293,6 +299,13 @@ bool usb_endpoint_in_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size
 
 void usb_endpoint_in_flush(usb_endpoint_in_t *endpoint, bool padded) {
     osalDbgCheck(endpoint != NULL);
+
+    osalSysLock();
+    bool active = usbGetDriverStateI(endpoint->config.usbp) == USB_ACTIVE;
+    osalSysUnlock();
+    if (!active) {
+        return;
+    }
 
     output_buffers_queue_t *obqp = &endpoint->obqueue;
 

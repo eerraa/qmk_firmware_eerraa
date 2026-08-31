@@ -6,6 +6,14 @@
 #include "encoder.h"
 #include "util.h"
 #include "action_layer.h"
+#if defined(ERA_SPLIT_PEER_LAYER_MERGE_ENABLE)
+/* Declared, not included. keyboards/era/common/split is not on QMK core's
+   include path, and widening it to reach one accessor would couple the whole
+   core to the ERA split layer for a single edit. The definition, the ownership
+   rules, and why the value composes here rather than into layer_state are in
+   keyboards/era/common/split/era_split_peer_layer.[ch]. */
+layer_state_t era_split_peer_layer_state(void);
+#endif
 
 /** \brief Default Layer State
  */
@@ -344,7 +352,17 @@ uint8_t layer_switch_get_layer(keypos_t key) {
     action_t action;
     action.code = ACTION_TRANSPARENT;
 
+#    if defined(ERA_SPLIT_PEER_LAYER_MERGE_ENABLE)
+    /* ERA: a DUAL-HOST peer's layer contribution composes here, at the one
+       point that already composes default_layer_state, and never into
+       layer_state -- local layer_off/layer_invert compose on that variable and
+       would clear peer bits. Reached once per key event from
+       store_or_get_action(); the accessor is a single-byte global read.
+       keyboards/era/common/split/era_split_peer_layer.h */
+    layer_state_t layers = layer_state | default_layer_state | era_split_peer_layer_state();
+#    else
     layer_state_t layers = layer_state | default_layer_state;
+#    endif
     /* check top layer first */
     for (int8_t i = MAX_LAYER - 1; i >= 0; i--) {
         if (layers & ((layer_state_t)1 << i)) {

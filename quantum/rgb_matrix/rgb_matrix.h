@@ -95,6 +95,46 @@ struct rgb_matrix_limits_t {
     uint8_t led_max_index;
 };
 
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+typedef struct {
+    uint16_t flags;
+    uint8_t  led_min_index;
+    uint8_t  led_max_index;
+} rgb_matrix_render_policy_t;
+
+enum rgb_matrix_render_policy_flags {
+    RGB_MATRIX_RENDER_POLICY_DISABLE_EFFECT    = 1U << 0,
+    RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE     = 1U << 1,
+    RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY      = 1U << 2,
+    RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE = 1U << 3,
+    RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY  = 1U << 4,
+    RGB_MATRIX_RENDER_POLICY_ALLOW_DISABLED    = 1U << 5,
+    RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN     = 1U << 6,
+};
+
+enum rgb_matrix_render_frame_flags {
+    RGB_MATRIX_RENDER_FRAME_EFFECT     = 1U << 0,
+    RGB_MATRIX_RENDER_FRAME_INDICATORS = 1U << 1,
+    RGB_MATRIX_RENDER_FRAME_STATUS     = 1U << 2,
+};
+
+void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy);
+void rgb_matrix_render_policy_user(rgb_matrix_render_policy_t *policy);
+bool rgb_matrix_render_status_kb(const rgb_matrix_render_policy_t *policy);
+bool rgb_matrix_render_status_user(const rgb_matrix_render_policy_t *policy);
+void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags);
+void rgb_matrix_render_policy_flush_user(uint8_t frame_flags);
+/* A board policy changed outside rgb_matrix_task(). Re-evaluate that policy on
+ * the next task pass instead of waiting for the ordinary 16-ms frame epoch.
+ * This changes no RGB configuration and coalesces repeated requests. */
+void rgb_matrix_render_policy_request_refresh(void);
+/* True from an external policy-refresh request until the refreshed policy has
+ * either reached the PWM flush boundary or proved that no new frame is needed.
+ * ERA's opportunistic flash maintenance uses this as a priority fact: a
+ * background erase may wait, a user-visible policy edge may not. */
+bool rgb_matrix_render_policy_refresh_active(void);
+#endif
+
 struct rgb_matrix_limits_t rgb_matrix_get_limits(uint8_t iter);
 
 #define RGB_MATRIX_USE_LIMITS_ITER(min, max, iter)                   \
@@ -147,6 +187,14 @@ enum rgb_matrix_effects {
 
 void eeconfig_update_rgb_matrix_default(void);
 void eeconfig_force_flush_rgb_matrix(void);
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+void eeconfig_defer_flush_rgb_matrix(void);
+void eeconfig_flush_rgb_matrix_deferred_task(void);
+/* ERA: commit a pending deferred flush now and write nothing when none is
+   pending -- not the same as the unconditional force above. The definition
+   carries why the difference matters to its callers. */
+void eeconfig_flush_rgb_matrix_deferred_now(void);
+#endif
 
 uint8_t rgb_matrix_map_row_column_to_led_kb(uint8_t row, uint8_t column, uint8_t *led_i);
 uint8_t rgb_matrix_map_row_column_to_led(uint8_t row, uint8_t column, uint8_t *led_i);
@@ -280,6 +328,9 @@ const char *rgb_matrix_get_mode_name(uint8_t mode);
 #    define rgblight_decrease_speed_noeeprom rgb_matrix_decrease_speed_noeeprom
 #endif
 
+#if defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+bool rgb_matrix_check_finished_leds(uint8_t led_idx);
+#else
 static inline bool rgb_matrix_check_finished_leds(uint8_t led_idx) {
 #if defined(RGB_MATRIX_SPLIT)
     if (is_keyboard_left()) {
@@ -291,6 +342,7 @@ static inline bool rgb_matrix_check_finished_leds(uint8_t led_idx) {
     return led_idx < RGB_MATRIX_LED_COUNT;
 #endif
 }
+#endif
 
 extern rgb_config_t rgb_matrix_config;
 

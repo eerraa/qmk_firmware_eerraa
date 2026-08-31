@@ -198,6 +198,68 @@ void     eeconfig_init_user_datablock(void);
         }                                                               \
     }
 
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+/* Consume the pending approval before the synchronous update. The update path
+ * reports no completion status; consuming first lets a new approval re-arm the
+ * pair without the old flush clearing it on return. The flash-gap re-entry path
+ * is canonical in keyboards/era/common/docs/contracts/era_invariants.md. */
+// clang-format off
+#    define EECONFIG_QUIET_DEBOUNCE_HELPER_CHECKED(name, config)           \
+        static uint8_t  dirty_##name = false;                              \
+        static uint8_t  deferred_##name = false;                           \
+        static uint16_t deferred_timer_##name = 0;                         \
+                                                                           \
+        bool eeconfig_check_valid_##name(void);                            \
+        void eeconfig_post_flush_##name(void);                             \
+                                                                           \
+        static inline bool eeconfig_deferred_ready_##name(void) {          \
+            return !deferred_##name || timer_elapsed(deferred_timer_##name) > ERA_STORAGE_QUIET_DEFER_MS; \
+        }                                                                  \
+        static inline void eeconfig_schedule_deferred_flush_##name(void) { \
+            dirty_##name = true;                                           \
+            deferred_##name = true;                                        \
+            deferred_timer_##name = timer_read();                          \
+        }                                                                  \
+        static inline void eeconfig_init_##name(void) {                    \
+            dirty_##name = true;                                           \
+            deferred_##name = false;                                       \
+            if (eeconfig_check_valid_##name()) {                           \
+                eeconfig_read_##name(&config);                             \
+                dirty_##name = false;                                      \
+            }                                                              \
+        }                                                                  \
+        static inline void eeconfig_flush_##name(bool force) {             \
+            if (force || (dirty_##name && eeconfig_deferred_ready_##name())) { \
+                dirty_##name = false;                                      \
+                deferred_##name = false;                                   \
+                eeconfig_update_##name(&config);                           \
+                eeconfig_post_flush_##name();                              \
+            }                                                              \
+        }                                                                  \
+        static inline void eeconfig_flush_##name##_task(uint16_t timeout) { \
+            static uint16_t flush_timer = 0;                               \
+            if (timer_elapsed(flush_timer) > timeout) {                    \
+                eeconfig_flush_##name(false);                              \
+                flush_timer = timer_read();                                \
+            }                                                              \
+        }                                                                  \
+        static inline void eeconfig_run_deferred_flush_##name(void) {      \
+            eeconfig_flush_##name(false);                                  \
+        }                                                                  \
+        static inline void eeconfig_flag_##name(bool v) {                  \
+            if (v) {                                                       \
+                eeconfig_schedule_deferred_flush_##name();                 \
+            }                                                              \
+        }                                                                  \
+        static inline void eeconfig_write_##name(typeof(config) *conf) {   \
+            if (memcmp(&config, conf, sizeof(config)) != 0) {              \
+                memcpy(&config, conf, sizeof(config));                     \
+                eeconfig_flag_##name(true);                                \
+            }                                                              \
+        }
+// clang-format on
+#endif
+
 #define EECONFIG_DEBOUNCE_HELPER(name, config)     \
     EECONFIG_DEBOUNCE_HELPER_CHECKED(name, config) \
                                                    \
@@ -205,3 +267,13 @@ void     eeconfig_init_user_datablock(void);
         return true;                               \
     }                                              \
     void eeconfig_post_flush_##name(void) {}
+
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+#    define EECONFIG_QUIET_DEBOUNCE_HELPER(name, config)     \
+        EECONFIG_QUIET_DEBOUNCE_HELPER_CHECKED(name, config) \
+                                                             \
+        bool eeconfig_check_valid_##name(void) {             \
+            return true;                                     \
+        }                                                    \
+        void eeconfig_post_flush_##name(void) {}
+#endif
