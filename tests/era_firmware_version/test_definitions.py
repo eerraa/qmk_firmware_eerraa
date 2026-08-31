@@ -80,6 +80,20 @@ def named_menu(definition: dict[str, Any], label: str) -> dict[str, Any]:
     return matches[0]
 
 
+def named_submenu(definition: dict[str, Any], menu_label: str, submenu_label: str) -> dict[str, Any]:
+    menu = named_menu(definition, menu_label)
+    matches = [
+        entry
+        for entry in menu.get("content", [])
+        if isinstance(entry, dict) and entry.get("label") == submenu_label
+    ]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"{definition.get('name', '<unnamed>')}: expected one {menu_label}/{submenu_label} submenu, found {len(matches)}"
+        )
+    return matches[0]
+
+
 class EraFirmwareVersionDefinitions(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -134,6 +148,45 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             submenus = [named_menu(load_json(path), "SYSTEM")["content"][0] for path in paths]
             self.assertEqual(submenus[0], VERSION_SUBMENU, paths[0].as_posix())
             self.assertEqual(submenus[0], submenus[1], board)
+
+    def test_fixed_socd_and_kkuk_modes_stay_hidden_and_control_order_is_shared(self) -> None:
+        fixed_mode_commands = {
+            "id_qmk_socd_lr_mode",
+            "id_qmk_socd_ud_mode",
+            "id_qmk_kkuk_mode",
+        }
+        for board, paths in self.board_definitions.items():
+            if board == BRICK65_BOARD:
+                continue
+            for path in paths:
+                definition = load_json(path)
+                commands = {
+                    node["content"][0]
+                    for node in walk_dicts(definition)
+                    if isinstance(node.get("content"), list)
+                    and node["content"]
+                    and isinstance(node["content"][0], str)
+                }
+                self.assertTrue(fixed_mode_commands.isdisjoint(commands), path.as_posix())
+
+                kkuk = named_submenu(definition, "FEATURE", "KKUK")
+                self.assertEqual(
+                    [control.get("label") for control in kkuk.get("content", [])],
+                    ["Enable", "First Delay Time", "Repeat Time"],
+                    path.as_posix(),
+                )
+
+                tapping = named_submenu(definition, "FEATURE", "TAPPING")
+                self.assertEqual(
+                    [control.get("label") for control in tapping.get("content", [])],
+                    [
+                        "Global Tapping Term",
+                        "Permissive Hold",
+                        "Hold on Other Key Press",
+                        "Retro Tapping",
+                    ],
+                    path.as_posix(),
+                )
 
     def test_indicator_controls_have_the_required_v3_wrapper(self) -> None:
         for board, expected_commands in INDICATOR_COMMANDS.items():

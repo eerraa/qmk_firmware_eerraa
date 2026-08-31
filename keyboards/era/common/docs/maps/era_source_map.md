@@ -202,7 +202,7 @@ compile-time count/raw hooks may be scan-bound.
 | `tests/era_usb_session_policy/` | host proof of remote-wake SOF ISR-ownership frame-loss classification |
 | `tests/era_split_rgb_sleep_policy/` | host proof of local RGB sleep reasons and stock preset projection |
 | `tests/era_via_exact_ms/` | host proof of exact-ms tapping/tapdance round-trip, State Sync `0x06` envelope mapping, and VIA system Jump-to-BOOT terminal lifecycle/fallback |
-| `tests/era_firmware_version/` | host proof of the compile-time VERSION payload and GET-only common routing; definition proof of the RP2040 JSON inventory, exact VERSION binding, split L/R equality, Brick65 exclusion, and the three indicator wrappers |
+| `tests/era_firmware_version/` | host proof of the compile-time VERSION payload and GET-only common routing; definition proof of the RP2040 JSON inventory, exact VERSION binding, split L/R equality, Brick65 exclusion, the three indicator wrappers, hidden fixed SOCD/KKUK mode rows, and shared KKUK/TAPPING control order |
 | `tests/era_rgb_matrix_persistence/` | host proof of deferred RGB eeconfig quiet flush |
 | `tools/era_qmk_fixed_builddate_wrapper.sh` | explicit fixed-magic test-only `QMK_BUILDDATE` generation override |
 | `tools/era_core1_stack_walk.py` | ELF gate's core1 stack disassembly walk. Changing its method invalidates every figure taken with it |
