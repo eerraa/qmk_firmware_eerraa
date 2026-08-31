@@ -295,7 +295,11 @@ static inline bool receive_impl(uint8_t* destination, const size_t size, sysinte
  * @return false Receive failed, e.g. by timeout.
  */
 inline bool serial_transport_receive(uint8_t* destination, const size_t size) {
-    return receive_impl(destination, size, TIME_MS2I(SERIAL_USART_TIMEOUT));
+    return serial_transport_receive_timeout(destination, size, SERIAL_USART_TIMEOUT);
+}
+
+inline bool serial_transport_receive_timeout(uint8_t* destination, const size_t size, uint16_t timeout_ms) {
+    return receive_impl(destination, size, TIME_MS2I(timeout_ms));
 }
 
 /**

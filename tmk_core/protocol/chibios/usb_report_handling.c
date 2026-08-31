@@ -11,6 +11,7 @@
 #include "usb_types.h"
 #include "usb_driver.h"
 #include "report.h"
+#include "timer.h"
 
 extern usb_endpoint_in_t     usb_endpoints_in[USB_ENDPOINT_IN_COUNT];
 extern usb_endpoint_in_lut_t usb_endpoint_interface_lut[TOTAL_INTERFACES];
@@ -100,6 +101,7 @@ bool usb_get_report_cb(USBDriver *driver) {
         return false;
     }
 
+    memset(&report, 0, sizeof(report));
     report_storage->get_report(report_storage->reports, report_id, &report);
 
     usbSetupTransfer(driver, (uint8_t *)report.data, report.length, NULL);
@@ -192,6 +194,24 @@ void usb_idle_task(void) {
     if (!run_idle_task) {
         return;
     }
+
+#if defined(ERA_TIMER_MS_CACHE)
+    /* ERA: an idle rate is a whole number of milliseconds (SET_IDLE's unit is 4 ms), so asking whether one has
+       elapsed more than once per millisecond cannot change the answer, only the cost -- and the walk below takes
+       a lock pair per report and a time conversion per idle report, on every matrix scan pass, whenever a host
+       has set a nonzero idle rate. Paced to the millisecond it costs one cached timer_read32() per pass. The
+       pacing rides the clock-cache marker because that read is only free under it. Decisions are unchanged: a
+       resend lands at most one millisecond after the pass that would first have seen it due, on a period that
+       is at least four. */
+    {
+        static uint32_t last_pass_ms;
+        uint32_t        now_ms = timer_read32();
+        if (now_ms == last_pass_ms) {
+            return;
+        }
+        last_pass_ms = now_ms;
+    }
+#endif
 
     static usb_fs_report_t report;
     bool                   non_zero_idle_rate_found = false;

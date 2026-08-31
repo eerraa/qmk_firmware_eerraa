@@ -22,11 +22,49 @@
 #include "keyboard.h"
 #include "sync_timer.h"
 #include "debug.h"
+#include <stddef.h>
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
 
 #include <lib/lib8tion/lib8tion.h>
+
+#if defined(RGB_MATRIX_IDLE_GATE_ENABLE) && defined(MCU_RP)
+/* ERA, the idle arm's millisecond gate. The register struct only, never
+   pico-sdk's hardware/timer.h, which collides with the ChibiOS TIMER macro --
+   the note keyboards/era/common/system/era_pass_phase_diagnostics.c and
+   keyboards/era/common/split/era_split_keyboard.c carry for the same include. */
+#    include "hardware/structs/timer.h"
+
+/* Microseconds between two evaluations of the SYNCING arm. The default lives
+   here because this file is its only reader.
+
+   Both facts that arm decides are millisecond facts: rgb_task_sync() compares a
+   millisecond clock against a millisecond frame limit, and the deferred
+   eeconfig flush it runs is a millisecond timer. Asking them once a millisecond
+   therefore reads the values asking them forty times reads.
+
+   What one pass of quantisation costs, measured. The gate stamps at the pass
+   that opens it, so two openings are 1000 to 1000-plus-one-pass microseconds
+   apart and the sampling period is marginally longer than the millisecond it
+   samples: the 16 ms frame limit is observed a millisecond late on some frames
+   and on time on the rest. That reads as **62.34 frames a second against
+   62.50**, -0.26 %, on six device windows across both halves (2026-08-17) --
+   about four frames in a hundred, where the arithmetic here first said one.
+   Nothing accumulates, because rgb_task_start() re-reads the epoch from the
+   clock at every frame start, and nothing visible moves either: effect phase is
+   computed from g_rgb_timer, the real millisecond clock, so what changed is how
+   often a frame starts and not how fast anything animates. A value below 1000
+   makes the sampling period strictly sub-millisecond and would recover most of
+   the 0.26 % for about +0.004 us a pass -- left at 1000 deliberately, because
+   the recovery is arithmetic and the figure above is a measurement
+   (`era_performance_gates.md`, Fixed Baselines). */
+#    ifndef RGB_MATRIX_IDLE_GATE_US
+#        define RGB_MATRIX_IDLE_GATE_US 1000
+#    endif
+
+static uint32_t rgb_idle_gate_last_us;
+#endif
 
 #ifndef RGB_MATRIX_CENTER
 const led_point_t k_rgb_matrix_center = {112, 32};
@@ -97,11 +135,208 @@ static last_hit_t last_hit_buffer;
 const uint8_t k_rgb_matrix_split[2] = RGB_MATRIX_SPLIT;
 #endif
 
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+static rgb_matrix_render_policy_t rgb_active_render_policy;
+static rgb_matrix_render_policy_t rgb_last_render_policy;
+static bool                       rgb_render_policy_valid;
+static bool                       rgb_render_policy_refresh_pending;
+static bool                       rgb_render_policy_refresh_in_progress;
+static uint8_t                    rgb_render_frame_flags;
+
+static bool rgb_matrix_render_policy_has(uint16_t flag) {
+    return (rgb_active_render_policy.flags & flag) != 0;
+}
+
+/* The split half's private helper, and inside the guard for that reason: a
+   split board cannot use the driver's set_color_all, because half the global
+   LED indices belong to the other half and rgb_matrix_led_index() returns < 0
+   for them. A non-split board has one call and no per-index mapping to do, so
+   outside this guard the helper has no caller at all -- which
+   -Werror=unused-function reports correctly, and which nothing noticed while
+   every board with the ERA render policy was a split board. */
+#    if defined(RGB_MATRIX_SPLIT)
+static void rgb_matrix_set_color_raw(int index, uint8_t red, uint8_t green, uint8_t blue) {
+    const int led_index = rgb_matrix_led_index(index);
+    if (led_index < 0) {
+        return;
+    }
+
+    rgb_matrix_driver.set_color(led_index, red, green, blue);
+}
+#    endif
+
+static void rgb_matrix_set_color_all_raw(uint8_t red, uint8_t green, uint8_t blue) {
+#    if defined(RGB_MATRIX_SPLIT)
+    for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+        rgb_matrix_set_color_raw(i, red, green, blue);
+    }
+#    else
+    rgb_matrix_driver.set_color_all(red, green, blue);
+#    endif
+}
+
+/* Guarded to match its only call site, in rgb_matrix_set_color(), which is
+   `RGB_MATRIX_RENDER_POLICY_ENABLE && RGB_MATRIX_RENDER_DOMAIN_ENABLE`. The
+   definition carried only the outer half of that until 2026-08-13, so turning
+   the domain sub-option off left this unreferenced and -Werror=unused-function
+   failed the build -- an off state a declared selector promises. */
+#    if defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+static bool rgb_matrix_render_policy_led_allowed(uint8_t index) {
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN)) {
+        return index >= rgb_active_render_policy.led_min_index && index < rgb_active_render_policy.led_max_index;
+    }
+    return true;
+}
+#    endif
+
+static void rgb_matrix_render_policy_defaults(rgb_matrix_render_policy_t *policy, uint8_t effect) {
+    memset(policy, 0, sizeof(*policy));
+    policy->led_min_index = 0;
+    policy->led_max_index = RGB_MATRIX_LED_COUNT;
+    if (effect != RGB_MATRIX_NONE) {
+        policy->flags |= RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE;
+    }
+}
+
+static void rgb_matrix_render_policy_sanitize(rgb_matrix_render_policy_t *policy) {
+#    if !defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+    policy->flags &= ~RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN;
+#    endif
+#    if !defined(RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE)
+    policy->flags &= ~(RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY);
+    if (rgb_current_effect == RGB_MATRIX_NONE) {
+        policy->flags &= ~RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE;
+    }
+#    endif
+#    if !defined(RGB_MATRIX_INDICATORS_WHEN_DISABLED_ENABLE)
+    policy->flags &= ~RGB_MATRIX_RENDER_POLICY_ALLOW_DISABLED;
+#    endif
+    if (!rgb_matrix_config.enable && (policy->flags & RGB_MATRIX_RENDER_POLICY_ALLOW_DISABLED) == 0) {
+        policy->flags &= ~(RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE | RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY | RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE | RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY);
+    }
+    if (policy->led_max_index > RGB_MATRIX_LED_COUNT) {
+        policy->led_max_index = RGB_MATRIX_LED_COUNT;
+    }
+    if (policy->led_min_index >= policy->led_max_index) {
+        policy->flags &= ~RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN;
+        policy->led_min_index = 0;
+        policy->led_max_index = RGB_MATRIX_LED_COUNT;
+    }
+    if ((policy->flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE) != 0) {
+        policy->flags |= RGB_MATRIX_RENDER_POLICY_DISABLE_EFFECT;
+        policy->flags &= ~(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN | RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE | RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY);
+    }
+}
+
+static bool rgb_matrix_render_policy_domain_changed(const rgb_matrix_render_policy_t *a, const rgb_matrix_render_policy_t *b) {
+    const bool a_domain = (a->flags & RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN) != 0;
+    const bool b_domain = (b->flags & RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN) != 0;
+    return a_domain != b_domain || (a_domain && (a->led_min_index != b->led_min_index || a->led_max_index != b->led_max_index));
+}
+
+static bool rgb_matrix_render_policy_mode_changed(const rgb_matrix_render_policy_t *policy) {
+    if (!rgb_render_policy_valid) {
+        return true;
+    }
+    const bool status_changed = ((policy->flags ^ rgb_last_render_policy.flags) & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE) != 0;
+    return status_changed || rgb_matrix_render_policy_domain_changed(policy, &rgb_last_render_policy);
+}
+
+static void rgb_matrix_render_policy_update(uint8_t effect) {
+    rgb_matrix_render_policy_t policy;
+    rgb_matrix_render_policy_defaults(&policy, effect);
+    rgb_matrix_render_policy_kb(&policy);
+    rgb_matrix_render_policy_sanitize(&policy);
+
+    /* A board hook may request another policy refresh from inside the update
+     * itself (TOMAK retires a held STATUS proof this way), so sample the request
+     * only after the hook has run. Once consumed, keep a separate in-progress
+     * fact until the resulting frame is actually flushed. Clearing the request
+     * here without that second fact let opportunistic flash maintenance occupy
+     * every top-level gap of a multi-pass render and delay one split half's
+     * STATUS edge by hundreds of milliseconds. */
+    const bool refresh_requested = rgb_render_policy_refresh_pending;
+
+    const bool mode_changed             = rgb_matrix_render_policy_mode_changed(&policy);
+    const bool indicator_effect_refresh = !mode_changed &&
+                                          rgb_effect_params.iter == 0 &&
+                                          (policy.flags & RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY) != 0 &&
+                                          effect != RGB_MATRIX_NONE &&
+                                          (policy.flags & RGB_MATRIX_RENDER_POLICY_DISABLE_EFFECT) == 0;
+    if (mode_changed || indicator_effect_refresh) {
+        rgb_matrix_set_color_all_raw(0, 0, 0);
+        rgb_last_effect       = UINT8_MAX;
+        rgb_effect_params.iter = 0;
+    }
+    if (mode_changed) {
+        if ((policy.flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE) != 0) {
+            policy.flags |= RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY;
+        }
+        if ((policy.flags & RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE) != 0) {
+            policy.flags |= RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY;
+        }
+    }
+
+    rgb_active_render_policy = policy;
+    rgb_last_render_policy   = policy;
+    rgb_render_policy_valid  = true;
+    rgb_render_policy_refresh_pending = false;
+    if (refresh_requested) {
+        rgb_render_policy_refresh_in_progress = true;
+    }
+}
+
+void rgb_matrix_render_policy_request_refresh(void) {
+    rgb_render_policy_refresh_pending = true;
+    /* This function is callable from board housekeeping, outside
+     * rgb_matrix_task(). Record intent only: the task owns its own state
+     * machine and consumes the request at the top of its next pass. If a frame
+     * is already rendering/flushing, rgb_task_flush() below carries the pending
+     * request into STARTING after the buffered frame is safely pushed. */
+}
+
+bool rgb_matrix_render_policy_refresh_active(void) {
+    return rgb_render_policy_refresh_pending || rgb_render_policy_refresh_in_progress;
+}
+#endif
+
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+EECONFIG_QUIET_DEBOUNCE_HELPER(rgb_matrix, rgb_matrix_config);
+#else
 EECONFIG_DEBOUNCE_HELPER(rgb_matrix, rgb_matrix_config);
+#endif
 
 void eeconfig_force_flush_rgb_matrix(void) {
     eeconfig_flush_rgb_matrix(true);
 }
+
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+void eeconfig_defer_flush_rgb_matrix(void) {
+    eeconfig_schedule_deferred_flush_rgb_matrix();
+}
+
+void eeconfig_flush_rgb_matrix_deferred_task(void) {
+    eeconfig_run_deferred_flush_rgb_matrix();
+}
+
+/* Commit an approved-but-unwritten config now, ignoring the quiet timer, and
+ * write nothing when none is pending. That last half is what separates this
+ * from eeconfig_force_flush_rgb_matrix(), which writes unconditionally -- the
+ * callers of this one are the controlled-reset and suspend paths, where writing
+ * a config nobody approved would persist whatever a suspend routine had just
+ * put in the live object.
+ *
+ * Clearing `deferred` is how the timer is bypassed rather than a second
+ * predicate: with it clear eeconfig_deferred_ready_rgb_matrix() answers true,
+ * so the flush below runs on `dirty` alone -- which is exactly "a save was
+ * approved and has not landed yet". The statics are this translation unit's,
+ * declared by the helper macro instantiated above.
+ */
+void eeconfig_flush_rgb_matrix_deferred_now(void) {
+    deferred_rgb_matrix = false;
+    eeconfig_run_deferred_flush_rgb_matrix();
+}
+#endif
 
 void eeconfig_update_rgb_matrix_default(void) {
     dprintf("eeconfig_update_rgb_matrix_default\n");
@@ -177,6 +412,20 @@ __attribute__((weak)) int rgb_matrix_led_index(int index) {
 }
 
 void rgb_matrix_set_color(int index, uint8_t red, uint8_t green, uint8_t blue) {
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE) && defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+    /* The domain is asked with an unsigned index, so a negative one has to be
+       refused before the cast rather than at the `led_index < 0` test below
+       that upstream already makes. The guard belongs inside this arm and not
+       above it: without the domain there is nothing to protect, and an
+       unconditional guard here would be an ERA edit every keyboard in the fork
+       compiles for a feature only ERA boards have. */
+    if (index < 0) {
+        return;
+    }
+    if (!rgb_matrix_render_policy_led_allowed((uint8_t)index)) {
+        return;
+    }
+#endif
     const int led_index = rgb_matrix_led_index(index);
     if (led_index < 0) {
         return;
@@ -186,6 +435,14 @@ void rgb_matrix_set_color(int index, uint8_t red, uint8_t green, uint8_t blue) {
 }
 
 void rgb_matrix_set_color_all(uint8_t red, uint8_t green, uint8_t blue) {
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE) && defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN)) {
+        for (uint8_t i = rgb_active_render_policy.led_min_index; i < rgb_active_render_policy.led_max_index; i++) {
+            rgb_matrix_set_color(i, red, green, blue);
+        }
+        return;
+    }
+#endif
 #if defined(RGB_MATRIX_SPLIT)
     for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++)
         rgb_matrix_set_color(i, red, green, blue);
@@ -278,28 +535,66 @@ static bool rgb_matrix_none(effect_params_t *params) {
 }
 
 static void rgb_task_timers(void) {
+    /* ERA: one clock reading, not two. `sync_timer_elapsed32(x)` is
+       `sync_timer_read32() - x` on both arms of its own predicate, so the pair
+       below took two readings of the same instant -- and the two could straddle
+       a millisecond boundary, leaving `deltaTime` computed against a different
+       instant than the one stored. One reading is both cheaper and the more
+       correct of the two, which is why it is not gated: it is a fix that
+       happens to be faster rather than an optimisation.
+       Priced 2026-08-16: `timer_read32()` is about 0.42 us on the ERA image
+       even from its millisecond cache, and this task asks for it on every
+       matrix scan pass against a 16 ms frame. */
+    uint32_t now = sync_timer_read32();
 #if defined(RGB_MATRIX_KEYREACTIVE_ENABLED)
-    uint32_t deltaTime = sync_timer_elapsed32(rgb_timer_buffer);
+    uint32_t deltaTime = now - rgb_timer_buffer;
 #endif // defined(RGB_MATRIX_KEYREACTIVE_ENABLED)
-    rgb_timer_buffer = sync_timer_read32();
+    rgb_timer_buffer = now;
 
     // Update double buffer last hit timers
 #ifdef RGB_MATRIX_KEYREACTIVE_ENABLED
-    uint8_t count = last_hit_buffer.count;
-    for (uint8_t i = 0; i < count; ++i) {
-        if (UINT16_MAX - deltaTime < last_hit_buffer.tick[i]) {
-            last_hit_buffer.count--;
-            continue;
+    /* ERA: skipped whole when no millisecond has passed, which is provably the
+       same walk and not a shortened one. `deltaTime` is in milliseconds and this
+       task runs at the matrix scan rate, so it is zero on about thirty-nine of
+       every forty passes -- and with it zero the expiry test is
+       `UINT16_MAX < tick[i]`, false for every uint16 there is, and the body is
+       `tick[i] += 0`. The loop already did nothing; it just did it at about
+       four microseconds per live entry per pass.
+       Measured 2026-08-16: 0.87 us a pass with three live entries, and an entry
+       lives 65,535 ms after the key that made it -- so a keyboard being typed on
+       carries the full eight and pays about 2.3 us a pass for a walk whose
+       result cannot change. It is also what the qwin window's `seg=` step was:
+       a window opens on a keypress, so its first sixty-five seconds ran this. */
+    if (deltaTime != 0) {
+        uint8_t count = last_hit_buffer.count;
+        for (uint8_t i = 0; i < count; ++i) {
+            if (UINT16_MAX - deltaTime < last_hit_buffer.tick[i]) {
+                last_hit_buffer.count--;
+                continue;
+            }
+            last_hit_buffer.tick[i] += deltaTime;
         }
-        last_hit_buffer.tick[i] += deltaTime;
     }
 #endif // RGB_MATRIX_KEYREACTIVE_ENABLED
 }
 
 static void rgb_task_sync(void) {
+#if defined(ERA_STORAGE_QUIET_DEFER_MS)
+    eeconfig_flush_rgb_matrix_deferred_task();
+#else
     eeconfig_flush_rgb_matrix(false);
-    // next task
-    if (sync_timer_elapsed32(g_rgb_timer) >= RGB_MATRIX_LED_FLUSH_LIMIT) rgb_task_state = STARTING;
+#endif
+    /* Next task, against the reading `rgb_task_timers()` already took this pass
+       rather than a second one of its own.
+       ERA, and the same substitution the timer head takes above: this is the
+       *more* correct comparison, not merely the cheaper one. `rgb_task_start()`
+       sets the frame epoch from `rgb_timer_buffer`, so the frame is measured
+       from the head's reading -- and asking `sync_timer_elapsed32()` here
+       compared it against a different instant, one that can sit on the other
+       side of a millisecond boundary. The frame limit is in milliseconds and the
+       two readings are microseconds apart, so what this can move is one pass at
+       a boundary, on a sixteen-millisecond frame. */
+    if ((uint32_t)(rgb_timer_buffer - g_rgb_timer) >= RGB_MATRIX_LED_FLUSH_LIMIT) rgb_task_state = STARTING;
 }
 
 static void rgb_task_start(void) {
@@ -404,20 +699,171 @@ static void rgb_task_flush(uint8_t effect) {
     // update pwm buffers
     rgb_matrix_update_pwm_buffers();
 
-    // next task
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    /* Every PWM push reports, a zero-flag push included (2026-08-14). The
+     * flush hook is where a board keeps its held-STATUS-frame proof and where
+     * the EEPROM SYNC indicator's LED truth is stamped, and a push this hook
+     * does not see is a repaint that proof silently survives: a transition to
+     * RGB_MATRIX_NONE black-fills the buffer and reaches this flush with no
+     * frame flag set, so the board kept believing the held red field was on
+     * the LEDs while the panel had gone dark — and nothing repainted it until
+     * the field's era ended. Reporting flags==0 is one call per such frame;
+     * ordinary effect frames carried a nonzero flag and called this already. */
+    rgb_matrix_render_policy_flush_kb(rgb_render_frame_flags);
+    rgb_render_frame_flags = 0;
+    /* The updated policy is now represented by a hardware push. A newer request
+     * that arrived during this flush remains visible through `_pending` below,
+     * so clearing only the consumed in-progress generation is race-safe. */
+    rgb_render_policy_refresh_in_progress = false;
+#endif
+
+    // next task. A board-side policy edge may have arrived after the previous
+    // render but before this flush; do not make that edge wait a fresh 16-ms
+    // animation epoch after safely publishing the already-buffered frame.
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    rgb_task_state = rgb_render_policy_refresh_pending ? STARTING : SYNCING;
+#else
     rgb_task_state = SYNCING;
+#endif
 }
 
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+bool rgb_matrix_indicators_advanced_modules(uint8_t led_min, uint8_t led_max);
+
+/* Guarded to match its only call site, the independent-indicator arm below.
+   Same defect and same date as rgb_matrix_render_policy_led_allowed(): the
+   definition sat one guard wider than its caller, so the sub-option's off
+   state failed the build instead of building without it. */
+#    if defined(RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE)
+static void rgb_matrix_indicators_advanced_range(uint8_t led_min, uint8_t led_max) {
+    rgb_matrix_indicators_advanced_modules(led_min, led_max);
+    rgb_matrix_indicators_advanced_kb(led_min, led_max);
+}
+#    endif
+
+static void rgb_matrix_task_render_with_policy(uint8_t effect) {
+    rgb_matrix_render_policy_update(effect);
+
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE)) {
+        if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY) && rgb_matrix_render_status_kb(&rgb_active_render_policy)) {
+            rgb_render_frame_flags |= RGB_MATRIX_RENDER_FRAME_STATUS;
+            rgb_task_state = FLUSHING;
+        } else {
+            rgb_task_state = SYNCING;
+        }
+        return;
+    }
+
+    const bool effect_enabled = effect != RGB_MATRIX_NONE && !rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_DISABLE_EFFECT);
+    if (effect_enabled || effect == RGB_MATRIX_NONE) {
+        rgb_task_render(effect);
+        if (effect_enabled) {
+            rgb_render_frame_flags |= RGB_MATRIX_RENDER_FRAME_EFFECT;
+        }
+    } else {
+        rgb_task_state = SYNCING;
+    }
+
+    if (!rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE)) {
+        return;
+    }
+
+    if (effect_enabled) {
+        if (rgb_task_state == FLUSHING) {
+            rgb_matrix_indicators();
+        }
+        rgb_matrix_indicators_advanced(&rgb_effect_params);
+        rgb_render_frame_flags |= RGB_MATRIX_RENDER_FRAME_INDICATORS;
+        return;
+    }
+
+#    if defined(RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE)
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY) || rgb_task_state == FLUSHING) {
+        struct rgb_matrix_limits_t limits = rgb_matrix_get_limits(0);
+        rgb_matrix_indicators();
+        rgb_matrix_indicators_advanced_range(limits.led_min_index, limits.led_max_index);
+        rgb_render_frame_flags |= RGB_MATRIX_RENDER_FRAME_INDICATORS;
+        rgb_task_state = FLUSHING;
+    }
+#    endif
+}
+#endif
+
+#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
+/* ERA pass-phase instrument (keyboards/era/common/system/
+   era_pass_phase_diagnostics.h). Declared here rather than included, the
+   treatment quantum/keyboard.c's marks and quantum/action_layer.c's accessor
+   take: keyboards/era is not on core's include path.
+
+   The ids are the header's; the five below tile this task. Exactly one arm runs
+   per pass, so an arm's maximum is that arm's own cost -- and the render arm's
+   cost is what bounds how long moving this task to core1 may delay a wire
+   exchange, which in HOST-PEER carries half the keyboard's keys. */
+#    define ERA_PASS_PHASE_RGB_TIMERS 0U
+#    define ERA_PASS_PHASE_RGB_START 1U
+#    define ERA_PASS_PHASE_RGB_RENDER 2U
+#    define ERA_PASS_PHASE_RGB_FLUSH 3U
+#    define ERA_PASS_PHASE_RGB_SYNC 4U
+void era_pass_phase_rgb_mark(uint8_t part);
+#    define ERA_RGB_PHASE_MARK(part) era_pass_phase_rgb_mark(part)
+#else
+#    define ERA_RGB_PHASE_MARK(part) ((void)0)
+#endif
+
 void rgb_matrix_task(void) {
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    /* A board policy edge is a frame deadline of its own. Consume the external
+       request here, under the RGB task's single ownership of rgb_task_state,
+       before the idle gate can defer a SYNCING pass. */
+    if (rgb_task_state == SYNCING && rgb_render_policy_refresh_pending) {
+        rgb_task_state = STARTING;
+    }
+#endif
+#if defined(RGB_MATRIX_IDLE_GATE_ENABLE) && defined(MCU_RP)
+    /* ERA: the idle arm, and only the idle arm. SYNCING is about ninety-nine of
+       every hundred passes on this image, and the whole of what it decides is
+       two millisecond comparisons -- yet it costs 1.42 us a pass between the
+       timer head's clock reading and its own body, against a 16 ms frame.
+
+       The three working arms are untouched and still run on every pass, so the
+       longest pass this task can produce does not move. That is the difference
+       between this and a gate over the whole task, which was refused: this
+       removes the bookkeeping of the passes that do nothing and leaves the work
+       of the ones that do exactly where it was.
+
+       Nothing outside this task leaves the state machine in SYNCING for
+       something it needs answered sooner. Every external change -- mode,
+       toggle, enable, disable -- writes STARTING, which this gate does not
+       test, so the next pass serves it exactly as it did before. */
+    if (rgb_task_state == SYNCING) {
+        const uint32_t now_us = timer_hw->timerawl;
+        if ((uint32_t)(now_us - rgb_idle_gate_last_us) < RGB_MATRIX_IDLE_GATE_US) {
+            return;
+        }
+        rgb_idle_gate_last_us = now_us;
+    }
+#endif
     rgb_task_timers();
+    ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_TIMERS);
 
     uint8_t effect = rgb_current_effect;
 
     switch (rgb_task_state) {
         case STARTING:
             rgb_task_start();
+            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_START);
             break;
         case RENDERING:
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+            rgb_matrix_task_render_with_policy(effect);
+            /* Some refreshes change no rendered pixels. They legitimately end
+             * in SYNCING without a PWM push; retire the in-progress generation
+             * here so background maintenance is not blocked by a frame that
+             * does not exist. */
+            if (rgb_task_state == SYNCING && !rgb_render_policy_refresh_pending) {
+                rgb_render_policy_refresh_in_progress = false;
+            }
+#else
             rgb_task_render(effect);
             if (effect) {
                 if (rgb_task_state == FLUSHING) { // ensure we only draw basic indicators once rendering is finished
@@ -425,12 +871,16 @@ void rgb_matrix_task(void) {
                 }
                 rgb_matrix_indicators_advanced(&rgb_effect_params);
             }
+#endif
+            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_RENDER);
             break;
         case FLUSHING:
             rgb_task_flush(effect);
+            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_FLUSH);
             break;
         case SYNCING:
             rgb_task_sync();
+            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_SYNC);
             break;
     }
 }
@@ -452,8 +902,63 @@ __attribute__((weak)) bool rgb_matrix_indicators_user(void) {
     return true;
 }
 
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+__attribute__((weak)) void rgb_matrix_render_policy_user(rgb_matrix_render_policy_t *policy) {
+    (void)policy;
+}
+
+__attribute__((weak)) void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
+    rgb_matrix_render_policy_user(policy);
+}
+
+__attribute__((weak)) bool rgb_matrix_render_status_user(const rgb_matrix_render_policy_t *policy) {
+    (void)policy;
+    return false;
+}
+
+__attribute__((weak)) bool rgb_matrix_render_status_kb(const rgb_matrix_render_policy_t *policy) {
+    return rgb_matrix_render_status_user(policy);
+}
+
+__attribute__((weak)) void rgb_matrix_render_policy_flush_user(uint8_t frame_flags) {
+    (void)frame_flags;
+}
+
+__attribute__((weak)) void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags) {
+    rgb_matrix_render_policy_flush_user(frame_flags);
+}
+#endif
+
 struct rgb_matrix_limits_t rgb_matrix_get_limits(uint8_t iter) {
     struct rgb_matrix_limits_t limits = {0};
+#if defined(RGB_MATRIX_RENDER_POLICY_ENABLE) && defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN)) {
+        uint8_t domain_min = rgb_active_render_policy.led_min_index;
+        uint8_t domain_max = rgb_active_render_policy.led_max_index;
+#    if defined(RGB_MATRIX_SPLIT)
+        if (is_keyboard_left()) {
+            if (domain_max > k_rgb_matrix_split[0]) domain_max = k_rgb_matrix_split[0];
+        } else {
+            if (domain_min < k_rgb_matrix_split[0]) domain_min = k_rgb_matrix_split[0];
+        }
+#    endif
+        if (domain_min >= domain_max) {
+            limits.led_min_index = domain_max;
+            limits.led_max_index = domain_max;
+            return limits;
+        }
+#    if defined(RGB_MATRIX_LED_PROCESS_LIMIT) && RGB_MATRIX_LED_PROCESS_LIMIT > 0 && RGB_MATRIX_LED_PROCESS_LIMIT < RGB_MATRIX_LED_COUNT
+        limits.led_min_index = domain_min + RGB_MATRIX_LED_PROCESS_LIMIT * iter;
+        if (limits.led_min_index > domain_max) limits.led_min_index = domain_max;
+        limits.led_max_index = limits.led_min_index + RGB_MATRIX_LED_PROCESS_LIMIT;
+        if (limits.led_max_index > domain_max) limits.led_max_index = domain_max;
+#    else
+        limits.led_min_index = domain_min;
+        limits.led_max_index = domain_max;
+#    endif
+        return limits;
+    }
+#endif
 #if defined(RGB_MATRIX_LED_PROCESS_LIMIT) && RGB_MATRIX_LED_PROCESS_LIMIT > 0 && RGB_MATRIX_LED_PROCESS_LIMIT < RGB_MATRIX_LED_COUNT
 #    if defined(RGB_MATRIX_SPLIT)
     limits.led_min_index = RGB_MATRIX_LED_PROCESS_LIMIT * (iter);
@@ -479,6 +984,31 @@ struct rgb_matrix_limits_t rgb_matrix_get_limits(uint8_t iter) {
 #endif
     return limits;
 }
+
+#if defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
+bool rgb_matrix_check_finished_leds(uint8_t led_idx) {
+    uint8_t led_max = RGB_MATRIX_LED_COUNT;
+#    if defined(RGB_MATRIX_SPLIT)
+    if (is_keyboard_left()) {
+        led_max = k_rgb_matrix_split[0];
+    }
+#    endif
+#    if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    if (rgb_matrix_render_policy_has(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN)) {
+        uint8_t domain_max = rgb_active_render_policy.led_max_index;
+#        if defined(RGB_MATRIX_SPLIT)
+        if (is_keyboard_left() && domain_max > k_rgb_matrix_split[0]) {
+            domain_max = k_rgb_matrix_split[0];
+        }
+#        endif
+        if (domain_max < led_max) {
+            led_max = domain_max;
+        }
+    }
+#    endif
+    return led_idx < led_max;
+}
+#endif
 
 __attribute__((weak)) bool rgb_matrix_indicators_advanced_modules(uint8_t led_min, uint8_t led_max) {
     return true;

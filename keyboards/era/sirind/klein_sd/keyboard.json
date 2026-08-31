@@ -6,9 +6,6 @@
         "pin": "GP15"
     },
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "backlight": true,
@@ -47,6 +44,7 @@
             "cycle_up_down": true,
             "digital_rain": true,
             "dual_beacon": true,
+            "flower_blooming": true,
             "gradient_left_right": true,
             "gradient_up_down": true,
             "hue_breathing": true,
@@ -61,6 +59,7 @@
             "rainbow_moving_chevron": true,
             "rainbow_pinwheels": true,
             "raindrops": true,
+            "riverflow": true,
             "solid_multisplash": true,
             "solid_reactive": true,
             "solid_reactive_cross": true,
@@ -72,6 +71,10 @@
             "solid_reactive_wide": true,
             "solid_splash": true,
             "splash": true,
+            "starlight": true,
+            "starlight_dual_hue": true,
+            "starlight_dual_sat": true,
+            "starlight_smooth": true,
             "typing_heatmap": true
         },
         "default": {
@@ -147,6 +150,7 @@
             {"matrix": [4, 14], "x": 205, "y": 55, "flags": 1},
             {"matrix": [4, 15], "x": 224, "y": 55, "flags": 1}
         ],
+        "led_process_limit": 4,
         "sleep": true
     },
     "usb": {

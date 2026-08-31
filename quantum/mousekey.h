@@ -184,6 +184,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #    define MOUSEKEY_OVERLAP_INTERVAL MOUSEKEY_INTERVAL
 #endif
 
+/* ERA: the runtime per-event step sizes, and the mode set that may read them.
+   The controls ERA exposes name values only the default accelerated mode has,
+   so a build that turns this on under another mode is refused here rather than
+   compiling a page whose knobs reach nothing. */
+#if defined(ERA_MOUSEKEY_RUNTIME_DELTA) && (defined(MK_3_SPEED) || defined(MK_COMBINED) || defined(MK_KINETIC_SPEED) || defined(MOUSEKEY_INERTIA))
+/* No apostrophe below: the preprocessor lexes the text of a skipped group, so
+   one reads as an unterminated character constant and -Werror stops the build
+   in every mode this refusal is not for. */
+#    error ERA_MOUSEKEY_RUNTIME_DELTA is the per-event step size of the default accelerated mode; no other mousekey mode reads it
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -194,6 +205,21 @@ extern uint8_t mk_max_speed;
 extern uint8_t mk_time_to_max;
 extern uint8_t mk_wheel_max_speed;
 extern uint8_t mk_wheel_time_to_max;
+/* ERA: declared here rather than in an ERA header because the type is
+   mode-dependent -- `mk_wheel_interval` is uint16_t under MK_KINETIC_SPEED and
+   uint8_t otherwise (mousekey.c) -- and a cross-declaration that guessed wrong
+   is undefined behaviour no linker can catch. `mk_wheel_delay` carries no such
+   trap and goes with it because the two are one omission. */
+extern uint8_t mk_wheel_delay;
+#ifdef MK_KINETIC_SPEED
+extern uint16_t mk_wheel_interval;
+#else
+extern uint8_t mk_wheel_interval;
+#endif
+#ifdef ERA_MOUSEKEY_RUNTIME_DELTA
+extern uint8_t mk_move_delta;
+extern uint8_t mk_wheel_delta;
+#endif
 
 void           mousekey_task(void);
 void           mousekey_on(uint8_t code);

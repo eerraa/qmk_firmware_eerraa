@@ -24,3 +24,13 @@ Flashing example for this keyboard:
     make era/sirind/brick65:default:flash
 
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
+
+## Firmware Scope
+
+Brick65 is the one board under `keyboards/era/` that is atmega32u4, and it
+takes none of the ERA firmware layer: SOCD, KKUK, DEBOUNCE, TAPPING, NKRO, the
+ERA TAPDANCE surface and EEPROM CLEAN are not built for it and the ERA owner
+guides do not describe them for this board. Its `post_rules.mk` includes only
+the make-time build-variant validator and option printer, so automated
+artifacts follow the same naming contract as every other ERA keyboard. What it
+runs remains stock QMK with VIA.

@@ -138,8 +138,8 @@ static uint8_t peek_matrix_intersection(pin_t out_pin, pin_t in_pin) {
 }
 #endif
 
-__attribute__((weak)) bool is_keyboard_left_impl(void) {
 #if defined(SPLIT_HAND_PIN)
+bool split_hand_pin_is_left(void) {
     gpio_set_pin_input(SPLIT_HAND_PIN);
     wait_us(100);
     // Test pin SPLIT_HAND_PIN for High/Low, if low it's right hand
@@ -148,6 +148,12 @@ __attribute__((weak)) bool is_keyboard_left_impl(void) {
 #    else
     return gpio_read_pin(SPLIT_HAND_PIN);
 #    endif
+}
+#endif
+
+__attribute__((weak)) bool is_keyboard_left_impl(void) {
+#if defined(SPLIT_HAND_PIN)
+    return split_hand_pin_is_left();
 #elif defined(SPLIT_HAND_MATRIX_GRID)
 #    ifdef SPLIT_HAND_MATRIX_GRID_LOW_IS_LEFT
     return !peek_matrix_intersection(SPLIT_HAND_MATRIX_GRID);

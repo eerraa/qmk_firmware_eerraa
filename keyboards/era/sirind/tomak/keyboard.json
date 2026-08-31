@@ -3,9 +3,6 @@
     "keyboard_name": "Tomak",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "bootmagic": true,
@@ -38,6 +35,7 @@
             "cycle_up_down": true,
             "digital_rain": true,
             "dual_beacon": true,
+            "flower_blooming": true,
             "gradient_left_right": true,
             "gradient_up_down": true,
             "hue_breathing": true,
@@ -52,6 +50,7 @@
             "rainbow_moving_chevron": true,
             "rainbow_pinwheels": true,
             "raindrops": true,
+            "riverflow": true,
             "solid_multisplash": true,
             "solid_reactive": true,
             "solid_reactive_cross": true,
@@ -63,6 +62,10 @@
             "solid_reactive_wide": true,
             "solid_splash": true,
             "splash": true,
+            "starlight": true,
+            "starlight_dual_hue": true,
+            "starlight_dual_sat": true,
+            "starlight_smooth": true,
             "typing_heatmap": true
         },
         "driver": "ws2812",
@@ -167,6 +170,7 @@
             {"x": 224, "y": 45, "flags": 8},
             {"x": 224, "y": 50, "flags": 8}
         ],
+        "led_process_limit": 4,
         "max_brightness": 120,
         "sleep": true,
         "split_count": [40, 59]
@@ -175,29 +179,20 @@
         "bootmagic": {
             "matrix": [6, 0]
         },
+        "enabled": true,
         "handedness": {
             "pin": "GP21"
         },
-        "enabled": true,
         "matrix_pins": {
             "right": {
                 "cols": ["GP2", "GP3", "GP4", "GP5", "GP6", "GP7", "GP8", "GP9", "GP27", "GP17", "GP13"],
                 "rows": ["GP10", "GP11", "GP12", "GP28", "GP19", "GP16"]
             }
-        },
-        "serial": {
-            "driver": "vendor"
-        },
-        "transport": {
-            "sync": {
-                "indicators": true,
-                "layer_state": true,
-                "matrix_state": true
-            }
         }
     },
+    "url": "",
     "usb": {
-        "device_version": "1.0.2",
+        "device_version": "1.1.0",
         "pid": "0x0006",
         "vid": "0x4552"
     },
@@ -264,7 +259,7 @@
                 {"matrix": [8, 4], "x": 13, "y": 2.5},
                 {"matrix": [8, 5], "x": 14, "y": 2.5},
                 {"matrix": [8, 6], "x": 15, "y": 2.5},
-                {"matrix": [8, 7], "x": 16, "y": 2.5, "w": 1.5},
+                {"matrix": [8, 7], "x": 16.25, "y": 2.5, "w": 1.25},
                 {"matrix": [8, 8], "x": 17.75, "y": 2.5},
                 {"matrix": [8, 9], "x": 18.75, "y": 2.5},
                 {"matrix": [8, 10], "x": 19.75, "y": 2.5},
@@ -363,7 +358,7 @@
                 {"matrix": [8, 4], "x": 13, "y": 2.5},
                 {"matrix": [8, 5], "x": 14, "y": 2.5},
                 {"matrix": [8, 6], "x": 15, "y": 2.5},
-                {"matrix": [8, 7], "x": 16, "y": 2.5, "w": 1.5},
+                {"matrix": [8, 7], "x": 16.25, "y": 2.5, "w": 1.25},
                 {"matrix": [8, 8], "x": 17.75, "y": 2.5},
                 {"matrix": [8, 9], "x": 18.75, "y": 2.5},
                 {"matrix": [8, 10], "x": 19.75, "y": 2.5},
@@ -461,7 +456,7 @@
                 {"matrix": [8, 4], "x": 13, "y": 2.5},
                 {"matrix": [8, 5], "x": 14, "y": 2.5},
                 {"matrix": [8, 6], "x": 15, "y": 2.5},
-                {"matrix": [8, 7], "x": 16, "y": 2.5, "w": 1.5},
+                {"matrix": [8, 7], "x": 16.25, "y": 2.5, "w": 1.25},
                 {"matrix": [8, 8], "x": 17.75, "y": 2.5},
                 {"matrix": [8, 9], "x": 18.75, "y": 2.5},
                 {"matrix": [8, 10], "x": 19.75, "y": 2.5},
@@ -561,7 +556,7 @@
                 {"matrix": [8, 4], "x": 13, "y": 2.5},
                 {"matrix": [8, 5], "x": 14, "y": 2.5},
                 {"matrix": [8, 6], "x": 15, "y": 2.5},
-                {"matrix": [8, 7], "x": 16, "y": 2.5, "w": 1.5},
+                {"matrix": [8, 7], "x": 16.25, "y": 2.5, "w": 1.25},
                 {"matrix": [8, 8], "x": 17.75, "y": 2.5},
                 {"matrix": [8, 9], "x": 18.75, "y": 2.5},
                 {"matrix": [8, 10], "x": 19.75, "y": 2.5},
@@ -661,7 +656,7 @@
                 {"matrix": [8, 4], "x": 13, "y": 2.5},
                 {"matrix": [8, 5], "x": 14, "y": 2.5},
                 {"matrix": [8, 6], "x": 15, "y": 2.5},
-                {"matrix": [8, 7], "x": 16, "y": 2.5, "w": 1.5},
+                {"matrix": [8, 7], "x": 16.25, "y": 2.5, "w": 1.25},
                 {"matrix": [8, 8], "x": 17.75, "y": 2.5},
                 {"matrix": [8, 9], "x": 18.75, "y": 2.5},
                 {"matrix": [8, 10], "x": 19.75, "y": 2.5},

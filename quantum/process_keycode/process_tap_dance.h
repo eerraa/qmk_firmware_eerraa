@@ -100,6 +100,8 @@ typedef struct {
 void reset_tap_dance(tap_dance_state_t *state);
 
 tap_dance_state_t *tap_dance_get_state(uint8_t tap_dance_idx);
+uint16_t tap_dance_remap_keycode(uint16_t keycode);
+uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record);
 
 /* To be used internally */
 

@@ -43,6 +43,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <LUFA/Drivers/USB/USB.h>
 
 #ifdef PROTOCOL_CHIBIOS
@@ -295,3 +296,15 @@ enum usb_endpoints {
 #define DIGITIZER_EPSIZE 8
 
 uint16_t get_usb_descriptor(const uint16_t wValue, const uint16_t wIndex, const uint16_t wLength, const void** const DescriptorAddress);
+
+#if defined(USB_DEVICE_DESCRIPTOR_OVERRIDE_ENABLE)
+bool usb_descriptor_device_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize);
+#endif
+
+#if defined(USB_PRODUCT_STRING_OVERRIDE_ENABLE)
+bool usb_descriptor_product_string_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize);
+#endif
+
+#if defined(USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE)
+bool usb_descriptor_serial_number_string_override(const void** const DescriptorAddress, uint16_t* const DescriptorSize);
+#endif

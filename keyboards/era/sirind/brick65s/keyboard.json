@@ -3,9 +3,6 @@
     "keyboard_name": "Brick65S",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
-    "build": {
-        "debounce_type": "sym_defer_pk"
-    },
     "diode_direction": "COL2ROW",
     "features": {
         "bootmagic": true,
@@ -25,6 +22,7 @@
             {"matrix": [0, 0], "x": 0, "y": 0, "flags": 8},
             {"matrix": [0, 1], "x": 20, "y": 0, "flags": 8}
         ],
+        "led_process_limit": 4,
         "sleep": true
     },
     "usb": {
