@@ -10,10 +10,10 @@
  * change: they are what the shipped VIA definitions of the backlight boards
  * already address, carried across from the vendor's published v3 files.
  *
- *   0 brightness        range 0..BACKLIGHT_LEVELS
+ *   0 brightness        range 0..BACKLIGHT_LEVELS, or 1.. on a locked rail
  *   1 effect            dropdown, `enum era_backlight_effect`
  *   2 breathing period  range 1..10, shown for effect 1
- *   3 blink speed       range 1..10, shown for effects 2 and 3
+ *   3 pulse speed       range 1..10, shown for effects 2..5
  *
  * The band 0..4 is otherwise where the tomak family and odessey keep their
  * board-local ids (`era_identifier_map.md`), and this router runs *ahead* of
@@ -24,7 +24,7 @@
 #define ERA_VIA_BACKLIGHT_BRIGHTNESS_VALUE_ID 0
 #define ERA_VIA_BACKLIGHT_EFFECT_VALUE_ID 1
 #define ERA_VIA_BACKLIGHT_BREATHING_PERIOD_VALUE_ID 2
-#define ERA_VIA_BACKLIGHT_BLINK_SPEED_VALUE_ID 3
+#define ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID 3
 
 bool era_backlight_via_is_value_id(uint8_t value_id);
 bool era_backlight_via_handle_via_command(uint8_t *data, uint8_t length);

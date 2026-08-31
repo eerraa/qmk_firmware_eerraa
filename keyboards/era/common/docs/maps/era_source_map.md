@@ -241,11 +241,14 @@ change.** A fork edit nobody records is a fork edit nobody can retire.
   default accelerated mouse engine. No runtime state of its own
   (`quantum/mousekey.c`). The two engine macros that become variables under
   `ERA_MOUSEKEY_RUNTIME_DELTA`: `era_qmk_fork_ledger.md`.
-- `features/era_backlight.[ch]`: PWM backlight effect layer (selected effect,
-  breathing period, keypress-reactive blinks). Reads no clock on the scan path.
-- `features/era_backlight_always_on.[ch]`: same pin as an indicator supply —
-  repairs a stored backlight-off block. Mutually exclusive with the effect
-  unit; writes eeconfig and never the hardware.
+- `features/era_backlight.[ch]` + `features/era_backlight_pulse_policy.h`: PWM
+  backlight effect layer (Steady, Breathing, four keypress-reactive Pulse
+  modes). The pure policy owns overlapping-key Hold state; the ChibiOS unit
+  owns the one-shot and PWM writes. The matrix-pass fast path reads no clock.
+- `features/era_backlight_lock.[ch]`: indicator-supply policy — repairs a
+  stored disabled/zero-level block and owns QMK backlight keycodes that would
+  persist the rail below level 1. It composes with the effect unit: transient
+  PWM zero remains presentation, not a disabled subsystem.
 - `features/era_rgb_indicator.[ch]`: RGB Matrix lock-indicator slots. Takes
   QMK's weak render hooks strongly under `ERA_RGB_INDICATOR_ENABLE`. Not the
   tomak or odessey indicator.

@@ -4,14 +4,11 @@
 # nothing gets. Automated-build identity is the deliberately firmware-inert
 # exception in keyboards/era/era_build_identity_options.mk. **Editing a value
 # here does not change what a board builds**, because
-# every board assigns above the include that reads this file and a board's
-# assignment wins: measured 2026-08-18 over the twenty-two board
-# `post_rules.mk` files, 293 assignments restate the default they are given
-# here verbatim and 18 differ -- `ERA_SPLIT_EEPROM_SYNC_ENABLE` on the three
-# split boards, and the three lighting selectors on the fifteen boards that ask
-# for one. Ten declared names are stated by no board and are the only ones a
-# `?=` here still decides -- `ERA_BOARD_COMMON_ENABLE`, the five diagnostics
-# selectors and four of the seven split timing knobs.
+# every RP2040 board assigns its shipped feature set above the include that
+# reads this file and a board's assignment wins. This declaration layer still
+# decides selectors a board deliberately leaves unstated, such as the class
+# skeleton and per-build diagnostic/timing axes; a new board states every
+# owner-visible feature explicitly in its own `post_rules.mk`.
 #
 # So: to change one board, edit that board's `post_rules.mk`; to change one
 # build, pass `-e`. To change what a board with no line of its own gets, edit
@@ -131,20 +128,18 @@ ERA_MOUSEKEY_CONFIG_ENABLE ?= yes
 # QMK tap dance, and with it the ERA tap-dance surface and its VIA page.
 TAP_DANCE_ENABLE ?= yes
 # The PWM backlight effect layer and its four keyboard-channel value ids:
-# brightness, effect, breathing period, blink speed. Default no because the
+# brightness, effect, breathing period, pulse speed. Default no because the
 # ids sit in the band a board may keep for its own handler, so a board asks for
 # them rather than being given them -- see era_backlight_via.h. Requires QMK's
 # BACKLIGHT_ENABLE, which the fragment refuses by name; the two blink effects
 # need no extra QMK switch and breathing degrades to steady without
 # BACKLIGHT_BREATHING.
 ERA_BACKLIGHT_EFFECT_ENABLE ?= no
-# The PWM backlight as an indicator supply rather than as lighting: on a board
-# whose backlight pin drives nothing but its lock LEDs, a stored `enable = 0`
-# is a dark keyboard rather than a preference, so this repairs the stored block
-# at init and the board ships no lighting surface at all (owner decision
-# 2026-08-18). Requires BACKLIGHT_ENABLE and is refused together with
-# ERA_BACKLIGHT_EFFECT_ENABLE, which is the same pin claimed as a backlight.
-ERA_BACKLIGHT_ALWAYS_ON ?= no
+# Keep QMK's PWM backlight subsystem logically enabled. This is for rails that
+# supply fixed indicators: transient PWM zero from Pulse or USB sleep is valid,
+# while a persisted `enable = 0` is not. It composes with the effect layer and
+# clamps its own brightness controls away from zero. Requires BACKLIGHT_ENABLE.
+ERA_BACKLIGHT_LOCK_ENABLE ?= no
 # The RGB Matrix lock-indicator slots and their seven keyboard-channel value
 # ids (6..12): a master role switch, then a lock source, a brightness and a
 # colour per slot. Default no because the feature takes QMK's own weak

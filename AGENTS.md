@@ -4,8 +4,8 @@ ERA 펌웨어 작업에서 에이전트가 처음 읽는 문서다. 읽기 정�
 계획이 아니다.
 
 ERA는 `keyboards/era/common/`의 공유 공통 층 위에 있는 QMK 펌웨어 한 가족이다.
-`keyboard.json`이 있는 보드는 23종, 스플릿과 비스플릿이 섞여 있다. RP2040 보드
-22종은 모두 copy-to-RAM 이미지와 ERA 매트릭스 엔진을 쓴다. `sirind/brick65`
+`keyboard.json`이 있는 보드는 24종, 스플릿과 비스플릿이 섞여 있다. RP2040 보드
+23종은 모두 copy-to-RAM 이미지와 ERA 매트릭스 엔진을 쓴다. `sirind/brick65`
 (atmega32u4)는 영구 예외다. 아키텍처 모델과 용어집은
 `keyboards/era/common/docs/contracts/era_overview.md`가 정본이며, 먼저 읽는다.
 
@@ -145,8 +145,8 @@ Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어
 
   | 사실 | 이 저장소 | 앱 |
   | --- | --- | --- |
-  | 어느 보드에 어느 VIA 메뉴가 있는가 | `keyboards/era/**/keymaps/via/*-VIA.json` (26개, 하프당 하나) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
-  | VIA 라벨 (`KKUK`, `Indicator-Only`, …) | 26개 JSON, `docs/user/readme.txt`, `docs/user/readme_split.txt`, 보드 `readme.md` | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
+  | 어느 보드에 어느 VIA 메뉴가 있는가 | `keyboards/era/**/keymaps/via/*-VIA.json` (27개, 하프당 하나) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
+  | VIA 라벨 (`KKUK`, `Indicator-Only`, …) | 27개 JSON, `docs/user/readme.txt`, `docs/user/readme_split.txt`, 보드 `readme.md` | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
   | durable-peer revision 경계 | `split/era_host_peer_storage.c` | `the-via-eerraa/docs/adr/0001-state-sync-protocol.md` |
 
 - **문서 줄을 지우기 전에**

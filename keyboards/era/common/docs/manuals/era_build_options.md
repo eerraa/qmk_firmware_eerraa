@@ -114,8 +114,8 @@ inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`.
 | `ERA_TAPPING_CONFIG_ENABLE` | `yes` | `no` on a split board | tap-hold policy unit and VIA page |
 | `ERA_MOUSEKEY_CONFIG_ENABLE` | `yes` | `MOUSEKEY_ENABLE=no` (make); a non-default mousekey mode (`quantum/mousekey.h`) | VIA channel 13. Rule-5 fact `ERA_MOUSEKEY_RUNTIME_DELTA` beside its `SRC` line — one fact with the unit that writes the runtime variables `quantum/mousekey.c` defines |
 | `TAP_DANCE_ENABLE` | `yes` | — | QMK's switch; the ERA surface is derived in `era_tapdance_rules.mk` |
-| `ERA_BACKLIGHT_EFFECT_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | PWM effect layer; ids `0..3` (`era_identifier_map.md`). Off because of the ids, not the cost |
-| `ERA_BACKLIGHT_ALWAYS_ON` | `no` | `BACKLIGHT_ENABLE=no`; `ERA_BACKLIGHT_EFFECT_ENABLE=yes` | indicator supply; repairs stored `enable = 0` before `backlight_init()` in `quantum/backlight/backlight.c` reads it. The pair are contradictory claims about one pin |
+| `ERA_BACKLIGHT_EFFECT_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | PWM effect layer; ids `0..3` (`era_identifier_map.md`). Modes are Steady, Breathing, Pulse Off/On Press and their Hold variants. The Pulse one-shot is ChibiOS-VT driven; the matrix-pass task reads no clock |
+| `ERA_BACKLIGHT_LOCK_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | indicator-supply policy; repairs a stored disabled/zero-level block before `backlight_init()` reads it and intercepts QMK backlight keycodes so the persistent level cannot cross below 1. It composes with `ERA_BACKLIGHT_EFFECT_ENABLE`: Pulse and USB sleep may still drive transient PWM zero |
 | `ERA_RGB_INDICATOR_ENABLE` | `no` | `RGB_MATRIX_ENABLE=no` | lock-indicator slots; ids `6..12`. Takes `rgb_matrix_indicators_kb`, `rgb_matrix_indicators_advanced_kb`, `led_update_kb` and `rgb_matrix_render_policy_kb` strongly. A board states `ERA_RGB_INDICATOR_1_LED` and optionally `_2_LED` in its `config.h` under rule 3 |
 | `ERA_VIA_BOOTLOADER_ENABLE` | `yes` | — | VIA jump-to-bootloader. All four combinations of this pair with `ERA_EEPROM_CLEAN_ENABLE` are valid; both off drops `era_via_system.c` |
 | `ERA_EEPROM_CLEAN_ENABLE` | `yes` | — | VIA EEPROM CLEAN |
@@ -266,8 +266,8 @@ conditional half; `era_common_qmk_rules.mk` refuses that outright.
 | ERA split → `ERA_TAPPING_CONFIG_ENABLE=yes` | `era_split_qmk_rules.mk`, `$(error)` beside the tap-activity `SRC` line |
 | KKUK ↔ SOCD | `era_kkuk.c`, `#ifdef` with a `static inline` false. Composition, not a requirement |
 | `ERA_VIA_SYSTEM_ENABLE` ← `ERA_VIA_BOOTLOADER_ENABLE` or `ERA_EEPROM_CLEAN_ENABLE` | `era_common_qmk_rules.mk`, derived; the `#ifdef` at the router entry in `era_common_via.c` is what makes all four combinations of the pair valid |
-| the three common lighting selectors → the QMK feature each layers over: `ERA_BACKLIGHT_EFFECT_ENABLE` and `ERA_BACKLIGHT_ALWAYS_ON` → `BACKLIGHT_ENABLE`, `ERA_RGB_INDICATOR_ENABLE` → `RGB_MATRIX_ENABLE` | `era_common_qmk_rules.mk`, one `$(error)` each |
-| `ERA_BACKLIGHT_ALWAYS_ON` ↮ `ERA_BACKLIGHT_EFFECT_ENABLE` | `era_common_qmk_rules.mk`, `$(error)`. Two claims about one pin, not a missing dependency |
+| the three common lighting selectors → the QMK feature each layers over: `ERA_BACKLIGHT_EFFECT_ENABLE` and `ERA_BACKLIGHT_LOCK_ENABLE` → `BACKLIGHT_ENABLE`, `ERA_RGB_INDICATOR_ENABLE` → `RGB_MATRIX_ENABLE` | `era_common_qmk_rules.mk`, one `$(error)` each |
+| `ERA_BACKLIGHT_LOCK_ENABLE` + `ERA_BACKLIGHT_EFFECT_ENABLE` | valid composition. The lock owns only persistent QMK enable/positive-level policy; the effect owns transient PWM presentation, including deliberate zero |
 | storage V1 engine → `VIA_ENABLE` and `RGB_MATRIX_ENABLE` | `era_split_qmk_rules.mk`, `$(error)` |
 | the split INPUT layer section → a one-byte `layer_state_t` | `era_split_qmk_rules.mk` supplies `LAYER_STATE_8BIT` (wire-format fact, eight layers); `era_split_peer_layer.c` `#error`s on `DYNAMIC_KEYMAP_LAYER_COUNT` above eight |
 | ERA split → no `BACKLIGHT`/`RGBLIGHT`/`LED_MATRIX`/`SLEEP_LED`/`OLED`/`ST7565` | `era_split_qmk_rules.mk`, `$(error)`. `NO_USB_STARTUP_CHECK` deletes QMK's suspend loop, so the split lighting-sleep apply drives RGB Matrix only |

@@ -9,9 +9,9 @@
 
 /* The PWM backlight effect layer: ERA's third lighting family.
  *
- * QMK's own backlight gives a level and a breathing toggle. This adds the two
- * keypress-reactive effects the backlight boards ship a VIA menu for, and owns
- * which of the four is selected. It is common rather than per board because
+ * QMK's own backlight gives a level and a breathing toggle. This adds four
+ * keypress-reactive Pulse effects and owns which of the six modes is selected.
+ * It is common rather than per board because
  * what differs between backlight boards is the pin and the level count, which
  * are `keyboard.json`'s -- the behaviour is the same one
  * (`era_board_adoption.md`, the lighting families).
@@ -24,10 +24,12 @@
  */
 
 enum era_backlight_effect {
-    ERA_BACKLIGHT_EFFECT_NONE      = 0,
-    ERA_BACKLIGHT_EFFECT_BREATHING = 1,
-    ERA_BACKLIGHT_EFFECT_BLINK_OUT = 2,
-    ERA_BACKLIGHT_EFFECT_BLINK_IN  = 3,
+    ERA_BACKLIGHT_EFFECT_STEADY               = 0,
+    ERA_BACKLIGHT_EFFECT_BREATHING            = 1,
+    ERA_BACKLIGHT_EFFECT_PULSE_OFF_PRESS      = 2,
+    ERA_BACKLIGHT_EFFECT_PULSE_ON_PRESS       = 3,
+    ERA_BACKLIGHT_EFFECT_PULSE_OFF_PRESS_HOLD = 4,
+    ERA_BACKLIGHT_EFFECT_PULSE_ON_PRESS_HOLD  = 5,
     ERA_BACKLIGHT_EFFECT_COUNT
 };
 
@@ -51,9 +53,16 @@ void era_backlight_task(void);
    the edge and consumes no keycode. */
 bool era_backlight_process_record(uint16_t keycode, keyrecord_t *record);
 
+/* Non-split lighting sleep enters through QMK's suspend hooks. These calls
+ * cancel an in-flight pulse and keep timer callbacks from relighting the PWM
+ * rail while USB/frame-loss policy owns the dark state. */
+void era_backlight_suspend(void);
+void era_backlight_resume(void);
+void era_backlight_refresh_output(void);
+
 uint8_t era_backlight_get_effect(void);
 void    era_backlight_set_effect(uint8_t effect);
 uint8_t era_backlight_get_breathing_period(void);
 void    era_backlight_set_breathing_period(uint8_t period);
-uint8_t era_backlight_get_blink_speed(void);
-void    era_backlight_set_blink_speed(uint8_t speed);
+uint8_t era_backlight_get_pulse_speed(void);
+void    era_backlight_set_pulse_speed(uint8_t speed);

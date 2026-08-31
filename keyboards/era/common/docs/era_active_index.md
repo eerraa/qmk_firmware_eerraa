@@ -6,7 +6,7 @@ from a task area into the smallest correct set of active documents
 
 ## Current State
 
-`keyboards/era` holds 23 boards with a `keyboard.json`, split and non-split,
+`keyboards/era` holds 24 boards with a `keyboard.json`, split and non-split,
 over one shared common layer at `keyboards/era/common/`. The mental model and
 the glossary are canonical in `contracts/era_overview.md`.
 

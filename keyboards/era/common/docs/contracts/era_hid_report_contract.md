@@ -100,15 +100,15 @@ or boot menu cannot read the keyboard.
 
 ## Boards and VIA
 
-23 boards with a `keyboard.json` all have `features.nkro` true. The VIA
-toggle compiles on 22: under `VIA_ENABLE`, `NKRO_ENABLE = yes` adds
+24 boards with a `keyboard.json` all have `features.nkro` true. The VIA
+toggle compiles on 23: under `VIA_ENABLE`, `NKRO_ENABLE = yes` adds
 `features/era_nkro_via.c` and `-DERA_NKRO_VIA_ENABLE`
 (`system/era_common_qmk_rules.mk`). `sirind/brick65/post_rules.mk` includes
 only build-name and option-print rules — the atmega32u4 permanent exception
-— and `sirind/brick65/keymaps/via/BRICK65-VIA.json` has no FEATURE menu. 26 `*-VIA.json` files (three
-splits ship L/R); 25 carry the NKRO menu. Value id
+— and `sirind/brick65/keymaps/via/BRICK65-VIA.json` has no FEATURE menu. 27 `*-VIA.json` files (three
+splits ship L/R); 26 carry the NKRO menu. Value id
 `ERA_VIA_NKRO_ENABLE_VALUE_ID` 5 (`features/era_nkro_via.h`) on
-`id_custom_channel` (0). Every one of those 25 files addresses it as
+`id_custom_channel` (0). Every one of those 26 files addresses it as
 `["id_qmk_custom_nkro_enable", 0, 5]`.
 
 `features/era_nkro_via.c` is an adapter: it owns no state and writes QMK's

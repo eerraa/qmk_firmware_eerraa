@@ -81,7 +81,7 @@
               ],
               "options": [
                 [
-                  "None",
+                  "Steady",
                   0
                 ],
                 [
@@ -89,12 +89,20 @@
                   1
                 ],
                 [
-                  "Blink-Out on Keypress",
+                  "Pulse Off Press",
                   2
                 ],
                 [
-                  "Blink-In on Keypress",
+                  "Pulse On Press",
                   3
+                ],
+                [
+                  "Pulse Off Press (Hold)",
+                  4
+                ],
+                [
+                  "Pulse On Press (Hold)",
+                  5
                 ]
               ]
             },
@@ -113,8 +121,8 @@
               ]
             },
             {
-              "showIf": "{id_custom_backlight_effect} == 2 || {id_custom_backlight_effect} == 3",
-              "label": "Blink Speed",
+              "showIf": "{id_custom_backlight_effect} == 2 || {id_custom_backlight_effect} == 3 || {id_custom_backlight_effect} == 4 || {id_custom_backlight_effect} == 5",
+              "label": "Pulse Speed",
               "type": "range",
               "options": [
                 1,
