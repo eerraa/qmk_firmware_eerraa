@@ -41,16 +41,16 @@
 브랜치가 없다.** 개발 트리의 세션이 필요해서 남겨 두었고, 다른 곳의 세션이
 아무것도 가리키지 않는 명령을 돌리지 않도록 범위를 한정한다.
 
-`main`은 큐레이션된 완료 브랜치지 머지 대상이 아니다. 커밋은 개발 체크포인트
-트리를 `read-tree`로 순서대로 다시 재생한 것이고, 손으로 가른 diff가 아니다.
-그래서 개발 브랜치에서 `git merge`하는 것은 거기서 틀린 연산이고, 모든 `main`
-트리는 어떤 개발 커밋의 트리와 정확히 같다.
+`main`은 정확한 원본 QMK fork point 위에 최종 관심사만 남겨 재구성한 완료
+브랜치지 개발 브랜치의 머지 대상이 아니다. 개발 chronology와 추적 근거는
+`work/era-nvm`에 남는다. 다음 릴리스도 완료 트리를 관심사별 커밋으로 다시
+구성하며, 개발 브랜치를 `main`으로 merge해서 시행착오 히스토리를 되살리지
+않는다.
 
-`release/clean-repo`는 커밋 네 개의 orphan이고, **팁 트리는 작업 브랜치 HEAD
-트리와 정확히 같아야 한다.** 트리를 바꾸면 무효가 되고 `read-tree`/`commit-tree`로
-다시 만들지, 그 안으로 머지하지 않는다. 믿기 전에 확인한다:
-`git rev-parse release/clean-repo^{tree}`를 `git rev-parse HEAD^{tree}`와
-대조한다.
+`release/clean-repo`는 이전 clean-release 시도의 reference일 뿐이다. 현재
+`work/era-nvm`보다 오래됐을 수 있으므로 `main`으로 승격하거나 팁 트리 동일성을
+가정하지 않는다. 원본 fork boundary를 조사할 때만 다른 ancestry·tree 증거와
+함께 읽는다.
 
 ### Machine setup
 
@@ -73,8 +73,9 @@ WSL 클론은 빌드 트리뿐이다. 같은 커밋에서 바이트가 같은 UF
 서로 바꿔 쓸 수 있다.
 
 **이 절은 기계 하나를 서술하며, 스스로 설치하지 않는다.** 스크립트는
-`.claude/tools/era-sync.sh`와 `era-build.sh`에 버전된다. `~/bin/era-sync`와
-`~/bin/era-build`는 그것으로의 심볼릭 링크다. 링크는 고의로 **편집** 트리의
+`.claude/tools/era-sync.sh`, `era-build.sh`, 260901R1 릴리스 빌드·VIA 검증
+어댑터에 버전된다. `~/bin/era-sync`, `~/bin/era-build`,
+`~/bin/era-release-260901R1-build`는 그것으로의 심볼릭 링크다. 링크는 고의로 **편집** 트리의
 복사본을 가리킨다 — `era-sync`는 빌드 트리를 리셋하고, 그 트리 안의 링크는
 실행 중에 스크립트 자신을 다시 쓰게 된다. 각 파일은 기계별 경로를 맨 위 표시된
 블록 하나에 들고, 그 블록과 WSL 설치가 새 기계에 필요한 전부다.

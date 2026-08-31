@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "release": "260901R1",
+  "annotated_tag": "260901R1",
+  "build_date": "2026-09-01-00:00:00",
+  "excluded_keyboards": [
+    "era/sirind/brick65"
+  ],
+  "guides": {
+    "non_split": "keyboards/era/common/docs/user/readme.txt",
+    "split": "keyboards/era/common/docs/user/readme_split.txt",
+    "via_keycodes": "keyboards/era/common/docs/user/via_keycodes.txt"
+  },
+  "guide_envelope": "source-sha-header-v1",
+  "firmware_version": {
+    "text": "260901R1",
+    "length": 8,
+    "channel": 8,
+    "value_id": 1,
+    "payload_size": 9,
+    "symbol": "era_firmware_version",
+    "encoding": "ascii-nul"
+  },
+  "zip": {
+    "compression": "stored",
+    "timestamp": "1980-01-01T00:00:00",
+    "create_system": 3,
+    "mode": "0100644"
+  },
+  "packages": [
+    {
+      "stem": "BRICK65S",
+      "target": "era/sirind/brick65s:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/sirind/brick65s/keymaps/via/BRICK65S-VIA.json"
+      ]
+    },
+    {
+      "stem": "CHICKPAD",
+      "target": "era/sirind/chickpad:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/sirind/chickpad/keymaps/via/CHICKPAD-VIA.json"
+      ]
+    },
+    {
+      "stem": "CLASSICD_A1",
+      "target": "era/comm/classicd_a1:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/comm/classicd_a1/keymaps/via/CLASSICD_A1-VIA.json"
+      ]
+    },
+    {
+      "stem": "CLASSICD_A1_UG",
+      "target": "era/comm/classicd_a1_ug:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/comm/classicd_a1_ug/keymaps/via/CLASSICD_A1_UG-VIA.json"
+      ]
+    },
+    {
+      "stem": "CLASSICD_CORE",
+      "target": "era/comm/classicd_core:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/comm/classicd_core/keymaps/via/CLASSICD_CORE-VIA.json"
+      ]
+    },
+    {
+      "stem": "CLASSICD_CORELESS",
+      "target": "era/comm/classicd_coreless:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/comm/classicd_coreless/keymaps/via/CLASSICD_CORELESS-VIA.json"
+      ]
+    },
+    {
+      "stem": "DIVINE",
+      "target": "era/divine:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/divine/keymaps/via/DIVINE-VIA.json"
+      ]
+    },
+    {
+      "stem": "ERA65",
+      "target": "era/era65:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/era65/keymaps/via/ERA65-VIA.json"
+      ]
+    },
+    {
+      "stem": "ET_TKL",
+      "target": "era/comm/et_tkl:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/comm/et_tkl/keymaps/via/ET_TKL-VIA.json"
+      ]
+    },
+    {
+      "stem": "FAVE65S",
+      "target": "era/linx3/fave65s:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/linx3/fave65s/keymaps/via/FAVE65S-VIA.json"
+      ]
+    },
+    {
+      "stem": "KLEIN_HS",
+      "target": "era/sirind/klein_hs:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/sirind/klein_hs/keymaps/via/KLEIN_HS-VIA.json"
+      ]
+    },
+    {
+      "stem": "KLEIN_SD",
+      "target": "era/sirind/klein_sd:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/sirind/klein_sd/keymaps/via/KLEIN_SD-VIA.json"
+      ]
+    },
+    {
+      "stem": "N86",
+      "target": "era/linx3/n86:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/linx3/n86/keymaps/via/N86-VIA.json"
+      ]
+    },
+    {
+      "stem": "N87",
+      "target": "era/linx3/n87:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/linx3/n87/keymaps/via/N87-VIA.json"
+      ]
+    },
+    {
+      "stem": "N8X",
+      "target": "era/linx3/n8x:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/linx3/n8x/keymaps/via/N8X-VIA.json"
+      ]
+    },
+    {
+      "stem": "NEWONE_A1",
+      "target": "era/newone/a1:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/newone/a1/keymaps/via/NEWONE_A1-VIA.json"
+      ]
+    },
+    {
+      "stem": "NEWONE_H1",
+      "target": "era/newone/h1:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/newone/h1/keymaps/via/NEWONE_H1-VIA.json"
+      ]
+    },
+    {
+      "stem": "ODESSEY60H",
+      "target": "era/newone/odessey60h:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/newone/odessey60h/keymaps/via/ODESSEY60H-VIA.json"
+      ]
+    },
+    {
+      "stem": "ODESSEY60S",
+      "target": "era/newone/odessey60s:via",
+      "variant": "standard",
+      "split": false,
+      "via_json": [
+        "keyboards/era/newone/odessey60s/keymaps/via/ODESSEY60S-VIA.json"
+      ]
+    },
+    {
+      "stem": "TOMAK-TKL",
+      "target": "era/sirind/tomak:via",
+      "variant": "standard",
+      "split": true,
+      "via_json": [
+        "keyboards/era/sirind/tomak/keymaps/via/TOMAK-TKL-L-VIA.json",
+        "keyboards/era/sirind/tomak/keymaps/via/TOMAK-TKL-R-VIA.json"
+      ]
+    },
+    {
+      "stem": "TOMAK79H",
+      "target": "era/sirind/tomak79h:via",
+      "variant": "standard",
+      "split": true,
+      "via_json": [
+        "keyboards/era/sirind/tomak79h/keymaps/via/TOMAK79H-L-VIA.json",
+        "keyboards/era/sirind/tomak79h/keymaps/via/TOMAK79H-R-VIA.json"
+      ]
+    },
+    {
+      "stem": "TOMAK79S",
+      "target": "era/sirind/tomak79s:via",
+      "variant": "standard",
+      "split": true,
+      "via_json": [
+        "keyboards/era/sirind/tomak79s/keymaps/via/TOMAK79S-L-VIA.json",
+        "keyboards/era/sirind/tomak79s/keymaps/via/TOMAK79S-R-VIA.json"
+      ]
+    }
+  ]
+}

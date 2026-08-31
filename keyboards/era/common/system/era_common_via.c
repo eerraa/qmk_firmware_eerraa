@@ -3,6 +3,7 @@
 
 #include "quantum.h"
 #include "era_common_via.h"
+#include "era_firmware_version.h"
 
 #ifdef VIA_ENABLE
 /* The one boundary check the ERA VIA surface has, and the reason it replaced
@@ -72,6 +73,10 @@ _Static_assert(RAW_EPSIZE >= 5, "An ERA VIA report must carry command, channel, 
    is an accident of the partition and not a licence. */
 
 bool era_common_via_handle_system_command(uint8_t *data, uint8_t length) {
+    if (era_firmware_version_handle_via_command(data, length)) {
+        return true;
+    }
+
 #ifdef ERA_VIA_SYSTEM_ENABLE
     return era_via_system_handle_via_command(data, length);
 #else

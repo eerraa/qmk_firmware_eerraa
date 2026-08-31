@@ -136,13 +136,14 @@ custom-channel value id.
 
 ## VIA Feature Channels
 
-VIA itself reserves `0..5` (`quantum/via.h`). ERA uses `9..15`. `6..8` are
+VIA itself reserves `0..5` (`quantum/via.h`). ERA uses `8..15`. `6..7` are
 idle. **The channels are not renumbered to close that gap**: VIA caches a
 definition per (vendorId, productId), so an old definition against new firmware
 would write to the wrong channels.
 
 | Channel | Owner |
 | --- | --- |
+| `8` | VERSION (`system/era_firmware_version.h`). Value id `1` is `ERA_VIA_FIRMWARE_VERSION_VALUE_ID`; a custom GET returns the complete NUL-terminated ASCII `ERA_FIRMWARE_VERSION`, while SET, SAVE and every other value id remain unhandled (`system/era_firmware_version.c`) |
 | `9` | SYSTEM (`system/era_via_system.h`). Split routing in `split/era_split_keyboard.c`: system parent, RGB sleep, sync, then link |
 | `10` | SOCD left/right (`storage/era_eeprom_layout.h`, `features/era_socd_via.c`) |
 | `11` | SOCD up/down (same unit, other pair) |
