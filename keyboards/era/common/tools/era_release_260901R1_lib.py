@@ -43,6 +43,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SET_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 STEM_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]*$")
 TARGET_RE = re.compile(r"^era/[A-Za-z0-9_/-]+:via$")
+VECTORS_GATE_RE = re.compile(r"^48 entries, reset slot 0x([0-9a-f]{8}) in flash, 47 in SRAM$")
 FORBIDDEN_RELEASE_SUFFIXES = (
     ".elf",
     ".hex",
@@ -471,8 +472,12 @@ def validate_build_manifest(
         _fail("build manifest ram0 figures are not decimal")
     if int(fields["ram0_free_bytes"]) < 32768:
         _fail("build manifest reports less than 32768 bytes free in ram0")
-    if not fields["vectors_gate"].startswith("passed"):
-        _fail("build manifest vectors gate did not pass")
+    vectors_match = VECTORS_GATE_RE.fullmatch(fields["vectors_gate"])
+    if vectors_match is None:
+        _fail("build manifest vectors gate is not the production pass record")
+    reset_address = int(vectors_match.group(1), 16)
+    if not 0x10000000 <= reset_address < 0x20000000:
+        _fail("build manifest vectors gate reset slot is outside flash")
 
 
 def _objdump_symbol_rows(output: str, symbol: str) -> list[tuple[int, int, str]]:

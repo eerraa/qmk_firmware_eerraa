@@ -130,7 +130,7 @@ def build_manifest_bytes(package: dict, source_sha: str, firmware_sha: str, elf_
         ("residency_gate", "passed"),
         ("ram0_resident_bytes", "200000"),
         ("ram0_free_bytes", "62144"),
-        ("vectors_gate", "passed (fixture)"),
+        ("vectors_gate", "48 entries, reset slot 0x100002c5 in flash, 47 in SRAM"),
         ("build_log", f"/build/{package['stem']}.build.log"),
         ("command", " qmk compile -e ERA_BUILD_VARIANT=standard"),
     ]
@@ -258,6 +258,25 @@ class Release260901R1Test(unittest.TestCase):
             repo, source_sha, _ = create_source_repo(Path(temp))
             from_git, _ = release.load_inventory(repo, source_sha)
             release.validate_inventory_against_git(repo, source_sha, from_git)
+
+    def test_manifest_requires_the_production_vector_pass_record(self) -> None:
+        package = inventory_from_workspace()["packages"][0]
+        source_sha = "a" * 40
+        fields = release.parse_build_manifest(
+            build_manifest_bytes(package, source_sha, "b" * 64, "c" * 64),
+            label="production-vector-record",
+        )
+        release.validate_build_manifest(fields, package=package, source_sha=source_sha)
+        for invalid in (
+            "passed",
+            "47 entries, reset slot 0x100002c5 in flash, 46 in SRAM",
+            "48 entries, reset slot 0x20000001 in flash, 47 in SRAM",
+            "48 entries, reset slot 0x100002c5 in flash, 46 in SRAM",
+        ):
+            broken = dict(fields)
+            broken["vectors_gate"] = invalid
+            with self.assertRaisesRegex(release.ReleaseError, "vectors gate"):
+                release.validate_build_manifest(broken, package=package, source_sha=source_sha)
 
     def test_objdump_version_reader_accepts_exact_and_rejects_bad_witnesses(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

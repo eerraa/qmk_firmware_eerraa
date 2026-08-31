@@ -8,7 +8,7 @@
 #include "usb_descriptor.h"
 #include "via.h"
 
-const char era_firmware_version[] = ERA_FIRMWARE_VERSION;
+const char era_firmware_version[] __attribute__((used, externally_visible)) = ERA_FIRMWARE_VERSION;
 
 /* Three VIA command bytes precede the complete NUL-terminated release
    identity. This is the enforceable report-capacity boundary; `length` is
@@ -24,6 +24,11 @@ bool era_firmware_version_handle_via_command(uint8_t *data, uint8_t length) {
         return false;
     }
 
-    memcpy(&data[3], era_firmware_version, sizeof(era_firmware_version));
+    /* Keep the exported release witness address observable through LTO. The
+       empty register barrier executes only for this GET and prevents the
+       constant bytes from replacing the named object in the final ELF. */
+    const char *version = era_firmware_version;
+    __asm__ volatile("" : "+r"(version));
+    memcpy(&data[3], version, sizeof(era_firmware_version));
     return true;
 }
