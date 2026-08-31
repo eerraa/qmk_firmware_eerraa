@@ -15,6 +15,7 @@ extern "C" {
 #include "keyboards/era/common/system/era_state_sync.h"
 #include "keyboards/era/common/system/era_via_system.h"
 #include "eeprom.h"
+#include "dynamic_keymap.h"
 #include "keycode_config.h"
 #include "nvm_eeconfig.h"
 #include "rgb_matrix_types.h"
@@ -47,6 +48,9 @@ extern "C" bool via_eeprom_is_valid(void) {
 }
 extern "C" void via_init(void) {}
 extern "C" void eeconfig_init_via(void) {}
+extern "C" uint16_t dynamic_keymap_macro_get_buffer_size(void) {
+    return DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE;
+}
 
 extern "C" void raw_hid_send(uint8_t *data, uint8_t length) {
     g_send_count++;
