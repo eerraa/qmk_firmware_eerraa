@@ -7,7 +7,9 @@
 # The TEST platform has no USB descriptor, while both production units include
 # usb_descriptor.h only for RAW_EPSIZE. Put this fixture's one-macro stub ahead
 # of the protocol directory without changing either production source path.
-VPATH := $(TEST_PATH) $(filter-out $(TEST_PATH),$(VPATH))
+# Keep VPATH's deferred COMMON_VPATH reference intact so driver paths added by
+# later QMK feature rules (including quantum/nvm/eeprom) remain searchable.
+COMMON_VPATH := $(TEST_PATH) $(filter-out $(TEST_PATH),$(COMMON_VPATH))
 
 SRC += keyboards/era/common/system/era_firmware_version.c
 SRC += keyboards/era/common/system/era_common_via.c
