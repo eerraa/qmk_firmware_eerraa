@@ -244,22 +244,6 @@
             },
             {
               "showIf": "{id_qmk_socd_lr_enable} == 1",
-              "label": "Left/Right Mode",
-              "type": "dropdown",
-              "content": [
-                "id_qmk_socd_lr_mode",
-                10,
-                4
-              ],
-              "options": [
-                [
-                  "Last Input Wins",
-                  1
-                ]
-              ]
-            },
-            {
-              "showIf": "{id_qmk_socd_lr_enable} == 1",
               "label": "Left Key",
               "type": "keycode",
               "content": [
@@ -285,22 +269,6 @@
                 "id_qmk_socd_ud_enable",
                 11,
                 1
-              ]
-            },
-            {
-              "showIf": "{id_qmk_socd_ud_enable} == 1",
-              "label": "Up/Down Mode",
-              "type": "dropdown",
-              "content": [
-                "id_qmk_socd_ud_mode",
-                11,
-                4
-              ],
-              "options": [
-                [
-                  "Last Input Wins",
-                  1
-                ]
               ]
             },
             {
@@ -339,17 +307,37 @@
             },
             {
               "showIf": "{id_qmk_kkuk_enable} == 1",
-              "label": "Mode",
+              "label": "First Delay Time",
               "type": "dropdown",
               "content": [
-                "id_qmk_kkuk_mode",
+                "id_qmk_kkuk_delay_time",
                 12,
-                4
+                2
               ],
               "options": [
                 [
-                  "Report Pulse",
-                  1
+                  "50 ms",
+                  5
+                ],
+                [
+                  "100 ms",
+                  10
+                ],
+                [
+                  "150 ms",
+                  15
+                ],
+                [
+                  "200 ms",
+                  20
+                ],
+                [
+                  "250 ms",
+                  25
+                ],
+                [
+                  "300 ms",
+                  30
                 ]
               ]
             },
@@ -390,42 +378,6 @@
                 [
                   "200 ms",
                   20
-                ]
-              ]
-            },
-            {
-              "showIf": "{id_qmk_kkuk_enable} == 1",
-              "label": "First Delay Time",
-              "type": "dropdown",
-              "content": [
-                "id_qmk_kkuk_delay_time",
-                12,
-                2
-              ],
-              "options": [
-                [
-                  "50 ms",
-                  5
-                ],
-                [
-                  "100 ms",
-                  10
-                ],
-                [
-                  "150 ms",
-                  15
-                ],
-                [
-                  "200 ms",
-                  20
-                ],
-                [
-                  "250 ms",
-                  25
-                ],
-                [
-                  "300 ms",
-                  30
                 ]
               ]
             }
@@ -1086,15 +1038,6 @@
               ]
             },
             {
-              "label": "Hold on Other Key Press",
-              "type": "toggle",
-              "content": [
-                "id_qmk_tapping_hold_on_other_key_press",
-                15,
-                3
-              ]
-            },
-            {
               "showIf": "{id_qmk_tapping_hold_on_other_key_press} == 0",
               "label": "Permissive Hold",
               "type": "toggle",
@@ -1102,6 +1045,15 @@
                 "id_qmk_tapping_permissive_hold",
                 15,
                 2
+              ]
+            },
+            {
+              "label": "Hold on Other Key Press",
+              "type": "toggle",
+              "content": [
+                "id_qmk_tapping_hold_on_other_key_press",
+                15,
+                3
               ]
             },
             {
