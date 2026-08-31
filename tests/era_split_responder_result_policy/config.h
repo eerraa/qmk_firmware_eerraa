@@ -1,0 +1,10 @@
+// Copyright 2026 Hyojin Bak (@eerraa)
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#pragma once
+
+#include "test_common.h"
+
+#ifndef QMK_KEYBOARD_H
+#    define QMK_KEYBOARD_H "quantum.h"
+#endif

@@ -1,0 +1,18 @@
+#!/bin/sh
+# ERA pre-commit: the static checks a commit owes (whitespace, QMK fork
+# ledger, agent-document references). Activated once per clone with
+#   git config core.hooksPath hooks
+# Never bypass with --no-verify; fix the finding.
+# A command name is not enough on Windows: the WindowsApps Store alias is
+# discoverable as python3 but exits before running a script. Probe the
+# interpreter, then fall back to the other conventional name.
+if command -v python3 >/dev/null 2>&1 &&
+   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+  exec python3 "$(git rev-parse --show-toplevel)/hooks/era_commit_check.py"
+fi
+if command -v python >/dev/null 2>&1 &&
+   python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+  exec python "$(git rev-parse --show-toplevel)/hooks/era_commit_check.py"
+fi
+echo "ERA pre-commit: no runnable Python 3.8+ interpreter found as python3 or python." >&2
+exit 1

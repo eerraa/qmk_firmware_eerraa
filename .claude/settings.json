@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "PowerShell(git reset --hard:*)",
+      "Bash(git checkout --:*)",
+      "PowerShell(git checkout --:*)",
+      "Bash(git restore:*)",
+      "PowerShell(git restore:*)"
+    ]
+  }
+}
