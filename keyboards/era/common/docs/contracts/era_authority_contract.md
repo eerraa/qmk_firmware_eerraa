@@ -64,16 +64,23 @@ Gate check (`era_performance_gates.md`).
 > **WHY:** the grace close makes `is_keyboard_master()` false, so QMK's `should_process_keypress()` (`quantum/keyboard.c`) holds `process_record()` (`quantum/action.c`) closed for the rest of a sustained suspend, and the requester is then unreachable exactly when the wake is needed.
 > **REOPENS:** QMK no longer gates `process_record()` on host-open during suspend, or remote wake no longer consumes a composed-matrix edge.
 
-Every ERA board has two USB detectors of one physical event: the ChibiOS/QMK
-explicit suspend state and loss of USB frames. A TOMAK-family split adds the
-board-owned input-idle timeout as an independent third reason. Split local arm:
-`era_split_keyboard_local_sleep_state()` in `split/era_split_keyboard.c` ORs the
-raw QMK `SUSPEND` state, `era_usb_session_frames_lost()` in
+Every RGB-capable ERA board compiles QMK's RGB sleep capability and has one
+persisted **RGB Sleep master** in QMK `keymap_config`: the inverted
+`era_rgb_sleep_disabled` bit. Zero/default/CLEAN therefore means enabled. When
+the master is off, automatic RGB sleep is off for every reason: explicit USB
+suspend, loss of USB frames, and (where present) input-idle timeout. A
+TOMAK-family split adds that board-owned input-idle timeout as a third reason.
+Split local arm:
+`era_split_keyboard_local_sleep_state()` in `split/era_split_keyboard.c` ANDs
+the master with the OR of raw QMK `SUSPEND`, `era_usb_session_frames_lost()` in
 `system/era_usb_session.c` (`ERA_USB_SESSION_SOF_STALE_MS` 300), and
-`last_matrix_activity_elapsed()` against the board timeout. The timeout is
-1..65535 seconds, persisted in TOMAK's two former reserved bytes inside the
-syncable eight-byte keyboard config; zero from an older image normalizes to the
-600-second / 10-minute default. Model: `era_board_adoption.md` **Non-Split Board Baseline**.
+`last_matrix_activity_elapsed()` against the board timeout.
+The timeout is 1..65535 seconds, persisted in TOMAK's two former reserved bytes
+inside the syncable eight-byte keyboard config; zero from an older image
+normalizes to the 600-second / 10-minute default. The master is not part of that
+board record: QMK keymap-config is already its own portable split storage domain,
+and remote Apply reloads `keymap_config` immediately.
+Model: `era_board_adoption.md` **Non-Split Board Baseline**.
 Ownership: **Lighting Sleep Ownership**. Suspend grace and host-open close govern
 authority only.
 
@@ -92,9 +99,9 @@ is the resolver.
 | the HOST-PEER **PEER** | the wire — the relation's HOST |
 
 **The non-owner does not decide the render gate.** A HOST-PEER pair shares the
-HOST's sleep fact, so on the PEER its local USB and idle-timeout facts are not
+HOST's resolved sleep fact (including its RGB Sleep master), so on the PEER its local USB and idle-timeout facts are not
 inputs. In DUAL-HOST each half keeps its own local timeout and input clock even
-when EEPROM sync has ordinarily converged the stored number.
+when EEPROM sync has ordinarily converged the stored timeout and master bit.
 
 | Edge | Rule |
 | --- | --- |

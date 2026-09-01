@@ -17,6 +17,10 @@
 #include "quantum.h"
 #include "process_quantum.h"
 
+#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+extern bool era_rgb_sleep_enabled(void);
+#endif
+
 #ifdef SLEEP_LED_ENABLE
 #    include "sleep_led.h"
 #endif
@@ -505,14 +509,26 @@ void suspend_power_down_quantum(void) {
 
 // Turn off underglow
 #    if defined(RGBLIGHT_SLEEP) && defined(RGBLIGHT_ENABLE)
+#        ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+    if (era_rgb_sleep_enabled()) {
+        rgblight_suspend();
+    }
+#        else
     rgblight_suspend();
+#        endif
 #    endif
 
 #    if defined(LED_MATRIX_ENABLE)
     led_matrix_set_suspend_state(true);
 #    endif
 #    if defined(RGB_MATRIX_ENABLE)
+#        ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+    if (era_rgb_sleep_enabled()) {
+        rgb_matrix_set_suspend_state(true);
+    }
+#        else
     rgb_matrix_set_suspend_state(true);
+#        endif
 #    endif
 
 #    ifdef OLED_ENABLE

@@ -13,4 +13,5 @@ COMMON_VPATH := $(TEST_PATH) $(filter-out $(TEST_PATH),$(COMMON_VPATH))
 
 SRC += keyboards/era/common/system/era_firmware_version.c
 SRC += keyboards/era/common/system/era_common_via.c
-OPT_DEFS += -DVIA_ENABLE -DERA_VIA_SYSTEM_ENABLE
+SRC += keyboards/era/common/features/era_rgb_sleep.c
+OPT_DEFS += -DVIA_ENABLE -DERA_VIA_SYSTEM_ENABLE -DERA_RGB_SLEEP_MASTER_ENABLE

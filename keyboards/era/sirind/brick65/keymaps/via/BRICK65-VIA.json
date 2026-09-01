@@ -7,7 +7,28 @@
     "cols": 16
   },
   "keycodes": ["qmk_rgb_matrix_keycodes"],
-  "menus": ["qmk_rgb_matrix"],
+  "menus": [
+    "qmk_rgb_matrix",
+    {
+      "label": "SYSTEM",
+      "content": [
+        {
+          "label": "SLEEP",
+          "content": [
+            {
+              "label": "RGB Sleep",
+              "type": "toggle",
+              "content": [
+                "id_qmk_rgb_sleep_enable",
+                9,
+                12
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "layouts": {
     "labels": ["Split Backspace", "Split Spacebar"],
     "keymap": [

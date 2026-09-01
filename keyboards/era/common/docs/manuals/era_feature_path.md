@@ -66,10 +66,18 @@ the fragment that would have used it, so it is silently ignored.
 - **A keycode only when VIA cannot do it.** A keycode is a second control path
   over one state, it consumes a `QK_KB_*` slot, and renumbering that enum
   invalidates every keymap already stored on a device.
-- **Persisted state** goes through the ERA EEPROM layout, not a new region, and
-  it must fit the board config record the family's `_Static_assert` holds. If
-  the halves must converge it, it is a storage domain and
-  `era_host_peer_storage_contract.md` owns what that costs.
+- **Persisted state** uses an existing canonical owner whenever one already fits
+  the meaning. RGB Sleep is the example: the master occupies one formerly-unused
+  inverted bit in QMK's 2-byte keymap config, which is already a portable split
+  storage domain; TOMAK's timeout stays in its board record. Do not allocate a
+  new ERA region merely because the UI is new.
+- **Compile capability and runtime preference are separate layers.** If
+  `keyboard.json` owns the compiled capability (for example `rgb_matrix.sleep`
+  -> `RGB_MATRIX_SLEEP`), every capable board keeps that switch on. The VIA
+  master may then gate the entire product behavior at runtime without pretending
+  that a compile-time feature disappeared.
+  A dependent control may use V3 `showIf`; hiding it is presentation, not a
+  second firmware gate, and its stored value must survive while hidden.
 
 ## 5. Keep it off the hot path
 

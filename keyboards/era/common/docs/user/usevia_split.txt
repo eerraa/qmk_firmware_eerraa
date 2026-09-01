@@ -128,8 +128,10 @@ LINK 값을 고른 뒤 Apply를 사용합니다. 실제 속도가 바뀌면 양�
 케이블 교체를 권장합니다. 기본값은 High입니다.
 
 SLEEP:
-마지막 입력 뒤 RGB 절전 시간을 1/3/5/10/30/60분 중 선택합니다. 기본값은
-10분입니다. 키를 누르면 RGB가 다시 켜집니다.
+RGB Sleep은 기본 On입니다. 끄면 유휴 시간뿐 아니라 USB 절전과 호스트 소실을
+포함한 자동 RGB 절전 전체가 비활성화됩니다. On일 때만 시간 설정이 보이며,
+마지막 입력 뒤 1/3/5/10/30/60분 중 선택합니다. 기본값은 10분입니다. 토글을
+꺼도 시간 값은 보존됩니다.
 
 BOOT:
 Jump To BOOT는 켜는 즉시 현재 유닛의 부트로더로 진입합니다. 실행 후 항상
@@ -266,8 +268,11 @@ running. Three long red LED pulses mean the split cable is not good enough;
 replacing the cable is recommended. The default is High.
 
 SLEEP:
-Choose RGB sleep after 1/3/5/10/30/60 minutes of inactivity. The default is
-10 minutes. Pressing a key wakes the RGB.
+RGB Sleep is on by default. Turning it off disables automatic RGB sleep as a
+whole: idle timeout, USB suspend, and host loss. The timeout control is shown
+only while RGB Sleep is on. Choose 1/3/5/10/30/60 minutes of inactivity; the
+default is 10 minutes. Turning RGB Sleep off keeps that timeout for the next
+time you turn it on.
 
 BOOT:
 Jump To BOOT enters the current unit's bootloader as soon as it is switched on

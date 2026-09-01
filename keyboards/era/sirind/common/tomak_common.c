@@ -136,6 +136,10 @@ static uint16_t tomak_normalized_rgb_sleep_timeout_seconds(uint16_t seconds) {
     return seconds == 0 ? TOMAK_RGB_SLEEP_TIMEOUT_DEFAULT_SECONDS : seconds;
 }
 
+static uint8_t tomak_era_lighting_flags(const tomak_config_t *config) {
+    return config->full_rgb_matrix_enabled ? TOMAK_ERA_LIGHTING_FLAG_FULL_RGB_MATRIX : 0;
+}
+
 /* --- The persisted record ------------------------------------------------ */
 
 static void tomak_build_era_keyboard_storage(const tomak_config_t *config, tomak_era_keyboard_config_t *storage) {
@@ -145,7 +149,7 @@ static void tomak_build_era_keyboard_storage(const tomak_config_t *config, tomak
     storage->lock_indicator_hue           = config->lock_indicator_hsv.h;
     storage->lock_indicator_sat           = config->lock_indicator_hsv.s;
     storage->lock_indicator_val           = config->lock_indicator_hsv.v;
-    storage->full_rgb_matrix_enabled      = config->full_rgb_matrix_enabled ? 1 : 0;
+    storage->lighting_flags               = tomak_era_lighting_flags(config);
     storage->rgb_sleep_timeout_seconds    = tomak_normalized_rgb_sleep_timeout_seconds(config->rgb_sleep_timeout_seconds);
 }
 
@@ -155,7 +159,7 @@ static void tomak_apply_era_keyboard_storage(const tomak_era_keyboard_config_t *
     config->lock_indicator_hsv.h         = storage->lock_indicator_hue;
     config->lock_indicator_hsv.s         = storage->lock_indicator_sat;
     config->lock_indicator_hsv.v         = storage->lock_indicator_val;
-    config->full_rgb_matrix_enabled      = storage->full_rgb_matrix_enabled != 0;
+    config->full_rgb_matrix_enabled      = (storage->lighting_flags & TOMAK_ERA_LIGHTING_FLAG_FULL_RGB_MATRIX) != 0;
     config->rgb_sleep_timeout_seconds    = tomak_normalized_rgb_sleep_timeout_seconds(storage->rgb_sleep_timeout_seconds);
 }
 

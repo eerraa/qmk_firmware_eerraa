@@ -72,6 +72,16 @@ endif
 # nothing where RGB_MATRIX_SLEEP / RGBLIGHT_SLEEP are absent.
 SRC += keyboards/era/common/system/era_usb_session.c
 
+# Every ERA RGB build owns one persisted master preference for RGB Sleep.
+# QMK's compile-time RGB_MATRIX_SLEEP/RGBLIGHT_SLEEP still decides whether the
+# relevant engine has a suspend state; the runtime bit decides whether ERA is
+# allowed to enter that state. The source is linked in non-VIA builds too so a
+# preference written by a VIA image remains honoured after a keymap change.
+ifneq ($(filter yes,$(strip $(RGB_MATRIX_ENABLE)) $(strip $(RGBLIGHT_ENABLE))),)
+    OPT_DEFS += -DERA_RGB_SLEEP_MASTER_ENABLE
+    SRC += keyboards/era/common/features/era_rgb_sleep.c
+endif
+
 # Guarded like every other value pass-through in this layer. Unguarded, an
 # empty value emitted `-DERA_STORAGE_QUIET_DEFER_MS` with no body and failed
 # inside quantum/eeconfig.h rather than here.

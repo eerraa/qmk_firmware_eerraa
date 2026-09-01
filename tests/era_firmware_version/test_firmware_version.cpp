@@ -10,6 +10,9 @@ extern "C" {
 #include "keyboards/era/common/system/era_common_via.h"
 #include "keyboards/era/common/system/era_firmware_version.h"
 #include "keyboards/era/common/system/era_via_system.h"
+#include "keyboards/era/common/features/era_rgb_sleep.h"
+#include "eeconfig.h"
+#include "keycode_config.h"
 #include "via.h"
 }
 
@@ -95,6 +98,58 @@ TEST(EraFirmwareVersion, ChannelNineFallsThroughToItsExistingOwner) {
     EXPECT_TRUE(era_common_via_handle_system_command(report.data(), report.size()));
     EXPECT_EQ(report, before);
     EXPECT_EQ(g_system_handler_calls, 1U);
+}
+
+TEST(EraFirmwareVersion, RgbSleepMasterDefaultsOnAndPersistsWithoutDisturbingKeymapFlags) {
+    keymap_config.raw             = 0;
+    keymap_config.swap_lctl_lgui = true;
+    eeconfig_update_keymap(&keymap_config);
+
+    Report get = command_report(id_custom_get_value, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID);
+    g_system_handler_calls = 0U;
+    ASSERT_TRUE(era_common_via_handle_system_command(get.data(), get.size()));
+    EXPECT_EQ(get[3], 1U);
+    EXPECT_EQ(g_system_handler_calls, 0U);
+
+    Report disable = command_report(id_custom_set_value, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID);
+    disable[3] = 0U;
+    ASSERT_TRUE(era_common_via_handle_system_command(disable.data(), disable.size()));
+    EXPECT_EQ(disable[3], 0U);
+    EXPECT_FALSE(era_rgb_sleep_enabled());
+    EXPECT_TRUE(keymap_config.swap_lctl_lgui);
+
+    keymap_config_t stored = {};
+    eeconfig_read_keymap(&stored);
+    EXPECT_TRUE(stored.era_rgb_sleep_disabled);
+    EXPECT_TRUE(stored.swap_lctl_lgui);
+
+    Report enable = command_report(id_custom_set_value, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID);
+    enable[3] = 1U;
+    ASSERT_TRUE(era_common_via_handle_system_command(enable.data(), enable.size()));
+    EXPECT_EQ(enable[3], 1U);
+    EXPECT_TRUE(era_rgb_sleep_enabled());
+
+    eeconfig_read_keymap(&stored);
+    EXPECT_FALSE(stored.era_rgb_sleep_disabled);
+    EXPECT_TRUE(stored.swap_lctl_lgui);
+    EXPECT_EQ(sizeof(keymap_config_t), 2U);
+}
+
+TEST(EraFirmwareVersion, RgbSleepMasterRejectsWrongAddressShortPacketAndSave) {
+    Report wrong = command_report(id_custom_get_value, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID - 1U);
+    Report before = wrong;
+    EXPECT_FALSE(era_rgb_sleep_handle_via_command(wrong.data(), wrong.size()));
+    EXPECT_EQ(wrong, before);
+
+    Report short_report = command_report(id_custom_get_value, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID);
+    before = short_report;
+    EXPECT_FALSE(era_rgb_sleep_handle_via_command(short_report.data(), 3U));
+    EXPECT_EQ(short_report, before);
+
+    Report save = command_report(id_custom_save, ERA_VIA_SYSTEM_CHANNEL, ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID);
+    before = save;
+    EXPECT_FALSE(era_rgb_sleep_handle_via_command(save.data(), save.size()));
+    EXPECT_EQ(save, before);
 }
 
 TEST(EraFirmwareVersion, SetSaveAndInvalidAddressesRemainUnhandledAndUnchanged) {

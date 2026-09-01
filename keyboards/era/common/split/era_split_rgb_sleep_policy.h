@@ -8,10 +8,11 @@
 
 static inline bool era_split_rgb_sleep_policy_local_requested(bool explicit_suspend,
                                                                bool frames_lost,
+                                                               bool rgb_sleep_enabled,
                                                                uint16_t timeout_seconds,
                                                                uint32_t matrix_idle_ms) {
     bool idle_timeout = timeout_seconds != 0 && matrix_idle_ms >= (uint32_t)timeout_seconds * 1000U;
-    return explicit_suspend || frames_lost || idle_timeout;
+    return rgb_sleep_enabled && (explicit_suspend || frames_lost || idle_timeout);
 }
 
 static inline bool era_split_rgb_sleep_policy_preset_valid(uint8_t minutes) {

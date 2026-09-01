@@ -8,14 +8,20 @@ extern "C" {
 }
 
 TEST(EraSplitRgbSleepPolicy, ThreeIndependentLocalReasonsAreOrCombined) {
-    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, false, 60, 59999));
-    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(true, false, 60, 0));
-    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(false, true, 60, 0));
-    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(false, false, 60, 60000));
+    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, false, true, 60, 59999));
+    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(true, false, true, 60, 0));
+    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(false, true, true, 60, 0));
+    EXPECT_TRUE(era_split_rgb_sleep_policy_local_requested(false, false, true, 60, 60000));
 }
 
 TEST(EraSplitRgbSleepPolicy, UnsupportedZeroTimeoutDoesNotCreateIdleSleep) {
-    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, false, 0, UINT32_MAX));
+    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, false, true, 0, UINT32_MAX));
+}
+
+TEST(EraSplitRgbSleepPolicy, UserDisableGatesEveryRgbSleepReason) {
+    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, false, false, 60, UINT32_MAX));
+    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(true, false, false, 60, 0));
+    EXPECT_FALSE(era_split_rgb_sleep_policy_local_requested(false, true, false, 60, 0));
 }
 
 TEST(EraSplitRgbSleepPolicy, StockPresetAcceptsOnlyTheSixProductChoices) {

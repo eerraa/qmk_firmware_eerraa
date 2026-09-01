@@ -2376,6 +2376,20 @@
           ]
         },
         {
+          "label": "SLEEP",
+          "content": [
+            {
+              "label": "RGB Sleep",
+              "type": "toggle",
+              "content": [
+                "id_qmk_rgb_sleep_enable",
+                9,
+                12
+              ]
+            }
+          ]
+        },
+        {
           "label": "BOOT",
           "content": [
             {

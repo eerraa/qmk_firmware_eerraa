@@ -5,6 +5,10 @@
 #include "era_common_via.h"
 #include "era_firmware_version.h"
 
+#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+#    include "../features/era_rgb_sleep.h"
+#endif
+
 #ifdef VIA_ENABLE
 /* The one boundary check the ERA VIA surface has, and the reason it replaced
    thirty-three that could not fire is at the top of `era_common_via.h`. ERA
@@ -76,6 +80,12 @@ bool era_common_via_handle_system_command(uint8_t *data, uint8_t length) {
     if (era_firmware_version_handle_via_command(data, length)) {
         return true;
     }
+
+#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+    if (era_rgb_sleep_handle_via_command(data, length)) {
+        return true;
+    }
+#endif
 
 #ifdef ERA_VIA_SYSTEM_ENABLE
     return era_via_system_handle_via_command(data, length);

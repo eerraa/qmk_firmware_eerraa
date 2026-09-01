@@ -24,6 +24,8 @@ VERSION_SUBMENU = {
 }
 BRICK65_BOARD = "sirind/brick65"
 SPLIT_BOARDS = ("sirind/tomak", "sirind/tomak79h", "sirind/tomak79s")
+RGB_SLEEP_ENABLE_COMMAND = ["id_qmk_rgb_sleep_enable", 9, 12]
+RGB_SLEEP_TIMEOUT_COMMAND = ["id_qmk_rgb_sleep_timeout", 9, 10]
 
 INDICATOR_COMMANDS = {
     "linx3/n86": [
@@ -186,6 +188,46 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             submenus = [named_menu(load_json(path), "SYSTEM")["content"][0] for path in paths]
             self.assertEqual(submenus[0], VERSION_SUBMENU, paths[0].as_posix())
             self.assertEqual(submenus[0], submenus[1], board)
+
+    def test_every_rgb_board_enables_qmk_sleep_and_exposes_the_master_toggle(self) -> None:
+        actual_toggle_boards: set[str] = set()
+        expected_rgb_boards: set[str] = set()
+        for board, paths in self.board_definitions.items():
+            metadata = self.board_metadata[board]
+            features = metadata.get("features", {})
+            has_rgb = bool(features.get("rgb_matrix") or features.get("rgblight"))
+            if has_rgb:
+                expected_rgb_boards.add(board)
+                if features.get("rgb_matrix"):
+                    self.assertIs(metadata.get("rgb_matrix", {}).get("sleep"), True, f"{board}: RGB Matrix sleep must be enabled")
+                if features.get("rgblight"):
+                    self.assertIs(metadata.get("rgblight", {}).get("sleep"), True, f"{board}: RGBLight sleep must be enabled")
+            for path in paths:
+                definition = load_json(path)
+                commands = [node.get("content") for node in walk_dicts(definition)]
+                toggles = [node for node in walk_dicts(definition) if node.get("content") == RGB_SLEEP_ENABLE_COMMAND]
+                timeouts = [node for node in walk_dicts(definition) if node.get("content") == RGB_SLEEP_TIMEOUT_COMMAND]
+                if has_rgb:
+                    actual_toggle_boards.add(board)
+                    self.assertEqual(
+                        toggles,
+                        [{"label": "RGB Sleep", "type": "toggle", "content": RGB_SLEEP_ENABLE_COMMAND}],
+                        path.as_posix(),
+                    )
+                    sleep = named_submenu(definition, "SYSTEM", "SLEEP")
+                    self.assertGreaterEqual(len(sleep.get("content", [])), 1, path.as_posix())
+                    self.assertEqual(sleep["content"][0], toggles[0], path.as_posix())
+                else:
+                    self.assertEqual(toggles, [], f"{path.as_posix()}: RGB SLEEP exposed without RGB hardware feature")
+                    self.assertEqual(timeouts, [], f"{path.as_posix()}: RGB SLEEP timeout exposed without RGB hardware feature")
+
+                if board in SPLIT_BOARDS:
+                    self.assertEqual(len(timeouts), 1, path.as_posix())
+                    self.assertEqual(timeouts[0].get("showIf"), "{id_qmk_rgb_sleep_enable} == 1", path.as_posix())
+                else:
+                    self.assertEqual(timeouts, [], path.as_posix())
+
+        self.assertEqual(actual_toggle_boards, expected_rgb_boards)
 
     def test_fixed_socd_and_kkuk_modes_stay_hidden_and_control_order_is_shared(self) -> None:
         fixed_mode_commands = {

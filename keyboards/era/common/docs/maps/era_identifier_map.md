@@ -151,7 +151,7 @@ would write to the wrong channels.
 | Channel | Owner |
 | --- | --- |
 | `8` | VERSION (`system/era_firmware_version.h`). Value id `1` is `ERA_VIA_FIRMWARE_VERSION_VALUE_ID`; a custom GET returns the complete NUL-terminated ASCII `ERA_FIRMWARE_VERSION`, while SET, SAVE and every other value id remain unhandled (`system/era_firmware_version.c`) |
-| `9` | SYSTEM (`system/era_via_system.h`). Split routing in `split/era_split_keyboard.c`: system parent, RGB sleep, sync, then link |
+| `9` | SYSTEM (`system/era_via_system.h`). Common routing owns RGB Sleep master id 12 on every RGB-capable ERA board; split routing additionally owns TOMAK timeout ids 10–11, sync, then link |
 | `10` | SOCD left/right (`storage/era_eeprom_layout.h`, `features/era_socd_via.c`) |
 | `11` | SOCD up/down (same unit, other pair) |
 | `12` | KKUK (`features/era_kkuk_via.c`) |
@@ -159,7 +159,7 @@ would write to the wrong channels.
 | `14` | debounce (`features/era_debounce_via.c`) |
 | `15` | tapping (`features/era_tapping_via.c`) |
 
-SYSTEM value ids: DFU and three EEPROM-clean confirms are `1..4`; EEPROM/INPUT/RGB requested are `5..7`; link level/Apply are `8..9`; TOMAK RGB sleep preset/exact-seconds are `10..11` (`system/era_via_system.h`, `split/era_split_via_sync.h`, `split/era_split_via_link.h`, `split/era_split_keyboard.c`). The stock VIA JSON exposes id 10 as fixed 1/3/5/10/30/60-minute values. Custom VIA uses id 11 as 2-byte big-endian exact seconds, range 1..65535; stock GET projects an exact value down to the nearest supported preset without modifying storage. SOCD (both channels) and KKUK each use enable, then two data fields, then mode, starting at one. Mousekey uses six cursor/wheel fields starting at one. Debounce uses mode and three delays as values 1..4 (`features/era_debounce_via.c`). Tapping uses the legacy global term, three booleans, then the exact global term, starting at one.
+SYSTEM value ids: DFU and three EEPROM-clean confirms are `1..4`; EEPROM/INPUT/RGB requested are `5..7`; link level/Apply are `8..9`; TOMAK RGB sleep preset/exact-seconds are `10..11`; RGB Sleep master is common id `12` (`system/era_via_system.h`, `features/era_rgb_sleep.c`, `split/era_split_keyboard.c`). Every RGB-capable QMK ERA VIA definition exposes id 12. TOMAK stock VIA additionally exposes id 10 as fixed 1/3/5/10/30/60-minute values; Custom VIA uses id 11 as 2-byte big-endian exact seconds, range 1..65535. Stock GET projects an exact value down to the nearest supported preset without modifying storage. Master off gates idle timeout, explicit USB suspend, and frame-loss/host-loss RGB sleep together; its inverted persisted bit is `keymap_config.era_rgb_sleep_disabled`. SOCD (both channels) and KKUK each use enable, then two data fields, then mode, starting at one. Mousekey uses six cursor/wheel fields starting at one. Debounce uses mode and three delays as values 1..4 (`features/era_debounce_via.c`). Tapping uses the legacy global term, three booleans, then the exact global term, starting at one.
 
 **`13` was never allocated when `10`, `11`, `12`, `14` and `15` arrived**, and
 is not a retired identifier. The mouse page taking it recycles nothing. H7S

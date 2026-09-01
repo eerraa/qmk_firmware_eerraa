@@ -70,7 +70,8 @@
       "animation": "rainbow_swirl",
       "val": 127
     },
-    "led_count": 4
+    "led_count": 4,
+    "sleep": true
   },
   "usb": {
     "device_version": "1.0.1",

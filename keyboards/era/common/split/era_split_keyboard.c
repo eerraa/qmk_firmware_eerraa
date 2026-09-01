@@ -7,6 +7,7 @@
 #include "../system/era_common_via.h"
 #include "../system/era_via_system.h"
 #include "../system/era_usb_session.h"
+#include "../features/era_rgb_sleep.h"
 #include "atomic_util.h"
 #include "era_split_authority_reducer.h"
 #include "era_split_board.h"
@@ -72,9 +73,9 @@ static uint16_t era_split_keyboard_lighting_sleep_true_count;
 static uint32_t era_split_keyboard_lighting_sleep_true_ms;
 
 static bool era_split_keyboard_local_sleep_state(void) {
-    // Three independent reasons, one RGB decision: the USB stack's explicit
+    // Three reasons, one master-gated RGB decision: the USB stack's explicit
     // suspend, loss of USB frames, and the board's configured input-idle
-    // timeout. Gating this on
+    // timeout. RGB Sleep OFF suppresses all three. Gating this on
     // authority host-open made sleep impossible to sustain, because the reducer
     // deliberately closes host-open 500 ms into any sustained suspend, and that
     // remains the wrong conjunct - what is added here is a disjunct with its own
@@ -96,6 +97,7 @@ static bool era_split_keyboard_local_sleep_state(void) {
     uint16_t timeout_sec      = era_split_board_rgb_sleep_timeout_seconds();
     return era_split_rgb_sleep_policy_local_requested(explicit_suspend,
                                                        era_usb_session_frames_lost(),
+                                                       era_rgb_sleep_enabled(),
                                                        timeout_sec,
                                                        last_matrix_activity_elapsed());
 }
@@ -544,7 +546,8 @@ static bool era_split_keyboard_handle_rgb_sleep_via_command(uint8_t *data) {
         return false;
     }
     uint8_t value_id = data[2];
-    if (value_id != ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID && value_id != ERA_VIA_SYSTEM_RGB_SLEEP_EXACT_SECONDS_VALUE_ID) {
+    if (value_id != ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID &&
+        value_id != ERA_VIA_SYSTEM_RGB_SLEEP_EXACT_SECONDS_VALUE_ID) {
         return false;
     }
 

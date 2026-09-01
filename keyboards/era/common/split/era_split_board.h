@@ -39,8 +39,8 @@ void era_split_board_pre_init(void);
    pins belongs here and not after. */
 void era_split_board_post_init(void);
 
-/* Optional board-owned RGB idle-sleep setting. Zero means this split board has
-   no idle-timeout feature. The split class consumes only the scalar; storage
-   layout and migration remain the board/family owner's responsibility. */
+/* Optional board-owned RGB idle timeout. The master RGB Sleep preference is a
+   common QMK keymap-config bit; zero timeout means this split board has no
+   idle-timeout arm. */
 uint16_t era_split_board_rgb_sleep_timeout_seconds(void);
 bool     era_split_board_set_rgb_sleep_timeout_seconds(uint16_t seconds);

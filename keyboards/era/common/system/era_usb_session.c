@@ -64,6 +64,9 @@
 
 #include "era_usb_session.h"
 #include "era_usb_session_policy.h"
+#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+#    include "../features/era_rgb_sleep.h"
+#endif
 
 #include "era_board_hooks.h" /* era_board_persistence_flush_pending(), for the suspend hook below */
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
@@ -409,6 +412,9 @@ void suspend_wakeup_init_kb(void) {
 
 static void era_usb_session_apply(void) {
     bool sleep = era_usb_session_frames_lost();
+#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
+    sleep = sleep && era_rgb_sleep_enabled();
+#endif
     if (sleep == era_usb_session_applied) {
         return;
     }

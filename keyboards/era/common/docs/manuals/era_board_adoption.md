@@ -65,9 +65,10 @@ or ghosted key, not a build failure.
 **Every ERA RP2040 board runs the image from SRAM. XIP is retired** (owner
 decision). Residency is the default, not a capability a board adopts. **All
 twenty-three RP2040 boards under `keyboards/era` are on it.** `sirind/brick65`
-is atmega32u4 (2.5 KB SRAM) and a permanent exception, not a debt: it takes
-none of the ERA firmware layer. Its `post_rules.mk` includes only the common
-make-time validator and option printer.
+is atmega32u4 (2.5 KB SRAM) and remains the permanent copy-to-RAM/storage-layer
+exception. It now links only the tiny common RGB Sleep master adapter in
+addition to its build validator/option printer, so the RGB Sleep user contract
+does not need an ATmega-only exception.
 
 `system/era_sram_resident_rules.mk` is the include (linker script, marker, map,
 pre-copy window, vector defaults). A non-split board links and lays out
@@ -135,12 +136,23 @@ every feature's VIA unit for any VIA keymap. Gate:
 | split | `NO_USB_STARTUP_CHECK = yes` — `era_split_qmk_rules.mk` refuses anything else, so a PEER half keeps `keyboard_task()` running. That switch **deletes QMK's own suspend loop** (`tmk_core/protocol/chibios/chibios.c`); `era_split_keyboard.c` replaces it |
 | non-split | stock loop: `USB_DRIVER.state == USB_SUSPENDED` drives `suspend_power_down_quantum()`. Verified in cflags: `era/linx3/n86:via` carries neither `NO_USB_STARTUP_CHECK` nor `RP_USB_SYNC_SUSPEND_AFTER_REMOTE_WAKEUP_SET`, and links `suspend_power_down` and `rgb_matrix_set_suspend_state` |
 
-**The sleep decision takes two detectors on every ERA board** (owner
-decision): explicit USB suspend **and** loss of USB frames.
+**Every RGB-capable ERA board compiles its QMK sleep capability** (owner
+decision): `rgb_matrix.sleep: true` or `rgblight.sleep: true` in `keyboard.json`.
+The inventory test derives RGB presence from all 25 board definitions and fails
+if either matching sleep flag is absent. The 2026-09-01 audit found and fixed
+three omissions: `comm/classicd_core`, `comm/classicd_coreless`, and
+`sirind/brick65`.
+
+The automatic sleep decision takes two USB detectors on every ERA RP2040 board:
+explicit USB suspend **and** loss of USB frames.
 `system/era_usb_session.c` is common; the split layer ORs
 `era_usb_session_frames_lost()` into its predicate, a non-split board gets
 the arm beside QMK's loop, and both drive the same two `suspend_*_quantum()`
-entry points.
+entry points. One persisted master bit, `keymap_config.era_rgb_sleep_disabled`,
+gates RGB sleep at the actual QMK RGB suspend calls and at the frame-loss arm.
+The bit is inverted so a zeroed/default/CLEAN config means RGB Sleep ON. The
+same 2-byte QMK keymap-config domain already crosses TOMAK split storage and is
+reloaded into RAM after remote Apply. Brick65 uses the same bit in stock EEPROM.
 
 On a non-split board with `ERA_BACKLIGHT_EFFECT_ENABLE`, those same suspend
 hooks also retire any active Pulse one-shot and stop QMK's continuous Breathing
@@ -150,15 +162,16 @@ owns where it joins the non-split suspend/wake path. This is necessary because
 frame-loss sleep can leave `keyboard_task()` running, and QMK's backlight
 Breathing callback is itself a virtual-timer ISR.
 
-The TOMAK split family adds one independent presentation policy on top of those
+The TOMAK split family adds one independent presentation reason on top of those
 two USB facts: `last_matrix_activity_elapsed()` against a persisted 1..65535
 second RGB idle timeout. Its eight-byte board record had two reserved zero bytes;
-they now carry the uint16 timeout, with legacy zero normalized to the
-600-second / 10-minute default. The record is in the portable ERA_CONFIG domain, so EEPROM
-sync normally converges the setting. Runtime ownership does not: each DUAL-HOST
-half evaluates its own value/activity, while a HOST-PEER PEER consumes only the
-HOST's wire sleep fact (`split/era_split_keyboard.c`,
-`sirind/common/tomak_era_keyboard_config.h`).
+they carry the uint16 timeout, with legacy zero normalized to the 600-second /
+10-minute default. Turning the VIA master off preserves the timeout and gates
+**all three** reasons. The timeout remains in portable ERA_CONFIG; the master is
+in the separate QMK keymap-config domain, so EEPROM sync normally converges both.
+Runtime ownership does not: each DUAL-HOST half evaluates its own value/activity,
+while a HOST-PEER PEER consumes only the HOST's resolved wire sleep fact
+(`split/era_split_keyboard.c`, `features/era_rgb_sleep.c`).
 
 > **REFUSED:** routing the split apply through `suspend_power_down_quantum()`.
 > **WHY:** it would credit the render-policy flush for a frame it paints black.
@@ -194,7 +207,8 @@ the current fact on every refresh; only wire publication and diagnostics are
 edge-triggered. `era_host_peer_response.c` publishes the wire fact;
 `era_host_peer_source_snapshot.c` captures the resolver's decision. TOMAK
 STATUS/lock-indicator presentation never clears suspend; QMK's normal wake may
-clear it and the next resolver refresh reasserts any still-live SOF/idle reason.
+clear it and the next resolver refresh reasserts any still-live reason only while
+the RGB Sleep master remains on.
 
 | ChibiOS delta | Scope |
 | --- | --- |
