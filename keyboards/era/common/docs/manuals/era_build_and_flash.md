@@ -74,7 +74,7 @@ includes the first 16 hexadecimal digits of the firmware SHA-256, so a
 different uncommitted binary at the same HEAD cannot overwrite an image already
 handed to a device test.
 
-The filename contract for all twenty-three keyboards:
+The filename contract for all twenty-four keyboards:
 `<keyboard>_<keymap>_<variant>_<git10>[_dirty][_<fixed-date>]_<sha16>.<format>`,
 slashes converted to underscores. RP2040 boards produce `.uf2`; atmega32u4
 `sirind/brick65` produces `.hex`.

@@ -128,7 +128,7 @@ bool era_common_via_handle_feature_command(uint8_t *data, uint8_t length) {
    one timer serves the whole channel.
 
    The two here are the continuous ones: both ship `range` controls -- backlight
-   brightness, breathing period and blink speed; indicator brightness and colour
+   brightness, breathing period and pulse speed; indicator brightness and colour
    -- and a client dragging any of them sends a save per step. */
 void era_common_via_keyboard_channel_save(void) {
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE

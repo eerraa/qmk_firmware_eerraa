@@ -66,6 +66,9 @@
 #include "era_usb_session_policy.h"
 
 #include "era_board_hooks.h" /* era_board_persistence_flush_pending(), for the suspend hook below */
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+#    include "../features/era_backlight.h"
+#endif
 #include "quantum.h"
 #include "suspend.h"
 #include "timer.h"
@@ -379,6 +382,13 @@ void suspend_power_down_kb(void) {
      * record suspend cannot reach. A split board that ever gained a backlight
      * or an underglow surface would need this call on that side too. */
     era_board_persistence_flush_pending();
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+    /* Cancel a Pulse before QMK zeros its live backlight config. Frame-loss
+       sleep keeps keyboard_task() running, so without this state gate the
+       one-shot callback could otherwise re-light the rail after QMK darkened
+       it. */
+    era_backlight_suspend();
+#endif
     era_usb_session_applied = true;
     suspend_power_down_user();
 }
@@ -390,6 +400,10 @@ void suspend_wakeup_init_kb(void) {
        split board deletes that loop with NO_USB_STARTUP_CHECK. There the
        sampler never stops, so there is no frozen age to restamp. */
     era_usb_session_note_resume();
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+    /* QMK restored the stored backlight level before reaching this kb hook. */
+    era_backlight_resume();
+#endif
     suspend_wakeup_init_user();
 }
 

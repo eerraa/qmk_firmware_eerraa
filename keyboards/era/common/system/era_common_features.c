@@ -21,8 +21,8 @@
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
 #    include "../features/era_backlight.h"
 #endif
-#ifdef ERA_BACKLIGHT_ALWAYS_ON
-#    include "../features/era_backlight_always_on.h"
+#ifdef ERA_BACKLIGHT_LOCK_ENABLE
+#    include "../features/era_backlight_lock.h"
 #endif
 #ifdef ERA_RGB_INDICATOR_ENABLE
 #    include "../features/era_rgb_indicator.h"
@@ -65,11 +65,11 @@ void era_common_features_init(void) {
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
     era_backlight_init();
 #endif
-#ifdef ERA_BACKLIGHT_ALWAYS_ON
+#ifdef ERA_BACKLIGHT_LOCK_ENABLE
     /* Before `backlight_init()`, which is what makes it enough to repair the
        stored block and touch no hardware -- the unit's own header has the
        positions. */
-    era_backlight_always_on_init();
+    era_backlight_lock_init();
 #endif
 #ifdef ERA_RGB_INDICATOR_ENABLE
     era_rgb_indicator_init();
@@ -94,6 +94,9 @@ void era_common_features_reload_from_eeprom(void) {
 #endif
 #ifdef ERA_MOUSEKEY_CONFIG_ENABLE
     era_mousekey_reload_from_eeprom();
+#endif
+#ifdef ERA_BACKLIGHT_LOCK_ENABLE
+    era_backlight_lock_init();
 #endif
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
     era_backlight_reload_from_eeprom();
@@ -157,10 +160,18 @@ bool era_common_features_process_record(uint16_t keycode, keyrecord_t *record) {
         return false;
     }
 #endif
+#ifdef ERA_BACKLIGHT_LOCK_ENABLE
+    /* The lock policy owns backlight keycodes that could persist an off state.
+       Put it before the Pulse observer so a refused BL_OFF/zero-step does not
+       also look like a physical Pulse trigger. */
+    if (!era_backlight_lock_process_record(keycode, record)) {
+        return false;
+    }
+#endif
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-    /* Last, and it never refuses: it watches the edge for the blink effects
+    /* Last, and it never refuses: it watches the edge for the Pulse effects
        and consumes no keycode, so an earlier feature that swallows a record
-       correctly suppresses the blink with it. */
+       correctly suppresses the Pulse with it. */
     if (!era_backlight_process_record(keycode, record)) {
         return false;
     }

@@ -7,9 +7,9 @@ row, and symbol name stays canonical in the documents this file points to.
 
 ## What ERA Is
 
-Every board under `keyboards/era` is an ERA board. Twenty-two RP2040 boards
+Every board under `keyboards/era` is an ERA board. Twenty-three RP2040 boards
 take the whole ERA firmware layer; `sirind/brick65` (atmega32u4) takes none
-of that firmware — a permanent runtime exception, not a debt. All twenty-three
+of that firmware — a permanent runtime exception, not a debt. All twenty-four
 share one automated-build identity under `keyboards/era/common/`. Every RP2040
 board runs the image from SRAM
 (`manuals/era_board_adoption.md`'s **Copy-To-RAM Policy**).

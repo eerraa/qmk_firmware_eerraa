@@ -54,7 +54,7 @@ or ghosted key, not a build failure.
 
 **Every ERA RP2040 board runs the image from SRAM. XIP is retired** (owner
 decision). Residency is the default, not a capability a board adopts. **All
-twenty-two RP2040 boards under `keyboards/era` are on it.** `sirind/brick65`
+twenty-three RP2040 boards under `keyboards/era` are on it.** `sirind/brick65`
 is atmega32u4 (2.5 KB SRAM) and a permanent exception, not a debt: it takes
 none of the ERA firmware layer. Its `post_rules.mk` includes only the common
 make-time validator and option printer.
@@ -132,6 +132,14 @@ decision): explicit USB suspend **and** loss of USB frames.
 the arm beside QMK's loop, and both drive the same two `suspend_*_quantum()`
 entry points.
 
+On a non-split board with `ERA_BACKLIGHT_EFFECT_ENABLE`, those same suspend
+hooks also retire any active Pulse one-shot and stop QMK's continuous Breathing
+virtual timer before the generic suspend path drives the PWM rail to zero.
+`features/era_backlight.c` owns that effect state; `system/era_usb_session.c`
+owns where it joins the non-split suspend/wake path. This is necessary because
+frame-loss sleep can leave `keyboard_task()` running, and QMK's backlight
+Breathing callback is itself a virtual-timer ISR.
+
 The TOMAK split family adds one independent presentation policy on top of those
 two USB facts: `last_matrix_activity_elapsed()` against a persisted 1..65535
 second RGB idle timeout. Its eight-byte board record had two reserved zero bytes;
@@ -187,9 +195,9 @@ clear it and the next resolver refresh reasserts any still-live SOF/idle reason.
 board; that measurement is owed, and this paragraph is the only place it is
 written down.
 
-Hardware families from the 23 `keyboard.json` files. VIA protocol channels
+Hardware families from the 24 `keyboard.json` files. VIA protocol channels
 are `quantum/via.h` (`id_qmk_backlight_channel` 1, `id_qmk_rgblight_channel`
-2, `id_qmk_rgb_matrix_channel` 3). JSON homes are the 26 `*-VIA.json` files
+2, `id_qmk_rgb_matrix_channel` 3). JSON homes are the 27 `*-VIA.json` files
 beside each `via` keymap, identical in lighting commands and `qmk_*` string
 aliases to `the-via-eerraa/era-definitions/custom/v3` (peer extra: five H7S
 definitions, not QMK boards).
@@ -197,21 +205,26 @@ definitions, not QMK boards).
 | Family | Boards | Protocol | JSON home |
 | --- | --- | --- | --- |
 | RGB Matrix | 10 | channel 3, `id_qmk_rgb_matrix_*` | expanded channel-3 commands: `sirind/tomak` (six half files), `sirind/chickpad`, `linx3/fave65s`. String alias `"qmk_rgb_matrix"`: `sirind/brick65`, `linx3/n86`, `linx3/n87`, `sirind/klein_sd`. Indicator LEDs only, no RGB-matrix menu: `sirind/brick65s` |
-| PWM backlight | 11 | channel 1, `id_qmk_backlight_*` | none of the 26 files contain `id_qmk_backlight_*`. Eight effect boards use keyboard channel 0, ids `0..3` (`id_custom_backlight_*`, `id_custom_breathing_period`, `id_custom_blink_speed`) |
-| RGBLIGHT | 5 | channel 2, `id_qmk_rgblight_*` | channel 2 `id_qmk_rgblight_*` on `newone/odessey60s`, `newone/odessey60h`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless` |
+| PWM backlight | 12 | channel 1, `id_qmk_backlight_*` | none of the 27 files contain `id_qmk_backlight_*`. Nine effect boards use keyboard channel 0, ids `0..3` (`id_custom_backlight_*`, `id_custom_breathing_period`, `id_custom_blink_speed`); the string name of id 3 is legacy, its UI meaning is Pulse Speed |
+| RGBLIGHT | 6 | channel 2, `id_qmk_rgblight_*` | channel 2 `id_qmk_rgblight_*` on `newone/odessey60s`, `newone/odessey60h`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`, `comm/7b75`. The last is physically a top badge and its VIA label is `RGB Badge`, not Underglow |
 
 Two-family: `sirind/klein_sd` (backlight + per-key matrix),
 `comm/classicd_a1_ug` / `classicd_core` / `classicd_coreless` (backlight +
-underglow). `newone/h1` is in none. Family conversion is an owner decision.
+underglow), and `comm/7b75` (indicator-supply backlight + RGB badge).
+`newone/h1` is in none. Family conversion is an owner decision.
 
 **The ERA RGB improvements are RGB_MATRIX-only**
 (`RGB_MATRIX_RENDER_POLICY`, independent indicators, deferred config flush).
 
 Three boards take no PWM-backlight VIA menu: `divine`, `sirind/klein_hs` and
 `sirind/klein_sd` (owner decision 2026-08-18). **Answering no is more than
-deleting the menu:** `ERA_BACKLIGHT_ALWAYS_ON` repairs a stored `enable = 0`
-before `backlight_init()` reads it. Brightness is `BACKLIGHT_DEFAULT_LEVEL`
-in that board's `config.h`. `klein_sd` still ships `"qmk_rgb_matrix"`.
+deleting the menu:** `ERA_BACKLIGHT_LOCK_ENABLE` repairs a stored disabled or
+zero-level block before `backlight_init()` reads it and refuses QMK backlight
+keycodes that would persist the rail below level 1. Brightness is
+`BACKLIGHT_DEFAULT_LEVEL` in that board's `config.h`. `klein_sd` still ships
+`"qmk_rgb_matrix"`. `comm/7b75` deliberately combines that same lock policy
+with the common effect menu: id 0 is labelled `Indicator Brightness` and ranges
+1..10, while Pulse and USB sleep may still drive the live PWM duty to zero.
 
 **The lighting-surface rule:** a lighting surface past VIA's own channel
 (RGB-matrix 3 / RGBLIGHT 2 / backlight 1) goes one of two homes. The common
@@ -220,7 +233,7 @@ backlight feature's wherever `ERA_BACKLIGHT_EFFECT_ENABLE` is on.
 
 | Home | When | Files / ids |
 | --- | --- | --- |
-| common feature | family behaviour | `features/era_backlight_via.h` ids `0..3` behind `ERA_BACKLIGHT_EFFECT_ENABLE` (eight boards: `era65`, `linx3/n8x`, `newone/a1`, `comm/et_tkl`, `comm/classicd_a1`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`). `features/era_rgb_indicator_via.h` ids `6..12` behind `ERA_RGB_INDICATOR_ENABLE`: `linx3/n86` and `linx3/n87` answer `6..12`; `sirind/brick65s` answers `7..12`; `linx3/fave65s` answers `7..9` |
+| common feature | family behaviour | `features/era_backlight_via.h` ids `0..3` behind `ERA_BACKLIGHT_EFFECT_ENABLE` (nine boards: `era65`, `linx3/n8x`, `newone/a1`, `comm/et_tkl`, `comm/classicd_a1`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`, `comm/7b75`). `features/era_rgb_indicator_via.h` ids `6..12` behind `ERA_RGB_INDICATOR_ENABLE`: `linx3/n86` and `linx3/n87` answer `6..12`; `sirind/brick65s` answers `7..12`; `linx3/fave65s` answers `7..9` |
 | board hooks | one product | weak `era_board_via_get_value()` / `era_board_via_set_value()` in `system/era_board_hooks.c`. Overriders: `sirind/common/tomak_common.c` ids `0..4`; `newone/common/odessey_common.c` ids `1..4` |
 
 A continuous lighting control's persistence is deferred by the gate that owns
@@ -274,7 +287,7 @@ What a new ERA board needs, whole:
 
 **A board `.c` is not required.** The class skeleton owns the QMK hooks every
 board of a class would otherwise wire identically. No non-split board keeps a
-`.c`; the nineteen RP2040 ones are the check.
+`.c`; the twenty RP2040 ones are the check.
 
 | Class | File | Six hooks |
 | --- | --- | --- |
@@ -295,9 +308,9 @@ source is `the-via-eerraa/era-definitions/custom/v3`; official ownership is
 `the-via/keyboards/v3`. QMK-local `*-VIA.json` files are usevia.app-compatible
 Draft Definitions: do not add Custom VIA-only controls. **Every board has a
 local copy** — a split board has two, one per half — as `<BOARD>-VIA.json`
-beside the `via` keymap (26 = 23 + 3). Lighting commands and `qmk_*` string
-aliases match the 26 peer v3 files of the same names. `FEATURE_COVERAGE` in
-`the-via-eerraa/tests/era-definition.test.ts` matches those 26 for
+beside the `via` keymap (27 = 24 + 3). Lighting commands and `qmk_*` string
+aliases match the 27 peer v3 files of the same names. `FEATURE_COVERAGE` in
+`the-via-eerraa/tests/era-definition.test.ts` matches those 27 for
 `id_qmk_mousekey`, `id_qmk_custom_nkro`, `id_qmk_split_link` and
 `id_qmk_eeprom_sync` (`sirind/brick65` is in none: stock VIA, RGB-matrix
 alias only). The Draft/app delta is tap-dance terms (QMK legacy ids

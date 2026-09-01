@@ -97,7 +97,7 @@ band, not by owner: `era_common_via_handle_keyboard_channel_command()` in
 
 | Band | Owner |
 | --- | --- |
-| `0..3` | PWM backlight effect layer — brightness, effect, breathing period, blink speed (`features/era_backlight_via.h`), only where `ERA_BACKLIGHT_EFFECT_ENABLE` is on |
+| `0..3` | PWM backlight effect layer — brightness, effect, breathing period, Pulse speed (`features/era_backlight_via.h`), only where `ERA_BACKLIGHT_EFFECT_ENABLE` is on. Value id 3 keeps the legacy VIA string alias `id_custom_blink_speed`; its user meaning is Pulse Speed. On `comm/7b75`, id 0 is labelled `Indicator Brightness` and the lock policy constrains it to 1..10 |
 | `0..4` | otherwise a board's own, through the weak `era_board_via_get_value`/`_set_value` pair: tomak family `0..4` (lock indicator, override, brightness, colour, badge-only) in `sirind/common/tomak_common.h`; odessey `1..4` (indicator select, brightness, colour, Velocikey; id `0` unused) in `newone/common/odessey_common.h` |
 | `5` | NKRO toggle. `ERA_VIA_NKRO_ENABLE_VALUE_ID` is 5 (`features/era_nkro_via.h`). Twenty-five RP2040 VIA JSON files address `["id_qmk_custom_nkro_enable", 0, 5]`. `sirind/brick65` has no FEATURE menu |
 | `6..12` | RGB Matrix lock-indicator slots — master enable, then source, brightness, colour per slot (`features/era_rgb_indicator_via.h`), only where `ERA_RGB_INDICATOR_ENABLE` is on. A one-slot board answers `6..9` and declines `10..12` |

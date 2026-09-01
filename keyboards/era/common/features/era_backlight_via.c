@@ -18,7 +18,7 @@
  * behavioural reason are named at `era_common_via.h`. */
 
 bool era_backlight_via_is_value_id(uint8_t value_id) {
-    return value_id <= ERA_VIA_BACKLIGHT_BLINK_SPEED_VALUE_ID;
+    return value_id <= ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID;
 }
 
 static bool era_backlight_via_get_value(uint8_t *value_id_and_data) {
@@ -35,8 +35,8 @@ static bool era_backlight_via_get_value(uint8_t *value_id_and_data) {
         case ERA_VIA_BACKLIGHT_BREATHING_PERIOD_VALUE_ID:
             *value_data = era_backlight_get_breathing_period();
             return true;
-        case ERA_VIA_BACKLIGHT_BLINK_SPEED_VALUE_ID:
-            *value_data = era_backlight_get_blink_speed();
+        case ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID:
+            *value_data = era_backlight_get_pulse_speed();
             return true;
         default:
             return false;
@@ -54,7 +54,18 @@ static bool era_backlight_via_set_value(uint8_t *value_id_and_data) {
                dragging the slider sends a set per step, and the eeprom-writing
                form would put a flash write behind each one. */
             uint8_t previous = get_backlight_level();
-            backlight_level_noeeprom(value_data[0]);
+            uint8_t next     = value_data[0];
+#ifdef ERA_BACKLIGHT_LOCK_ENABLE
+            if (next == 0) {
+                next = 1;
+            }
+#endif
+            backlight_level_noeeprom(next);
+            /* The QMK setter writes the hardware immediately. Pulse On is
+               normally dark, and an active Pulse Off is deliberately dark, so
+               restore the effect-owned output before returning to VIA. */
+            era_backlight_refresh_output();
+            value_data[0] = get_backlight_level();
             if (previous != get_backlight_level()) {
                 era_state_sync_note_config_semantic_commit(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, ERA_EEPROM_BACKLIGHT_CONFIG_SIZE);
             }
@@ -71,8 +82,8 @@ static bool era_backlight_via_set_value(uint8_t *value_id_and_data) {
         case ERA_VIA_BACKLIGHT_BREATHING_PERIOD_VALUE_ID:
             era_backlight_set_breathing_period(value_data[0]);
             return true;
-        case ERA_VIA_BACKLIGHT_BLINK_SPEED_VALUE_ID:
-            era_backlight_set_blink_speed(value_data[0]);
+        case ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID:
+            era_backlight_set_pulse_speed(value_data[0]);
             return true;
         default:
             return false;

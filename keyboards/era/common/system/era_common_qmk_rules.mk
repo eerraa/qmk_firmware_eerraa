@@ -147,19 +147,12 @@ ifeq ($(strip $(ERA_BACKLIGHT_EFFECT_ENABLE)), yes)
     ERA_COMMON_VIA_SRCS += keyboards/era/common/features/era_backlight_via.c
 endif
 
-ifeq ($(strip $(ERA_BACKLIGHT_ALWAYS_ON)), yes)
+ifeq ($(strip $(ERA_BACKLIGHT_LOCK_ENABLE)), yes)
     ifneq ($(strip $(BACKLIGHT_ENABLE)), yes)
-        $(error ERA_BACKLIGHT_ALWAYS_ON is a rule about QMK's backlight; there is no backlight on this board to hold on)
+        $(error ERA_BACKLIGHT_LOCK_ENABLE is a rule about QMK's backlight; there is no backlight on this board to keep enabled)
     endif
-    # Refused as a pair rather than left to compose, because the two are
-    # contradictory claims about one pin: the effect layer's keypress blinks
-    # drive the rail to zero on purpose, which is exactly what this says the
-    # rail may never be.
-    ifeq ($(strip $(ERA_BACKLIGHT_EFFECT_ENABLE)), yes)
-        $(error ERA_BACKLIGHT_ALWAYS_ON and ERA_BACKLIGHT_EFFECT_ENABLE describe the same pin as an indicator supply and as a backlight; a board picks one)
-    endif
-    OPT_DEFS += -DERA_BACKLIGHT_ALWAYS_ON
-    SRC += keyboards/era/common/features/era_backlight_always_on.c
+    OPT_DEFS += -DERA_BACKLIGHT_LOCK_ENABLE
+    SRC += keyboards/era/common/features/era_backlight_lock.c
 endif
 
 ifeq ($(strip $(ERA_RGB_INDICATOR_ENABLE)), yes)

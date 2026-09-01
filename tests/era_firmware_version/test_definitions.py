@@ -108,14 +108,14 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             cls.board_definitions[board] = sorted((board_dir / "keymaps" / "via").glob("*-VIA.json"))
 
     def test_inventory_count_and_brick65_exclusion(self) -> None:
-        self.assertEqual(len(self.board_jsons), 23)
-        self.assertEqual(len(self.board_definitions), 23)
-        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 26)
+        self.assertEqual(len(self.board_jsons), 24)
+        self.assertEqual(len(self.board_definitions), 24)
+        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 27)
 
         rp2040_boards = [board for board, metadata in self.board_metadata.items() if metadata.get("processor") == "RP2040"]
-        self.assertEqual(len(rp2040_boards), 22)
+        self.assertEqual(len(rp2040_boards), 23)
         self.assertEqual(set(self.board_metadata) - set(rp2040_boards), {BRICK65_BOARD})
-        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 25)
+        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 26)
 
         for board, paths in self.board_definitions.items():
             split = bool(self.board_metadata[board].get("split", {}).get("enabled"))
@@ -139,7 +139,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual(matching_controls, [VERSION_CONTROL], path.as_posix())
                 checked += 1
 
-        self.assertEqual(checked, 25)
+        self.assertEqual(checked, 26)
 
     def test_split_left_and_right_version_controls_match(self) -> None:
         for board in SPLIT_BOARDS:
