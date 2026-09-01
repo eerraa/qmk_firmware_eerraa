@@ -187,10 +187,7 @@ compile-time count/raw hooks may be scan-bound.
 | `system/era_show_options.mk` | derived ERA option printer (`ERA_SHOW_OPTIONS=yes`); included last from post_rules |
 | `system/era_rgb_matrix_rules.mk` | per-board RGB Matrix render-policy `OPT_DEFS` and sub-option refusals. RGB Matrix only |
 | `tools/era_qmk_build.sh` | automation-only explicit-target QMK clean build, identity checks, copy-to-RAM gate, and labelled artifact capture |
-| `release/260901R1.json`, `release/260901R1-tooling.md` | immutable 260901R1 board/package inventory and its receipt/package/verification procedure. This is versioned release input, not an agent-document genre |
-| `tools/era_release_260901R1_lib.py`, `tools/era_release_260901R1_receipt.py`, `tools/era_release_260901R1_package.py`, `tools/era_release_260901R1_verify.py` | fresh-manifest receipts, ELF VERSION witness, deterministic per-keyboard UF2/ZIP packaging, app-validator provenance, extraction and byte-equality verification. WSL host adapters: `.claude/tools/era-release-260901R1-build.sh`, `.claude/tools/era-release-260901R1-via-validator.sh` |
 | `tests/era_build_variant_rules/` | make-time proof of canonical variant tuples, overrides, non-split `standard`, diagnostic refusal, and retired profile rejection |
-| `tests/era_release_260901R1/` | host proof of the versioned inventory, receipt, package, external-validator and negative verification gates; it compiles no firmware |
 | `tests/era_nvm/` | fault-injection proof of the production A/B format and NVM engine |
 | `tests/era_nvm_qmk_driver/` | stock-QMK-facing adapter integration |
 | `tests/era_rp2040_matrix_pio/` | host proof of `system/era_rp2040_matrix_pio_frame.h` |

@@ -85,7 +85,6 @@ make test:wear_leveling_8byte
 make test:era_rp2040_matrix_pio
 bash tests/era_build_variant_rules/test_variant_rules.sh
 python tests/era_firmware_version/test_definitions.py
-python -B tests/era_release_260901R1/test_release.py
 ```
 
 | Test | Pins |
@@ -102,7 +101,6 @@ python -B tests/era_release_260901R1/test_release.py
 | `era_split_rgb_sleep_policy` | local sleep is the OR of explicit suspend, frame loss, and matrix-idle timeout; zero disables only the optional idle term; stock preset validation is exactly 1/3/5/10/30/60 minutes; exact seconds project down on GET without modifying storage. Tests `split/era_split_rgb_sleep_policy.h` |
 | `era_via_exact_ms` | State Sync envelope, unsupported-version once, 7-storage-to-3-UI domain map, revision wrap skips zero, exact-ms / tap-dance / legacy grid, Jump-to-BOOT SET/SAVE/State-Sync/RAW-IN lifecycle + fallback, local CLEAN quiet-gate regression |
 | `era_firmware_version` | exact compile-time identity, complete NUL-terminated custom-GET payload, VIA-only common-router claim, and unchanged-buffer refusal of SET, SAVE and invalid addresses. Its definition script derives the 25-board inventory, requires the exact label binding on all 27 RP2040 JSON files, excludes Brick65, compares split L/R controls, pins the three common RGB-Matrix indicator wrappers, locks Riley's RGBLight/three-slot indicator surface, rejects fixed SOCD/KKUK mode rows, and locks KKUK/TAPPING control order |
-| `era_release_260901R1` | Git-derived 22-board/25-definition inventory, clean fixed-date build-manifest and ELF VERSION receipts, exact split/non-split ZIP surfaces, deterministic metadata/rebuild, app-validator commit/blob binding, and refusal of dirty refs, stale evidence, tamper and traversal. It performs no keyboard build; the versioned release adapter supplies those 22 evidence builds |
 | `era_rgb_matrix_persistence` | deferred RGB Matrix save gate and ERA render-policy refresh. A policy edge stays refresh-active from its external request through the replacement PWM flush (or until the policy proves no frame is needed), which keeps opportunistic NVM bank erasure out of a split STATUS transition |
 | `era_backlight_pulse` | production Backlight effect and lock units with a deterministic ChibiOS virtual-timer shim: Pulse Off/On expiry and repeated re-arm, short/long Hold, overlapping keys held through the last release, active-mode switch, brightness refresh, Pulse and Breathing suspend/resume, EEPROM save/reload, lock-keycode floor/off refusal and boot-time repair of a stored disabled block |
 | `era_riley_rgb_indicator` | production Riley RGBLight-layer unit at the renderer boundary: all three RGB-Effect slots, Caps/Scroll/Num combinations, Indicator-Only black/inherit policy, per-slot brightness/colour, active-lock mode switch, effect recovery, runtime sleep/disabled non-wake, boot-only repair of persistent RGB-off, exact ten-byte EEPROM save/reload/CLEAN defaults, independent GP25 Caps LED and Velocikey |
