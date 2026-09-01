@@ -163,6 +163,7 @@ are canonical in `era_board_adoption.md`.
 | `system/era_firmware_version.[ch]` | canonical compile-time `ERA_FIRMWARE_VERSION`, stable `era_firmware_version[]` ELF symbol, and read-only custom-VIA GET on channel 8, value id 1. It owns no runtime or stored state |
 | `system/era_via_system.[ch]` | ERA system VIA router and task: deferred Jump-to-BOOT lifecycle (SET -> SAVE -> State Sync -> RAW IN drain, with bounded missing-phase fallback), EEPROM CLEAN confirm mask, the one restart-quiet policy, `era_via_system_restart_quiet_ok()`, and `era_via_system_eeprom_invalidate()`. Split clean hand-off: `split/era_split_keyboard.c` |
 | `keyboards/era/newone/common/odessey_common.[ch]` | odessey family board content for `odessey60h` and `odessey60s`. Neither board keeps a `.c` |
+| `keyboards/era/comm/riley/riley_common.[ch]` | Riley-only three-slot RGBLight lock-indicator policy, ten-byte existing-seat EEPROM record, GP25 Caps LED preservation, persistent RGB-off refusal/boot repair, Velocikey and keyboard-channel ids `13..23`. Uses native `RGBLIGHT_LAYERS`, not the RGB Matrix common indicator unit |
 
 ## Diagnostics
 
@@ -204,6 +205,7 @@ compile-time count/raw hooks may be scan-bound.
 | `tests/era_via_exact_ms/` | host proof of exact-ms tapping/tapdance round-trip, State Sync `0x06` envelope mapping, and VIA system Jump-to-BOOT terminal lifecycle/fallback |
 | `tests/era_firmware_version/` | host proof of the compile-time VERSION payload and GET-only common routing; definition proof of the RP2040 JSON inventory, exact VERSION binding, split L/R equality, Brick65 exclusion, the three indicator wrappers, hidden fixed SOCD/KKUK mode rows, and shared KKUK/TAPPING control order |
 | `tests/era_rgb_matrix_persistence/` | host proof of deferred RGB eeconfig quiet flush |
+| `tests/era_riley_rgb_indicator/` | host proof of Riley's production RGBLight-layer policy, per-slot lock/colour/brightness behavior, Indicator-Only, sleep non-wake, exact EEPROM span/defaults, GP25 Caps LED path and Velocikey |
 | `tools/era_qmk_fixed_builddate_wrapper.sh` | explicit fixed-magic test-only `QMK_BUILDDATE` generation override |
 | `tools/era_core1_stack_walk.py` | ELF gate's core1 stack disassembly walk. Changing its method invalidates every figure taken with it |
 | `tools/era_doc_refs.py` | read-only locatability check over the agent document layer and ERA source comments. It cannot tell whether a claim is still true |

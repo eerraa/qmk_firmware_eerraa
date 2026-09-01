@@ -131,6 +131,11 @@ VIA의 SAVE + LOAD에서 미리 백업하십시오.
    VIA CONFIGURE -> LIGHTING에서 밝기, 효과, 속도와 색을 조정합니다.
    키보드에 따라 Backlight, RGB Matrix, Underglow, INDICATOR 중 지원하는
    메뉴만 보입니다. INDICATOR는 Caps/Scroll/Num Lock 표시를 지정합니다.
+   Riley에서는 RGB1/2/3가 각각 IND1/2/3입니다. Mode가 RGB Effect이면 일반
+   RGB 효과에 계속 참여합니다. Caps/Scroll/Num을 고르면 해당 Lock이 켜졌을
+   때 Indicator Brightness/Color가 효과를 덮어씁니다. Indicator-Only를 켜면
+   Lock이 꺼진 indicator LED만 어두워지고, RGB Effect로 지정한 LED는 계속
+   효과를 표시합니다. 절전/USB suspend/host loss에서는 indicator도 꺼집니다.
 
 ■ EEPROM CLEAN
    키맵과 모든 설정을 초기화합니다.
@@ -272,6 +277,11 @@ Key Features
    Adjust brightness, effects, speed, and colour in VIA CONFIGURE -> LIGHTING.
    Only the supported Backlight, RGB Matrix, Underglow, and INDICATOR menus
    appear. INDICATOR assigns Caps, Scroll, or Num Lock status LEDs.
+   On Riley, RGB1/2/3 map to IND1/2/3. RGB Effect keeps that LED in the normal
+   RGBLight animation. Caps/Scroll/Num overrides it with that slot's Indicator
+   Brightness and Color while the selected lock is active. Indicator-Only makes
+   inactive lock-indicator LEDs dark, but never removes RGB Effect from a slot.
+   Sleep, USB suspend, and host loss still turn the indicators off.
 
 ■ EEPROM CLEAN
    Erases the keymap and every setting.

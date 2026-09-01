@@ -100,15 +100,15 @@ or boot menu cannot read the keyboard.
 
 ## Boards and VIA
 
-24 boards with a `keyboard.json` all have `features.nkro` true. The VIA
-toggle compiles on 23: under `VIA_ENABLE`, `NKRO_ENABLE = yes` adds
+25 boards with a `keyboard.json` all have `features.nkro` true. The VIA
+toggle compiles on 24: under `VIA_ENABLE`, `NKRO_ENABLE = yes` adds
 `features/era_nkro_via.c` and `-DERA_NKRO_VIA_ENABLE`
 (`system/era_common_qmk_rules.mk`). `sirind/brick65/post_rules.mk` includes
 only build-name and option-print rules — the atmega32u4 permanent exception
-— and `sirind/brick65/keymaps/via/BRICK65-VIA.json` has no FEATURE menu. 27 `*-VIA.json` files (three
-splits ship L/R); 26 carry the NKRO menu. Value id
+— and `sirind/brick65/keymaps/via/BRICK65-VIA.json` has no FEATURE menu. 28 `*-VIA.json` files (three
+splits ship L/R); 27 carry the NKRO menu. Value id
 `ERA_VIA_NKRO_ENABLE_VALUE_ID` 5 (`features/era_nkro_via.h`) on
-`id_custom_channel` (0). Every one of those 26 files addresses it as
+`id_custom_channel` (0). Every one of those 27 files addresses it as
 `["id_qmk_custom_nkro_enable", 0, 5]`.
 
 `features/era_nkro_via.c` is an adapter: it owns no state and writes QMK's
@@ -117,7 +117,7 @@ splits ship L/R); 26 carry the NKRO menu. Value id
 change is not reported in one format and released in the other. There is no
 `id_custom_save` arm.
 
-The same 25 files label the FEATURE submenu `KKUK` (no `Anti-Ghosting`) and
+The same 27 files label the FEATURE submenu `KKUK` (no `Anti-Ghosting`) and
 expose only `Enable`, `First Delay Time`, and `Repeat Time`. The firmware's
 only legal mode remains `ERA_KKUK_MODE_REPORT_PULSE` 1
 (`features/era_kkuk.h`). Value id 4 is retained in

@@ -108,14 +108,14 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             cls.board_definitions[board] = sorted((board_dir / "keymaps" / "via").glob("*-VIA.json"))
 
     def test_inventory_count_and_brick65_exclusion(self) -> None:
-        self.assertEqual(len(self.board_jsons), 24)
-        self.assertEqual(len(self.board_definitions), 24)
-        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 27)
+        self.assertEqual(len(self.board_jsons), 25)
+        self.assertEqual(len(self.board_definitions), 25)
+        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 28)
 
         rp2040_boards = [board for board, metadata in self.board_metadata.items() if metadata.get("processor") == "RP2040"]
-        self.assertEqual(len(rp2040_boards), 23)
+        self.assertEqual(len(rp2040_boards), 24)
         self.assertEqual(set(self.board_metadata) - set(rp2040_boards), {BRICK65_BOARD})
-        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 26)
+        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 27)
 
         for board, paths in self.board_definitions.items():
             split = bool(self.board_metadata[board].get("split", {}).get("enabled"))
@@ -139,7 +139,45 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual(matching_controls, [VERSION_CONTROL], path.as_posix())
                 checked += 1
 
-        self.assertEqual(checked, 26)
+        self.assertEqual(checked, 27)
+
+    def test_riley_rgb_effect_and_three_lock_slots_match_firmware_ids(self) -> None:
+        [path] = self.board_definitions["comm/riley"]
+        definition = load_json(path)
+        rgb = named_submenu(definition, "Lighting", "RGBLight")
+        indicator = named_submenu(definition, "Lighting", "INDICATOR")
+
+        effect = next(
+            node
+            for node in rgb.get("content", [])
+            if isinstance(node, dict) and node.get("content") == ["id_qmk_rgblight_effect", 2, 2]
+        )
+        self.assertNotIn("All Off", json.dumps(effect.get("options")))
+        self.assertNotIn(0, [option[1] for option in effect.get("options", [])])
+
+        expected = [
+            ("Indicator-Only", ["id_qmk_custom_riley_indicator_only", 0, 22]),
+            ("IND1 Mode", ["id_qmk_custom_riley_ind1_mode", 0, 13]),
+            ("IND1 Indicator Brightness", ["id_qmk_custom_riley_ind1_brightness", 0, 14]),
+            ("IND1 Indicator Color", ["id_qmk_custom_riley_ind1_color", 0, 15]),
+            ("IND2 Mode", ["id_qmk_custom_riley_ind2_mode", 0, 16]),
+            ("IND2 Indicator Brightness", ["id_qmk_custom_riley_ind2_brightness", 0, 17]),
+            ("IND2 Indicator Color", ["id_qmk_custom_riley_ind2_color", 0, 18]),
+            ("IND3 Mode", ["id_qmk_custom_riley_ind3_mode", 0, 19]),
+            ("IND3 Indicator Brightness", ["id_qmk_custom_riley_ind3_brightness", 0, 20]),
+            ("IND3 Indicator Color", ["id_qmk_custom_riley_ind3_color", 0, 21]),
+        ]
+        self.assertEqual(
+            [(node.get("label"), node.get("content")) for node in indicator.get("content", [])],
+            expected,
+        )
+
+        for slot in (1, 2, 3):
+            mode = next(node for node in indicator["content"] if node.get("label") == f"IND{slot} Mode")
+            self.assertEqual(
+                mode.get("options"),
+                [["RGB Effect", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]],
+            )
 
     def test_split_left_and_right_version_controls_match(self) -> None:
         for board in SPLIT_BOARDS:

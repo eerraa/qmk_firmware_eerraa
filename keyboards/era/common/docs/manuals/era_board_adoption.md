@@ -24,6 +24,16 @@ board's `config.h`.
 | 4 | `VIA_EEPROM_MAGIC_ADDR == ERA_EEPROM_CONFIG_END`, and the non-VIA build's `DYNAMIC_KEYMAP_EEPROM_ADDR` equivalent | yes | the layout-options-at-296 and keymap-at-297 asserts |
 | 5 | the board's own config struct fits `ERA_EEPROM_KEYBOARD_CONFIG_SIZE` (8 bytes) | no, named | a `_Static_assert` beside the struct — `sirind/common/tomak_era_keyboard_config.h` is the shape to copy |
 
+`comm/riley` is a non-split exception to using that eight-byte board seat as a
+standalone record: its three RGBLight indicator HSV values need ten bytes after
+the three 2-bit modes, Indicator-Only bit and validity bit are packed. Riley
+therefore owns the existing eight-byte `ERA_EEPROM_RGB_INDICATOR_CONFIG` seat
+plus the first two bytes of its board seat as one ten-byte record. Static
+asserts in `comm/riley/riley_common.c` keep the record below
+`ERA_EEPROM_SYNCABLE_RESERVED_OFFSET`. The reserve size, protected RESET KEY
+range, ERA_CONFIG domain width, State Sync format and split storage/wire schema
+do not change; this one-product use is not a new split-adoption template.
+
 **An include and not variables.** The parts fail as a set; `VIA_EEPROM_MAGIC_ADDR`
 takes a macro from `era_eeprom_layout.h` that QMK units read with no ERA header.
 `era_split_qmk_rules.mk` declines `ERA_SPLIT_EEPROM_SYNC_ENABLE = yes` on a
@@ -195,9 +205,9 @@ clear it and the next resolver refresh reasserts any still-live SOF/idle reason.
 board; that measurement is owed, and this paragraph is the only place it is
 written down.
 
-Hardware families from the 24 `keyboard.json` files. VIA protocol channels
+Hardware families from the 25 `keyboard.json` files. VIA protocol channels
 are `quantum/via.h` (`id_qmk_backlight_channel` 1, `id_qmk_rgblight_channel`
-2, `id_qmk_rgb_matrix_channel` 3). JSON homes are the 27 `*-VIA.json` files
+2, `id_qmk_rgb_matrix_channel` 3). JSON homes are the 28 `*-VIA.json` files
 beside each `via` keymap, identical in lighting commands and `qmk_*` string
 aliases to `the-via-eerraa/era-definitions/custom/v3` (peer extra: five H7S
 definitions, not QMK boards).
@@ -205,8 +215,8 @@ definitions, not QMK boards).
 | Family | Boards | Protocol | JSON home |
 | --- | --- | --- | --- |
 | RGB Matrix | 10 | channel 3, `id_qmk_rgb_matrix_*` | expanded channel-3 commands: `sirind/tomak` (six half files), `sirind/chickpad`, `linx3/fave65s`. String alias `"qmk_rgb_matrix"`: `sirind/brick65`, `linx3/n86`, `linx3/n87`, `sirind/klein_sd`. Indicator LEDs only, no RGB-matrix menu: `sirind/brick65s` |
-| PWM backlight | 12 | channel 1, `id_qmk_backlight_*` | none of the 27 files contain `id_qmk_backlight_*`. Nine effect boards use keyboard channel 0, ids `0..3` (`id_custom_backlight_*`, `id_custom_breathing_period`, `id_custom_blink_speed`); the string name of id 3 is legacy, its UI meaning is Pulse Speed |
-| RGBLIGHT | 6 | channel 2, `id_qmk_rgblight_*` | channel 2 `id_qmk_rgblight_*` on `newone/odessey60s`, `newone/odessey60h`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`, `comm/7b75`. The last is physically a top badge and its VIA label is `RGB Badge`, not Underglow |
+| PWM backlight | 12 | channel 1, `id_qmk_backlight_*` | none of the 28 files contain `id_qmk_backlight_*`. Nine effect boards use keyboard channel 0, ids `0..3` (`id_custom_backlight_*`, `id_custom_breathing_period`, `id_custom_blink_speed`); the string name of id 3 is legacy, its UI meaning is Pulse Speed |
+| RGBLIGHT | 7 | channel 2, `id_qmk_rgblight_*` | channel 2 `id_qmk_rgblight_*` on `newone/odessey60s`, `newone/odessey60h`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`, `comm/7b75`, `comm/riley`. 7B75 is physically a top badge. Riley keeps all three LEDs in the RGBLight effect range and overlays per-LED lock policy with `RGBLIGHT_LAYERS` |
 
 Two-family: `sirind/klein_sd` (backlight + per-key matrix),
 `comm/classicd_a1_ug` / `classicd_core` / `classicd_coreless` (backlight +
@@ -234,7 +244,7 @@ backlight feature's wherever `ERA_BACKLIGHT_EFFECT_ENABLE` is on.
 | Home | When | Files / ids |
 | --- | --- | --- |
 | common feature | family behaviour | `features/era_backlight_via.h` ids `0..3` behind `ERA_BACKLIGHT_EFFECT_ENABLE` (nine boards: `era65`, `linx3/n8x`, `newone/a1`, `comm/et_tkl`, `comm/classicd_a1`, `comm/classicd_a1_ug`, `comm/classicd_core`, `comm/classicd_coreless`, `comm/7b75`). `features/era_rgb_indicator_via.h` ids `6..12` behind `ERA_RGB_INDICATOR_ENABLE`: `linx3/n86` and `linx3/n87` answer `6..12`; `sirind/brick65s` answers `7..12`; `linx3/fave65s` answers `7..9` |
-| board hooks | one product | weak `era_board_via_get_value()` / `era_board_via_set_value()` in `system/era_board_hooks.c`. Overriders: `sirind/common/tomak_common.c` ids `0..4`; `newone/common/odessey_common.c` ids `1..4` |
+| board hooks | one product | weak `era_board_via_get_value()` / `era_board_via_set_value()` in `system/era_board_hooks.c`. Overriders: `sirind/common/tomak_common.c` ids `0..4`; `newone/common/odessey_common.c` ids `1..4`; `comm/riley/riley_common.c` ids `13..23` |
 
 A continuous lighting control's persistence is deferred by the gate that owns
 its save event. Four parts: the number is `ERA_STORAGE_QUIET_DEFER_MS` 500 and
@@ -255,7 +265,7 @@ record with a continuous one rides that record's gate.
 | Set-time toggle | Site |
 | --- | --- |
 | NKRO bit | `features/era_nkro_via.c`, QMK's `eeconfig_update_keymap()` |
-| odessey Velocikey | `newone/common/odessey_common.c`, `rgblight_velocikey_toggle()` |
+| odessey/Riley Velocikey | `newone/common/odessey_common.c` / `comm/riley/riley_common.c`, `rgblight_velocikey_toggle()` |
 
 Both compare first and write nothing when the bit already holds. Exceptions
 to the continuous-control arm, not a counter-example to it.
@@ -264,6 +274,14 @@ A common lighting unit takes QMK's weak render hooks strongly:
 `era_rgb_indicator.c` defines `rgb_matrix_indicators_kb`,
 `rgb_matrix_indicators_advanced_kb`, `led_update_kb` and
 `rgb_matrix_render_policy_kb`.
+
+Riley is deliberately not that RGB Matrix unit. `comm/riley/riley_common.c`
+installs three mutable one-LED `RGBLIGHT_LAYERS`; QMK renders the ordinary
+RGBLight effect first and those layers override only the selected lock LEDs in
+the same flush. No scan/housekeeping render loop and no QMK-core
+`rgblight_indicators_kb` hook are added. Because
+`RGBLIGHT_LAYERS_OVERRIDE_RGB_OFF` is absent, USB suspend, RGB sleep and host
+loss still darken every layer. GP25 remains QMK's independent Caps-lock LED.
 
 **Check a migrated definition against a handler, not against its siblings.**
 Every declared piece of lighting hardware owes a surface or a decision that it
@@ -286,8 +304,9 @@ What a new ERA board needs, whole:
   device first-run
 
 **A board `.c` is not required.** The class skeleton owns the QMK hooks every
-board of a class would otherwise wire identically. No non-split board keeps a
-`.c`; the twenty RP2040 ones are the check.
+board of a class would otherwise wire identically. Product-specific units such
+as Riley extend only the weak board-hook surface; they do not duplicate the
+class skeleton's six QMK entry points.
 
 | Class | File | Six hooks |
 | --- | --- | --- |
@@ -308,9 +327,9 @@ source is `the-via-eerraa/era-definitions/custom/v3`; official ownership is
 `the-via/keyboards/v3`. QMK-local `*-VIA.json` files are usevia.app-compatible
 Draft Definitions: do not add Custom VIA-only controls. **Every board has a
 local copy** — a split board has two, one per half — as `<BOARD>-VIA.json`
-beside the `via` keymap (27 = 24 + 3). Lighting commands and `qmk_*` string
-aliases match the 27 peer v3 files of the same names. `FEATURE_COVERAGE` in
-`the-via-eerraa/tests/era-definition.test.ts` matches those 27 for
+beside the `via` keymap (28 = 25 + 3). Lighting commands and `qmk_*` string
+aliases match the 28 peer v3 files of the same names. `FEATURE_COVERAGE` in
+`the-via-eerraa/tests/era-definition.test.ts` matches those 28 for
 `id_qmk_mousekey`, `id_qmk_custom_nkro`, `id_qmk_split_link` and
 `id_qmk_eeprom_sync` (`sirind/brick65` is in none: stock VIA, RGB-matrix
 alias only). The Draft/app delta is tap-dance terms (QMK legacy ids

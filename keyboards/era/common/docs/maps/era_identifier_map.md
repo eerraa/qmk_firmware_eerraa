@@ -99,8 +99,9 @@ band, not by owner: `era_common_via_handle_keyboard_channel_command()` in
 | --- | --- |
 | `0..3` | PWM backlight effect layer — brightness, effect, breathing period, Pulse speed (`features/era_backlight_via.h`), only where `ERA_BACKLIGHT_EFFECT_ENABLE` is on. Value id 3 keeps the legacy VIA string alias `id_custom_blink_speed`; its user meaning is Pulse Speed. On `comm/7b75`, id 0 is labelled `Indicator Brightness` and the lock policy constrains it to 1..10 |
 | `0..4` | otherwise a board's own, through the weak `era_board_via_get_value`/`_set_value` pair: tomak family `0..4` (lock indicator, override, brightness, colour, badge-only) in `sirind/common/tomak_common.h`; odessey `1..4` (indicator select, brightness, colour, Velocikey; id `0` unused) in `newone/common/odessey_common.h` |
-| `5` | NKRO toggle. `ERA_VIA_NKRO_ENABLE_VALUE_ID` is 5 (`features/era_nkro_via.h`). Twenty-five RP2040 VIA JSON files address `["id_qmk_custom_nkro_enable", 0, 5]`. `sirind/brick65` has no FEATURE menu |
+| `5` | NKRO toggle. `ERA_VIA_NKRO_ENABLE_VALUE_ID` is 5 (`features/era_nkro_via.h`). Twenty-seven RP2040 VIA JSON files address `["id_qmk_custom_nkro_enable", 0, 5]`. `sirind/brick65` has no FEATURE menu |
 | `6..12` | RGB Matrix lock-indicator slots — master enable, then source, brightness, colour per slot (`features/era_rgb_indicator_via.h`), only where `ERA_RGB_INDICATOR_ENABLE` is on. A one-slot board answers `6..9` and declines `10..12` |
+| `13..23` | Riley-only RGBLight indicator surface through `era_board_via_*`: IND1 mode/brightness/colour `13..15`, IND2 `16..18`, IND3 `19..21`, Indicator-Only `22`, Velocikey `23` (`comm/riley/riley_common.h`) |
 | `32..71` | eight tap-dance slots, five ids each (tap, hold, double-tap, tap-hold, legacy term) (`features/era_tapdance_via.c`). Legacy term field ids are `36,41,46,51,56,61,66,71` |
 | `72..79` | exact-ms tap-dance terms for TD0–TD7, additive, 2-byte big-endian milliseconds (`features/era_tapdance_via.c`) |
 
@@ -115,6 +116,12 @@ odessey's band with a second slot that would have put a brightness slider on
 `5` — the NKRO toggle, answered before the board hook. The ids were free to
 start above the contested band. **A new claimant on this channel checks the
 whole table above, not the band it was aiming at.**
+
+**`13..23` was free before Riley.** Riley does not reuse the common RGB Matrix
+indicator ids: its LEDs are RGBLight effect pixels, so its board hook owns a
+separate contiguous band after the common `6..12` range and before tap dance.
+The common keyboard-channel router still runs first; no common claimant answers
+this Riley band.
 
 `72..79` does not reuse the legacy term field ids. Firmware in
 `features/era_tapdance_via.c` answers both bands; both stay. Tree JSON in
