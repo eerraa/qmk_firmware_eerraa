@@ -1,0 +1,272 @@
+======================================================================
+EERRAA Official VIA Guide
+======================================================================
+
+이 문서는 공식 VIA(https://usevia.app)를 직접 사용하는 경우의 안내입니다.
+일반 사용자는 https://usekb.cc 를 권장합니다. usekb.cc에서는 각 메뉴 옆 Help로
+같은 기능을 바로 확인할 수 있습니다.
+
+----------------------------------------------------------------------
+한국어
+----------------------------------------------------------------------
+
+■ 공식 VIA 시작
+
+1. https://usevia.app 에 접속합니다.
+2. SETTINGS에서 Show Design tab을 켭니다.
+3. DESIGN -> Load Draft Definition에서 이 키보드의 VIA JSON을 불러옵니다.
+4. CONFIGURE에서 KEYMAP, LIGHTING, FEATURE, TAPDANCE, SYSTEM을 설정합니다.
+
+TAPDANCE 입력창에 직접 keycode를 넣을 때는 같은 폴더의 via_keycodes.txt를
+참고하십시오. 키맵을 보관하려면 VIA의 SAVE + LOAD에서 백업하십시오.
+
+■ VERSION
+
+CONFIGURE -> SYSTEM -> VERSION은 이 키보드의 펌웨어 버전을 YYMMDDRn 형식으로
+표시합니다. 연·월·일과 리비전을 키보드에서 읽어 오는 값이며 VIA에서 수정할 수
+없습니다. 문제를 제보할 때 이 값을 함께 적어 두면 좋습니다.
+
+■ TAPDANCE
+
+CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번호를
+원하는 위치에 배치합니다. TD 키를 실제 키맵에 배치하기 전에는 설정한 동작이
+실행되지 않습니다.
+
+- On Tap: 짧게 탭했을 때의 keycode
+- On Hold: 길게 눌렀을 때의 keycode
+- On Double Tap: Term 안에 두 번 탭했을 때의 keycode
+- Tap+Hold: 한 번 탭한 뒤 이어서 길게 눌렀을 때의 keycode
+- Term: 어느 동작인지 판단하기까지 기다리는 시간(ms)
+
+■ SOCD
+
+CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키의 조합을 지정합니다.
+두 키를 함께 누르고 있는 동안 나중에 누른 키가 우선합니다. 그 키를 떼면 먼저
+누르고 있던 키가 아직 물리적으로 눌려 있는 경우 다시 활성화됩니다. 방향 충돌을
+명확하게 처리해야 할 때 주로 사용합니다.
+
+■ KKUK
+
+CONFIGURE -> FEATURE -> KKUK에서 사용합니다. 일반 키 두 개 이상을 계속 누르면
+눌린 키 묶음을 Delay/Repeat 설정에 따라 주기적으로 뗐다가 다시 누릅니다.
+예를 들어 A, S, D를 계속 누르면 일반적인 "asdddd..." 자동 반복 대신 보통
+"asdasdasd..."처럼 입력됩니다. 문자열 매크로나 매트릭스 ghosting 방지 기능이
+아니며 SOCD에 지정한 키는 반복 대상에서 제외됩니다.
+
+■ DEBOUNCE
+
+CONFIGURE -> FEATURE -> DEBOUNCE에서 스위치 채터링 필터를 조정합니다.
+기본값은 Balanced, 5 ms입니다. 한 번 눌렀는데 여러 번 입력되는 증상이 있다면
+관련 시간을 조금씩 늘리십시오. 채터링 문제가 없다면 기본 설정을 유지하는 것을
+권장합니다.
+
+■ TAPPING
+
+CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap/Layer-Tap의 탭·홀드 판정을
+조정합니다. Tapping Term의 기본값은 200 ms입니다. 짧을수록 홀드가 빨리
+걸리지만 빠른 타이핑이 의도치 않은 홀드로 판정될 수 있고, 길수록 안정적이지만
+홀드가 늦게 들어옵니다.
+
+- Permissive Hold: 다른 키를 눌렀다 뗄 때까지 탭·홀드 키를 계속 누르고 있으면
+  홀드로 판정합니다.
+- Hold On Other Key Press: 다른 키를 누르는 순간 바로 홀드로 판정합니다.
+  더 빠르지만 굴려 치는 타건에서는 의도한 탭이 홀드가 될 수 있습니다.
+- Retro Tapping: Term을 넘겨 눌렀더라도 그 사이 다른 키를 누르지 않았다면
+  키를 뗄 때 탭을 입력합니다.
+
+■ MOUSE
+
+CONFIGURE -> FEATURE -> MOUSE에서 키보드의 Mouse Key 동작을 조정합니다.
+키맵에 Mouse Key가 없으면 이 설정은 입력에 영향을 주지 않습니다. 값들이 서로
+영향을 주므로 한 번에 하나씩 조정하는 것을 권장합니다.
+
+- Cursor Acceleration: 시작 속도에서 최고 속도까지 가속하는 시간. Off면 고정 속도.
+- Cursor Start Speed / Top Speed: 가속 시작/종료 시 한 스텝 이동 거리.
+- Cursor Speed: Acceleration이 Off일 때 한 스텝 이동 거리.
+- Cursor Steps Per Second: 초당 커서 이동 스텝 수.
+- Wheel Rate: 초당 스크롤 스텝 수.
+- Wheel Acceleration: 누르고 있는 동안 스크롤 가속 정도.
+
+■ ROLLOVER / NKRO
+
+CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. NKRO를 끄면 6KRO로
+동작합니다. 오래된 BIOS/KVM 등에서 입력 호환 문제가 있을 때만 끄는 것을
+권장합니다.
+
+■ LIGHTING
+
+CONFIGURE -> LIGHTING에는 키보드가 실제 지원하는 조명 메뉴만 표시됩니다.
+Backlight, RGB Matrix, Underglow, INDICATOR 등의 밝기/색/속도/효과를 여기서
+조정하십시오.
+
+Backlight Pulse를 지원하는 보드의 효과 이름은 다음과 같습니다.
+
+- Steady
+- Breathing
+- Pulse Off Press
+- Pulse Off Press (Hold)
+- Pulse On Press
+- Pulse On Press (Hold)
+
+7B75에는 Backlight와 별도로 RGB Badge 메뉴가 있습니다. Backlight의
+Indicator Brightness와 위 여섯 효과, RGB Badge의 RGB 효과/밝기/색/속도를
+각각 설정할 수 있습니다.
+
+Riley에는 RGBLight와 INDICATOR 메뉴가 있습니다. RGB1/2/3은 IND1/2/3에
+대응합니다. 각 IND 슬롯의 Mode는 다음 중 하나입니다.
+
+- RGB Effect
+- Caps Lock
+- Scroll Lock
+- Num Lock
+
+RGB Effect를 고른 슬롯은 일반 RGB 효과에 계속 참여합니다. Lock 모드를 고른
+슬롯은 해당 Lock이 켜졌을 때 그 슬롯의 Indicator Brightness와 Indicator Color를
+사용합니다. Indicator-Only를 켜면 Lock이 꺼진 indicator 슬롯은 어두워지고,
+RGB Effect 슬롯은 계속 RGB 효과를 표시합니다. Indicator Brightness/Color는
+IND1/2/3마다 독립적으로 설정합니다.
+
+■ SYSTEM
+
+SYSTEM -> BOOT의 Jump To BOOT는 켜는 즉시 부트로더로 진입합니다. 실행 후
+토글이 항상 꺼진 값으로 보이는 것이 정상입니다.
+
+■ EEPROM CLEAN
+
+CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 10초 안에 모두 켜면
+저장된 키맵과 모든 설정을 초기화하고 재시작합니다. 10초 안에 완료하지 않으면
+이미 켠 토글은 자동으로 해제됩니다. 실행 전 VIA SAVE + LOAD로 키맵을
+백업하십시오.
+
+
+----------------------------------------------------------------------
+English
+----------------------------------------------------------------------
+
+■ Starting Official VIA
+
+1. Open https://usevia.app.
+2. Enable Show Design tab in SETTINGS.
+3. In DESIGN -> Load Draft Definition, load the VIA JSON for this keyboard.
+4. Use CONFIGURE for KEYMAP, LIGHTING, FEATURE, TAPDANCE, and SYSTEM.
+
+See via_keycodes.txt in the same folder when entering keycodes directly into
+TAPDANCE fields. Use VIA SAVE + LOAD to back up a keymap you want to keep.
+
+■ VERSION
+
+CONFIGURE -> SYSTEM -> VERSION shows this keyboard's firmware version in
+YYMMDDRn form. The year, month, day, and revision are read from the keyboard and
+cannot be changed in VIA. Include this value when reporting a problem.
+
+■ TAPDANCE
+
+Configure TD0 through TD7 in CONFIGURE -> TAPDANCE, then place the matching
+TD number on the desired key in KEYMAP. The configured actions do nothing until
+that TD key is actually placed somewhere you can press it.
+
+- On Tap: keycode for a short tap
+- On Hold: keycode for a held press
+- On Double Tap: keycode for two taps inside Term
+- Tap+Hold: keycode for a tap followed by a hold
+- Term: how long the keyboard waits before deciding the action, in milliseconds
+
+■ SOCD
+
+Assign each opposing key pair in CONFIGURE -> FEATURE -> SOCD. While both are
+held, the key pressed later takes priority. Releasing it restores the other key
+if that key is still physically held. This is mainly useful when directional
+conflicts must be unambiguous.
+
+■ KKUK
+
+Use CONFIGURE -> FEATURE -> KKUK. While two or more ordinary keys remain held,
+KKUK periodically releases the held group and presses it again according to
+Delay/Repeat. For example, holding A, S, and D usually produces "asdasdasd..."
+instead of the ordinary "asdddd..." auto-repeat. This is neither a string macro
+nor matrix ghosting prevention. Keys assigned to SOCD are excluded.
+
+■ DEBOUNCE
+
+Adjust switch-chatter filtering in CONFIGURE -> FEATURE -> DEBOUNCE. The
+default is Balanced, 5 ms. If one physical press sometimes produces multiple
+inputs, increase the relevant delay a little at a time. If there is no chatter,
+keeping the default settings is recommended.
+
+■ TAPPING
+
+Adjust Mod-Tap/Layer-Tap tap-hold decisions in CONFIGURE -> FEATURE -> TAPPING.
+The default Tapping Term is 200 ms. Shorter makes holds trigger sooner but can
+turn fast typing into accidental holds; longer is safer but makes the hold
+arrive later.
+
+- Permissive Hold: while the tap-hold key is still held, pressing and releasing
+  another key makes it a hold.
+- Hold On Other Key Press: another key press makes it a hold immediately. This
+  is earlier, but rolling key presses can turn intended taps into holds.
+- Retro Tapping: if the key is held past Term and released without another key
+  press, the release still sends the tap.
+
+■ MOUSE
+
+Configure Mouse Keys in CONFIGURE -> FEATURE -> MOUSE. These settings do not
+affect typing unless Mouse Key keycodes are present in the keymap. The values
+affect one another, so adjusting one at a time is recommended.
+
+- Cursor Acceleration: time from start speed to top speed; Off uses fixed speed.
+- Cursor Start Speed / Top Speed: distance per step at start/end of acceleration.
+- Cursor Speed: distance per step while Acceleration is Off.
+- Cursor Steps Per Second: cursor movement steps per second.
+- Wheel Rate: scroll steps per second.
+- Wheel Acceleration: how strongly scrolling accelerates while held.
+
+■ ROLLOVER / NKRO
+
+Turn NKRO on or off in CONFIGURE -> FEATURE -> NKRO. With NKRO off the keyboard
+uses 6KRO. Turning it off is mainly useful for compatibility with an old BIOS,
+KVM, or other host that does not accept NKRO.
+
+■ LIGHTING
+
+CONFIGURE -> LIGHTING shows only the lighting surfaces supported by the board.
+Use it for Backlight, RGB Matrix, Underglow, INDICATOR, and their available
+brightness, colour, speed, and effect controls.
+
+Boards with Backlight Pulse use these effect names:
+
+- Steady
+- Breathing
+- Pulse Off Press
+- Pulse Off Press (Hold)
+- Pulse On Press
+- Pulse On Press (Hold)
+
+7B75 has an RGB Badge menu in addition to Backlight. Backlight exposes
+Indicator Brightness and the six effects above; RGB Badge separately exposes
+its RGB effect, brightness, colour, and speed controls.
+
+Riley has RGBLight plus INDICATOR. RGB1/2/3 map to IND1/2/3. Each IND slot Mode
+is one of:
+
+- RGB Effect
+- Caps Lock
+- Scroll Lock
+- Num Lock
+
+RGB Effect leaves that slot in the normal RGB animation. A Lock mode uses that
+slot's Indicator Brightness and Indicator Color while the selected Lock is on.
+With Indicator-Only enabled, an inactive lock-indicator slot goes dark while an
+RGB Effect slot continues the RGB effect. Indicator Brightness/Color are
+independent for IND1, IND2, and IND3.
+
+■ SYSTEM
+
+SYSTEM -> BOOT -> Jump To BOOT enters the bootloader as soon as it is switched
+on. The toggle normally reads back off after the action.
+
+■ EEPROM CLEAN
+
+Turn on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM within
+10 seconds to erase the stored keymap and every setting and restart the
+keyboard. If the ten-second window is missed, any toggles already switched on
+clear themselves. Back up the keymap with VIA SAVE + LOAD before running CLEAN.

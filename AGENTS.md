@@ -146,7 +146,7 @@ Refactor Self-Check 티어. **소스를 건드리지 않은 변경은 그중 어
   | 사실 | 이 저장소 | 앱 |
   | --- | --- | --- |
   | 어느 보드에 어느 VIA 메뉴가 있는가 | `keyboards/era/**/keymaps/via/*-VIA.json` (27개, 하프당 하나) | `the-via-eerraa/tests/era-definition.test.ts` `FEATURE_COVERAGE` |
-  | VIA 라벨 (`KKUK`, `Indicator-Only`, …) | 27개 JSON, `docs/user/readme.txt`, `docs/user/readme_split.txt`, 보드 `readme.md` | `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
+  | VIA 라벨·Help 의미 (`KKUK`, `Indicator-Only`, …) | 27개 JSON, `docs/user/usevia.txt`, `docs/user/usevia_split.txt`, 보드 `readme.md` | `the-via-eerraa/src/utils/era-feature-help.ts`, `the-via-eerraa/docs/adr/0003-era-menu-help-ui.md` |
   | durable-peer revision 경계 | `split/era_host_peer_storage.c` | `the-via-eerraa/docs/adr/0001-state-sync-protocol.md` |
 
 - **문서 줄을 지우기 전에**

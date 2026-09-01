@@ -115,7 +115,7 @@ opening it.
 | real-device capture or counter-delta review | — | `manuals/era_capture_reading.md` | `manuals/era_performance_gates.md` |
 | naming a new identifier, value id, diagnostic field or document, or resolving what a name means | — | `maps/era_identifier_map.md` | — |
 | documentation reorganization | `AGENTS.md`, `era_active_index.md` | `maps/era_source_map.md` | — |
-| user-facing firmware/VIA docs | `user/readme.txt` for a one-piece board and `user/readme_split.txt` for a split one — two self-contained guides, because each ships beside one keyboard's firmware and its reader has only that keyboard. What differs is the SYNC family and the red status lights; a change to a shared feature is made in both | `user/via_keycodes.txt` | — |
+| user-facing firmware/VIA docs | `user/readme.txt` and `user/readme_split.txt` are the short ZIP-root flash/configuration guides; `user/usevia.txt` and `user/usevia_split.txt` are the detailed official-VIA guides placed under the distribution's usevia.app folder. Keep the non-split/split pair in the same Korean→English structure and shared terminology | `user/via_keycodes.txt` is this repository's canonical distribution copy of the board-neutral TAPDANCE keycode guide; H7S keeps its own content-identical canonical copy. Do not put board-specific layer counts or definition-specific menu placement in either copy | — |
 
 ## What This Repository Does Not Carry
 
