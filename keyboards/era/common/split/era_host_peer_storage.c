@@ -61,6 +61,8 @@
 /* No ERA board declares an encoder, so the encoder-map arm reserved nothing. */
 #define ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR ERA_STORAGE_DYNAMIC_MACRO_ADDR
 
+static bool era_host_peer_storage_summary_outstanding(void);
+
 typedef struct {
     uint32_t address;
     uint16_t size;
@@ -112,6 +114,8 @@ typedef struct {
      * task retries the repair; unlike a user edit this bit does not advance
      * dirty_generation and therefore must not become a settled-news event. */
     uint8_t  recency_repair_mask;
+    /* Local settled captures advance this counter; relation rotation does not. */
+    uint8_t  settled_news_value;
 } era_host_peer_storage_local_state_t;
 
 /* Relation-scoped episode bookkeeping: probe scheduling, hint consumption,
@@ -121,32 +125,15 @@ typedef struct {
  * lane, not the local store. */
 typedef struct {
     uint32_t idle_due_deadline_ms;
+    /* Independent of transaction stamps, including a close that adopted the
+       reopened relation before its mandatory audit could run. */
+    uint16_t audit_relation_generation;
+    uint16_t audit_policy_generation;
     uint8_t  idle_due_domain;
-    uint8_t  deferred_probe_domain;
+    uint8_t  deferred_summary_domain;
     uint8_t  idle_due;
     uint8_t  active_due;
     uint8_t  runtime_service_active;
-    /* This half's storage news value (D2): a forward-only 7-bit counter, one
-     * step per settled capture, `0` reserved for "nothing to claim". It
-     * replaced a seven-bit per-domain mask, and the replacement is what makes
-     * the whole hint lane expressible.
-     *
-     * **A level has to be able to fall, and this one could not.** The mask's
-     * clear was a *derived* fact — a bit came down when its domain converged —
-     * so it needed a wire form for the fall, a receiver that could represent
-     * absence, and a guard for every case where a domain's content moved again
-     * before its bit could. The one case no discipline reached was the domain
-     * proven while this half already held newer content: the bit stayed raised,
-     * the value never moved, and the peer heard nothing more.
-     *
-     * A counter has no fall to express. Every settled capture is one step, any
-     * step is news, and news means "ask" rather than "pull domain N" — so the
-     * peer's summary re-derives every domain from both halves' current facts
-     * and the value's own history stops mattering. The domain identity the mask
-     * carried was never load-bearing: the `SYNC_STATUS` summary already carries
-     * it per domain, derived from the durable baseline, and carries direction
-     * with it. */
-    uint8_t  settled_news_value;
     uint8_t  probe_pending_mask;
     /* The peer's advertised storage-news value as last taken, and the whole of
      * what this half remembers about the peer's hint (D2). It answers one
@@ -193,6 +180,13 @@ typedef struct {
      * field participates in arbitration, restart admission, or the wire. */
     uint8_t  provisional_cell_mask;
     uint8_t  indicator_round_confirmed;
+    /* The reopened relation still owes its verify-all audit. Set at boot and
+     * at the scheduler's rotation boundary, cleared when that audit begins.
+     * News that arrives in between is consumed into the audit: the audit's
+     * summary re-derives every domain, so arming a visible in-session summary
+     * ahead of it would be a false pending edge on both panels. Lives in the
+     * relation record's alignment padding; the core0 state budget is unmoved. */
+    uint8_t  audit_owed;
 } era_host_peer_storage_relation_state_t;
 
 enum {
@@ -621,7 +615,7 @@ static uint8_t era_host_peer_storage_cause_indicator_arms(void) {
     if (era_host_peer_storage_indicator_cells_visible()) {
         arms |= ERA_HOST_PEER_STORAGE_CAUSE_ARM_CELL;
     }
-    if ((g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0 &&
+    if (era_host_peer_storage_summary_outstanding() &&
         (g_era_host_peer_storage_relation.indicator_round_confirmed ||
          (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) == 0)) {
         arms |= ERA_HOST_PEER_STORAGE_CAUSE_ARM_SUMMARY;
@@ -1418,8 +1412,9 @@ void era_host_peer_storage_init(void) {
         }
     }
 
-    g_era_host_peer_storage_relation.deferred_probe_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    g_era_host_peer_storage_relation.deferred_summary_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.idle_due_deadline_ms  = timer_read32();
+    g_era_host_peer_storage_relation.audit_owed            = 1;
     /* **The boot conservative `0x7F` is gone (D2)** and nothing replaces it.
      * It made every domain advertise settled-dirty until its own close, which
      * was the mask's way of saying "prove everything at relation open" — and
@@ -1428,7 +1423,7 @@ void era_host_peer_storage_init(void) {
      * twice, and the duplicate was the one the device caught: the initiator's
      * cache froze on this value and re-armed the family in batches of seven. A
      * boot with no settle behind it now claims nothing. */
-    g_era_host_peer_storage_relation.settled_news_value = 0;
+    g_era_host_peer_storage_local.settled_news_value = 0;
 }
 
 /* Arm a whole-family summary exchange.
@@ -1455,6 +1450,38 @@ void era_host_peer_storage_init(void) {
  * relation-open sweep cannot narrow it. */
 static void era_host_peer_storage_arm_summary_refresh(void) {
     g_era_host_peer_storage_relation.arbitration_flags |= ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING;
+    /* New arbitration supersedes a direction selected but not yet sent. */
+    if (g_era_host_peer_storage_relation.idle_due_kind != ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY) {
+        g_era_host_peer_storage_relation.idle_due = 0;
+    }
+}
+
+/* The inbox owns work not yet taken; the episode owns work already taken.
+   A completion must not erase requests received during the exchange. */
+static bool era_host_peer_storage_summary_outstanding(void) {
+    return (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0 ||
+           (g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER &&
+            g_era_host_peer_storage_relation.active_due &&
+            g_era_host_peer_storage_runtime.domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE);
+}
+
+static void era_host_peer_storage_begin_summary_episode(void) {
+    g_era_host_peer_storage_runtime.state = ERA_HOST_PEER_STORAGE_RUNTIME_PEER_SYNC_STATUS;
+    g_era_host_peer_storage_runtime.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    g_era_host_peer_storage_relation.active_due = 1;
+    g_era_host_peer_storage_relation.arbitration_flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING;
+}
+
+void era_host_peer_storage_note_relation_rotation(void) {
+    /* Reset alongside the scheduler's standing receive cache, before any
+     * current-generation news can be drained. Starting the audit is too late:
+     * housekeeping drains standing state before it runs the storage runtime.
+     * Clearing here preserves news received in that gap and still lets a new
+     * peer reuse the previous relation's counter value. */
+    g_era_host_peer_storage_relation.peer_news_value = 0;
+    g_era_host_peer_storage_relation.audit_relation_generation = 0;
+    g_era_host_peer_storage_relation.audit_policy_generation = 0;
+    g_era_host_peer_storage_relation.audit_owed = 1;
 }
 
 void era_host_peer_storage_note_host_news(uint8_t news_value) {
@@ -1500,7 +1527,15 @@ void era_host_peer_storage_note_host_news(uint8_t news_value) {
         return;
     }
     g_era_host_peer_storage_relation.peer_news_value = advertised;
-    if (advertised != 0) {
+    /* Before the reopened relation's audit has begun, the value is consumed
+     * into that audit rather than armed as an in-session summary: the audit's
+     * verify-all summary classifies every domain, while an in-session summary
+     * armed ahead of it would light both panels for a claim the audit is about
+     * to re-derive anyway -- a false pending edge at every reopen whose peer
+     * carries a nonzero counter. The audit itself may be deferred behind a
+     * link agreement (era_split_link_runtime_settled), which is why this cannot
+     * rely on the audit starting in the same housekeeping pass. */
+    if (advertised != 0 && !g_era_host_peer_storage_relation.audit_owed) {
         era_host_peer_storage_arm_summary_refresh();
     }
 }
@@ -1569,6 +1604,99 @@ void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length) 
     }
 }
 
+static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
+    /* No periodic idle patrol: tokens come only from the deferred
+     * SOURCE_CHANGED slot, the relation-open arbitration, settled-dirty
+     * mask hints, and local settled captures, paced by the storage retry
+     * deadline. The grant order is summary, then conflict, then push, then
+     * probe — arbitration first, then the directions it decided. */
+    if (!g_era_host_peer_storage_relation.idle_due && timer_expired32(now_ms, g_era_host_peer_storage_relation.idle_due_deadline_ms)) {
+        if (g_era_host_peer_storage_relation.deferred_summary_domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
+            /* SOURCE_CHANGED grants no remembered pull direction. The quiet
+               deadline expires into fresh arbitration, like any other retry. */
+            g_era_host_peer_storage_relation.deferred_summary_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+            era_host_peer_storage_arm_summary_refresh();
+        }
+        if ((g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0) {
+            g_era_host_peer_storage_relation.idle_due        = 1;
+            g_era_host_peer_storage_relation.idle_due_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+            g_era_host_peer_storage_relation.idle_due_kind   = ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY;
+            return true;
+        }
+        /* A domain pending in both directions has changed on both halves:
+         * collide it into the conflict queue so the counter exchange runs
+         * before either direction moves content. */
+        uint8_t collided = (uint8_t)(g_era_host_peer_storage_relation.probe_pending_mask &
+                                     g_era_host_peer_storage_relation.push_pending_mask);
+        if (collided != 0) {
+            g_era_host_peer_storage_relation.conflict_pending_mask |= collided;
+            g_era_host_peer_storage_relation.probe_pending_mask &= (uint8_t)~collided;
+            g_era_host_peer_storage_relation.push_pending_mask &= (uint8_t)~collided;
+        }
+        for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
+            uint8_t bit = (uint8_t)(1U << domain);
+            bool    pending = (g_era_host_peer_storage_relation.conflict_pending_mask & bit) != 0 ||
+                              (g_era_host_peer_storage_relation.push_pending_mask & bit) != 0 ||
+                              (g_era_host_peer_storage_relation.probe_pending_mask & bit) != 0;
+            if (!pending || (g_era_host_peer_storage_local.dirty_domain_mask & (1UL << domain)) != 0) {
+                /* A locally dirty domain stays pending and is retried after
+                 * its trailing-quiet capture instead of stalling the
+                 * remaining drain behind its quiet interval. */
+                continue;
+            }
+            /* The pending bit clears only when the episode actually starts,
+             * so a parked token overwritten by a dirty-quiet capture is
+             * re-issued instead of being lost. */
+            g_era_host_peer_storage_relation.idle_due        = 1;
+            g_era_host_peer_storage_relation.idle_due_domain = domain;
+            g_era_host_peer_storage_relation.idle_due_kind =
+                (g_era_host_peer_storage_relation.conflict_pending_mask & bit) != 0 ? ERA_HOST_PEER_STORAGE_TOKEN_CONFLICT :
+                (g_era_host_peer_storage_relation.push_pending_mask & bit) != 0     ? ERA_HOST_PEER_STORAGE_TOKEN_PUSH :
+                                                                                      ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
+            return true;
+        }
+        /* The round is over when nothing is queued, nothing is deferred and
+         * no summary is pending. */
+        bool round_over = (g_era_host_peer_storage_relation.arbitration_flags &
+                           ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) == 0 &&
+                          g_era_host_peer_storage_relation.deferred_summary_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT &&
+                          (g_era_host_peer_storage_relation.probe_pending_mask |
+                           g_era_host_peer_storage_relation.push_pending_mask |
+                           g_era_host_peer_storage_relation.conflict_pending_mask) == 0;
+        if (round_over && g_era_host_peer_storage_relation.runtime_service_active &&
+            g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
+            /* Only here does the verify-all scope retire: holding it until
+             * the round drains is what lets an episode abort mid-sweep and
+             * still come back through a summary that proves every domain. */
+            g_era_host_peer_storage_relation.arbitration_flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL;
+            g_era_host_peer_storage_relation.provisional_cell_mask      = 0;
+            g_era_host_peer_storage_relation.indicator_round_confirmed = 0;
+            /* **The round-end re-read retired here at D2, and it retired
+             * because its case stopped existing.** It covered a domain proven
+             * while the peer already held newer content for it: the peer's bit
+             * stayed raised, so the advertised *mask* never moved, no further
+             * news arrived, and the close had just dropped that domain from the
+             * in-hand set -- claimed by the peer and held by nobody. Editing the
+             * same key twice on the responder, the second edit landing inside
+             * the first one's episode, reached it, and the loss was silent.
+             *
+             * A news counter cannot enter that state. The peer's newer content
+             * came from a settled capture, a settled capture is what increments
+             * the counter, and any increment is news. The condition the re-read
+             * detected -- a claim that cannot move -- is unreachable when the
+             * carrier only ever moves forward.
+             *
+             * What went with it is the bound it needed: one re-arm per domain
+             * per advertised value, sized against the forced-set injection
+             * image that measured 573 storage episodes in one window with
+             * `xfer=0` (2026-07-29). A carrier that cannot lie about a level
+             * needs no budget against a peer that lies about one. */
+        }
+    }
+
+    return false;
+}
+
 bool era_host_peer_storage_task(uint32_t now_ms) {
     if (!g_era_host_peer_storage_local.initialized || !era_eeprom_driver_ready() ||
         era_split_restart_agreement_storage_quarantined() ||
@@ -1604,9 +1732,9 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
         __DMB();
         g_era_host_peer_storage_local.dirty_domain_mask         = (1UL << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1UL;
         g_era_host_peer_storage_local.dirty_deadline_valid_mask = g_era_host_peer_storage_local.dirty_domain_mask;
-        g_era_host_peer_storage_relation.settled_news_value        = 0;
+        g_era_host_peer_storage_local.settled_news_value        = 0;
         g_era_host_peer_storage_relation.probe_pending_mask        = 0;
-        g_era_host_peer_storage_relation.deferred_probe_domain     = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+        g_era_host_peer_storage_relation.deferred_summary_domain     = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
         for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
             g_era_host_peer_storage_manifest[domain].source_revision = 0;
             g_era_host_peer_storage_local.dirty_deadline_ms[domain]  = now_ms;
@@ -1678,8 +1806,8 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                      * so no emitted claim ever outlives this half's own lamp
                      * arm — the peer's armed summary crosses back as the
                      * mirror for whatever remains. */
-                    g_era_host_peer_storage_relation.settled_news_value =
-                        (uint8_t)((g_era_host_peer_storage_relation.settled_news_value %
+                    g_era_host_peer_storage_local.settled_news_value =
+                        (uint8_t)((g_era_host_peer_storage_local.settled_news_value %
                                    ERA_HOST_PEER_STORAGE_NEWS_VALUE_MAX) + 1U);
                 }
                 /* The recency seat core1 answers SYNC_STATUS from is built at
@@ -1716,97 +1844,7 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
         era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
     }
 
-    /* No periodic idle patrol: tokens come only from the deferred
-     * SOURCE_CHANGED slot, the relation-open arbitration, settled-dirty
-     * mask hints, and local settled captures, paced by the storage retry
-     * deadline. The grant order is summary, then conflict, then push, then
-     * probe — arbitration first, then the directions it decided. */
-    if (!g_era_host_peer_storage_relation.idle_due && timer_expired32(now_ms, g_era_host_peer_storage_relation.idle_due_deadline_ms)) {
-        if (g_era_host_peer_storage_relation.deferred_probe_domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
-            g_era_host_peer_storage_relation.idle_due              = 1;
-            g_era_host_peer_storage_relation.idle_due_domain       = g_era_host_peer_storage_relation.deferred_probe_domain;
-            g_era_host_peer_storage_relation.idle_due_kind         = ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
-            g_era_host_peer_storage_relation.deferred_probe_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
-            return true;
-        }
-        if ((g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0) {
-            g_era_host_peer_storage_relation.idle_due        = 1;
-            g_era_host_peer_storage_relation.idle_due_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
-            g_era_host_peer_storage_relation.idle_due_kind   = ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY;
-            return true;
-        }
-        /* A domain pending in both directions has changed on both halves:
-         * collide it into the conflict queue so the counter exchange runs
-         * before either direction moves content. */
-        uint8_t collided = (uint8_t)(g_era_host_peer_storage_relation.probe_pending_mask &
-                                     g_era_host_peer_storage_relation.push_pending_mask);
-        if (collided != 0) {
-            g_era_host_peer_storage_relation.conflict_pending_mask |= collided;
-            g_era_host_peer_storage_relation.probe_pending_mask &= (uint8_t)~collided;
-            g_era_host_peer_storage_relation.push_pending_mask &= (uint8_t)~collided;
-        }
-        for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
-            uint8_t bit = (uint8_t)(1U << domain);
-            bool    pending = (g_era_host_peer_storage_relation.conflict_pending_mask & bit) != 0 ||
-                              (g_era_host_peer_storage_relation.push_pending_mask & bit) != 0 ||
-                              (g_era_host_peer_storage_relation.probe_pending_mask & bit) != 0;
-            if (!pending || (g_era_host_peer_storage_local.dirty_domain_mask & (1UL << domain)) != 0) {
-                /* A locally dirty domain stays pending and is retried after
-                 * its trailing-quiet capture instead of stalling the
-                 * remaining drain behind its quiet interval. */
-                continue;
-            }
-            /* The pending bit clears only when the episode actually starts,
-             * so a parked token overwritten by a dirty-quiet capture is
-             * re-issued instead of being lost. */
-            g_era_host_peer_storage_relation.idle_due        = 1;
-            g_era_host_peer_storage_relation.idle_due_domain = domain;
-            g_era_host_peer_storage_relation.idle_due_kind =
-                (g_era_host_peer_storage_relation.conflict_pending_mask & bit) != 0 ? ERA_HOST_PEER_STORAGE_TOKEN_CONFLICT :
-                (g_era_host_peer_storage_relation.push_pending_mask & bit) != 0     ? ERA_HOST_PEER_STORAGE_TOKEN_PUSH :
-                                                                                      ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
-            return true;
-        }
-        /* The round is over when nothing is queued, nothing is deferred and
-         * no summary is pending. */
-        bool round_over = (g_era_host_peer_storage_relation.arbitration_flags &
-                           ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) == 0 &&
-                          g_era_host_peer_storage_relation.deferred_probe_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT &&
-                          (g_era_host_peer_storage_relation.probe_pending_mask |
-                           g_era_host_peer_storage_relation.push_pending_mask |
-                           g_era_host_peer_storage_relation.conflict_pending_mask) == 0;
-        if (round_over && g_era_host_peer_storage_relation.runtime_service_active &&
-            g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
-            /* Only here does the verify-all scope retire: holding it until
-             * the round drains is what lets an episode abort mid-sweep and
-             * still come back through a summary that proves every domain. */
-            g_era_host_peer_storage_relation.arbitration_flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL;
-            g_era_host_peer_storage_relation.provisional_cell_mask      = 0;
-            g_era_host_peer_storage_relation.indicator_round_confirmed = 0;
-            /* **The round-end re-read retired here at D2, and it retired
-             * because its case stopped existing.** It covered a domain proven
-             * while the peer already held newer content for it: the peer's bit
-             * stayed raised, so the advertised *mask* never moved, no further
-             * news arrived, and the close had just dropped that domain from the
-             * in-hand set -- claimed by the peer and held by nobody. Editing the
-             * same key twice on the responder, the second edit landing inside
-             * the first one's episode, reached it, and the loss was silent.
-             *
-             * A news counter cannot enter that state. The peer's newer content
-             * came from a settled capture, a settled capture is what increments
-             * the counter, and any increment is news. The condition the re-read
-             * detected -- a claim that cannot move -- is unreachable when the
-             * carrier only ever moves forward.
-             *
-             * What went with it is the bound it needed: one re-arm per domain
-             * per advertised value, sized against the forced-set injection
-             * image that measured 573 storage episodes in one window with
-             * `xfer=0` (2026-07-29). A carrier that cannot lie about a level
-             * needs no budget against a peer that lies about one. */
-        }
-    }
-
-    return false;
+    return era_host_peer_storage_select_due_token(now_ms);
 }
 
 static bool era_host_peer_storage_get_target_manifest(era_split_eeprom_sync_domain_t domain, era_host_peer_storage_manifest_entry_t *entry) {
@@ -1827,7 +1865,7 @@ void era_host_peer_storage_get_foundation_snapshot(era_host_peer_storage_foundat
 
     __DMB();
     *snapshot = (era_host_peer_storage_foundation_snapshot_t){
-        .settled_news_value    = g_era_host_peer_storage_relation.settled_news_value,
+        .settled_news_value    = g_era_host_peer_storage_local.settled_news_value,
         .probe_pending_mask    = g_era_host_peer_storage_relation.probe_pending_mask,
         .push_pending_mask     = g_era_host_peer_storage_relation.push_pending_mask,
         .conflict_pending_mask = g_era_host_peer_storage_relation.conflict_pending_mask,
@@ -1841,7 +1879,7 @@ void era_host_peer_storage_get_foundation_snapshot(era_host_peer_storage_foundat
 }
 
 uint8_t era_host_peer_storage_settled_news_value(void) {
-    return g_era_host_peer_storage_local.initialized ? g_era_host_peer_storage_relation.settled_news_value : 0;
+    return g_era_host_peer_storage_local.initialized ? g_era_host_peer_storage_local.settled_news_value : 0;
 }
 
 void era_host_peer_storage_get_recency_snapshot(era_host_peer_storage_recency_snapshot_t *snapshot) {
@@ -2027,7 +2065,7 @@ static void era_host_peer_storage_reset_peer_episode(uint32_t now_ms, bool abort
     g_era_host_peer_storage_runtime.state                  = ERA_HOST_PEER_STORAGE_RUNTIME_IDLE;
     g_era_host_peer_storage_runtime.domain                 = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.active_due               = 0;
-    if (g_era_host_peer_storage_relation.deferred_probe_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
+    if (g_era_host_peer_storage_relation.deferred_summary_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
         /* Probe pacing only; an armed SOURCE_CHANGED defer keeps its full
          * trailing-quiet deadline. A failed episode stretches the pacing by
          * the failing domain's consecutive-failure backoff. */
@@ -2065,8 +2103,7 @@ static void era_host_peer_storage_reset_peer_episode(uint32_t now_ms, bool abort
          * without an event that would itself re-trigger, so re-arming only
          * spins — 155 aborts in one measured window, which is also what made
          * the storage indicator flash. */
-        if (episode_domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT &&
-            (runtime_flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) == 0) {
+        if ((runtime_flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) == 0) {
             era_host_peer_storage_arm_summary_refresh();
         } else if (episode_domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
             /* Terminal refusal: the reason cannot change without an event
@@ -2081,6 +2118,15 @@ static void era_host_peer_storage_reset_peer_episode(uint32_t now_ms, bool abort
             era_host_peer_storage_indicator_retire_provisional_domain(
                 (era_split_eeprom_sync_domain_t)episode_domain);
             era_host_peer_storage_note_changed_shadow((era_split_eeprom_sync_domain_t)episode_domain, false);
+        }
+        if (episode_domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE &&
+            (runtime_flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) != 0) {
+            /* A refused summary supplied no replacement classification;
+               obsolete round directions cannot escape after it retires. */
+            g_era_host_peer_storage_relation.probe_pending_mask = 0;
+            g_era_host_peer_storage_relation.push_pending_mask = 0;
+            g_era_host_peer_storage_relation.conflict_pending_mask = 0;
+            g_era_host_peer_storage_relation.peer_changed_mask = 0;
         }
         g_era_host_peer_storage_diagnostics.abort_count++;
     } else {
@@ -2109,14 +2155,9 @@ static void era_host_peer_storage_defer_peer_domain(uint32_t now_ms, uint8_t dom
     }
     g_era_host_peer_storage_relation.idle_due              = 0;
     g_era_host_peer_storage_relation.idle_due_domain       = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
-    g_era_host_peer_storage_relation.deferred_probe_domain = domain;
-    /* The deferred slot owns this domain's retry and carries its full trailing
-     * quiet deadline, so drop any pending bit (including an abort re-arm) that
-     * would let the ascending sweep scan re-issue it early. The park no longer
-     * needs a second guard against the peer's advertisement re-arming it (D2):
-     * that advertisement arms a summary rather than this domain's probe bit,
-     * and a summary landing on a parked domain classifies it without disturbing
-     * the slot that owns its retry. */
+    g_era_host_peer_storage_relation.deferred_summary_domain = domain;
+    /* Keep the trailing-quiet deadline, but retire the old direction. Its
+       expiry selects a fresh family summary, never a remembered pull token. */
     g_era_host_peer_storage_relation.probe_pending_mask &= (uint8_t)~era_host_peer_storage_domain_mask(domain);
     g_era_host_peer_storage_relation.idle_due_deadline_ms  = now_ms + ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS;
 }
@@ -2139,20 +2180,36 @@ static void era_host_peer_storage_begin_relation_audit(uint32_t now_ms) {
      * the two halves declare changed. */
     g_era_host_peer_storage_relation.arbitration_flags     = ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING |
                                                          ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL;
-    g_era_host_peer_storage_relation.deferred_probe_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    g_era_host_peer_storage_relation.deferred_summary_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.idle_due              = 0;
     g_era_host_peer_storage_relation.idle_due_domain       = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.idle_due_kind         = ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
     g_era_host_peer_storage_relation.idle_due_deadline_ms  = now_ms;
-    /* Forget the peer's last claim with the relation (D2). The audit above has
-     * already armed the summary this hint would arm, so the peer's first
-     * advertisement of the new relation costs nothing whatever it says; what
-     * the clear buys is that the *next* value after it reads as news, which a
-     * record carried across a relation would not guarantee. */
-    g_era_host_peer_storage_relation.peer_news_value = 0;
+    /* News from here on is in-session news again; what arrived before this
+       point is already this sweep's to classify. */
+    g_era_host_peer_storage_relation.audit_owed            = 0;
+    /* Do not forget already-consumed news here. The scheduler resets that
+     * cache at relation rotation, before admitting a fresh standing record.
+     * Its drain may precede this audit in the same housekeeping pass; clearing
+     * the byte here would make an unrelated standing edge replay the old news
+     * after this quiet audit drains, arming a spurious visible summary. A
+     * policy-only audit must preserve the consumed byte for the same reason. */
     /* Display provenance survives an identity rotation inside a serviced
      * relation. Per-domain convergence/transfer retires it, round drain clears
      * the remainder, and a true service departure clears it above. */
+}
+
+static bool era_host_peer_storage_begin_relation_audit_if_due(const era_host_peer_storage_runtime_context_t *context) {
+    if (g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_IDLE ||
+        (g_era_host_peer_storage_relation.audit_relation_generation == context->relation_generation &&
+         g_era_host_peer_storage_relation.audit_policy_generation == context->policy_generation) ||
+        !era_split_link_runtime_settled()) {
+        return false;
+    }
+    g_era_host_peer_storage_relation.audit_relation_generation = context->relation_generation;
+    g_era_host_peer_storage_relation.audit_policy_generation = context->policy_generation;
+    era_host_peer_storage_begin_relation_audit(context->now_ms);
+    return true;
 }
 
 /* The counterpart of the audit above: the one place a half that cannot drain
@@ -2196,14 +2253,14 @@ static void era_host_peer_storage_release_initiator_queues(void) {
                                g_era_host_peer_storage_relation.indicator_round_confirmed |
                                (uint8_t)(g_era_host_peer_storage_relation.arbitration_flags &
                                          ERA_HOST_PEER_STORAGE_ARB_ROUND_OWED_FLAGS));
-    if (queued == 0 && g_era_host_peer_storage_relation.deferred_probe_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
+    if (queued == 0 && g_era_host_peer_storage_relation.deferred_summary_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
         return;
     }
     g_era_host_peer_storage_relation.probe_pending_mask    = 0;
     g_era_host_peer_storage_relation.push_pending_mask     = 0;
     g_era_host_peer_storage_relation.conflict_pending_mask = 0;
     g_era_host_peer_storage_relation.peer_changed_mask     = 0;
-    g_era_host_peer_storage_relation.deferred_probe_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    g_era_host_peer_storage_relation.deferred_summary_domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.idle_due              = 0;
     g_era_host_peer_storage_relation.idle_due_domain       = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     g_era_host_peer_storage_relation.idle_due_kind         = ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
@@ -2676,10 +2733,42 @@ static void era_host_peer_storage_note_episode_phase(uint32_t now_ms) {
     g_era_host_peer_storage_runtime.episode_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
 }
 
-static bool era_host_peer_storage_process_peer_result_record(const era_host_peer_storage_runtime_context_t *context, const era_split_communication_core_storage_initiator_result_t *result) {
-    g_era_host_peer_storage_runtime.flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING;
-    if (!era_host_peer_storage_peer_result_identity_matches(result)) {
+static void era_host_peer_storage_complete_summary(uint32_t now_ms, uint8_t mine, uint8_t peer, bool peer_baseline_valid) {
+    mine &= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
+    peer &= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
+    bool verify_all = (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) != 0;
+    g_era_host_peer_storage_relation.provisional_cell_mask |=
+        (uint8_t)(g_era_host_peer_storage_local.provisional_changed_mask & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
+    if (!peer_baseline_valid) {
+        g_era_host_peer_storage_relation.provisional_cell_mask |= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
+    }
+    /* One accepted whole-family summary replaces old decisions. Additive
+       masks would preserve a direction derived from a superseded summary. */
+    g_era_host_peer_storage_relation.peer_changed_mask = peer;
+    g_era_host_peer_storage_relation.probe_pending_mask =
+        verify_all ? (uint8_t)(~mine & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK) : (uint8_t)(peer & (uint8_t)~mine);
+    g_era_host_peer_storage_relation.push_pending_mask = (uint8_t)(mine & (uint8_t)~peer);
+    g_era_host_peer_storage_relation.conflict_pending_mask = (uint8_t)(mine & peer);
+    /* SUMMARY_PENDING now belongs to requests received after this episode
+       took its inbox request. A result can retire only its own episode. */
+    g_era_host_peer_storage_relation.arbitration_flags |= ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_DONE;
+    era_host_peer_storage_reset_peer_episode(now_ms, false, false);
+}
+
+/* A stale or duplicate result owns no current request. Reject it before
+   changing the pending latch or an old completion could admit a second request. */
+static bool era_host_peer_storage_take_peer_result(const era_split_communication_core_storage_initiator_result_t *result) {
+    if ((g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING) == 0 ||
+        !era_host_peer_storage_peer_result_identity_matches(result)) {
         g_era_host_peer_storage_diagnostics.stale_count++;
+        return false;
+    }
+    g_era_host_peer_storage_runtime.flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING;
+    return true;
+}
+
+static bool era_host_peer_storage_process_peer_result_record(const era_host_peer_storage_runtime_context_t *context, const era_split_communication_core_storage_initiator_result_t *result) {
+    if (!era_host_peer_storage_take_peer_result(result)) {
         return false;
     }
     if (result->result != ERA_SPLIT_TRANSACTION_RESULT_OK || result->failure != ERA_SPLIT_TRANSACTION_FAILURE_NONE) {
@@ -2851,63 +2940,9 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
             break;
         case ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_RSP:
             if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_SYNC_STATUS) {
-                /* Whole-family classification. Converged baselines are
-                 * identical on both halves, so one summary decides three of
-                 * the four cells outright: an unchanged half probes (a
-                 * MATCH verify or the pull the proof turns it into), a
-                 * one-sided local change pushes, and both-changed queues
-                 * the counter exchange. An invalid record on either half
-                 * already reads as all-changed, which lands everything in
-                 * the conflict cell — the conservative degradation. */
                 era_host_peer_storage_recency_snapshot_t recency;
                 era_host_peer_storage_get_recency_snapshot(&recency);
-                uint8_t mine = (uint8_t)(recency.changed_mask & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
-                uint8_t peer = (uint8_t)(result->data[0] & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
-                bool    verify_all = (g_era_host_peer_storage_relation.arbitration_flags &
-                                   ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) != 0;
-                /* Keep baseline-unknown provenance beside the cell queues,
-                 * never inside them. Local provenance is per-domain and
-                 * survives the first guard write; a peer with an invalid
-                 * record can only declare whole-record validity on the wire,
-                 * so its first summary conservatively tags all seven. The
-                 * mask is additive across a serviced identity rotation and
-                 * retires only at a domain conclusion or round drain. */
-                g_era_host_peer_storage_relation.provisional_cell_mask |=
-                    (uint8_t)(g_era_host_peer_storage_local.provisional_changed_mask &
-                              ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
-                if (result->data[1] == 0) {
-                    g_era_host_peer_storage_relation.provisional_cell_mask |= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
-                }
-                g_era_host_peer_storage_relation.peer_changed_mask = peer;
-                /* The verify cell (neither half changed) is the mandatory
-                 * sweep's business and nobody else's. At relation open every
-                 * unchanged domain is probed so the seven-domain bounded
-                 * completion holds. In session the two halves already agreed
-                 * at their last convergence, so probing what neither declares
-                 * changed would cost six MATCH episodes to move one edit -
-                 * a hint that behaves like a poll once it fires. */
-                g_era_host_peer_storage_relation.probe_pending_mask |=
-                    verify_all ? (uint8_t)(~mine & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK)
-                               : (uint8_t)(peer & (uint8_t)~mine);
-                g_era_host_peer_storage_relation.push_pending_mask |= (uint8_t)(mine & (uint8_t)~peer);
-                g_era_host_peer_storage_relation.conflict_pending_mask |= (uint8_t)(mine & peer);
-                /* The round's scope outlives the token that consumed it, so
-                 * an episode aborting mid-sweep returns through a summary
-                 * that still proves every domain. The drain clears it.
-                 *
-                 * Whether this summary found work is no longer recorded: it
-                 * bounded a round-end whole-family level re-read, which Slice
-                 * 11.7's per-domain carrier replaced with a per-domain re-arm
-                 * carrying its own bound. D2 then retired that re-arm and its
-                 * budget along with the re-read they descended from, so there
-                 * is nothing left for this fact to bound -- a value that only
-                 * moves forward cannot claim a level it will not lower, which
-                 * is the lie every one of those bounds was sized against. */
-                g_era_host_peer_storage_relation.arbitration_flags =
-                    (uint8_t)((g_era_host_peer_storage_relation.arbitration_flags &
-                               (uint8_t)~ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) |
-                              ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_DONE);
-                era_host_peer_storage_reset_peer_episode(context->now_ms, false, false);
+                era_host_peer_storage_complete_summary(context->now_ms, recency.changed_mask, result->data[0], result->data[1] != 0);
             } else if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_CONFLICT_STATUS) {
                 /* The conflict cell's single rule: larger divergence count
                  * wins, tie to Left — the same rule in-session and at
@@ -3136,14 +3171,17 @@ static bool era_host_peer_storage_start_peer_episode(const era_host_peer_storage
     g_era_host_peer_storage_runtime.retry_count              = 0;
     g_era_host_peer_storage_runtime.last_status              = ERA_SPLIT_EEPROM_SYNC_STATUS_MATCH;
     g_era_host_peer_storage_runtime.flags                    = 0;
+    if (token_kind == ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY) {
+        era_host_peer_storage_begin_summary_episode();
+    }
     /* Decided content movement holds the indicator through this episode's
      * pre-transfer exchanges: a push or a conflict exchange is one by its
      * cell, a probe is one exactly when the peer declared its domain
      * changed (the pull-expected subset — peer_changed_mask is not consumed
      * at grant, so the test still reads at start). A verify probe and the
      * whole-family summary set nothing: the audit sweep stays dark, and the
-     * summary episode is already covered by SUMMARY_PENDING, which clears
-     * at its response rather than at its grant. */
+     * summary remains outstanding through its active domainless episode,
+     * independently of any later request in the summary inbox. */
     if (token_kind == ERA_HOST_PEER_STORAGE_TOKEN_PUSH || token_kind == ERA_HOST_PEER_STORAGE_TOKEN_CONFLICT ||
         (token_kind == ERA_HOST_PEER_STORAGE_TOKEN_PROBE && !summary &&
          (g_era_host_peer_storage_relation.peer_changed_mask & (uint8_t)era_host_peer_storage_domain_mask(domain)) != 0)) {
@@ -3173,24 +3211,9 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
         g_era_host_peer_storage_runtime.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
     }
 
-    /* Relation (re)establishment detection: episode resets preserve the
-     * relation/policy generations, and every owner-epoch rotation also
-     * rotates the relation, so a generation difference while IDLE is a new
-     * confirmed relation and starts the mandatory audit sweep. */
-    if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_IDLE &&
-        (g_era_host_peer_storage_runtime.relation_generation != context->relation_generation ||
-         g_era_host_peer_storage_runtime.policy_generation != context->policy_generation)) {
-        if (era_split_link_runtime_settled()) {
-            g_era_host_peer_storage_runtime.relation_generation = context->relation_generation;
-            g_era_host_peer_storage_runtime.policy_generation   = context->policy_generation;
-            era_host_peer_storage_begin_relation_audit(context->now_ms);
-        }
-    }
-
-    /* No responder-changed branch here since Slice 11.7, and since D2 there is
-     * nothing to translate at all: the hint arms a summary through
-     * `era_host_peer_storage_note_host_news()` and the summary is what
-     * decides directions, on the same path a local settled capture uses. */
+    /* The audit receipt is relation-scoped, not an active transaction stamp.
+       A close adopted across recovery cannot consume the new relation's audit. */
+    (void)era_host_peer_storage_begin_relation_audit_if_due(context);
 
     bool peer_identity_changed = g_era_host_peer_storage_relation.active_due &&
                                  (context->policy_generation != g_era_host_peer_storage_runtime.policy_generation ||
@@ -3968,7 +3991,7 @@ static bool era_host_peer_storage_live_pair_work(void) {
     if (era_host_peer_storage_indicator_cell_mask() != 0) {
         return true;
     }
-    if ((g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0 &&
+    if (era_host_peer_storage_summary_outstanding() &&
         (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) == 0) {
         return true;
     }
@@ -4044,7 +4067,7 @@ static bool era_host_peer_storage_visible_pair_work(void) {
     if (era_host_peer_storage_indicator_cells_visible()) {
         return true;
     }
-    if ((g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0 &&
+    if (era_host_peer_storage_summary_outstanding() &&
         (g_era_host_peer_storage_relation.indicator_round_confirmed ||
          (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) == 0)) {
         return true;
@@ -4068,8 +4091,17 @@ bool era_host_peer_storage_advertised_pending(void) {
 }
 
 bool era_host_peer_storage_restart_should_wait(void) {
-    if (!g_era_host_peer_storage_local.initialized ||
-        (g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_GATE) == 0) {
+    if (!g_era_host_peer_storage_local.initialized) {
+        return false;
+    }
+    /* An admitted read-only audit may still discover content and enter Apply.
+     * Drain the episode/result before creating a LINK deadline, irrespective
+     * of indicator provenance or a policy-close edge. Merely queued boot audit
+     * work remains excluded, so reconciliation does not wait on its own gate. */
+    if (g_era_host_peer_storage_relation.active_due || era_host_peer_storage_initiator_request_pending()) {
+        return true;
+    }
+    if ((g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_GATE) == 0) {
         return false;
     }
     return era_host_peer_storage_live_pair_work();

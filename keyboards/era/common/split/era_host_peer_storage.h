@@ -120,7 +120,10 @@
  * measure, so both copies are gone. Two one-byte deferred-abort/internal-read
  * fields and their alignment also retire with the raw/public facade, accounting
  * for the remaining four bytes beyond the slice-swap scratch/cursor itself. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18524U
+/* V260909R1: +4 bytes for the relation/policy audit receipt, independent of
+ * an adopted transaction identity. This remains an exact accounting cap, not
+ * a relaxed physical limit; the SRAM free floor and wire budgets do not move. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18528U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 /* The consecutive-failure abort bound is deliberately conservative. Its 1 s
@@ -203,7 +206,9 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
    commit and publishes the candidate only after the durable commit record.
    Compared with the old 180-byte state, the full 40-byte reduction includes
    the two retired deferred-abort/internal-read bytes plus their alignment. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 140U
+/* V260909R1 adds the two 16-bit audit receipt generations: 140 -> 144.
+   Moving the local news counter into local truth uses existing padding. */
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 144U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -592,6 +597,10 @@ uint8_t era_host_peer_storage_settled_news_value(void);
    to a nonzero value arms a summary; nothing else is derived from it, which is
    why the argument stopped being a domain mask at D2. */
 void era_host_peer_storage_note_host_news(uint8_t news_value);
+/* Called only at the scheduler's relation-rotation boundary, alongside the
+ * standing receive-cache reset and before accepting new-relation news. Audit
+ * startup must not reset a value the current relation has already delivered. */
+void era_host_peer_storage_note_relation_rotation(void);
 void era_host_peer_storage_get_foundation_snapshot(era_host_peer_storage_foundation_snapshot_t *snapshot);
 void era_host_peer_storage_get_recency_snapshot(era_host_peer_storage_recency_snapshot_t *snapshot);
 void era_host_peer_storage_get_diagnostics_snapshot(era_host_peer_storage_diagnostics_t *snapshot);

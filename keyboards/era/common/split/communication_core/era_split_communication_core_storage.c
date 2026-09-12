@@ -130,7 +130,8 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    read-modify-write masks; the raw epoch lets Core1 stay off ChibiOS timers.
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20140U,
+/* V260909R1: the independent Core0 relation audit receipt adds four bytes. */
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20144U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -148,7 +149,8 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20
    request timestamp and two copies of the 36-byte retained queue/preceding-
    route context. ERA NVM removes the 40-byte slice/raw-facade state and the
    8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18524U,
+/* V260909R1: the same receipt, without cause instrumentation. */
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18528U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif

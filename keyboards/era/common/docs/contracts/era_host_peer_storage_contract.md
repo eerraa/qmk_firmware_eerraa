@@ -525,6 +525,47 @@ domain claim. Each settled divergent capture advances it; zero means no claim.
 A new nonzero value tells the peer only to request a fresh summary. The
 summary, not the hint, decides domains and direction.
 
+The settled counter belongs to local storage truth and survives relation
+rotation. The consumed peer-news value resets at the scheduler's rotation
+boundary, before new-generation news can be accepted. Core1 retires its own
+received cache on the owner/relation identity; Core0 never concurrently clears
+that publication. The consumed value does **not** reset at audit startup:
+housekeeping may already have drained current-generation standing news before
+storage runtime starts its audit. Policy-only audits also preserve it.
+Replaying an unchanged value after an all-MATCH audit must neither arm another
+summary nor light the indicator. A genuinely new relation may reuse the value.
+
+News that arrives while the reopened relation still owes its verify-all audit
+is consumed into that audit and arms no in-session summary
+(`era_host_peer_storage_note_host_news()` in `split/era_host_peer_storage.c`,
+gated by the relation's audit-owed mark set at boot and at rotation and
+cleared when the audit begins). The audit's summary re-derives every domain,
+so a visible summary armed ahead of it would be a false pending edge on both
+panels — and the audit may wait behind a link agreement for many passes.
+
+The relation/policy audit receipt is independent of the active transaction's
+identity. A durable close adopted across recovery cannot mark the reopened
+relation as already audited. Its mandatory audit starts once the runtime is
+idle and the link is settled; transaction stamps authorize transactions only.
+
+**Summary request and active episode are separate obligations.** Taking a
+summary consumes its inbox bit before the request is sent. The domainless
+active episode remains outstanding through completion, with the existing
+provisional-audit display rule. Later news can independently re-arm the inbox;
+an old result retires only its episode, never that later request. Recoverable
+summary abort restores an inbox request. A terminal refusal does not retry
+forever and discards obsolete direction queues it could not reclassify.
+
+New summary work revokes a selected but unsent domain token. An accepted
+whole-family summary replaces all direction masks rather than unioning them
+with old decisions. A SOURCE_CHANGED quiet deadline also returns through a
+summary, never a remembered pull. Only fresh classification or its current
+conflict counter result may choose a direction.
+
+An incoming result must match the pending request's complete identity before
+it retires that request. Stale identities and exact duplicate completions
+cannot clear a different request's pending latch.
+
 ## Relation Admission
 
 The same storage engine serves HOST-PEER and DUAL-HOST. Relation mode changes
@@ -792,8 +833,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 140 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18524 |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 144 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18528 |
+| Core0 storage state | 144 bytes; includes an independent 4-byte relation/policy audit receipt. Local news uses existing local-state padding |
+| cause-instrumented storage aggregate | 20144 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never

@@ -170,8 +170,8 @@ void era_host_peer_transaction_forget_responder_input_layer(void) {
            makes it necessary rather than tidy: the initiator clears core1's
            received cache in the same rotation
            (era_split_communication_core_clear_standing()) and its storage
-           engine's relation-open audit forgets the peer's last-taken claim
-           (`peer_news_value = 0`, era_host_peer_storage_begin_relation_audit()),
+           engine forgets the peer's last-taken claim at that same boundary
+           (era_host_peer_storage_note_relation_rotation()),
            so a surviving shadow would let this half's current value count as
            already known against a peer that has forgotten it.
 

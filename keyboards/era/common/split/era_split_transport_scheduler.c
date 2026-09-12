@@ -1124,6 +1124,9 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
        exchange; its identity stays old and apply rejects it. Core1 alone
        retires sent/received caches when it accepts the newly stamped plan. */
     era_split_communication_core_clear_standing();
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_host_peer_storage_note_relation_rotation();
+#endif
     g_era_split_transport_scheduler.standing_state_seq_observed = era_split_communication_core_standing_state_seq();
     g_era_split_transport_scheduler.standing_stopped = false;
     /* HOST-PEER's authority shadow used to be rotated here too. Since R2 it is
