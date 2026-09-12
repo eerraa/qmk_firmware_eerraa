@@ -1074,6 +1074,12 @@ TEST_F(EraSplitRestartAgreement, FailedCommitArmIsRetransmittedAfterStandingReco
     plan.restart_commit_ms = 5000U;
     ASSERT_TRUE(era_split_communication_core_publish_standing_plan(&plan));
     g_standing_result = ERA_SPLIT_TRANSACTION_RESULT_OK;
+    // Content/enable publication is not session validation. Model the
+    // scheduler's successful matching SESSION after observing this stop.
+    EXPECT_FALSE(era_split_communication_core_standing_service_once(7));
+    const uint16_t stop = era_split_communication_core_standing_stop_generation(7, plan.relation_generation);
+    ASSERT_NE(stop, 0U);
+    era_split_communication_core_resume_standing(7, plan.relation_generation, stop);
     ASSERT_TRUE(era_split_communication_core_standing_service_once(7));
     ASSERT_EQ(g_standing_payload_lens[2], 1U);
 
@@ -1107,6 +1113,12 @@ TEST_F(EraSplitRestartAgreement, FailedLiveArmForcesIdleDisarmAfterStandingRecov
     plan.restart_commit_ms = 0;
     ASSERT_TRUE(era_split_communication_core_publish_standing_plan(&plan));
     g_standing_result = ERA_SPLIT_TRANSACTION_RESULT_OK;
+    // Content/enable publication is not session validation. Model the
+    // scheduler's successful matching SESSION after observing this stop.
+    EXPECT_FALSE(era_split_communication_core_standing_service_once(7));
+    const uint16_t stop = era_split_communication_core_standing_stop_generation(7, plan.relation_generation);
+    ASSERT_NE(stop, 0U);
+    era_split_communication_core_resume_standing(7, plan.relation_generation, stop);
     ASSERT_TRUE(era_split_communication_core_standing_service_once(7));
     ASSERT_EQ(g_standing_payload_lens[2], 1U);
 

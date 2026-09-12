@@ -124,7 +124,7 @@ static bool era_split_transport_scheduler_initiator_silence_stale(bool peer_know
     if (!peer_known || !g_era_split_transport_scheduler.local_wire_available ||
         !g_era_split_transport_scheduler.local_wire_initiator ||
         !g_era_split_transport_scheduler.standing_plan_granted ||
-        g_era_split_transport_scheduler.standing_stop_observed ||
+        g_era_split_transport_scheduler.standing_stopped ||
         !era_split_communication_core_owner_core1_role_is_live(ERA_SPLIT_TRANSACTION_BACKEND_ROLE_INITIATOR)) {
         era_split_transport_scheduler_reset_initiator_silence_watch();
         return false;

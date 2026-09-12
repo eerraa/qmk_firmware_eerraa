@@ -404,7 +404,7 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
     if (seq == g_era_split_transport_scheduler.standing_state_seq_observed) {
         return false;
     }
-    if (!era_split_communication_core_read_standing_state(&state)) {
+    if (!era_split_communication_core_read_standing_state(&state, &seq)) {
         return false;
     }
     g_era_split_transport_scheduler.standing_state_seq_observed = seq;
@@ -633,8 +633,9 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
 
     /* Failure is core0's, and what it owes is a revalidation rather than a
        teardown. Core1 stopped and will not resume; raising the pending status
-       is what gives ATTACH_STATUS the wire, and republishing an enabled plan
-       for a reconfirmed relation is what restarts it.
+       is what gives ATTACH_STATUS the wire. A successful matching SESSION
+       result acknowledges the stop captured before that request was enqueued;
+       ordinary plan publication cannot release the stopped service.
 
        **Declaring the peer stale here as well is what made one failed exchange
        a relation collapse** (Slice 11.7). This exchange cannot tell "the
@@ -651,8 +652,8 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
        This is the shape `era_split_transport_scheduler_force_storage_recovery()`
        already uses for every exclusive storage close, which is the same
        question asked by the other lane. */
-    if (state.stopped && !g_era_split_transport_scheduler.standing_stop_observed) {
-        g_era_split_transport_scheduler.standing_stop_observed      = true;
+    g_era_split_transport_scheduler.standing_stopped = state.stopped != 0;
+    if (state.stopped) {
         g_era_split_transport_scheduler.local_status_pending        = true;
         g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
         /* The failed exchange may have carried the release's all-zero visual
@@ -663,8 +664,6 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
            arriving baseline diffs against nothing. */
         era_host_peer_transaction_invalidate_peer_visual_baseline();
         era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
-    } else if (!state.stopped) {
-        g_era_split_transport_scheduler.standing_stop_observed = false;
     }
     return true;
 }
@@ -743,7 +742,7 @@ void era_split_transport_scheduler_note_local_activity_change(void) {
    service, so exactly one side of each sum is zero. */
 void era_split_transport_scheduler_get_dual_runtime_counts(uint32_t *tx_count, uint32_t *rx_count) {
     era_split_communication_core_standing_state_t state;
-    if (!era_split_communication_core_read_standing_state(&state)) {
+    if (!era_split_communication_core_read_standing_state(&state, NULL)) {
         memset(&state, 0, sizeof(state));
     }
     if (tx_count != NULL) {
@@ -1121,21 +1120,12 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
     g_era_split_transport_scheduler.standing_visual_seq_valid   = false;
     g_era_split_transport_scheduler.standing_visual_seq_applied = 0;
 
-    /* The standing grant rotates with the relation, and this is not symmetry
-       for its own sake. Core1 resets its own sent-state shadow when it sees a
-       new relation generation, because the peer clears what it holds on the
-       same event and a surviving shadow would let an unchanged layer count as
-       already known -- leaving the reopened peer at zero until the user
-       happened to touch a layer key. Clearing the published plan here is what
-       makes core1 see that generation change at all, and it also stops the
-       standing exchange for the window in which the relation is undecided.
-
-       The observed sequence resets with it: a state core1 published under the
-       previous relation must not be read as news in the next one, and the
-       generation check on apply is the second guard rather than the only. */
+    /* Revoke only Core0's plan. A live-lease Core1 may still complete an old
+       exchange; its identity stays old and apply rejects it. Core1 alone
+       retires sent/received caches when it accepts the newly stamped plan. */
     era_split_communication_core_clear_standing();
     g_era_split_transport_scheduler.standing_state_seq_observed = era_split_communication_core_standing_state_seq();
-    g_era_split_transport_scheduler.standing_stop_observed      = false;
+    g_era_split_transport_scheduler.standing_stopped = false;
     /* HOST-PEER's authority shadow used to be rotated here too. Since R2 it is
        core1's, and core1 rotates it off the relation generation this same
        clear_standing() makes it observe -- one rotation on the side that

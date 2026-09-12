@@ -230,19 +230,16 @@ typedef struct {
     uint8_t  core1_initiator_pending_lane;
     bool     core1_initiator_peer_known_before_request;
     uint16_t core1_initiator_pending_generation;
+    /* Standing stop observed before this SESSION request was enqueued. */
+    uint16_t core1_initiator_pending_standing_stop_generation;
     uint16_t core1_initiator_request_generation;
     uint16_t core1_initiator_relation_generation;
-    /* What core0 keeps of the DUAL-HOST runtime lane, and it is now two words.
-       `seq_observed` is the last standing-state sequence this half consumed --
-       comparing it is the whole per-scan cost of holding the grant.
-       `stop_observed` makes core1's stop an edge on this side, so one failure
-       raises one revalidation rather than one per housekeeping pass.
-
-       Everything else went with the machinery it served: the activity window's
-       level and one-shot and the peer's remembered hint retired with the
-       cadence at Slice 11.5, and the initiator's sent-state shadow moved to
-       core1 with the send that confirms it. */
+    /* The guarded snapshot returns its own change sequence. Every stop is a
+       publication edge; no independent stop-observed boolean can lose a failed
+       recovery that publishes a second stop without an intervening success. */
     uint32_t standing_state_seq_observed;
+    /* Cached level for the silence watch only, never a stop-edge filter. */
+    bool     standing_stopped;
     /* R7.1: whether the last-built standing plan granted core1 a relation at
        all (nonzero relation generation — core1's own acceptance test).
        Cached at the publish so the initiator silence watch arms only where
@@ -257,7 +254,6 @@ typedef struct {
        genuinely new snapshot. */
     uint8_t  standing_visual_seq_applied;
     bool     standing_visual_seq_valid;
-    bool     standing_stop_observed;
     /* HOST-PEER's AUTHORITY sent-state shadow, and the in-flight body beside
        it, retired by R2. It lived here only because that relation had no
        standing grant, so core0 planned, submitted and confirmed the send; the

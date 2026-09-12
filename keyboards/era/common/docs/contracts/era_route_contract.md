@@ -198,7 +198,7 @@ that clears the enable bit until the frame round-trips.
 | publication route-due bit | DUAL-HOST Left only (`ERA_SPLIT_SCHEDULER_ROUTE_DUE_DUAL_RUNTIME_PUSH`). `era_split_transport_scheduler_scan_idle()` in `split/era_split_transport_scheduler.c` reads the route-due word. Consumed at the top of `era_split_transport_scheduler_publish_standing_plan()` in that file, before the plan is built. `era_split_transport_scheduler_refresh_route_due_flags()` in `scheduler/era_split_transport_scheduler_timing.c` is the backstop, not the consumer |
 
 Core1 accepts a plan only when `owner_epoch` matches, `relation_generation !=
-0`, `plan_generation != 0`, and `poll_period_ms != 0`. **The enable bit stops
+0`, and `poll_period_ms != 0`. **The enable bit stops
 the cadence and does not stop liveness.** While it is clear but those
 identities hold, core1 still runs one section-less exchange after
 `ERA_SPLIT_STANDING_LIVENESS_MS` 50 of wire quiet. Rotation bumps generation;
@@ -210,16 +210,39 @@ wire-role change moves the epoch.
 `split/era_split_transport_scheduler.c`). It carries the initiator's last
 successfully sent `STORAGE_PENDING` as a local confirmation edge.
 
-**Publication uses the responder snapshot's discipline**: odd/even publish
-sequence with a claim word.
+**Each standing record has one writer.** Core0 writes the plan; Core1 writes
+received state and its change sequence under one odd/even publication guard.
+Core0 revocation clears only the plan, never the Core1-owned state. Core0
+rejects old owner/relation identities. Core1 retires both sent shadows and
+received section caches on `(owner_epoch, relation_generation)` before
+stamping a new identity; a late old completion cannot be relabeled as new.
+Cumulative counters and the visual delivery sequence survive this retirement;
+an owner-only restart must not alias Core0's last applied visual receipt.
+The first state in a new identity
+notifies even when its sparse reply has no changed section.
+
+The guarded reader returns the state's own change sequence. Recording an
+independent earlier detector read could replay the same publication. The
+cheap per-scan detector remains one aligned word, not a full snapshot read.
 
 > **REFUSED:** publish the response plan inside the responder snapshot
 > instead of threading it.
 > **WHY:** it lowers and re-raises the same table across the core boundary.
 > **REOPENS:** a snapshot that already carries the plan for another reason.
 
-A failed standing exchange latches `stopped` against that `plan_generation`.
-Core1 never retries; failure is core0's. **A stop raises revalidation and
+A failed standing exchange increments a nonzero `stop_generation` and
+publishes `stopped`. Before enqueuing SESSION_STATUS, Core0 captures that stop
+for the request's owner/relation. Only its matching, decoded, successful result
+may acknowledge the captured token through `resume_generation`. A request
+issued before the failure, a stale result, or an ordinary RGB/pending/enable
+plan change cannot resume the stopped exchange. An unacknowledged stop keeps
+SESSION revalidation pending even when the older request otherwise succeeded:
+its stop wake may already have been consumed, so another edge cannot be assumed.
+Another failed recovery is
+another stop token and publication edge, even without an intervening success.
+The scheduler keeps a stopped *level* only for its O(1) silence-watch gate;
+it never uses that level to suppress a new recovery edge.
+Core1 never retries without this acknowledgement; failure is core0's. **A stop raises revalidation and
 does not declare the peer stale**
 (`era_split_transport_scheduler_apply_standing_state()` in
 `split/era_split_transport_scheduler.c`). A stop inside a durable Apply is a

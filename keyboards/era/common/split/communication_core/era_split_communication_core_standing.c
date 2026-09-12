@@ -61,6 +61,7 @@ static volatile uint32_t g_era_split_communication_core_standing_state_change_se
  * already known. */
 static struct {
     uint16_t relation_generation;
+    uint16_t owner_epoch;
     uint32_t next_due_us;
     uint8_t  due_valid;
     uint8_t  sent_input_layer;
@@ -99,14 +100,9 @@ static struct {
        confusing in a capture. */
     uint8_t  due_liveness;
     uint8_t  stopped;
-    /* The plan this half stopped under. Without it the stop latch has no clear
-       path on the ordinary recovery: core0 raises a pending SESSION_STATUS,
-       which drops `enabled` and returns it, and the relation generation never
-       moves because the relation never rotated -- so core1 would sit stopped
-       on a healthy link forever. Clearing on a *plan* change is what makes
-       "core0 republishes to restart it" the mechanism rather than the
-       intention. */
-    uint16_t stopped_plan_generation;
+    /* Incremented only by a failed exchange; a SESSION request must have
+       observed this exact stop before its successful result may acknowledge it. */
+    uint16_t stop_generation;
 } g_era_split_communication_core_standing_private;
 
 /* Field compares rather than memcmp, on both records, for the same reason the
@@ -177,7 +173,7 @@ bool era_split_communication_core_standing_plan_differs(const era_split_communic
         return false;
     }
     era_split_communication_core_standing_plan_t candidate = *plan;
-    candidate.plan_generation                              = g_era_split_communication_core_standing_plan.plan_generation;
+    candidate.resume_generation                            = g_era_split_communication_core_standing_plan.resume_generation;
     return memcmp(&candidate, &g_era_split_communication_core_standing_plan, sizeof(candidate)) != 0;
 }
 
@@ -194,11 +190,8 @@ bool era_split_communication_core_publish_standing_plan(const era_split_communic
     }
 
     era_split_communication_core_standing_plan_t published = *plan;
-    uint16_t generation = (uint16_t)(g_era_split_communication_core_standing_plan.plan_generation + 1U);
-    if (generation == 0) {
-        generation = 1;
-    }
-    published.plan_generation = generation;
+    /* Ordinary content publication cannot acknowledge a failed exchange. */
+    published.resume_generation = g_era_split_communication_core_standing_plan.resume_generation;
 
     uint32_t odd = 0;
     era_split_communication_core_standing_seq_write_begin(&g_era_split_communication_core_standing_plan_seq, &odd);
@@ -229,37 +222,10 @@ void era_split_communication_core_clear_standing(void) {
     memset(&g_era_split_communication_core_standing_plan, 0, sizeof(g_era_split_communication_core_standing_plan));
     era_split_communication_core_standing_seq_write_end(&g_era_split_communication_core_standing_plan_seq, odd);
 
-    /* The reported peer values clear with the plan, and the reason is the
-       edge-driven wake rather than tidiness. Core0 drops its peer layer and
-       forgets its peer session on this same rotation, so a surviving
-       `peer_input_layer_valid` or `peer_authority_valid` would let the first
-       exchange of the reopened relation carry an unchanged value, raise no
-       change, and leave core0 holding nothing until the peer happened to move. That is the reopened-peer-stranded-at-zero failure the
-       sent-state shadows rotate to avoid, arriving through the receive side
-       instead.
-
-       `peer_storage_news_valid` clears for the same reason and lands the
-       same way: the storage lane's own relation-open audit arms a whole-family
-       `SYNC_STATUS` summary with ROUND_VERIFY_ALL on this rotation and forgets
-       the peer's last claim with it, so a re-delivered news value costs one
-       redundant classification at worst and a lost one never. This used to
-       say the audit "declares every domain in hand" -- that in-hand set
-       retired at D2 along with the domain identity that was its only reason to
-       exist, and the audit's whole-family sweep is what carries the property
-       now.
-
-       **The counters deliberately survive.** They are free-running, and the
-       DUAL-HOST era block differences them against a baseline with unsigned
-       arithmetic (`current - base`). Zeroing them mid-era makes that
-       subtraction wrap and reports `rt` as an enormous number -- a fabricated
-       reading on the one counter whose pass value is zero. */
-    era_split_communication_core_standing_state_t cleared = {0};
-    cleared.exchange_count   = g_era_split_communication_core_standing_state.exchange_count;
-    cleared.tx_section_count = g_era_split_communication_core_standing_state.tx_section_count;
-    cleared.rx_section_count = g_era_split_communication_core_standing_state.rx_section_count;
-    era_split_communication_core_standing_seq_write_begin(&g_era_split_communication_core_standing_state_seq, &odd);
-    g_era_split_communication_core_standing_state = cleared;
-    era_split_communication_core_standing_seq_write_end(&g_era_split_communication_core_standing_state_seq, odd);
+    /* Revocation is only a Core0 -> Core1 publication. Core1 may still be
+       completing an old exchange on a live lease: writing its state here
+       would create two seqlock writers. Core0 rejects the old identity; Core1
+       retires both caches itself when it next accepts a different identity. */
 }
 
 uint32_t era_split_communication_core_standing_state_seq(void) {
@@ -272,7 +238,7 @@ uint32_t era_split_communication_core_standing_exchange_count(void) {
     return g_era_split_communication_core_standing_state.exchange_count;
 }
 
-bool era_split_communication_core_read_standing_state(era_split_communication_core_standing_state_t *state) {
+bool era_split_communication_core_read_standing_state(era_split_communication_core_standing_state_t *state, uint32_t *change_seq) {
     if (state == NULL) {
         return false;
     }
@@ -283,12 +249,58 @@ bool era_split_communication_core_read_standing_state(era_split_communication_co
         }
         __DMB();
         *state = g_era_split_communication_core_standing_state;
+        uint32_t changes = g_era_split_communication_core_standing_state_change_seq;
         __DMB();
         if (first == g_era_split_communication_core_standing_state_seq) {
+            if (change_seq != NULL) {
+                *change_seq = changes;
+            }
             return true;
         }
     }
     return false;
+}
+
+uint16_t era_split_communication_core_standing_stop_generation(uint16_t owner_epoch, uint16_t relation_generation) {
+    era_split_communication_core_standing_state_t state;
+    if (!era_split_communication_core_read_standing_state(&state, NULL) || !state.stopped ||
+        state.owner_epoch != owner_epoch || state.relation_generation != relation_generation) {
+        return 0;
+    }
+    return state.stop_generation;
+}
+
+bool era_split_communication_core_resume_standing(uint16_t owner_epoch, uint16_t relation_generation, uint16_t stop_generation) {
+    if (get_core_num() != 0) {
+        return false;
+    }
+    if (g_era_split_communication_core_standing_plan.owner_epoch != owner_epoch ||
+        g_era_split_communication_core_standing_plan.relation_generation != relation_generation) {
+        /* Withheld/bootstrap and retired grants owe no standing recovery.
+           A valid SESSION must not become an endless retry in LOCAL_NO_LINK. */
+        return true;
+    }
+    era_split_communication_core_standing_state_t state;
+    if (!era_split_communication_core_read_standing_state(&state, NULL)) {
+        return false;
+    }
+    if (state.owner_epoch != owner_epoch || state.relation_generation != relation_generation || !state.stopped) {
+        return true; // This identity has no published stop to acknowledge.
+    }
+    if (stop_generation == 0 || state.stop_generation != stop_generation) {
+        /* The scheduler may already have consumed this stop's wake before an
+           older SESSION result arrived. It must retain revalidation work;
+           waiting for another publication here would strand a stopped lane. */
+        return false;
+    }
+    if (g_era_split_communication_core_standing_plan.resume_generation != stop_generation) {
+        uint32_t odd = 0;
+        era_split_communication_core_standing_seq_write_begin(&g_era_split_communication_core_standing_plan_seq, &odd);
+        g_era_split_communication_core_standing_plan.resume_generation = stop_generation;
+        era_split_communication_core_standing_seq_write_end(&g_era_split_communication_core_standing_plan_seq, odd);
+        __SEV();
+    }
+    return true;
 }
 
 /* ---- core1 ---- */
@@ -317,10 +329,13 @@ static void era_split_communication_core_standing_publish_state(const era_split_
     uint32_t odd = 0;
     era_split_communication_core_standing_seq_write_begin(&g_era_split_communication_core_standing_state_seq, &odd);
     g_era_split_communication_core_standing_state = *state;
-    era_split_communication_core_standing_seq_write_end(&g_era_split_communication_core_standing_state_seq, odd);
     if (notify) {
         g_era_split_communication_core_standing_state_change_seq++;
-        __DMB();
+    }
+    /* Data and its wake identity are one coherent publication. The early
+       cheap detector may race this write; the guarded reader cannot. */
+    era_split_communication_core_standing_seq_write_end(&g_era_split_communication_core_standing_state_seq, odd);
+    if (notify) {
         __SEV();
     }
 }
@@ -355,7 +370,7 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
      * back to core0 at the one moment core0 was about to vanish into a flash
      * write, and the peer's silence watch fired 100 ms into a 1499 ms apply. */
     if (plan.owner_epoch != owner_epoch || plan.relation_generation == 0 ||
-        plan.plan_generation == 0 || plan.poll_period_ms == 0) {
+        plan.poll_period_ms == 0) {
         return false;
     }
     bool cadence_granted = plan.enabled != 0;
@@ -369,42 +384,25 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         return false;
     }
 
-    if (g_era_split_communication_core_standing_private.relation_generation != plan.relation_generation) {
+    if (g_era_split_communication_core_standing_private.relation_generation != plan.relation_generation ||
+        g_era_split_communication_core_standing_private.owner_epoch != owner_epoch) {
         memset(&g_era_split_communication_core_standing_private, 0, sizeof(g_era_split_communication_core_standing_private));
         g_era_split_communication_core_standing_private.relation_generation = plan.relation_generation;
-    }
-    /* Stopped means stopped until core0 republishes. Core1 never retries a
-     * failed standing exchange on its own: the failure hands the wire back to
-     * core0, whose SESSION_STATUS revalidation outranks this route. Retrying
-     * here would poll a doubtful relation at rate, which is exactly what route
-     * priority exists to prevent.
-     *
-     * The clear is a plan change, not a timer and not a success. On the
-     * ordinary recovery core0 raises a pending status, which drops `enabled`
-     * and later returns it -- two publishes, so the generation moves twice and
-     * this releases on the first. */
-    if (g_era_split_communication_core_standing_private.stopped) {
-        if (g_era_split_communication_core_standing_private.stopped_plan_generation == plan.plan_generation) {
-            return false;
-        }
-        g_era_split_communication_core_standing_private.stopped                 = 0;
-        g_era_split_communication_core_standing_private.stopped_plan_generation = 0;
-        g_era_split_communication_core_standing_private.due_valid               = 0;
+        g_era_split_communication_core_standing_private.owner_epoch = owner_epoch;
+        g_era_split_communication_core_standing_private.stop_generation = plan.resume_generation;
     }
 
-    /* Latest-state and edge-armed, unchanged in rule and moved in owner: the
-     * push is due while the published body differs from what this half last
-     * confirmed on the wire. The shadow lives here now because core1 is what
-     * confirms. Both sections follow the identical rule, which is why the
-     * authority one is three lines rather than a mechanism. */
-    /* Under liveness alone the request carries nothing, and that is the contract
-     * rather than an omission: storage standing suppression keeps every push
-     * section due, and this exchange exists to prove the half is alive rather
-     * than to move initiator state. During a responder's synchronous push Apply,
-     * its blocking snapshot was already published under transfer suppression,
-     * so the response remains section-less through that Core0 outage as well. The
-     * sent-state shadows are therefore untouched, so every section stays due
-     * and crosses on the first cadence poll after the episode. */
+    /* Neither new RGB/storage contents nor enabled/liveness changes prove a
+       successful SESSION_STATUS. Only an acknowledgement of this exact stop,
+       captured before the validating request was enqueued, releases it. */
+    if (g_era_split_communication_core_standing_private.stopped) {
+        if (g_era_split_communication_core_standing_private.stop_generation != plan.resume_generation) {
+            return false;
+        }
+        g_era_split_communication_core_standing_private.stopped = 0;
+        g_era_split_communication_core_standing_private.due_valid = 0;
+    }
+
     uint8_t push_sections = 0;
     if (cadence_granted &&
         (plan.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_INPUT_LAYER) != 0 &&
@@ -612,6 +610,22 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
 #endif
 
     era_split_communication_core_standing_state_t state = g_era_split_communication_core_standing_state;
+    bool identity_changed = state.owner_epoch != owner_epoch || state.relation_generation != plan.relation_generation;
+    if (identity_changed) {
+        /* A late old result may have overwritten the publication after Core0
+           revoked its grant. Never relabel that cache with the new identity.
+           This reset has the same sole writer as ordinary state publication. */
+        uint32_t exchanges = state.exchange_count, tx = state.tx_section_count, rx = state.rx_section_count;
+        uint8_t visual_seq = state.peer_visual_seq;
+        memset(&state, 0, sizeof(state));
+        /* Delivery identity, not cached peer state: an owner-only restart
+           does not reset Core0's applied-visual receipt. Reusing sequence 1
+           would suppress the first fresh visual snapshot after that restart. */
+        state.peer_visual_seq = visual_seq;
+        state.exchange_count = exchanges;
+        state.tx_section_count = tx;
+        state.rx_section_count = rx;
+    }
     state.owner_epoch         = owner_epoch;
     state.relation_generation = plan.relation_generation;
 
@@ -627,18 +641,22 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM) != 0) {
             g_era_split_communication_core_standing_private.sent_restart_valid = 0;
         }
-        g_era_split_communication_core_standing_private.stopped                 = 1;
-        g_era_split_communication_core_standing_private.stopped_plan_generation = plan.plan_generation;
-        bool notify                                                             = state.stopped == 0;
-        state.stopped                                                           = 1;
-        era_split_communication_core_standing_publish_state(&state, notify);
+        g_era_split_communication_core_standing_private.stopped = 1;
+        if (++g_era_split_communication_core_standing_private.stop_generation == 0) {
+            g_era_split_communication_core_standing_private.stop_generation = 1;
+        }
+        state.stop_generation = g_era_split_communication_core_standing_private.stop_generation;
+        state.stopped = 1;
+        /* A retry can fail without an intervening successful state. Its new
+           stop token is still a new revalidation obligation. */
+        era_split_communication_core_standing_publish_state(&state, true);
         return true;
     }
 
     /* The wake is edge-driven from here down. `stopped` falling is news, a new
        peer layer value is news, and an exchange that changed neither is not --
        that last case is the ordinary poll, and it must cost core0 nothing. */
-    bool notify   = state.stopped != 0;
+    bool notify   = identity_changed || state.stopped != 0;
     state.stopped = 0;
     state.exchange_count++;
     g_era_split_communication_core_standing_private.due_valid   = 1;

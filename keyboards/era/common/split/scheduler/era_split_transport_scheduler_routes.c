@@ -15,6 +15,7 @@
 #include "../communication_core/era_split_communication_core_initiator.h"
 #include "../communication_core/era_split_communication_core_lifecycle.h"
 #include "../communication_core/era_split_communication_core_owner.h"
+#include "../communication_core/era_split_communication_core_standing.h"
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "../communication_core/era_split_communication_core_storage.h"
 #    include "../era_host_peer_storage.h"
@@ -208,8 +209,12 @@ static void era_split_transport_scheduler_init_core1_request(era_split_communica
 }
 
 static bool era_split_transport_scheduler_submit_core1_request(const era_split_communication_core_initiator_request_t *request, bool peer_known_before_request) {
-    if (!era_split_transport_scheduler_initiator_route_available() ||
-        !era_split_communication_core_enqueue_initiator(request,
+    if (!era_split_transport_scheduler_initiator_route_available()) {
+        return false;
+    }
+    uint16_t stop_generation = request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS ?
+        era_split_communication_core_standing_stop_generation(request->owner_epoch, request->relation_generation) : 0;
+    if (!era_split_communication_core_enqueue_initiator(request,
                                                         era_split_transport_scheduler_core1_request_queue_window_us())) {
         return false;
     }
@@ -217,6 +222,7 @@ static bool era_split_transport_scheduler_submit_core1_request(const era_split_c
     g_era_split_transport_scheduler.core1_initiator_pending_since_ms          = timer_read32();
     g_era_split_transport_scheduler.core1_initiator_pending_lane              = request->lane;
     g_era_split_transport_scheduler.core1_initiator_pending_generation        = request->request_generation;
+    g_era_split_transport_scheduler.core1_initiator_pending_standing_stop_generation = stop_generation;
     g_era_split_transport_scheduler.core1_initiator_peer_known_before_request = peer_known_before_request;
     return true;
 }
@@ -299,11 +305,23 @@ static void era_split_transport_scheduler_apply_core1_session_result(const era_s
     }
     era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_RESULT, cause_detail);
 #endif
+    if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_OK && !result->decoded.session.valid) {
+        transaction_result = ERA_SPLIT_TRANSACTION_RESULT_BAD;
+    }
     era_split_transport_scheduler_note_attach_status_request_attempt(transaction_result,
                                                                     request_sent,
                                                                     g_era_split_transport_scheduler.core1_initiator_peer_known_before_request);
     if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_OK && result->decoded.session.valid) {
         era_split_scheduler_session_note_peer_status(&result->decoded.session.status);
+        if (!era_split_communication_core_resume_standing(
+                result->owner_epoch, result->relation_generation,
+                g_era_split_transport_scheduler.core1_initiator_pending_standing_stop_generation)) {
+            /* A SESSION queued before this stop cannot discharge it, even if
+               its result is valid. The stop edge may already be consumed. */
+            g_era_split_transport_scheduler.local_status_pending = true;
+            g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
+            era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
+        }
     }
 }
 
