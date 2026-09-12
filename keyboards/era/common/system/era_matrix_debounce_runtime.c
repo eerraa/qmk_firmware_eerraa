@@ -25,6 +25,8 @@ static era_matrix_debounce_asym_counter_t asym_debounce_counters[ERA_MATRIX_DEBO
 static fast_timer_t                       debounce_last_time;
 static bool                               debounce_config_loaded;
 static bool                               counters_need_update;
+/* A raw/cooked reconciliation is due, independent of whether the sampler saw
+ * a new raw edge. Counter expiry and policy reset are both producers. */
 static bool                               matrix_need_update;
 static bool                               cooked_changed;
 
@@ -74,7 +76,10 @@ static void era_matrix_debounce_reset_runtime(void) {
     memset(asym_debounce_counters, ERA_MATRIX_DEBOUNCE_ELAPSED, sizeof(asym_debounce_counters));
     debounce_last_time   = era_matrix_debounce_time_read();
     counters_need_update = false;
-    matrix_need_update   = false;
+    /* A new policy retires old deadlines, not the raw/cooked difference they
+     * represented. The sampler may now remain unchanged indefinitely, so the
+     * first pass must re-earn that difference under the new policy. */
+    matrix_need_update   = true;
     cooked_changed       = false;
 }
 
@@ -135,7 +140,7 @@ bool era_matrix_debounce_update(matrix_row_t raw[], matrix_row_t cooked[], bool 
             return era_matrix_debounce_run_asym(raw, cooked, changed);
         case ERA_MATRIX_DEBOUNCE_PROFILE_BALANCED:
         default:
-            return era_matrix_debounce_run_sym_defer(raw, cooked, changed);
+            return era_matrix_debounce_run_sym_defer(raw, cooked, changed || matrix_need_update);
     }
 }
 
@@ -191,6 +196,7 @@ static void era_matrix_debounce_start_sym_defer_counters(matrix_row_t raw[], mat
 static bool __attribute__((noinline)) era_matrix_debounce_run_sym_defer(matrix_row_t raw[], matrix_row_t cooked[], bool changed) {
     bool updated_last = false;
     cooked_changed    = false;
+    matrix_need_update = false;
 
     if (counters_need_update) {
         fast_timer_t now          = era_matrix_debounce_time_read();
