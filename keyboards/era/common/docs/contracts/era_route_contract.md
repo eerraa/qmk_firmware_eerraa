@@ -428,6 +428,13 @@ for INPUT edge, activity change, and visual baseline
 `split/era_split_transport_scheduler.c`). Right's changes mark the responder
 snapshot due.
 
+Visual wake uses the debounced local-row change in
+`era_split_transport_scheduler_transport_step()` in
+`split/era_split_transport_scheduler.c`, before its scan-idle gate.
+It must not depend on `process_record()` in `quantum/action.c`: tapping
+buffering and semantic filters do not own the physical baseline. The wake
+reads one cached change bit; baseline packing remains on the due path.
+
 ## Stale Recovery
 
 - Watch counts every accepted frame, no exemptions (`era_invariants.md`).

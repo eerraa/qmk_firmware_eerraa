@@ -171,12 +171,12 @@ void era_split_keyboard_note_input_edge(void) {
  *     the HOST's last sleep bit across a promotion is the mirror image of the
  *     same defect.
  *
- * A board's status report may still punch the gate to force a frame visible
- * (the core1 launch-failure report). That is a render override and not a second
- * owner of the decision: it re-asserts itself for as long as it runs, and this
- * resolver writes only on an edge of its own value, so the two do not fight.
- * What the HOST publishes to its PEER is the resolved decision below and never
- * the raw gate, so a status report on the HOST cannot flash the PEER. */
+ * Both the receiver and resolver adopt this same owner before reading or
+ * replacing its fact. Otherwise a first current-relation response received
+ * before the next 1 kHz resolve would be discarded as the outgoing answer.
+ * Relation rotation independently retires the wire fact, even when the role
+ * remains PEER. Presentation cannot override this decision; the resolver
+ * reconciles the raw gate and the HOST publishes only its resolved value. */
 static bool era_split_keyboard_note_lighting_sleep(bool sleep) {
     bool changed = false;
 
@@ -207,22 +207,32 @@ static bool era_split_keyboard_note_lighting_sleep(bool sleep) {
     return changed;
 }
 
-static bool era_split_keyboard_resolve_lighting_sleep(void) {
+void era_split_keyboard_forget_wire_lighting_sleep(void) {
+    ATOMIC_BLOCK_RESTORESTATE {
+        era_split_keyboard_wire_lighting_sleep_valid = false;
+        era_split_keyboard_wire_lighting_sleep       = false;
+    }
+}
+
+static bool era_split_keyboard_adopt_lighting_sleep_owner(void) {
     bool owner_is_wire = era_split_transport_scheduler_lighting_sleep_owner_is_wire();
 
-    if (!era_split_keyboard_lighting_sleep_owner_valid ||
-        era_split_keyboard_lighting_sleep_owner_is_wire != owner_is_wire) {
-        era_split_keyboard_lighting_sleep_owner_valid   = true;
-        era_split_keyboard_lighting_sleep_owner_is_wire = owner_is_wire;
-        /* Both transfer directions drop the outgoing owner's answer. Dropping
-           the wire fact is what makes a promotion re-evaluate; the local
-           predicate needs no drop because it is recomputed below from state it
-           does not cache. */
-        ATOMIC_BLOCK_RESTORESTATE {
+    ATOMIC_BLOCK_RESTORESTATE {
+        if (!era_split_keyboard_lighting_sleep_owner_valid ||
+            era_split_keyboard_lighting_sleep_owner_is_wire != owner_is_wire) {
+            era_split_keyboard_lighting_sleep_owner_valid   = true;
+            era_split_keyboard_lighting_sleep_owner_is_wire = owner_is_wire;
+            /* Both directions retire the outgoing answer. Adoption precedes
+               publication as well as resolve, so it cannot erase a new one. */
             era_split_keyboard_wire_lighting_sleep_valid = false;
             era_split_keyboard_wire_lighting_sleep       = false;
         }
     }
+    return owner_is_wire;
+}
+
+static bool era_split_keyboard_resolve_lighting_sleep(void) {
+    bool owner_is_wire = era_split_keyboard_adopt_lighting_sleep_owner();
 
     bool sleep;
     if (owner_is_wire) {
@@ -241,10 +251,13 @@ static bool era_split_keyboard_resolve_lighting_sleep(void) {
 }
 
 /* The wire's publication into the owner, from the HOST-PEER response apply.
-   It stores rather than writes: a fact that arrives while this half is not
-   wire-owned -- a result drained one pass after a promotion -- must not reach
-   the gate, and the resolver is the one place that knows. */
+   The transport already checked the response's relation identity. Adopt that
+   relation's current owner BEFORE storing, not on a later resolver callback;
+   a non-owner has no wire fact to cache. Neither path writes the render gate. */
 bool era_split_keyboard_note_wire_lighting_sleep(bool sleep) {
+    if (!era_split_keyboard_adopt_lighting_sleep_owner()) {
+        return false;
+    }
     bool changed = false;
     ATOMIC_BLOCK_RESTORESTATE {
         changed = !era_split_keyboard_wire_lighting_sleep_valid ||
@@ -509,10 +522,6 @@ void era_split_keyboard_suspend_wakeup_init(void) {
    nothing. */
 bool era_split_keyboard_process_record(uint16_t keycode, keyrecord_t *record) {
     era_split_tap_activity_note_record(record->event.pressed, record->event.key, record->event.time, keycode, record->tap.count);
-    /* Slice 14's visual producer, in the recorded before-every-early-return
-       position for the tap note's reason: a key a feature consumes is still a
-       local pressed-baseline change. Self-gated to the armed relation. */
-    era_split_transport_scheduler_note_local_visual_change();
     if (record->event.pressed && era_split_keyboard_try_remote_wakeup()) {
         return false;
     }

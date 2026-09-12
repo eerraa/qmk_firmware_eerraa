@@ -5,6 +5,7 @@
 
 extern "C" {
 #include "keyboards/era/common/split/era_split_rgb_sleep_policy.h"
+#include "lighting_under_test.h"
 }
 
 TEST(EraSplitRgbSleepPolicy, ThreeIndependentLocalReasonsAreOrCombined) {
@@ -43,4 +44,76 @@ TEST(EraSplitRgbSleepPolicy, ExactSecondsProjectDownWithoutMutation) {
     EXPECT_EQ(era_split_rgb_sleep_policy_preset_minutes(3599), 30);
     EXPECT_EQ(era_split_rgb_sleep_policy_preset_minutes(3600), 60);
     EXPECT_EQ(era_split_rgb_sleep_policy_preset_minutes(UINT16_MAX), 60);
+}
+
+TEST(EraSplitLightingOwner, CurrentWirePublicationSurvivesEitherSideOfFirstResolve) {
+    for (bool resolve_first : {false, true}) {
+        SCOPED_TRACE(resolve_first);
+        era_test_lighting_reset();
+        ASSERT_FALSE(era_test_lighting_resolve());
+        // The scheduler committed PEER mode. A successful current-relation
+        // RGB response may arrive before the resolver's next 1 kHz refresh.
+        era_test_lighting_set_owner(true);
+        if (resolve_first) {
+            EXPECT_FALSE(era_test_lighting_resolve());
+        }
+        ASSERT_TRUE(era_test_lighting_publish(true));
+        EXPECT_TRUE(era_test_lighting_resolve());
+        EXPECT_TRUE(era_test_lighting_resolve());
+    }
+}
+
+TEST(EraSplitLightingOwner, WireCannotOverrideLocalOwnerAndDemotionDropsLocalSleep) {
+    era_test_lighting_reset();
+    era_test_lighting_set_local_loss(true);
+    EXPECT_TRUE(era_test_lighting_resolve());
+    era_test_lighting_publish(false);
+    EXPECT_TRUE(era_test_lighting_resolve());
+    era_test_lighting_set_owner(true);
+    EXPECT_FALSE(era_test_lighting_resolve());
+    era_test_lighting_publish(true);
+    EXPECT_TRUE(era_test_lighting_resolve());
+    era_test_lighting_set_local_loss(false);
+    era_test_lighting_set_owner(false);
+    EXPECT_FALSE(era_test_lighting_resolve());
+}
+
+TEST(EraSplitLightingOwner, RotationRetiresPreviousWordEvenWhenPeerRoleIsUnchanged) {
+    for (bool publish_before_refresh : {false, true}) {
+        SCOPED_TRACE(publish_before_refresh);
+        era_test_lighting_reset();
+        era_test_lighting_set_owner(true);
+        ASSERT_TRUE(era_test_lighting_publish(true));
+        ASSERT_TRUE(era_test_lighting_resolve());
+        era_test_lighting_rotate_relation();
+        if (!publish_before_refresh) {
+            EXPECT_FALSE(era_test_lighting_resolve());
+        }
+        ASSERT_TRUE(era_test_lighting_publish(true));
+        EXPECT_TRUE(era_test_lighting_resolve());
+    }
+}
+
+TEST(EraSplitLightingOwner, RoleRoundTripBetweenRefreshesCannotRetainOldWireWord) {
+    era_test_lighting_reset();
+    era_test_lighting_set_owner(true);
+    ASSERT_TRUE(era_test_lighting_publish(true));
+    ASSERT_TRUE(era_test_lighting_resolve());
+    era_test_lighting_rotate_relation();
+    era_test_lighting_set_owner(false);
+    era_test_lighting_rotate_relation();
+    era_test_lighting_set_owner(true);
+    EXPECT_FALSE(era_test_lighting_resolve());
+}
+
+TEST(EraSplitLightingOwner, NonOwnerPublicationIsRejectedRatherThanCached) {
+    era_test_lighting_reset();
+    EXPECT_FALSE(era_test_lighting_publish(true));
+    EXPECT_FALSE(era_test_lighting_resolve());
+    era_test_lighting_set_owner(true);
+    EXPECT_FALSE(era_test_lighting_resolve());
+    ASSERT_TRUE(era_test_lighting_publish(true));
+    era_test_lighting_set_owner(false);
+    EXPECT_FALSE(era_test_lighting_publish(true));
+    EXPECT_FALSE(era_test_lighting_resolve());
 }

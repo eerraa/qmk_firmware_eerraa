@@ -23,6 +23,9 @@ void era_split_keyboard_suspend_wakeup_init(void);
    render override on the HOST. */
 bool era_split_keyboard_note_wire_lighting_sleep(bool sleep);
 bool era_split_keyboard_lighting_sleep_state(void);
+/* Core0 relation-retirement hook, including rotations that keep PEER role.
+   Incoming wire publications must already pass the transport identity fence. */
+void era_split_keyboard_forget_wire_lighting_sleep(void);
 /* Diagnostics only: rising edges of the resolved sleep decision since boot,
    and the local ms of the last rise (breaker-hunt pairing with `brk`). */
 uint16_t era_split_keyboard_lighting_sleep_true_diag(uint32_t *last_ms);

@@ -123,6 +123,18 @@ when EEPROM sync has ordinarily converged the stored timeout and master bit.
 | local → wire (demoted into a PEER) | hold no locally-decided value; resolve **lit**. Dark-until-told is the defect; rotation drops the responder RGB sent shadow, so the HOST answer is due on the first response |
 | wire → local (promotion, or becoming DUAL-HOST) | drop the wire's last word; this half's session decides from the next pass |
 
+Owner adoption precedes both receive and resolve. The receiver must not store
+the new HOST's first answer under the outgoing owner and leave the next
+1 kHz resolver to erase it. A non-wire owner refuses a wire publication rather
+than caching it for a later role. `era_split_keyboard_adopt_lighting_sleep_owner()`
+in `split/era_split_keyboard.c` is shared by both paths; it never applies the
+physical render gate. The scheduler's existing relation-rotation boundary calls
+`era_split_keyboard_forget_wire_lighting_sleep()` alongside its time-anchor and
+peer-layer retirement, including rotations that keep PEER mode. Incoming
+responses still require the existing transport relation-identity fence.
+`tests/era_split_rgb_sleep_policy` executes the production receiver/resolver in
+both callback orders, same-role rotation, and a role round trip between refreshes.
+
 Device-reported 2026-08-13: a demoted DUAL-HOST→PEER half stayed dark until a
 key on the other half — grounds resolve-lit.
 

@@ -16,6 +16,7 @@
 #include "era_host_peer_source_snapshot.h"
 #include "era_host_peer_transaction.h"
 #include "era_split_authority_reducer.h"
+#include "era_split_keyboard.h"
 #include "era_split_peer_layer.h"
 #include "era_split_link.h"
 #include "era_split_restart_agreement.h"
@@ -1092,6 +1093,9 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
        reading while the new relation forms; only deadline admission waits for
        the new relation's forced TIME_ANCHOR cross. */
     era_host_peer_transaction_forget_time_anchor();
+    /* A HOST's lighting word has exactly this relation lifetime too. Keeping
+       PEER mode across a rotation does not keep the previous HOST's answer. */
+    era_split_keyboard_forget_wire_lighting_sleep();
     /* A peer layer value belongs to the relation era it arrived in, exactly
        like the peer matrix cache. Rotating the identity token is what makes
        this half stop resolving keycodes on a layer the peer may no longer be
@@ -1951,6 +1955,12 @@ static inline void __attribute__((always_inline)) era_split_transport_scheduler_
 void era_split_transport_scheduler_transport_step(void) {
     era_split_transport_scheduler_ensure_initialized();
     era_split_transport_scheduler_note_transport_step_call();
+    /* Visual bodies contain physical local rows. Wake their producer before
+       scan-idle even when QMK buffers an LT or consumes its semantic action.
+       One cached change bit per scan; packing stays on the due path. */
+    if (era_matrix_engine_local_changed()) {
+        era_split_transport_scheduler_note_local_visual_change();
+    }
     era_split_transport_scheduler_publish_host_peer_responder_visual_snapshot();
     if (era_split_transport_scheduler_scan_idle()) {
         return;
