@@ -31,7 +31,9 @@ static uint16_t active_td;
 
 static tap_dance_state_t tap_dance_states[TAP_DANCE_MAX_SIMULTANEOUS];
 
-static uint16_t last_tap_time;
+/* A full uint16_t term (65535 ms) must still have a representable expired
+ * interval. Keep the clock wider than the per-key term. */
+static uint32_t last_tap_time;
 
 __attribute__((weak)) uint16_t tap_dance_remap_keycode(uint16_t keycode) {
     return keycode;
@@ -39,6 +41,14 @@ __attribute__((weak)) uint16_t tap_dance_remap_keycode(uint16_t keycode) {
 
 __attribute__((weak)) uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record) {
     return GET_TAPPING_TERM(keycode, record);
+}
+
+/* Optional policy hook for implementations that can resolve a release before
+ * the normal tapping-term timeout (for example Vial's dynamic tap dance). */
+__attribute__((weak)) bool tap_dance_finish_on_release(const tap_dance_action_t *action, const tap_dance_state_t *state) {
+    (void)action;
+    (void)state;
+    return false;
 }
 
 static tap_dance_state_t *tap_dance_get_or_allocate_state(uint8_t tap_dance_idx, bool allocate) {
@@ -220,10 +230,13 @@ bool process_tap_dance(uint16_t keycode, keyrecord_t *record) {
             }
             state->pressed = record->event.pressed;
             if (record->event.pressed) {
-                last_tap_time = timer_read();
+                last_tap_time = timer_read32();
                 process_tap_dance_action_on_each_tap(action, state);
                 active_td = state->finished ? 0 : keycode;
             } else {
+                if (!state->finished && tap_dance_finish_on_release(action, state)) {
+                    process_tap_dance_action_on_dance_finished(action, state);
+                }
                 process_tap_dance_action_on_each_release(action, state);
                 if (state->finished) {
                     process_tap_dance_action_on_reset(action, state);
@@ -243,7 +256,7 @@ void tap_dance_task(void) {
     tap_dance_action_t *action;
     tap_dance_state_t  *state;
 
-    if (!active_td || timer_elapsed(last_tap_time) <= tap_dance_get_tapping_term(active_td, &(keyrecord_t){})) return;
+    if (!active_td || timer_elapsed32(last_tap_time) <= tap_dance_get_tapping_term(active_td, &(keyrecord_t){})) return;
 
     action = tap_dance_get(QK_TAP_DANCE_GET_INDEX(active_td));
     state  = tap_dance_get_state(QK_TAP_DANCE_GET_INDEX(active_td));

@@ -48,7 +48,8 @@ of it — saying so is the verification statement.
 | restores or changes QMK wear-level files | the complete upstream wear-level host-test set below |
 | changes scheduler request admission, queue freshness, or Core1 liveness | the scheduler admission/liveness device gate below at every supported link level |
 | changes EEPROM CLEAN's reboot-durable prepare, agreed-restart phase machine, or storage quarantine | `era_split_restart_agreement`; a supported split build; and the EEPROM CLEAN agreement device gate below |
-| changes the PWM Backlight Pulse state machine, its indicator-supply lock policy, or the non-split suspend bridge that retires Pulse/Breathing | `era_backlight_pulse`; a VIA build of one effect board; and, when the lock policy changes, a build of one lock-only board |
+| changes the PWM Backlight Pulse state machine, its indicator-supply lock policy, the Tap Dance decision or synthesized-tap width rules in `features/era_tapdance.c`, or the non-split suspend bridge that retires Pulse/Breathing | `era_backlight_pulse`; a VIA build of one effect board; and, when the lock policy changes, a build of one lock-only board |
+| changes the synthesized-tap width or the keyboard report interval | `era_hid_report_interval`, `python3 tests/era_hid_report_interval/test_source_contracts.py`, `era_backlight_pulse`; a build of one board; and the report interval device gate below |
 | changes the physical-to-visual split wake | `python3 tests/era_split_visual_input/test_source_contracts.py`; a supported split build. The fixture executes the production scheduler entry and visual wake across roles, RGB policy and idle; wire latency and physical rendering remain device checks |
 | changes common build-variant rules or the launcher identity | `tests/era_build_variant_rules/test_variant_rules.sh`, all six canonical variants on one representative split target, and Brick65 `standard`; each UF2 manifest must carry equal resolved/compiled tuples |
 | would move a **Fixed Baseline** | an instrument, first |
@@ -79,6 +80,8 @@ make test:era_via_exact_ms
 make test:era_firmware_version
 make test:era_rgb_matrix_persistence
 make test:era_backlight_pulse
+make test:era_hid_report_interval
+python3 tests/era_hid_report_interval/test_source_contracts.py
 make test:era_riley_rgb_indicator
 make test:wear_leveling_general
 make test:wear_leveling_2byte_optimized_writes
@@ -109,7 +112,8 @@ python tests/era_firmware_version/test_definitions.py
 | `era_via_exact_ms` | State Sync envelope, unsupported-version once, 7-storage-to-3-UI domain map, revision wrap skips zero, exact-ms / tap-dance / legacy grid, Jump-to-BOOT SET/SAVE/State-Sync/RAW-IN lifecycle + fallback, local CLEAN quiet-gate regression |
 | `era_firmware_version` | exact compile-time identity and complete NUL-terminated VERSION GET; the common SYSTEM router; RGB Sleep master default/GET/SET persistence in the unchanged 2-byte QMK keymap-config record without disturbing existing keymap flags; unchanged-buffer refusal of wrong/short/master-SAVE requests. Its definition script derives the 25-board inventory, requires every physical RGB board to compile `rgb_matrix.sleep`/`rgblight.sleep`, exposes the master only on RGB definitions, keeps timeout controls only on TOMAK, requires the exact VERSION label binding on all 27 RP2040 JSON files, compares split L/R controls, pins the common RGB-Matrix indicator wrappers, locks Riley's RGBLight/three-slot indicator surface, rejects fixed SOCD/KKUK mode rows, and locks KKUK/TAPPING control order |
 | `era_rgb_matrix_persistence` | deferred RGB Matrix save gate and ERA render-policy refresh. A policy edge stays refresh-active from its external request through the replacement PWM flush (or until the policy proves no frame is needed), which keeps opportunistic NVM bank erasure out of a split STATUS transition |
-| `era_backlight_pulse` | production Backlight effect and lock units with a deterministic ChibiOS virtual-timer shim: Pulse Off/On expiry and repeated re-arm, short/long Hold, overlapping keys held through the last release, active-mode switch, brightness refresh, Pulse and Breathing suspend/resume, EEPROM save/reload, lock-keycode floor/off refusal and boot-time repair of a stored disabled block |
+| `era_backlight_pulse` | production Backlight effect and lock units with a deterministic ChibiOS virtual-timer shim: Pulse Off/On expiry and repeated re-arm, short/long Hold, overlapping keys held through the last release, active-mode switch, brightness refresh, Pulse and Breathing suspend/resume, EEPROM save/reload, lock-keycode floor/off refusal and boot-time repair of a stored disabled block; Tap Dance timing beside the physical Pulse: Vial's release-time decision for a Tap+Hold-only slot and on a Double Tap slot's second release, Term for every other layout and for every hold, per-slot terms across the timer wrap, and QMK's synthesized-tap width (Caps Lock `TAP_HOLD_CAPS_DELAY`, anything else `TAP_CODE_DELAY`) on Layer-Tap and Tap Dance alike |
+| `era_hid_report_interval` | production report-interval unit with a recording sink and a test clock: width measured from completion, elapsed time credited, larger request wins, held reports in order each carrying its own width, backlog fold at sixteen, other shared-endpoint posts in the completion order, the anchor-limit valve, reset drop, suspend keep, no-room deferral, clock unit and cap, clock wrap. `test_source_contracts.py` pins the core sites that request instead of wait and the transport hooks |
 | `era_riley_rgb_indicator` | production Riley RGBLight-layer unit at the renderer boundary: all three RGB-Effect slots, Caps/Scroll/Num combinations, Indicator-Only black/inherit policy, per-slot brightness/colour, active-lock mode switch, effect recovery, runtime sleep/disabled non-wake, boot-only repair of persistent RGB-off, exact ten-byte EEPROM save/reload/CLEAN defaults, independent GP25 Caps LED and Velocikey |
 | wear-level set | the five `wear_leveling_*` targets in `quantum/wear_leveling/tests/` prove the QMK files restored at cutover behave like stock QMK again; they are not ERA production persistence |
 | `era_rp2040_matrix_pio` | PIO instruction encodings against the RP2040 datasheet; shipped settle 128 / release 64 program (195 slot cycles); tomak79h LEFT/RIGHT pin patterns; decode tables against the header reference rule; ring latest-complete frame and torn copy |
@@ -188,6 +192,19 @@ both halves with `vis=0` and `pnd=0`.
 
 The host-regression legs `era_split_restart_agreement` already covers. A
 device run must not manufacture them.
+
+### Report interval device gate
+
+Entry: any ERA board on a host capture (USBPcap or a USB analyzer), NKRO
+off and then on; a key mapped to `LT(1, KC_CAPS)` and a Tap Dance slot with
+On Tap `KC_CAPS`, On Hold `MO(1)`.
+
+For a short tap on each key the capture must show the Caps-down and Caps-up
+reports at least `TAP_HOLD_CAPS_DELAY` apart measured from the down report's
+completion, a letter typed inside that window delivered after the Caps-up
+report, and a mouse move inside the window delivered without delay. The
+scan-rate figures under **Fixed Baselines** must not move: the loop waits for
+nothing. On macOS the tap must toggle Caps every time, five taps in a row.
 
 ## Refactor Self-Check
 

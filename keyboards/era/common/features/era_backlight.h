@@ -49,9 +49,10 @@ void era_backlight_save_config(void);
    clock is never read here. */
 void era_backlight_task(void);
 
-/* Per key event, never per pass. Always returns true: this feature observes
-   the edge and consumes no keycode. */
-bool era_backlight_process_record(uint16_t keycode, keyrecord_t *record);
+/* Physical matrix-key edge, before tap/hold resolution and semantic filters.
+   Pulse is input feedback, so it must not inherit the settlement timing of the
+   keycode currently mapped at that switch. */
+void era_backlight_note_key_event(bool pressed);
 
 /* Non-split lighting sleep enters through QMK's suspend hooks. These calls
  * cancel an in-flight pulse and keep timer callbacks from relighting the PWM

@@ -124,6 +124,8 @@ Matrix snapshot, seq, source-push, and projection: `era_host_peer_matrix_contrac
 | `split/era_split_tap_activity.[ch]` | cross-half tap-hold family, core0 side. QMK seam: `quantum/action_tapping.c` (`era_qmk_fork_ledger.md`) |
 | `split/era_split_peer_layer.[ch]` | DUAL-HOST peer layer contribution; `quantum/action_layer.c` composes it. Holds the one-byte width assert for the INPUT layer wire section |
 | `split/era_split_rgb_sleep_policy.h` | host-testable three-reason local sleep and stock-preset projection policy. Proof: `tests/era_split_rgb_sleep_policy/` |
+| `system/era_hid_report_interval.[ch]` | the synthesized-tap width as a minimum keyboard report interval: clock-agnostic hold, backlog and anchor unit. Host proof: `tests/era_hid_report_interval/` |
+| `system/era_hid_report_interval_chibios.c` | its ChibiOS half: system-tick clock, endpoint-queue sink, the hooks the forked `usb_main.c` and `usb_driver.c` call, and the strong `host_keyboard_delay()` |
 | `system/era_matrix_debounce_config.[ch]` | EEPROM/VIA debounce control to runtime bridge |
 | `system/era_matrix_debounce_runtime.[ch]` | scan-bound debounce runtime |
 | `system/era_matrix_engine.h` | split relation's view of the matrix engine: declarations with a caller outside `system/era_rp2040_matrix_core.c`. Peer-row bookkeeping is declared in that unit |
@@ -237,6 +239,9 @@ change.** A fork edit nobody records is a fork edit nobody can retire.
   persistent config; `features/era_tapdance_introspection.c` supplies the QMK
   tap-dance introspection surface. `features/era_tapdance_rules.mk` derives
   `ERA_TAP_DANCE_ENABLE` from QMK `TAP_DANCE_ENABLE` and compiles those units.
+  `features/era_tapdance.c` is canonical for when a dance is decided (Vial's
+  release-time rule over QMK's timeout) and for how wide a synthesized tap is
+  (QMK's rule, Caps Lock included), on every path that synthesizes one.
 - `features/era_mousekey.[ch]`: persisted six-control adapter into QMK's
   default accelerated mouse engine. No runtime state of its own
   (`quantum/mousekey.c`). The two engine macros that become variables under

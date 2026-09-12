@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "util.h"
 #include "debug.h"
 #include "usb_device_state.h"
+#include "wait.h"
 
 #ifdef DIGITIZER_ENABLE
 #    include "digitizer.h"
@@ -171,6 +172,14 @@ uint8_t host_keyboard_leds(void) {
 
 led_t host_keyboard_led_state(void) {
     return (led_t)host_keyboard_leds();
+}
+
+/* ERA: the width of a synthesized tap. This default is the wait every QMK
+ * platform performed before; keyboards/era/common/system/era_hid_report_interval_chibios.c
+ * defines the strong one that keeps the width on the USB transport instead
+ * (era_hid_report_contract.md). */
+__attribute__((weak)) void host_keyboard_delay(uint16_t delay_ms) {
+    wait_ms(delay_ms);
 }
 
 /* send report */

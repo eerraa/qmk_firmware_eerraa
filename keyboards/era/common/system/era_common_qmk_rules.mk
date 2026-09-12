@@ -72,6 +72,16 @@ endif
 # nothing where RGB_MATRIX_SLEEP / RGBLIGHT_SLEEP are absent.
 SRC += keyboards/era/common/system/era_usb_session.c
 
+# The width of a synthesized tap -- Caps Lock's macOS compatibility hold
+# above all -- is kept as a minimum interval between keyboard reports on the
+# USB transport, never as a wait in the scan loop. Unconditional for the same
+# reason as the frame-loss task: it is a fact about every ERA image's USB
+# path. The rule is era_hid_report_contract.md; the unit's host proof is
+# tests/era_hid_report_interval/.
+OPT_DEFS += -DERA_HID_REPORT_INTERVAL_ENABLE
+SRC += keyboards/era/common/system/era_hid_report_interval.c
+SRC += keyboards/era/common/system/era_hid_report_interval_chibios.c
+
 # Every ERA RGB build owns one persisted master preference for RGB Sleep.
 # QMK's compile-time RGB_MATRIX_SLEEP/RGBLIGHT_SLEEP still decides whether the
 # relevant engine has a suspend state; the runtime bit decides whether ERA is

@@ -99,6 +99,13 @@ void suspend_wakeup_init_kb(void) {
     suspend_wakeup_init_user();
 }
 
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+void switch_event_kb(uint8_t row, uint8_t col, bool pressed) {
+    era_common_features_switch_event(pressed);
+    switch_event_user(row, col, pressed);
+}
+#endif
+
 bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
     if (!era_split_keyboard_process_record(keycode, record)) {
         return false;

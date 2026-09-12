@@ -556,7 +556,14 @@ void keyboard_init(void) {
  * This function is responsible for calling into other systems when they need to respond to electrical switch press events.
  * This is differnet than keycode events as no layer processing, or filtering occurs.
  */
+__attribute__((weak)) void switch_event_user(uint8_t row, uint8_t col, bool pressed) {}
+
+__attribute__((weak)) void switch_event_kb(uint8_t row, uint8_t col, bool pressed) {
+    switch_event_user(row, col, pressed);
+}
+
 void switch_events(uint8_t row, uint8_t col, bool pressed) {
+    switch_event_kb(row, col, pressed);
 #if defined(LED_MATRIX_ENABLE)
     led_matrix_handle_key_event(row, col, pressed);
 #endif

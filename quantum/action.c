@@ -540,9 +540,9 @@ void process_action(keyrecord_t *record, action_t action) {
                         if (tap_count > 0) {
                             ac_dprintf("MODS_TAP: Tap: unregister_code\n");
                             if (action.layer_tap.code == KC_CAPS_LOCK) {
-                                wait_ms(TAP_HOLD_CAPS_DELAY);
+                                tap_code_wait(action.key.code, TAP_HOLD_CAPS_DELAY);
                             } else {
-                                wait_ms(TAP_CODE_DELAY);
+                                tap_code_wait(action.key.code, TAP_CODE_DELAY);
                             }
                             unregister_code(action.key.code);
                         } else {
@@ -721,9 +721,9 @@ void process_action(keyrecord_t *record, action_t action) {
                         if (tap_count > 0) {
                             ac_dprintf("KEYMAP_TAP_KEY: Tap: unregister_code\n");
                             if (action.layer_tap.code == KC_CAPS_LOCK) {
-                                wait_ms(TAP_HOLD_CAPS_DELAY);
+                                tap_code_wait(action.layer_tap.code, TAP_HOLD_CAPS_DELAY);
                             } else {
-                                wait_ms(TAP_CODE_DELAY);
+                                tap_code_wait(action.layer_tap.code, TAP_CODE_DELAY);
                             }
                             unregister_code(action.layer_tap.code);
                         } else {
@@ -738,9 +738,9 @@ void process_action(keyrecord_t *record, action_t action) {
                     } else {
                         ac_dprintf("KEYMAP_TAP_KEY: Tap: unregister_code\n");
                         if (action.layer_tap.code == KC_CAPS) {
-                            wait_ms(TAP_HOLD_CAPS_DELAY);
+                            tap_code_wait(action.layer_tap.code, TAP_HOLD_CAPS_DELAY);
                         } else {
-                            wait_ms(TAP_CODE_DELAY);
+                            tap_code_wait(action.layer_tap.code, TAP_CODE_DELAY);
                         }
                         unregister_code(action.layer_tap.code);
                     }
@@ -810,7 +810,7 @@ void process_action(keyrecord_t *record, action_t action) {
                         if (event.pressed) {
                             register_code(action.swap.code);
                         } else {
-                            wait_ms(TAP_CODE_DELAY);
+                            tap_code_wait(action.swap.code, TAP_CODE_DELAY);
                             unregister_code(action.swap.code);
                             *record = (keyrecord_t){}; // hack: reset tap mode
                         }
@@ -876,9 +876,9 @@ void process_action(keyrecord_t *record, action_t action) {
                     process_auto_shift(action.layer_tap.code, record);
 #        else
                     register_mods(retro_tap_curr_mods);
-                    wait_ms(TAP_CODE_DELAY);
+                    tap_code_wait(action.layer_tap.code, TAP_CODE_DELAY);
                     tap_code(action.layer_tap.code);
-                    wait_ms(TAP_CODE_DELAY);
+                    tap_code_wait(action.layer_tap.code, TAP_CODE_DELAY);
                     unregister_mods(retro_tap_curr_mods);
 #        endif
                 }
@@ -929,7 +929,7 @@ __attribute__((weak)) void register_code(uint8_t code) {
 #    endif
         add_key(KC_CAPS_LOCK);
         send_keyboard_report();
-        wait_ms(TAP_HOLD_CAPS_DELAY);
+        tap_code_wait(KC_CAPS_LOCK, TAP_HOLD_CAPS_DELAY);
         del_key(KC_CAPS_LOCK);
         send_keyboard_report();
 
@@ -1045,9 +1045,27 @@ __attribute__((weak)) void unregister_code(uint8_t code) {
  * \param code The basic keycode to tap.
  * \param delay The amount of time in milliseconds to leave the keycode registered, before unregistering it.
  */
+/* ERA: the width of a synthesized tap is requested, not waited for. A
+ * keyboard-class usage asks the host layer, whose ERA transport keeps the
+ * width as a report interval (era_hid_report_contract.md, **Tap width and
+ * the report interval**); every other usage keeps the synchronous wait,
+ * since no transport interval exists for it. The class test is the H7S
+ * firmware's, so both trees route the same codes the same way. */
+void tap_code_wait(uint16_t code, uint16_t delay) {
+    if (delay == 0) {
+        return;
+    }
+    uint8_t basic = (uint8_t)code;
+    if (code <= QK_MODS_MAX && (IS_BASIC_KEYCODE(basic) || IS_MODIFIER_KEYCODE(basic) || (basic == KC_NO && code > UINT8_MAX))) {
+        host_keyboard_delay(delay);
+    } else {
+        wait_ms(delay);
+    }
+}
+
 __attribute__((weak)) void tap_code_delay(uint8_t code, uint16_t delay) {
     register_code(code);
-    wait_ms(delay);
+    tap_code_wait(code, delay);
     unregister_code(code);
 }
 

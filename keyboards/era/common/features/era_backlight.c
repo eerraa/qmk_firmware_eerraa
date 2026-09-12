@@ -238,24 +238,21 @@ void era_backlight_task(void) {
     era_backlight_apply();
 }
 
-bool era_backlight_process_record(uint16_t keycode, keyrecord_t *record) {
-    (void)keycode;
-
-    /* Per key event, not per matrix pass. Non-Pulse modes pay only this bounded
-       range test. Hold adds one counter update on the same event path; no clock
-       read or matrix walk is introduced. */
+void era_backlight_note_key_event(bool pressed) {
+    /* This input is deliberately a physical matrix-key edge. Feeding Pulse
+       from process_record_kb() made a Layer-Tap press arrive only when QMK's
+       tapping engine settled it, while a Tap Dance press arrived immediately.
+       That tied a visual "Press" effect to keycode semantics instead of the
+       switch edge that QMK's own RGB Matrix reactive path also observes. */
     if (!era_backlight_pulse_effect(backlight_config_era.effect) || backlight_pulse_state.suspended) {
-        return true;
-    }
-    if (record == NULL) {
-        return true;
+        return;
     }
 
-    if (!record->event.pressed) {
+    if (!pressed) {
         if (era_backlight_pulse_release(&backlight_pulse_state, backlight_config_era.effect)) {
             backlight_apply_due = true;
         }
-        return true;
+        return;
     }
 
     era_backlight_pulse_press(&backlight_pulse_state);
@@ -270,7 +267,6 @@ bool era_backlight_process_record(uint16_t keycode, keyrecord_t *record) {
     backlight_pulse_timer_due = false;
     chVTSetI(&backlight_pulse_vt, TIME_MS2I((uint16_t)(ERA_BACKLIGHT_SPEED_MAX + 1 - backlight_config_era.pulse_speed) * ERA_BACKLIGHT_PULSE_UNIT_MS), era_backlight_pulse_expired, NULL);
     chSysUnlock();
-    return true;
 }
 
 void era_backlight_suspend(void) {

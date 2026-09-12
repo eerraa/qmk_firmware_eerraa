@@ -116,6 +116,9 @@ void register_code(uint8_t code);
 void unregister_code(uint8_t code);
 void tap_code(uint8_t code);
 void tap_code_delay(uint8_t code, uint16_t delay);
+/* ERA: a synthesized tap's width, requested from the host layer for a
+ * keyboard-class usage and waited for otherwise (era_hid_report_contract.md). */
+void tap_code_wait(uint16_t code, uint16_t delay);
 void register_mods(uint8_t mods);
 void unregister_mods(uint8_t mods);
 void register_weak_mods(uint8_t mods);

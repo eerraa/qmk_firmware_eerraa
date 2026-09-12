@@ -39,6 +39,9 @@ bool    host_can_send_nkro(void);
 uint8_t host_keyboard_leds(void);
 led_t   host_keyboard_led_state(void);
 void    host_keyboard_send(report_keyboard_t *report);
+/* ERA: a synthesized tap's width. The weak default waits; a transport that
+ * can hold the next report instead defines the strong one. */
+void    host_keyboard_delay(uint16_t delay_ms);
 void    host_nkro_send(report_nkro_t *report);
 void    host_mouse_send(report_mouse_t *report);
 void    host_system_send(uint16_t usage);

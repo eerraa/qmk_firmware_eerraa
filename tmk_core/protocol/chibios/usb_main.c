@@ -28,6 +28,17 @@
 #include "usb_driver.h"
 #include "usb_types.h"
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+/* ERA: a synthesized tap's width lives on this transport as a keyboard
+ * report interval (keyboards/era/common/system/era_hid_report_interval_chibios.c,
+ * era_hid_report_contract.md). Declared here rather than included: this file
+ * names the hooks it rides and nothing else of the ERA layer. */
+bool era_hid_report_interval_hold_report(uint8_t endpoint_lut, const void *report, size_t size);
+void era_hid_report_interval_note_report_posted(uint8_t endpoint_lut);
+void era_hid_report_interval_note_keyboard_report_posted(uint8_t endpoint_lut);
+void era_hid_report_interval_session_edge_i(bool keep_backlog);
+#endif
+
 #ifdef RAW_ENABLE
 #    include "raw_hid.h"
 #endif
@@ -173,6 +184,9 @@ static void usb_event_cb(USBDriver *usbp, usbevent_t event) {
 
         case USB_EVENT_CONFIGURED:
             osalSysLockFromISR();
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+            era_hid_report_interval_session_edge_i(false);
+#endif
             for (int i = 0; i < USB_ENDPOINT_IN_COUNT; i++) {
                 usb_endpoint_in_configure_cb(&usb_endpoints_in[i]);
             }
@@ -192,6 +206,11 @@ static void usb_event_cb(USBDriver *usbp, usbevent_t event) {
         case USB_EVENT_RESET:
             usb_event_queue_enqueue(event);
             chSysLockFromISR();
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+            /* The queues below are about to be emptied: suspend keeps the
+               held keyboard reports, the other two edges drop them. */
+            era_hid_report_interval_session_edge_i(event == USB_EVENT_SUSPEND);
+#endif
             for (int i = 0; i < USB_ENDPOINT_IN_COUNT; i++) {
                 usb_endpoint_in_suspend_cb(&usb_endpoints_in[i]);
             }
@@ -390,7 +409,13 @@ __attribute__((weak)) void restart_usb_driver(USBDriver *usbp) {
  * @return false Failure
  */
 bool send_report(usb_endpoint_in_lut_t endpoint, void *report, size_t size) {
-    return usb_endpoint_in_send(&usb_endpoints_in[endpoint], (uint8_t *)report, size, TIME_MS2I(100), false);
+    bool sent = usb_endpoint_in_send(&usb_endpoints_in[endpoint], (uint8_t *)report, size, TIME_MS2I(100), false);
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    if (sent) {
+        era_hid_report_interval_note_report_posted((uint8_t)endpoint);
+    }
+#endif
+    return sent;
 }
 
 /**
@@ -436,16 +461,36 @@ static bool receive_report(usb_endpoint_out_lut_t endpoint, void *report, size_t
 
 void send_keyboard(report_keyboard_t *report) {
     /* If we're in Boot Protocol, don't send any report ID or other funky fields */
+    void  *data = report;
+    size_t size = KEYBOARD_REPORT_SIZE;
     if (usb_device_state_get_protocol() == USB_PROTOCOL_BOOT) {
-        send_report(USB_ENDPOINT_IN_KEYBOARD, &report->mods, 8);
-    } else {
-        send_report(USB_ENDPOINT_IN_KEYBOARD, report, KEYBOARD_REPORT_SIZE);
+        data = &report->mods;
+        size = 8;
     }
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    if (era_hid_report_interval_hold_report(USB_ENDPOINT_IN_KEYBOARD, data, size)) {
+        return;
+    }
+    if (send_report(USB_ENDPOINT_IN_KEYBOARD, data, size)) {
+        era_hid_report_interval_note_keyboard_report_posted(USB_ENDPOINT_IN_KEYBOARD);
+    }
+#else
+    send_report(USB_ENDPOINT_IN_KEYBOARD, data, size);
+#endif
 }
 
 void send_nkro(report_nkro_t *report) {
 #ifdef NKRO_ENABLE
+#    ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    if (era_hid_report_interval_hold_report(USB_ENDPOINT_IN_SHARED, report, sizeof(report_nkro_t))) {
+        return;
+    }
+    if (send_report(USB_ENDPOINT_IN_SHARED, report, sizeof(report_nkro_t))) {
+        era_hid_report_interval_note_keyboard_report_posted(USB_ENDPOINT_IN_SHARED);
+    }
+#    else
     send_report(USB_ENDPOINT_IN_SHARED, report, sizeof(report_nkro_t));
+#    endif
 #endif
 }
 

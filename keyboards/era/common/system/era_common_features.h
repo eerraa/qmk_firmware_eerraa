@@ -15,4 +15,9 @@ void era_common_features_task(void);
  * presentation tick by both ERA class skeletons. */
 void era_common_features_maintenance_task(void);
 
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+/* Electrical matrix-key feedback, from QMK's switch-event fanout. */
+void era_common_features_switch_event(bool pressed);
+#endif
+
 bool era_common_features_process_record(uint16_t keycode, keyrecord_t *record);

@@ -38,6 +38,9 @@ CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번�
 - Tap+Hold: 한 번 탭한 뒤 이어서 길게 눌렀을 때의 keycode
 - Term: 어느 동작인지 판단하기까지 기다리는 시간(ms)
 
+On Tap과 On Hold만 설정한 슬롯은 키를 떼는 순간 탭이 입력되고, Term은 홀드
+판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는 순간 입력됩니다.
+
 ■ SOCD
 
 CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키의 조합을 지정합니다.
@@ -175,6 +178,10 @@ that TD key is actually placed somewhere you can press it.
 - On Double Tap: keycode for two taps inside Term
 - Tap+Hold: keycode for a tap followed by a hold
 - Term: how long the keyboard waits before deciding the action, in milliseconds
+
+A slot with only On Tap and On Hold sends the tap the moment the key is
+released, and Term then decides only the hold. With On Double Tap set, the
+second tap is sent the moment it is released.
 
 ■ SOCD
 

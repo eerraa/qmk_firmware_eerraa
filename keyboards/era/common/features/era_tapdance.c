@@ -76,6 +76,9 @@ era_tapdance_user_data_t era_tapdance_user_data[ERA_TAP_DANCE_SLOT_COUNT] = {
     {.slot_index = 7},
 };
 
+static bool era_tapdance_keycode_is_valid(uint16_t keycode);
+static void era_tapdance_load_entry(uint8_t slot_index, era_tapdance_entry_t *entry);
+
 _Static_assert(sizeof(era_tapdance_slot_storage_t) == 10, "ERA Tap Dance slot storage size changed.");
 _Static_assert(sizeof(era_tapdance_storage_t) == ERA_EEPROM_TAP_DANCE_CONFIG_SIZE, "ERA Tap Dance storage size changed.");
 
@@ -158,6 +161,30 @@ uint16_t tap_dance_remap_keycode(uint16_t keycode) {
         return TD(keycode - ERA_TAP_DANCE_KEYCODE_BASE);
     }
     return keycode;
+}
+
+/* **When a dance is decided.** Vial's release-time rule, verbatim from the
+ * vial-qmk tree: a slot with On Tap and On Hold and nothing else
+ * has nothing left to wait for once the key is up, so it is decided on the
+ * first release; a slot with On Double Tap is decided on the second release.
+ * Every other layout -- On Tap alone included, exactly as in Vial -- keeps
+ * QMK's timeout, so Term decides it. The hook is the weak
+ * tap_dance_finish_on_release() in quantum/process_keycode/process_tap_dance.c
+ * (era_qmk_fork_ledger.md); the policy is this unit's. Term decides a hold on
+ * every layout: the hold deadline is not touched here. */
+bool tap_dance_finish_on_release(const tap_dance_action_t *action, const tap_dance_state_t *state) {
+    if (!action || !state) {
+        return false;
+    }
+    era_tapdance_user_data_t *user = action->user_data;
+    if (!user || user->slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
+        return false;
+    }
+    era_tapdance_entry_t entry = {0};
+    era_tapdance_load_entry(user->slot_index, &entry);
+    return (state->count == 1 && era_tapdance_keycode_is_valid(entry.on_tap) && era_tapdance_keycode_is_valid(entry.on_hold) &&
+            !era_tapdance_keycode_is_valid(entry.on_double_tap) && !era_tapdance_keycode_is_valid(entry.on_tap_hold)) ||
+           (state->count == 2 && era_tapdance_keycode_is_valid(entry.on_double_tap));
 }
 
 static void era_tapdance_note_runtime_change(void) {
@@ -257,10 +284,24 @@ static void era_tapdance_unregister_keycode(uint16_t keycode, bool is_tap) {
     process_action(&record, action_for_keycode(keycode));
 }
 
+/* **How wide a synthesized tap is.** QMK's own rule, applied to every tap this
+ * unit synthesizes so a keycode behaves the same on a TD slot as on a Layer-Tap
+ * or a plain tap_code(): Caps Lock is held TAP_HOLD_CAPS_DELAY, because macOS
+ * ignores a shorter Caps tap (quantum/action.c does the same for LT/MT); every
+ * other keycode is held TAP_CODE_DELAY. A physical hold's release owes no
+ * width, the switch already supplied it. Vial waits its runtime tap-code delay
+ * for every keycode instead; that setting has no ERA surface, so a Caps tap
+ * would be one report apart and macOS would drop it. The width is requested
+ * through tap_code_wait() (quantum/action.c), never waited for: ERA's USB
+ * transport keeps it as a report interval (era_hid_report_contract.md), so
+ * the scan loop does not stall for it. */
+static uint16_t era_tapdance_tap_width_ms(uint16_t keycode) {
+    return keycode == KC_CAPS_LOCK ? TAP_HOLD_CAPS_DELAY : TAP_CODE_DELAY;
+}
+
 static void era_tapdance_tap_keycode(uint16_t keycode, bool is_tap) {
     era_tapdance_register_keycode(keycode, is_tap);
-    uint16_t delay = keycode == KC_CAPS_LOCK ? TAP_HOLD_CAPS_DELAY : TAP_CODE_DELAY;
-    wait_ms(delay);
+    tap_code_wait(keycode, era_tapdance_tap_width_ms(keycode));
     era_tapdance_unregister_keycode(keycode, is_tap);
 }
 
@@ -394,7 +435,12 @@ void era_tapdance_on_reset(tap_dance_state_t *state, void *user_data) {
 
     era_tapdance_runtime_t *runtime = &tapdance_runtime[user->slot_index];
     if (era_tapdance_keycode_is_valid(runtime->active_keycode)) {
-        wait_ms(TAP_CODE_DELAY);
+        /* A tap the decision registered is released here, one synthesized
+           width later (era_tapdance_tap_width_ms); a hold is released as the
+           switch is. */
+        if (runtime->active_is_tap) {
+            tap_code_wait(runtime->active_keycode, era_tapdance_tap_width_ms(runtime->active_keycode));
+        }
         era_tapdance_unregister_keycode(runtime->active_keycode, runtime->active_is_tap);
     }
     runtime->active_keycode = KC_NO;

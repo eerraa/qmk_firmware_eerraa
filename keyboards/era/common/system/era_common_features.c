@@ -5,6 +5,9 @@
 #include "era_common_features.h"
 
 #include "era_usb_session.h"
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+#    include "era_hid_report_interval.h"
+#endif
 #ifdef EEPROM_CUSTOM
 #    include "../storage/era_eeprom_driver.h"
 #endif
@@ -44,6 +47,9 @@
 #endif
 
 void era_common_features_init(void) {
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    era_hid_report_interval_platform_init();
+#endif
 #ifdef ERA_TAP_DANCE_ENABLE
     era_tapdance_init();
 #endif
@@ -110,6 +116,11 @@ void era_common_features_task(void) {
     /* The frame-loss half of the ERA sleep decision. Here rather than in a
        board file because it is a fact about USB, not about a keyboard, and
        every ERA board reaches this function once per pass. */
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    /* Keyboard reports held for a synthesized tap's width leave here once it
+       has passed: one branch per pass while nothing is held. */
+    era_hid_report_interval_service();
+#endif
     era_usb_session_task();
 
 #ifdef ERA_VIA_SYSTEM_ENABLE
@@ -149,6 +160,15 @@ void era_common_features_maintenance_task(void) {
 #endif
 }
 
+#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+void era_common_features_switch_event(bool pressed) {
+    /* Called from QMK's electrical switch-event fanout, the same layer that
+       feeds RGB/LED Matrix reactive tracking. Tap/hold settlement, semantic
+       filters and split keypress ownership therefore cannot shift this edge. */
+    era_backlight_note_key_event(pressed);
+}
+#endif
+
 bool era_common_features_process_record(uint16_t keycode, keyrecord_t *record) {
 #ifdef ERA_SOCD_ENABLE
     if (!era_socd_process_record(keycode, record)) {
@@ -161,18 +181,10 @@ bool era_common_features_process_record(uint16_t keycode, keyrecord_t *record) {
     }
 #endif
 #ifdef ERA_BACKLIGHT_LOCK_ENABLE
-    /* The lock policy owns backlight keycodes that could persist an off state.
-       Put it before the Pulse observer so a refused BL_OFF/zero-step does not
-       also look like a physical Pulse trigger. */
+    /* Persistent backlight-policy keycodes stay semantic and may consume the
+       record. Physical Pulse feedback has already observed the switch edge in
+       QMK's switch-event fanout, independently of this policy decision. */
     if (!era_backlight_lock_process_record(keycode, record)) {
-        return false;
-    }
-#endif
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-    /* Last, and it never refuses: it watches the edge for the Pulse effects
-       and consumes no keycode, so an earlier feature that swallows a record
-       correctly suppresses the Pulse with it. */
-    if (!era_backlight_process_record(keycode, record)) {
         return false;
     }
 #endif

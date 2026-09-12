@@ -151,6 +151,58 @@ leaves `enable` 0. NKRO default is above. User docs introduce them as
 independent items (`user/readme.txt`, `user/readme_split.txt`), which is
 true while this contract holds.
 
+## Tap width and the report interval
+
+A synthesized tap has a host-visible width: Caps Lock is held
+`TAP_HOLD_CAPS_DELAY` (80 ms unless a board sets it), because macOS ignores a
+shorter Caps tap; every other usage is held `TAP_CODE_DELAY`. Every path that
+synthesizes a keyboard-class tap asks for that width through
+`tap_code_wait()` in `quantum/action.c` — the Layer-Tap and Mod-Tap release,
+swap-hands, retro tapping, the Caps Word fallback, `tap_code_delay()`,
+`tap_code16_delay()` in `quantum/quantum.c`, and the Tap Dance slot's
+`features/era_tapdance.c` — and none of them waits for it. `tap_code_wait()`
+sends a keyboard-class usage (basic, modifier, or a pure-modifier `QK_MODS`)
+to `host_keyboard_delay()`; a system, consumer or mouse usage keeps QMK's
+synchronous wait, since it rides no keyboard report. The class test is the
+H7S firmware's, so the sister tree routes the same codes the same way.
+
+**The width lives on the USB transport as a minimum report interval.**
+`host_keyboard_delay()`'s weak default in `tmk_core/protocol/host.c` is the
+wait QMK always performed; on every ERA image the strong definition in
+`system/era_hid_report_interval_chibios.c` hands the request to
+`system/era_hid_report_interval.c`, which holds the next keyboard-class
+report, and every keyboard report behind it in order, until at least the
+requested time has passed since the latest keyboard-class report reached the
+host. QMK's logical release is registered at once; only the report that
+carries it waits, so no later key-up exists that could release a separately
+held physical key with the same usage. Mouse and EXTRA reports are never
+held; on the shared endpoint they are counted so completion order stays
+exact. `send_keyboard()` and `send_nkro()` in
+`tmk_core/protocol/chibios/usb_main.c` ask the hold before posting,
+`send_report()` there counts every post, and the IN completion in
+`tmk_core/protocol/chibios/usb_driver.c` stamps the moment a report reached
+the host. `era_common_features_task()` in `system/era_common_features.c`
+services the unit once per pass; while nothing is held that service is one
+branch. The scan loop never stalls for a width. Boards outside the ERA
+layer, and the host test platform, keep the weak wait.
+
+| Rule | Where |
+| --- | --- |
+| The interval is measured from the completion of the report the tap posted; time already elapsed counts toward it; repeated requests take the larger width | `era_hid_report_interval_request()` in `system/era_hid_report_interval.c` |
+| A report held behind an interval keeps the width it carries, so back-to-back synthesized taps stay their full width apart | the backlog entry's `delay_after` in `system/era_hid_report_interval.c` |
+| Sixteen held reports; the newest then folds into the tail, so the host converges to the latest state and the tail's width survives | `ERA_HID_REPORT_INTERVAL_BACKLOG` in `system/era_hid_report_interval.h` |
+| A completion that never arrives abandons the width after `ERA_HID_REPORT_INTERVAL_ANCHOR_LIMIT_MS` and the backlog drains: a host that stopped polling cannot wedge input | `era_hid_report_interval_task()` in `system/era_hid_report_interval.c` |
+| USB reset, unconfigure and configure drop the backlog and every interval with the queues they were behind; suspend keeps the backlog and measures a pending width from resume | `usb_event_cb()` in `tmk_core/protocol/chibios/usb_main.c`, `era_hid_report_interval_note_session_edge()` in `system/era_hid_report_interval.c` |
+| A requested width is capped at `ERA_HID_REPORT_INTERVAL_REQUEST_MAX_MS` | `era_hid_report_interval_request()` in `system/era_hid_report_interval.c` |
+
+> **REFUSED:** schedule the logical key-up of a synthesized tap on a timer instead of holding its report.
+> **WHY:** QMK's report state does not distinguish a synthesized usage from a physically held key with the same usage, so a deferred key-up can release the physical key or a later press of the same code; holding the report keeps every logical transition where QMK made it.
+> **REOPENS:** a synthesized-versus-physical usage ownership model with host-visible overlap proof.
+
+> **REFUSED:** hold the shared endpoint's queue as a whole for the interval.
+> **WHY:** the shared endpoint also carries mouse reports, and 80 ms of held mouse motion after every Caps tap is a visible stall; the width is a keyboard fact and only keyboard-class reports wait.
+> **REOPENS:** never, while mouse reports share that endpoint.
+
 ## Split and storage
 
 The report never crosses the wire. The only ERA site that touches the HID

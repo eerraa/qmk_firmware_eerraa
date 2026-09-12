@@ -119,6 +119,10 @@ void keyboard_pre_init_user(void);
 void keyboard_post_init_kb(void);
 void keyboard_post_init_user(void);
 
+/* Electrical matrix switch edge, independent of keymap layers and keycode filters. */
+void switch_event_kb(uint8_t row, uint8_t col, bool pressed);
+void switch_event_user(uint8_t row, uint8_t col, bool pressed);
+
 void housekeeping_task(void);      // To be executed by the main loop in each backend TMK protocol
 void housekeeping_task_kb(void);   // To be overridden by keyboard-level code
 void housekeeping_task_user(void); // To be overridden by user/keymap-level code
