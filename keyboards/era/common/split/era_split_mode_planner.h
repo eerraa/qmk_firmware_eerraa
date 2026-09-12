@@ -26,6 +26,10 @@ typedef struct {
     bool     accepted_no_host;
     bool     matrix_ready;
     bool     bulk_page_supported;
+    /* The link lane's, not this planner's: the listener's discovery fact
+       from its SESSION_STATUS answer, read by the scheduler on the serviced
+       edge this same consumed record produces (era_split_link.h). */
+    bool     rate_searched;
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;

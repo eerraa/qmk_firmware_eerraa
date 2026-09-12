@@ -240,6 +240,12 @@ typedef struct {
     uint32_t standing_state_seq_observed;
     /* Cached level for the silence watch only, never a stop-edge filter. */
     bool     standing_stopped;
+    /* Relation continuity, the same classification the EEPROM SYNC indicator
+       uses for its peer mirror: an unserviced pass that is not the initiator's
+       fast bootstrap recovery is a real departure. The next serviced edge
+       reports it to the link lane as a fresh meeting; a same-pair reopen
+       inside the fast window is not one and reopens no reconciliation. */
+    bool     relation_departed;
     /* R7.1: whether the last-built standing plan granted core1 a relation at
        all (nonzero relation generation — core1's own acceptance test).
        Cached at the publish so the initiator silence watch arms only where

@@ -84,9 +84,9 @@ static uint32_t eeprom_reset_confirm_started_ms;
 #endif
 
 /* The raw-HID quiet stamp, and it is deliberately outside every feature guard.
- * Three cuts read it -- the EEPROM CLEAN, the split link's agreed switch, and
- * the VIA Apply USB re-enumeration -- through one predicate and one pair of
- * bounds, and one stamp is what makes them answer about the same traffic. A
+ * Local and agreed EEPROM CLEAN read it through one predicate and one pair
+ * of bounds. LINK_SPEED and its report keep USB connected and skip this gate
+ * through split/era_split_keyboard.c's act table. A
  * board compiling none of them pays one weak override that records a timestamp
  * nobody reads, which is cheaper than a second gate keyed to a second feature
  * macro. */

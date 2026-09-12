@@ -643,6 +643,31 @@ that durable declaration. After `COMPLETE`,
 
 Open compare MATCH is the pull-symmetric short circuit: nothing to move.
 
+## LINK SPEED and restart storage ordering
+
+LINK's four-byte record remains outside EEPROM SYNC. All its durable writes
+now belong to the checked LINK act, after physical runtime readiness; a
+non-winner no longer stores a guessed Low after an observation timeout. Even
+an unchanged winner rate is agreed once. `split/era_split_link.h` owns the
+complete local success/failure and reboot contract.
+
+An admitted storage episode, including a read-only audit, and its outstanding
+result prevent a new LINK arm: the audit can still discover content requiring
+Apply. This is independent of indicator visibility. Queued boot audit work
+alone does not prevent reconciliation. During an existing timed arm, cold
+capture and new initiator episode admission yield; active/context-loss result
+retirement remains runnable. CLEAN's deadline-free prepared quarantine keeps
+its own existing retirement path.
+
+A detected NVM final-program/readback failure may leave a new complete record
+physically committed while the public RAM image stays at its last confirmed
+value. `storage/era_nvm.c` therefore treats both failed append and failed bank
+construction as sealed recovery state. RAM-identical replacement cannot return
+`NO_CHANGE` through that state: checked rotation must first establish the
+requested durable image. This uses the existing sealed-tail owner rather than
+a LINK-specific retry/uncertain-write flag. Power loss before a checked result
+may recover either complete image, never a promise of pair-wide durability.
+
 ## Replacement Apply: ADMIT And Public Authority
 
 ADMIT is the last cancellation boundary inside

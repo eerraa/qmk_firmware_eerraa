@@ -7,6 +7,7 @@
 
 #include "../system/era_matrix_engine.h"
 #include "atomic_util.h"
+#include "era_split_link.h"
 #include "era_split_scheduler_events.h"
 
 typedef struct {
@@ -15,6 +16,10 @@ typedef struct {
     bool     accepted_no_host;
     bool     matrix_ready;
     bool     bulk_page_supported;
+    /* SESSION_STATUS only, answer only: the link listener's discovery fact
+       (era_split_wire_protocol.h). AUTHORITY has no bit for it and its
+       consumer leaves this field alone, as it does bulk_page_supported. */
+    bool     rate_searched;
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;
@@ -83,6 +88,10 @@ void era_split_scheduler_session_note_local_facts(const era_authority_snapshot_t
 #else
         g_era_split_scheduler_session.local.bulk_page_supported = false;
 #endif
+        /* Read at every build rather than noted by the scheduler, because the
+           step that sets it republishes the responder snapshot in the same
+           pass and this is the read that snapshot's answer is built from. */
+        g_era_split_scheduler_session.local.rate_searched       = era_split_link_rate_searched();
         g_era_split_scheduler_session.local.usb_epoch           = authority != NULL ? authority->usb_epoch : 0;
     }
 }
@@ -119,6 +128,8 @@ bool era_split_scheduler_session_build_local_status(bool response_requested, era
         status->status_response_requested = response_requested;
         status->matrix_ready              = g_era_split_scheduler_session.local.matrix_ready;
         status->bulk_page_supported       = g_era_split_scheduler_session.local.bulk_page_supported;
+        /* The answer's fact, never the probe's: the codec refuses the pair. */
+        status->rate_searched             = !response_requested && g_era_split_scheduler_session.local.rate_searched;
         status->usb_epoch                 = g_era_split_scheduler_session.local.usb_epoch;
         status->host_open_generation      = g_era_split_scheduler_session.local.host_open_generation;
         status->host_close_generation     = g_era_split_scheduler_session.local.host_close_generation;
@@ -154,6 +165,9 @@ void era_split_scheduler_session_note_peer_status(const era_split_wire_session_s
     if (status->matrix_ready && !status->accepted_no_host) {
         return;
     }
+    if (status->rate_searched && status->status_response_requested) {
+        return;
+    }
 
     bool peer_mode_status_changed = false;
     ATOMIC_BLOCK_RESTORESTATE {
@@ -163,6 +177,7 @@ void era_split_scheduler_session_note_peer_status(const era_split_wire_session_s
         g_era_split_scheduler_session.peer.accepted_no_host      = status->accepted_no_host;
         g_era_split_scheduler_session.peer.matrix_ready          = status->matrix_ready;
         g_era_split_scheduler_session.peer.bulk_page_supported   = status->bulk_page_supported;
+        g_era_split_scheduler_session.peer.rate_searched         = status->rate_searched;
         g_era_split_scheduler_session.peer.usb_epoch             = status->usb_epoch;
         g_era_split_scheduler_session.peer.host_open_generation  = status->host_open_generation;
         g_era_split_scheduler_session.peer.host_close_generation = status->host_close_generation;
@@ -253,7 +268,12 @@ bool era_split_scheduler_session_note_peer_authority(const era_split_wire_author
          * a response section and `0x04` went back un-reused
          * (era_closed_surface_contract.md). There is no hint field in this
          * cache left to skip, and a tree that has one is older than that
-         * slice. */
+         * slice.
+         *
+         * `rate_searched` is untouched for the capability's reason, not the
+         * hint's: it is a fact about the discovery answer that opened the
+         * relation, this section carries no bit for it, and its one reader
+         * took it on the serviced edge that answer created. */
         g_era_split_scheduler_session.peer.usb_epoch             = authority->usb_epoch;
         g_era_split_scheduler_session.peer.host_open_generation  = authority->host_open_generation;
         g_era_split_scheduler_session.peer.host_close_generation = authority->host_close_generation;
@@ -277,6 +297,7 @@ static void era_split_scheduler_session_copy_peer_mode_session_locked(era_split_
     peer_session->accepted_no_host      = g_era_split_scheduler_session.peer.accepted_no_host;
     peer_session->matrix_ready          = g_era_split_scheduler_session.peer.matrix_ready;
     peer_session->bulk_page_supported   = g_era_split_scheduler_session.peer.bulk_page_supported;
+    peer_session->rate_searched         = g_era_split_scheduler_session.peer.rate_searched;
     peer_session->usb_epoch             = g_era_split_scheduler_session.peer.usb_epoch;
     peer_session->host_open_generation  = g_era_split_scheduler_session.peer.host_open_generation;
     peer_session->host_close_generation = g_era_split_scheduler_session.peer.host_close_generation;

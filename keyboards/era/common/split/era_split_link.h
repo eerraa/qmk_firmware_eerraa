@@ -112,99 +112,173 @@ _Static_assert(ERA_SPLIT_LINK_SCAN_NOISE_MIN >= 2,
 #    define ERA_SPLIT_LINK_FALLBACK_REPORT_TAIL_MS 960
 #endif
 
+/* A successful listener-side rate recovery is deliberately shorter and
+ * quieter than the failure report: two short pulses, then a tail. The link
+ * unit owns only the timing; the board presentation layer paints success
+ * green. This report is never an input to reconciliation or agreement. */
+#ifndef ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_ON_MS
+#    define ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_ON_MS 320
+#endif
+#ifndef ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_OFF_MS
+#    define ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_OFF_MS 320
+#endif
+#ifndef ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_TAIL_MS
+#    define ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_TAIL_MS 480
+#endif
+
 /* ## Reconciliation
  *
- * Meet at Low, raise to the winner's stored level, keep the listener as
- * recovery. Everything below is what that sentence means on one half.
+ * Boot opens Low without rewriting the stored record. On a serviced relation,
+ * the winner (DUAL-HOST Left, HOST-PEER HOST) hands its stored target to the
+ * agreed-restart service once. That service alone owns request, arbitration,
+ * timeout, arm and commit. The link lane keeps no owner-Apply flag and does
+ * not distinguish a VIA request from a peer or boot request at commit.
+ * Even an unchanged/Low target takes this agreement; the non-winner never
+ * infers a durable setting from silence. After ERA_SPLIT_LINK_UPGRADE_WAIT_MS
+ * it may release the initial storage wait, without writing.
  *
- * **Boot.** The stored level is read and left alone. The running level starts
- * at Low, and `era_split_transport_scheduler_start_communication_core()`
- * (`era_split_transport_scheduler.c`) hands the backend Low before the wire
- * opens. Both halves therefore probe and listen at the same rate; the
- * listener's scan ring is not on this path.
+ * **One rate agreement per meeting of the pair.** A successful checked act latches
+ * the agreed running level on each half. Reconciliation is reopened by a
+ * fresh meeting (the scheduler reports a serviced edge that follows a real
+ * departure: bootstrap backoff, wire loss, or a responder's silence), by a
+ * change of the rate-winner identity, by a recovery or listener step that
+ * moved the running level off the agreed one, or by an explicit Apply. It is
+ * NOT reopened by a same-pair reopen inside the scheduler's fast recovery
+ * window -- the SESSION revalidation every EEPROM SYNC push close forces --
+ * and never by a housekeeping pass after a failed write or expired request.
+ * That continuity classification is the one the EEPROM SYNC indicator already
+ * uses for its peer mirror; the two consumers share it so a storage round is
+ * never interleaved with agreed restarts of a rate the pair already runs.
  *
- * **Surface, then raise.** A serviced relation means `SESSION_STATUS` has
- * confirmed the peer. The standing exchange then carries the response
- * sections — RGB, visual, lock, storage news, INPUT layer, and the relation
- * time-anchor. The first EEPROM SYNC is *not* in that basket: it is the
- * storage engine's relation-open audit
- * (`era_host_peer_storage_contract.md`), it owns the red lamp, and it waits
- * until `era_split_link_runtime_settled()` so a raise does not tear a
- * content-moving episode and a converged pair does not flash red at Low.
- * The time-anchor is what makes the shared-clock deadline safe to fire; the
- * initiator does not arm the link act until one has been applied
- * (`era_split_restart_arm_ready()` in `era_split_keyboard.c`).
+ * **Local success.** era_split_link_apply() returns true only after the
+ * scheduler has quiesced the old owner, selected the divider and all derived
+ * timings, restored the role and its Core1 publications, AND the result-bearing
+ * NVM replacement has returned OK/NO_CHANGE. Physical transition precedes all
+ * LINK SPEED persistence, on both halves. The shared deadline is translated
+ * once into each half's monotonic clock; a role flip must not move execution.
+ * The scheduler's dirty wire bit requests an actual lease repair even when
+ * the planned role has not changed. An equal divider is not proof of a live
+ * lease. Runtime publication precedes NVM so Core1 can run during flash work.
  *
- * **The raise.** The winner requests `ERA_SPLIT_RESTART_ACT_LINK_SPEED` with
- * its stored level as param. That reopens the 2026-08-19 ruling that the
- * link lane raises no request; CLEAN still resets, the link act no longer
- * does. The commanded-half / initiator-arms two-phase, the AUTHORITY bits,
- * and the `RESTART_ARM` section are unchanged — no wire edit, no layout
- * edit, and the byte still does not enter the SYNC engine. At T_commit both
- * halves run `era_split_transport_scheduler_apply_link_level()`: owner down,
- * `set_speed`, serial recover, relation identity kept so the silence watch
- * (100 ms) is the only window the pair must fit. `wire_scale()` is recomputed
- * in that same `set_speed` (`era_split_transaction_backend_rp2040.c`).
+ * **Failure.** An expired/unconfirmed request leaves runtime and durable bytes
+ * unchanged; a new request is explicit. Runtime reconfiguration failure is not
+ * success and writes nothing. It requests Low recovery through the existing
+ * owner-down path; a capped Core1 remains safely unavailable. NVM failure after
+ * runtime success keeps the selected runtime and the last confirmed durable
+ * cache. It does not roll one half back while the other runs the new rate, and
+ * it is not silently retried as later "adoption". Applying the same running
+ * level remains possible when durable storage still differs.
  *
- * **Success.** The relation is still serviced after the confirm window. A
- * half whose stored level is not the running one adopts, agreed, no reset.
- * The pair now stores the winner's level.
+ * The 200-ms confirmation judges link liveness, not persistence success. A lost
+ * relation requests one Low recovery and latches automatic raises off until
+ * reboot, an explicit local Apply, or a newly successful peer transition.
+ * Recovery and confirmation do not wait on NVM readiness. The listener may subsequently follow noise to
+ * find a peer; it is not forced back to Low after every scan step. This fallback
+ * never stores Low. The one-shot three-pulse report is presentation only.
+ * A listener that actually steps because of undecodable traffic and then opens
+ * a serviced relation earns a separate presentation-only two-pulse success
+ * report. The newly serviced relation's initiator alone requests LINK_RECOVERED,
+ * from its own listener search or the listener's SESSION_STATUS answer to the
+ * probe that found it (`rate_searched`, era_split_wire_protocol.h). The
+ * discovery talker has no other way to see the search: from its
+ * probes a listener at the wrong rate and no listener at all look the same.
+ * Ordinary boot Low -> target and same-rate attach raise it on neither half.
+ * Neither report changes rate reconciliation or persistence.
  *
- * **Failure.** The relation is gone after the confirm window. This half
- * reverts *running* to Low, latches the fallback for the rest of the
- * session, and writes nothing. The next boot meets at Low and tries again.
- * A cable that cannot hold even Low never joins; that remainder is accepted.
- * The one-shot report — three long red pulses, then stop — starts on the
- * first `era_split_link_fallback_report_advance()` after the latch, so a
- * caller that withholds that call while the core1 launch report owns the
- * field cannot race it. It does not persist Low into EEPROM.
+ * **One presentation epoch, not two local starts.** The initiator's pending
+ * report is offered during the final commit-lead portion of rate confirmation
+ * (or immediately when idle), expires after the agreement's request lifetime,
+ * and is discarded on loss of service or runtime failure. The unchanged
+ * confirmation still gates visibility; overlap removes serial waiting, not
+ * liveness evidence.
+ * Once accepted, only the agreement owns it; an aborted report is not retried.
+ * Initial ownership is the settled initiator, not discovery's talker: a Left
+ * HOST becomes responder at discovery and may finish the rate act and request
+ * its report between two polls. No idle need cross between those acts, so the
+ * initiator's duplicate-request guard must suppress that responder request.
+ * An initiator-local report needs no return request or extra idle handshake;
+ * no replay guard is relaxed. A later role change retains the agreement's
+ * existing deadline/rotation rules.
+ * LINK_RECOVERED requires a peer and the existing time-anchor/echo handshake,
+ * yields to admitted storage, and temporarily uses the existing timed window.
+ * It skips the raw-HID quiet gate: a lamp interrupts neither USB nor NVM.
+ * It works even after a searched fallback with automatic raises latched off.
+ * Its dispatch captures the agreed local deadline, not the dispatch time.
+ * Each advance derives the same two-pulse phase and expiry from that instant;
+ * duplicate arms, a role/clock change, late dispatch and a late first display
+ * cannot restart it. Zero is a valid local deadline across timer wrap.
+ * The renderer advances while masked: sleep and higher-priority launch/failure
+ * presentation remain authoritative, but hidden pulses are skipped rather
+ * than replayed. A later local runtime failure cancels even an accepted report
+ * whose dispatch is still in the future; only a new searched meeting clears
+ * that cancellation. The colour is
+ * green; EEPROM synchronization retains its separate blue presentation.
+ * Clock-anchor error and physical scheduling/LED flush skew still require a
+ * device measurement; this is not a promise of zero physical skew or delivery
+ * across a lost final message, power cut, or a higher-priority display.
  *
- * **Alone.** No serviced relation: the listener (peer-unknown responder,
- * Right) still follows a talker it can hear and cannot decode, High ->
- * Medium -> Low -> High, over the dwell, and stores nothing. The talker
- * (peer-unknown initiator, Left) probes at *running* Low on a fresh boot
- * and does nothing on silence. The ring is the recovery for a pair that
- * is already at two running rates, not the common boot. An owner Apply
- * with no peer still stores on this half and applies the divider without
- * a reset; a level applied to the non-winner half alone is overwritten by
- * the winner's the moment they connect.
+ * **Limits of the agreement.** Its unchanged five-byte arm and seven-byte
+ * authority body agree a transition, not a distributed NVM commit. There is no
+ * bilateral completion acknowledgement. A lost final echo/disarm, power cut,
+ * or one-sided hardware/NVM fault may leave different durable records. Each
+ * NVM transaction is locally atomic; reboot mounts that record, opens Low, and
+ * the same winner rule reconciles the pair. Never infer pair durability from
+ * one half's successful local result. Deadline skew from concurrent unrelated
+ * synchronous work, clock-anchor error and physical quiesce/restart latency
+ * remains a hardware bound, not a host-test or millisecond-timer guarantee.
  *
- * **Owner Apply, joined.** Same runtime window as the auto raise. The
- * requesting half's pending level is the param; both halves store it at
- * commit (that is the owner choosing, not the auto path) and `set_speed`.
- * The MCU does not reset. Waiting for the live adoption to persist the peer
- * is what lost a Right High Apply: the confirm window is whether *running*
- * holds, not whether EEPROM remembers the choice, and a cable pull or a
- * second Apply on the peer inside that window restored the winner's old
- * stored level. An agreed commit therefore writes the param on every half
- * that does not already store it. Auto-raise of a target both already hold
- * writes nothing. The requesting half re-enumerates USB after that commit
- * (`split/era_split_via_link.c`); a request that never commits does not
- * bounce, so Enable staying on is how the owner sees that nothing ran. That
- * bounce is not a HOST close (`system/era_usb_session.c`).
+ * **VIA and USB.** SET level changes a RAM selection only. Apply hands one
+ * immutable parameter to the agreement; later dropdown edits do not rewrite
+ * it. GET Apply returns the consumed action value 0, not a success receipt.
+ * Neither successful nor failed LINK SPEED work re-enumerates USB, clears
+ * keyboard reports, or creates a synthetic authority/USB-session hold. UI
+ * refresh belongs to the host application, not the split transaction.
  *
- * Every path terminates and the only EEPROM writes are an owner Apply, a
- * successful adoption, and the unagreed-mark observation. The fallback
- * writes nothing, which is what keeps the retired silence fallback from
- * returning in other clothes.
+ * An explicit local Apply has a terminal-only presentation receipt. Pending
+ * stays available to readback but owns no RGB frame. Checked local runtime +
+ * durable success flashes green once immediately on return, as does an
+ * already matching runtime AND durable level without work. Busy, failed,
+ * expired or superseded requests flash red. LINK_SPEED skips raw-HID quiet:
+ * it does not cut the USB session. Storage admission, time-anchor adoption and
+ * the shared commit lead still apply; a VIA callback only queues the intent.
+ * Automatic reconciliation and peer-originated acts create no local receipt.
+ * A repeated click during an own pending request or its health observation
+ * preserves the receipt and target rather than replaying a pulse. A global
+ * agreement result alone never proves this request succeeded.
  *
- * **What the stored mark still means.** The no-relation apply marks its level
- * *unagreed* -- set alone, never seen by a peer -- and the open-at-stored-level
- * observation clears it. Nothing on this lane acts on the mark for control:
- * the arm that once completed an unagreed level by raising the agreement, and
- * the arm that recorded an agreed one as failed by storing High, both retired
- * 2026-08-19 with the silence fallback that produced their evidence. The bit
- * stays written because it is a true fact about the record, costs nothing, and
- * is exactly what the refusal below would need to reopen.
+ * The existing liveness-confirmation window remains a recovery safety check,
+ * not a success-display delay. Its failure corrects that Apply's receipt to
+ * FAILED; its success does not re-arm the pulse. A later rate act retires the
+ * old receipt's observation so its failure cannot be charged to the old act.
+ *
+ * The receipt changes no execution admission, and never schedules, retries or
+ * persists a level. A failed NVM write can leave the selected runtime active;
+ * it is FAILED, not APPLIED. A green receipt proves this half's checked result,
+ * not both durable stores or continuing peer liveness. Setting the RGB state
+ * before the synchronous NVM return would not flush an earlier frame on Core0;
+ * no recursive rendering or deferred persistence is introduced for feedback.
+ * Read-only VIA labels expose configured runtime,
+ * confirmed saved level and last local receipt; queries do not erase it.
+ * Sleep and failure presentation retain priority, hidden pulses expire, and
+ * normal effect/lock settings are not rewritten for feedback. Timing and
+ * colours are owned by the presenter, not a new split-wire operation.
+ *
+ * Low-at-boot then reconciliation remains correct after any explicit reboot.
+ * Making LINK_SPEED itself reset would repeat on every boot reconciliation,
+ * including an unchanged/Low target. A reboot cannot be a success receipt:
+ * it disconnects input but cannot distinguish a durable failure or later Low
+ * fallback. The explicit receipt leaves the normal boot path untouched.
+ *
+ * **Stored record.** The four-byte allocation and level values are unchanged.
+ * The former unagreed bit is accepted when reading existing records but has
+ * no control meaning and is no longer written/cleared by observation. EEPROM
+ * SYNC remains excluded: this lane is the stored level's only writer.
  *
  * > **REFUSED:** treat a listener's *unagreed* stored level as the owner's more
  * > recent action and, once the pair opens, raise the agreement for it instead
  * > of adopting the winner's.
- * > **WHY:** the winner's own mark is cleared by observation the moment the
- * > pair settles and raises nothing, so two halves set alone to different
- * > levels would always end at the **non-winner** one -- against the one
- * > answer this firmware gives every arbitrary tie -- and every such
- * > connection would spend one extra raise.
+ * > **WHY:** the mark does not order edits. Letting it override the winner
+ * > would make two halves set alone settle at the non-winner's value.
  * > **REOPENS:** the owner deciding that a level applied to the non-winner
  * > half alone must reach the pair; then this arm returns and the tie prose
  * > is rewritten to match.
@@ -245,9 +319,8 @@ _Static_assert(ERA_SPLIT_LINK_SCAN_NOISE_MIN >= 2,
  * > **REOPENS:** the owner deciding a failed raise should persist Low.
  */
 
-/* The level the wire is running at. It starts at Low and moves when the
- * listener steps, when the agreed raise applies, or when a failed raise
- * reverts; every derived timing follows the wire rather than the setting. */
+/* The configured divider. A successful serial restart is a separate scheduler
+ * result; this byte alone never proves a serviced link or a durable write. */
 uint8_t era_split_link_active_level(void);
 /* The level as a baud, which is the only form anything outside this unit takes
  * it in. The backend is handed the number and derives its own scale from it;
@@ -260,36 +333,33 @@ uint32_t era_split_link_speed(uint8_t level);
  * copy of the fact the agreement exists to keep single. */
 uint8_t era_split_link_pending_level(void);
 bool    era_split_link_set_pending_level(uint8_t level);
-/* The Apply toggle. An equal level is a no-op rather than a refusal, which is
- * what lets the control stay visible: VIA compares value ids on one page and
- * has no way to see the running level, so the inertness is enforced here. That
- * test is this unit's and stays here, because this is the half of the pair that
- * holds the running level -- the agreement service takes an act it does not
- * interpret and could only re-test it by learning what a link param means.
- *
- * "Equal" is equal to the *running* level, deliberately. A half sitting at
- * boot Low with a stored High must still accept Apply for that High; testing
- * the stored level would hide the control on the common path. True when the
- * agreement accepted the request. VIA re-enumerates only if that request
- * later commits. */
+/* True means accepted, not completed. Equal runtime AND durable level is
+ * inert. The same runtime with a failed durable write remains retryable. */
 bool era_split_link_request_apply(void);
 
-/* Whether this commit should persist the param. True for an owner Apply, and
- * for an agreed peer whose stored level is not the param. Valid only inside
- * `era_split_restart_prepare_local()`. */
-bool era_split_link_commit_stores(void);
-bool era_split_link_commit_persists(uint8_t param, bool agreed, bool owner_apply);
+/* The last explicit local Apply's receipt, not transaction ownership and not
+ * proof of the peer's NVM. Automatic reconciliation and peer-only acts do not
+ * create a receipt. A repeated click while this request is pending preserves
+ * its immutable target rather than replacing it with the edited dropdown. */
+typedef enum {
+    ERA_SPLIT_LINK_APPLY_NONE,
+    ERA_SPLIT_LINK_APPLY_PENDING,
+    ERA_SPLIT_LINK_APPLY_UNCHANGED,
+    ERA_SPLIT_LINK_APPLY_APPLIED,
+    ERA_SPLIT_LINK_APPLY_BUSY,
+    ERA_SPLIT_LINK_APPLY_FAILED,
+    ERA_SPLIT_LINK_APPLY_CANCELLED,
+} era_split_link_apply_status_t;
+era_split_link_apply_status_t era_split_link_apply_status(void);
+uint8_t era_split_link_apply_target(void);
+bool era_split_link_get_stored_level(uint8_t *level);
+/* Timing only. Pending is silent; terminal receipts expire without being erased
+ * from readback. The board supplies colour and preserves sleep/failure priority. */
+bool era_split_link_apply_report_advance(era_split_link_apply_status_t *status, bool *on);
 
-/* The agreement's prepare for this act, run at the commit instant on both
- * halves. It writes when `era_split_link_commit_persists()` is true. The
- * runtime divider change is the scheduler's, invoked from the act dispatch.
- *
- * `agreed` is the service's answer to "did a peer produce this commit", and it
- * is what the stored mark records. It is asked of the service rather than of
- * this unit's own relation term, because an agreement whose relation died
- * inside the commit window is still an agreement -- both halves hold the same
- * deadline and both will write. */
-void era_split_link_store_level(uint8_t level, bool agreed);
+/* The complete local LINK SPEED act at T_commit: checked runtime transition,
+ * then checked durable replacement. All request origins use this one path. */
+bool era_split_link_apply(uint8_t level);
 
 /* The three terms Reconciliation reads, all the scheduler's settled answers of
  * the same pass: whether a relation is serviced, whether this half is the
@@ -298,20 +368,34 @@ void era_split_link_store_level(uint8_t level, bool agreed);
  * wire that is unavailable (authority not yet classified, launch capped) is
  * neither role, and a responder beside a known peer is not a listener: it has
  * nothing to listen for. The winner bit is a projection of the settled mode,
- * not a second planner. */
-void era_split_link_note_relation(bool serviced, bool listening, bool local_is_rate_winner);
+ * not a second planner. `fresh_meeting` is the scheduler's relation-continuity
+ * verdict for a serviced edge: true after a real departure, false for a
+ * same-pair reopen inside its fast recovery window (Reconciliation above).
+ * `peer_rate_searched` is the peer's SESSION_STATUS answer's discovery fact,
+ * from the same consumed session record that produced the edge: the listener
+ * this half met changed its running rate to hear it. `local_is_initiator` is
+ * the scheduler's settled wire-role projection. That side alone requests the
+ * success report on a searched serviced edge, whether the search fact was
+ * local or received; no second role planner or stored role flag is added. */
+void era_split_link_note_relation(bool serviced, bool listening, bool local_is_rate_winner, bool fresh_meeting,
+                                  bool peer_rate_searched, bool local_is_initiator);
+
+/* The listener's discovery fact for its SESSION_STATUS answer, which
+ * era_split_scheduler_session.c builds in: true from the step taken because
+ * of undecodable traffic until the relation it found opens, or the listening
+ * episode ends without one. The peer-unknown initiator never steps, so a
+ * probe never carries it. Presentation only, like the report it raises. */
+bool era_split_link_rate_searched(void);
 
 /* The step is decided here and performed by the scheduler, because the divider
  * change has to happen with the backend owner torn down and the scheduler is
  * what owns that window. `next_level` is the level to run when it returns
  * true. The listener's ring and a fallback revert to Low both use it. */
 bool era_split_link_step_due(uint8_t *next_level);
-void era_split_link_note_step_applied(uint8_t level);
+void era_split_link_note_level_selected(uint8_t level);
 
-/* True when the first EEPROM SYNC may run: the boot raise has succeeded, been
- * abandoned to Low for this session, or was never owed (winner already
- * stored Low). The storage initiator asks this and does not read the level
- * byte. */
+/* True when no agreement or reconciliation rate change is outstanding. The
+ * storage initiator separately requires a live owner; this is not a lease. */
 bool era_split_link_runtime_settled(void);
 
 /* The one-shot fallback report. Timing only — the board paints. Starts on
@@ -320,6 +404,14 @@ bool era_split_link_runtime_settled(void);
  * call, idle included. A caller that skips this while the core1 launch
  * report is live is what keeps the two from sharing the field. */
 bool era_split_link_fallback_report_advance(bool *on);
+
+/* Presentation-only success report. A searched serviced edge requests one
+ * peer rendezvous; neither a local serviced edge nor first advance starts it.
+ * Ordinary boot Low -> target and same-rate attach stay silent. */
+/* Dispatch-only: requires a currently held agreed deadline. No divider,
+ * persistence, reset or local standalone start is performed. */
+bool era_split_link_reconcile_success_report_commit(void);
+bool era_split_link_reconcile_success_report_advance(bool *on);
 
 /* The open half of Reconciliation, polled on the maintenance pass beside the
  * agreement's own task. The winner may raise a link request here; the loser

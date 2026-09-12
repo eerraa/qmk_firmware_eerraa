@@ -84,7 +84,9 @@ void era_split_transaction_backend_init(void);
    both EEPROM and the link unit off this side of the boundary. Byte time,
    turnaround, the send bound and the window scale all come out of this one
    argument, so they cannot disagree about what the wire is doing. Returns
-   whether anything moved. */
+   whether the configuration moved. Call only after quiescing the old owner.
+   This performs no serial I/O: the next Core1 lease initializes hardware and
+   its checked role-ready handshake owns physical completion. */
 bool era_split_transaction_backend_set_speed(uint32_t baud);
 /* ceil(SERIAL_USART_SPEED / baud) -- 1 / 2 / 4 at the three compiled levels.
    Read by the wire-time windows computed outside this unit (the storage lane's

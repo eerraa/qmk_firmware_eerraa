@@ -164,18 +164,20 @@ typedef struct {
    absence with time, which is why no value of it could be right. */
 bool era_split_eeprom_sync_indicator_visible_advance(void);
 /* Diagnostics-only LED truth, called by the board's render-policy flush hook
-   on EVERY flushed frame with whether that frame was the STATUS field, the
-   frame's raw flags, and the packed panel-state bits above.
-   Edge-only: stamps the first STATUS flush of an era (`ron`) and the first
-   non-STATUS flush after it (`roff`) — the moment the red actually left the
-   panel, which no predicate stamp can see. A red era that breaks while the
-   lamp is still commanded visible is the healed-trigger frame (the span's
-   own end always breaks with the lamp already dark), and the note latches
-   that frame's identity — flags and panel state — because four bracketed
-   samples correlate with the durable-writer's flash-activity window but the
-   count alone cannot say which path rendered the statusless frame: a
-   zero-flag NONE/suspend fill, an enable drop, or an effect frame the
-   arbitration stripped. One breaker readout names it. */
+   on EVERY flushed frame with whether that frame was the EEPROM SYNC STATUS
+   field, the frame's raw flags, and the packed panel-state bits above.
+   Edge-only: stamps the first SYNC STATUS flush of an era (`ron`) and the first
+   non-SYNC-STATUS flush after it (`roff`) — the moment the storage indication
+   actually left the panel, which no predicate stamp can see. A STATUS era that
+   breaks while the lamp is still commanded visible is the healed-trigger frame
+   (the span's own end always breaks with the lamp already dark), and the note
+   latches that frame's identity — flags and panel state — because four
+   bracketed samples correlate with the durable-writer's flash-activity window
+   but the count alone cannot say which path rendered the statusless frame: a
+   higher-priority STATUS report, zero-flag NONE/suspend fill, an enable drop,
+   or an effect frame the arbitration stripped. One breaker readout names it.
+   The diagnostic member names `red_*` are retained as capture ABI only; colour
+   is presentation policy and current TOMAK paints EEPROM SYNC blue. */
 void era_split_eeprom_sync_note_status_frame_presence(bool status_frame, uint8_t frame_flags, uint8_t panel_state_bits);
 void era_split_eeprom_sync_reload_domain_kb(era_split_eeprom_sync_domain_t domain);
 void era_split_eeprom_sync_reload_domain_user(era_split_eeprom_sync_domain_t domain);

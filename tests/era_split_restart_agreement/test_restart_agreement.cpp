@@ -94,6 +94,8 @@ bool authority_tuple_expected(uint8_t act, uint8_t param, bool armed) {
             return param == 0 && !armed;
         case ERA_SPLIT_RESTART_ACT_LINK_SPEED:
             return param <= 2;
+        case ERA_SPLIT_RESTART_ACT_LINK_RECOVERED:
+            return param == 0;
         case ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN:
             return (!armed && param == ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST) ||
                    (armed && (param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED ||
@@ -109,6 +111,8 @@ bool arm_tuple_expected(uint8_t act, uint8_t param, uint32_t commit_ms) {
             return param == 0 && commit_ms == 0;
         case ERA_SPLIT_RESTART_ACT_LINK_SPEED:
             return param <= 2 && commit_ms != 0;
+        case ERA_SPLIT_RESTART_ACT_LINK_RECOVERED:
+            return param == 0 && commit_ms != 0;
         case ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN:
             return (param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED && commit_ms == 0) ||
                    (param == ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT && commit_ms != 0);
@@ -222,9 +226,10 @@ void era_restart_test_dmb(void) {}
 void era_restart_test_sev(void) {}
 
 extern const era_split_restart_act_rules_t era_split_restart_act_rules[ERA_SPLIT_RESTART_ACT_MAX + 1] = {
-    {false, false, false, 0},
-    {true, true, false, 2},
-    {true, true, true, 0},
+    {false, false, false, 0, false, false},
+    {true, true, false, 2, false, true},
+    {true, true, true, 0, false, false},
+    {true, true, false, 0, true, true},
 };
 
 bool era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param) {
@@ -343,7 +348,9 @@ TEST_F(EraSplitRestartAgreement, CarrierValidatorsAcceptOnlyCanonicalPhases) {
                                                ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST));
     EXPECT_FALSE(era_split_restart_intent_valid(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
                                                 ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED));
-    EXPECT_FALSE(era_split_restart_intent_valid(3, 0));
+    EXPECT_TRUE(era_split_restart_intent_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 0));
+    EXPECT_FALSE(era_split_restart_intent_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 1));
+    EXPECT_FALSE(era_split_restart_intent_valid(4, 0));
 
     EXPECT_TRUE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_NONE, 0, false));
     EXPECT_FALSE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_NONE, 0, true));
@@ -359,7 +366,10 @@ TEST_F(EraSplitRestartAgreement, CarrierValidatorsAcceptOnlyCanonicalPhases) {
                                                   ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true));
     EXPECT_FALSE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
                                                    ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, false));
-    EXPECT_FALSE(era_split_restart_authority_valid(3, 0, false));
+    EXPECT_TRUE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 0, false));
+    EXPECT_TRUE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 0, true));
+    EXPECT_FALSE(era_split_restart_authority_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 1, true));
+    EXPECT_FALSE(era_split_restart_authority_valid(4, 0, false));
 
     EXPECT_TRUE(era_split_restart_arm_valid(ERA_SPLIT_RESTART_ACT_NONE, 0, 0));
     EXPECT_FALSE(era_split_restart_arm_valid(ERA_SPLIT_RESTART_ACT_NONE, 0, 1));
@@ -374,6 +384,44 @@ TEST_F(EraSplitRestartAgreement, CarrierValidatorsAcceptOnlyCanonicalPhases) {
     EXPECT_FALSE(era_split_restart_arm_valid(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
                                              ERA_SPLIT_RESTART_CLEAN_PARAM_REQUEST, 0));
     EXPECT_FALSE(era_split_restart_arm_valid(3, 0, 0));
+    EXPECT_TRUE(era_split_restart_arm_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 0, 1));
+    EXPECT_FALSE(era_split_restart_arm_valid(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED, 1, 1));
+}
+
+TEST_F(EraSplitRestartAgreement, SessionStatusRateSearchedRidesOnlyTheListenersAnswer) {
+    era_split_wire_session_status_t status{};
+    status.accepted_host_open = true;
+    status.rate_searched      = true;
+    uint8_t payload[ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN] = {0};
+    uint8_t payload_len                            = 0;
+    ASSERT_TRUE(era_split_wire_encode_session_status(1U, &status, payload, &payload_len));
+    EXPECT_EQ(payload_len, 9U);
+    EXPECT_EQ(payload[2], ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED);
+    era_split_wire_payload_kind_t kind = ERA_SPLIT_WIRE_PAYLOAD_INVALID;
+    ASSERT_TRUE(era_split_wire_classify_payload(payload, payload_len, ERA_SPLIT_WIRE_FRAME_LANE_COMPACT, &kind));
+    EXPECT_EQ(kind, ERA_SPLIT_WIRE_PAYLOAD_SESSION_STATUS);
+    era_split_wire_frame_t frame{};
+    frame.kind        = kind;
+    frame.payload_len = payload_len;
+    std::memcpy(frame.payload, payload, payload_len);
+    era_split_wire_session_status_t decoded{};
+    ASSERT_TRUE(era_split_wire_decode_session_status(&frame, &decoded));
+    EXPECT_TRUE(decoded.rate_searched);
+    EXPECT_FALSE(decoded.status_response_requested);
+
+    // A probe is the peer-unknown initiator's, and that half never moves its rate.
+    status.status_response_requested = true;
+    EXPECT_FALSE(era_split_wire_encode_session_status(1U, &status, payload, &payload_len));
+    payload[2] = ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED |
+                 ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED;
+    EXPECT_FALSE(era_split_wire_classify_payload(payload, 9, ERA_SPLIT_WIRE_FRAME_LANE_COMPACT, &kind));
+    payload[2] = ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED;
+    EXPECT_TRUE(era_split_wire_classify_payload(payload, 9, ERA_SPLIT_WIRE_FRAME_LANE_COMPACT, &kind));
+    // The two bits still reserved refuse the whole frame.
+    for (uint8_t reserved : {uint8_t{0x04}, uint8_t{0x20}}) {
+        payload[2] = ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | reserved;
+        EXPECT_FALSE(era_split_wire_classify_payload(payload, 9, ERA_SPLIT_WIRE_FRAME_LANE_COMPACT, &kind));
+    }
 }
 
 TEST_F(EraSplitRestartAgreement, StandaloneCleanResetsOnlyAfterSuccessfulPrepare) {
@@ -1131,4 +1179,76 @@ TEST_F(EraSplitRestartAgreement, FailedLiveArmForcesIdleDisarmAfterStandingRecov
     EXPECT_EQ(disarm.act, ERA_SPLIT_RESTART_ACT_NONE);
     EXPECT_EQ(disarm.param, 0U);
     EXPECT_EQ(disarm.commit_ms, 0U);
+}
+
+
+TEST_F(EraSplitRestartAgreement, UnconfirmedArmStillOwnsTheOnlyRequestSlot) {
+    era_split_restart_agreement_note_relation(true, true, true);
+    ASSERT_TRUE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 1));
+    era_split_restart_agreement_task();
+    ASSERT_EQ(arm_body().act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
+    EXPECT_FALSE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 2));
+    EXPECT_FALSE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN, 0));
+}
+
+TEST_F(EraSplitRestartAgreement, PeerArmConsumesLocalRequestBeforeItsFirstTask) {
+    era_split_restart_agreement_note_relation(true, false, false);
+    g_quiet = false;
+    ASSERT_TRUE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 0));
+    era_split_restart_agreement_note_peer_arm(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 1, 1120);
+    g_quiet = true;
+    era_split_restart_agreement_task();
+    EXPECT_TRUE(local_authority().restart_armed);
+    EXPECT_EQ(local_authority().restart_param, 1);
+    era_split_restart_agreement_note_peer_arm(ERA_SPLIT_RESTART_ACT_NONE, 0, 0);
+    EXPECT_FALSE(era_split_restart_agreement_in_flight());
+}
+
+TEST_F(EraSplitRestartAgreement, UnansweredPeerRequestWaitsForIdleBeforeAnotherArm) {
+    era_split_restart_agreement_note_relation(true, true, true);
+    auto peer = link_authority(1, false);
+    era_split_restart_agreement_note_peer_authority(&peer);
+    era_split_restart_agreement_task();
+    ASSERT_EQ(arm_body().act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
+    advance_time(ERA_SPLIT_RESTART_ARM_TIMEOUT_MS);
+    era_split_restart_agreement_task();
+    era_split_restart_agreement_task();
+    expect_idle_arm();
+    peer = {};
+    era_split_restart_agreement_note_peer_authority(&peer);
+    peer = link_authority(1, false);
+    era_split_restart_agreement_note_peer_authority(&peer);
+    era_split_restart_agreement_task();
+    EXPECT_EQ(arm_body().act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
+}
+
+TEST_F(EraSplitRestartAgreement, AdoptedCommitCannotBeReplacedByAnotherArm) {
+    era_split_restart_agreement_note_relation(true, false, false);
+    era_split_restart_agreement_note_peer_arm(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 1, 1120);
+    era_split_restart_agreement_note_peer_arm(ERA_SPLIT_RESTART_ACT_LINK_SPEED, 0, 1110);
+    set_time(1120);
+    era_split_restart_agreement_task();
+    EXPECT_EQ(g_prepare_count, 1U);
+    EXPECT_EQ(g_last_prepare_param, 1);
+}
+
+
+TEST_F(EraSplitRestartAgreement, NonDisruptiveActsSkipQuietButCleanStillRequiresIt) {
+    for (auto act : {ERA_SPLIT_RESTART_ACT_LINK_SPEED, ERA_SPLIT_RESTART_ACT_LINK_RECOVERED}) {
+        SetUp(); g_quiet=false;
+        era_split_restart_agreement_note_relation(true,true,true);
+        ASSERT_TRUE(era_split_restart_agreement_request(act,0));
+        era_split_restart_agreement_task();
+        EXPECT_EQ(arm_body().act,act);
+        EXPECT_EQ(arm_body().commit_ms,timer_read32()+ERA_SPLIT_RESTART_COMMIT_DELAY_MS);
+        EXPECT_EQ(g_prepare_count,0U); EXPECT_EQ(g_reset_count,0U);
+    }
+    SetUp(); g_quiet=false;
+    era_split_restart_agreement_note_relation(true,true,true);
+    ASSERT_TRUE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,0));
+    era_split_restart_agreement_task();
+    EXPECT_EQ(arm_body().act,ERA_SPLIT_RESTART_ACT_NONE);
+    EXPECT_EQ(g_prepare_count,0U); EXPECT_EQ(g_reset_count,0U);
+    g_quiet=true; era_split_restart_agreement_task();
+    EXPECT_EQ(arm_body().act,ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN);
 }

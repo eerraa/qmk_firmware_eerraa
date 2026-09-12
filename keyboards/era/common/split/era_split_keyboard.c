@@ -308,34 +308,23 @@ bool era_split_keyboard_lighting_sleep_state(void) {
    dispatch below is behind ERA_EEPROM_CLEAN_ENABLE), because the wire may
    carry any act and the validators read every row. */
 const era_split_restart_act_rules_t era_split_restart_act_rules[ERA_SPLIT_RESTART_ACT_MAX + 1] = {
-    [ERA_SPLIT_RESTART_ACT_NONE]         = {.requires_confirmation = false, .yields_to_storage = false, .resets = false, .param_max = 0},
-    [ERA_SPLIT_RESTART_ACT_LINK_SPEED]   = {.requires_confirmation = true, .yields_to_storage = true, .resets = false, .param_max = ERA_SPLIT_LINK_LEVEL_LOW},
-    [ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN] = {.requires_confirmation = true, .yields_to_storage = true, .resets = true, .param_max = 0},
+    [ERA_SPLIT_RESTART_ACT_NONE]           = {.requires_confirmation = false, .yields_to_storage = false, .resets = false, .param_max = 0},
+    [ERA_SPLIT_RESTART_ACT_LINK_SPEED]     = {.requires_confirmation = true, .yields_to_storage = true, .resets = false, .param_max = ERA_SPLIT_LINK_LEVEL_LOW, .skips_hid_quiet = true},
+    [ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN]   = {.requires_confirmation = true, .yields_to_storage = true, .resets = true, .param_max = 0},
+    [ERA_SPLIT_RESTART_ACT_LINK_RECOVERED] = {.requires_confirmation = true, .yields_to_storage = true, .resets = false, .param_max = 0, .requires_peer = true, .skips_hid_quiet = true},
 };
 
-/* The checked act dispatch. LINK_SPEED runs here at T_commit. A serviced CLEAN
+/* The checked act dispatch. LINK_SPEED and LINK_RECOVERED run at T_commit;
+   the latter only captures that agreed instant for presentation. A serviced CLEAN
    runs here during its deadline-free PREPARE phase, and a standalone CLEAN
    immediately before reset. The bool is what keeps a failed CLEAN write from
    becoming a deadline or reset. */
 bool era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param) {
     switch (act) {
-        case ERA_SPLIT_RESTART_ACT_LINK_SPEED: {
-            bool agreed = era_split_restart_agreement_commit_agreed();
-            bool owner  = era_split_link_commit_stores();
-            if (era_split_link_commit_persists(param, agreed, owner)) {
-                era_split_link_store_level(param, agreed);
-            }
-            (void)era_split_transport_scheduler_apply_link_level(param);
-#ifdef VIA_ENABLE
-            /* Bounce only after this half's owner Apply actually committed.
-               A request that expired, was refused, or was inert must leave
-               Enable on. */
-            if (owner) {
-                era_split_via_link_schedule_reattach();
-            }
-#endif
-            return true;
-        }
+        case ERA_SPLIT_RESTART_ACT_LINK_SPEED:
+            return era_split_link_apply(param);
+        case ERA_SPLIT_RESTART_ACT_LINK_RECOVERED:
+            return era_split_link_reconcile_success_report_commit();
 #ifdef ERA_EEPROM_CLEAN_ENABLE
         case ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN:
             return era_via_system_eeprom_invalidate();
@@ -346,10 +335,10 @@ bool era_split_restart_prepare_local(era_split_restart_act_t act, uint8_t param)
 }
 
 bool era_split_restart_arm_ready(era_split_restart_act_t act) {
-    if (act != ERA_SPLIT_RESTART_ACT_LINK_SPEED && act != ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
+    if (act == ERA_SPLIT_RESTART_ACT_NONE) {
         return true;
     }
-    /* PREPARE itself carries no deadline. Before either act emits T_commit,
+    /* PREPARE itself carries no deadline. Before any act emits T_commit,
        though, the initiator must have applied one time-anchor or the deadline
        is in the wrong time domain and the two halves miss. The responder is
        the shared-clock source and needs no adoption. */
@@ -426,10 +415,6 @@ void era_split_keyboard_task(void) {
     (void)era_split_transport_scheduler_task();
 #ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
     era_pass_phase_hk_mark(ERA_PASS_PHASE_HK_SCHED);
-#endif
-#ifdef VIA_ENABLE
-    /* After the scheduler so a bounce cannot occupy T_commit. */
-    era_split_via_link_task();
 #endif
     /* Unconditional since 2026-08-11, where it used to run only on a pass the
        scheduler reported work for. The frame-loss arm of the local predicate

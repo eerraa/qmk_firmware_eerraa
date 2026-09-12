@@ -101,13 +101,6 @@
 #endif
 #define ERA_USB_SESSION_SOF_STALE_US (ERA_USB_SESSION_SOF_STALE_MS * 1000UL)
 
-/* Longer than a host's re-enumeration, shorter than an unplug the owner would
-   read as Apply tearing the pair. Independent of the VIA quiet bound: that
-   number is the application's silence, this one is the bus-down window. */
-#ifndef ERA_USB_SESSION_REATTACH_HOLD_MS
-#    define ERA_USB_SESSION_REATTACH_HOLD_MS 2000
-#endif
-
 static uint32_t era_usb_session_sof_last_change_us;
 static uint32_t era_usb_session_sof_last_read_us;
 /* The once-per-millisecond observation cadence is separate from a successful
@@ -140,8 +133,6 @@ static bool     era_usb_session_sof_isr_owned;
    instant instead of taking its own reading — its thresholds are hundreds of
    milliseconds, so a value one pass old is the same answer. */
 static uint32_t era_usb_session_sampled_now_us;
-static bool     era_usb_session_reattach_live;
-static uint32_t era_usb_session_reattach_started_ms;
 
 #if !defined(SPLIT_KEYBOARD)
 static bool era_usb_session_applied;
@@ -278,36 +269,8 @@ static void era_usb_session_note_resume(void) {
 }
 #endif
 
-void era_usb_session_note_firmware_reattach(void) {
-    era_usb_session_reattach_live       = true;
-    era_usb_session_reattach_started_ms = timer_read32();
-    /* The bounce stops frames by construction. Stamping the window here is
-       what keeps the first resolve after the hold from reading the freeze as
-       loss — the same repair era_usb_session_note_resume() makes for QMK's
-       suspend loop on a non-split board. */
-    era_usb_session_sof_last_change_us = era_usb_session_now();
-    era_usb_session_sof_last_read_us   = era_usb_session_sof_last_change_us;
-    era_usb_session_sof_last_observe_us = era_usb_session_sof_last_change_us;
-    era_usb_session_sof_isr_owned       = false;
-    era_usb_session_sof_isr_owner_started_us = 0;
-}
-
-bool era_usb_session_firmware_reattach_hold(void) {
-    if (!era_usb_session_reattach_live) {
-        return false;
-    }
-    if (timer_elapsed32(era_usb_session_reattach_started_ms) >= ERA_USB_SESSION_REATTACH_HOLD_MS) {
-        era_usb_session_reattach_live = false;
-        return false;
-    }
-    return true;
-}
-
 bool era_usb_session_frames_lost(void) {
 #if ERA_USB_SESSION_HAS_SOF_SAMPLE
-    if (era_usb_session_firmware_reattach_hold()) {
-        return false;
-    }
     if (!era_usb_session_host_seen || !era_usb_session_sof_seen) {
         return false;
     }

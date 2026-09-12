@@ -398,15 +398,14 @@ static void tomak_apply_caps_indicator(uint8_t led_min, uint8_t led_max) {
     }
 }
 
-/* --- The STATUS field's three producers ----------------------------------- */
+/* --- The STATUS field's producers ----------------------------------------- */
 
-/* The full-field red frame has three producers on every board of this family:
-   the core1 launch-failure report, the link-fallback report, and the
-   storage-sync indicator. All are advanced from the housekeeping cadence and
-   cached, and the policy pass reads only the caches -- 79H's shape, adopted,
-   because a predicate advanced from inside the render pass runs at the
-   panel's rate rather than the cadence's and cannot be arbitrated against a
-   second producer that does not. */
+/* STATUS is one full-field presentation surface with a small semantic colour
+   vocabulary: red = failure/degradation, blue = normal synchronization work,
+   green = success, amber = pending local Apply, white = unchanged Apply.
+   Producers are advanced from housekeeping
+   and cached; the render pass reads only those caches so cadence and priority
+   stay independent of the panel refresh rate. */
 
 #if defined(RGB_MATRIX_ENABLE)
 static bool tomak_launch_signal_active_cached;
@@ -445,6 +444,43 @@ static void tomak_link_fallback_visibility_task(void) {
     tomak_link_fallback_on_cached     = on;
     tomak_invalidate_indicator_render();
 }
+
+static bool tomak_link_reconcile_success_active_cached;
+static bool tomak_link_reconcile_success_on_cached;
+
+static bool tomak_link_apply_active_cached;
+static bool tomak_link_apply_on_cached;
+static era_split_link_apply_status_t tomak_link_apply_status_cached;
+
+static void tomak_link_apply_visibility_task(void) {
+    bool on = false;
+    era_split_link_apply_status_t status;
+    bool active = era_split_link_apply_report_advance(&status, &on);
+    if (tomak_link_apply_active_cached == active && tomak_link_apply_on_cached == on &&
+        tomak_link_apply_status_cached == status) {
+        return;
+    }
+    tomak_link_apply_active_cached = active;
+    tomak_link_apply_on_cached = on;
+    tomak_link_apply_status_cached = status;
+    tomak_invalidate_indicator_render();
+}
+
+static void tomak_link_reconcile_success_visibility_task(void) {
+    /* Advance even while a higher-priority failure or sleep hides the report.
+       Presentation cannot postpone the agreed epoch or replay hidden pulses;
+       the STATUS selector still gives failures priority over success. */
+
+    bool on     = false;
+    bool active = era_split_link_reconcile_success_report_advance(&on);
+
+    if (tomak_link_reconcile_success_active_cached == active && tomak_link_reconcile_success_on_cached == on) {
+        return;
+    }
+    tomak_link_reconcile_success_active_cached = active;
+    tomak_link_reconcile_success_on_cached     = on;
+    tomak_invalidate_indicator_render();
+}
 #endif
 
 #if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
@@ -469,15 +505,20 @@ static void tomak_eeprom_sync_status_visibility_task(void) {
 /* The STATUS frame's own bookkeeping rather than any one producer's: what the
    last policy pass published, and what the last flush actually put on the
    LEDs, which is what decides STATUS_DIRTY. */
-static bool tomak_status_was_active;
-static bool tomak_status_frame_valid;
-static bool tomak_status_frame_on;
-static bool tomak_status_policy_on;
+static bool    tomak_status_was_active;
+static bool    tomak_status_frame_valid;
+static bool    tomak_status_frame_on;
+static uint8_t tomak_status_frame_source;
+static bool    tomak_status_policy_on;
+static uint8_t tomak_status_policy_source;
 
 enum {
     TOMAK_STATUS_SOURCE_NONE = 0,
     TOMAK_STATUS_SOURCE_LAUNCH_SIGNAL,
     TOMAK_STATUS_SOURCE_LINK_FALLBACK,
+    TOMAK_STATUS_SOURCE_LINK_RECONCILE_SUCCESS,
+    TOMAK_STATUS_SOURCE_LINK_APPLY_SUCCESS,
+    TOMAK_STATUS_SOURCE_LINK_APPLY_ERROR,
     TOMAK_STATUS_SOURCE_EEPROM_SYNC,
 };
 #endif
@@ -524,12 +565,9 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
 
 #    if defined(RGB_MATRIX_ENABLE)
     /* Which producer owns the STATUS frame this pass, and whether it wants the
-       field lit. The launch-failure report outranks both others because a
-       one-shot that is swallowed once is invisible for good. The fallback
-       report outranks the storage indicator for the same reason: the
-       indicator's steady ON would swallow the long-pulse dark phases. The
-       indicator is the recoverable one - it comes back on the next policy
-       pass after the report ends. */
+       field lit. Failure one-shots outrank success; success outranks normal
+       storage work. The storage indicator is recoverable steady state and
+       comes back on the next policy pass after a report ends. */
     uint8_t status_source = TOMAK_STATUS_SOURCE_NONE;
     bool    status_on     = false;
 
@@ -541,6 +579,18 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
         status_source = TOMAK_STATUS_SOURCE_LINK_FALLBACK;
         status_on     = tomak_link_fallback_on_cached;
     }
+    if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_link_apply_active_cached) {
+        /* Pending has no frame. Requested state satisfied is green; an
+           unsuccessful command is red. These are local, not pair NVM votes. */
+        bool success = tomak_link_apply_status_cached == ERA_SPLIT_LINK_APPLY_APPLIED ||
+                       tomak_link_apply_status_cached == ERA_SPLIT_LINK_APPLY_UNCHANGED;
+        status_source = success ? TOMAK_STATUS_SOURCE_LINK_APPLY_SUCCESS : TOMAK_STATUS_SOURCE_LINK_APPLY_ERROR;
+        status_on = tomak_link_apply_on_cached;
+    }
+    if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_link_reconcile_success_active_cached) {
+        status_source = TOMAK_STATUS_SOURCE_LINK_RECONCILE_SUCCESS;
+        status_on     = tomak_link_reconcile_success_on_cached;
+    }
 #        if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE)
     if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_eeprom_sync_status_visible_cached) {
         status_source = TOMAK_STATUS_SOURCE_EEPROM_SYNC;
@@ -549,14 +599,14 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
 #        endif
 
     if (status_source != TOMAK_STATUS_SOURCE_NONE) {
-        tomak_status_policy_on = status_on;
+        tomak_status_policy_on     = status_on;
+        tomak_status_policy_source = status_source;
         policy->flags &= ~(RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN | RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE | RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY);
         policy->flags |= RGB_MATRIX_RENDER_POLICY_DISABLE_EFFECT | RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE | RGB_MATRIX_RENDER_POLICY_ALLOW_DISABLED;
-        /* The producers paint identical pixels for a given `status_on`, so
-           a handover between them with the field unchanged needs no re-render
-           and the source is deliberately not part of this test. That is also
-           why the source is not kept past this branch. */
-        if (!tomak_status_was_active || !tomak_status_frame_valid || tomak_status_policy_on != tomak_status_frame_on) {
+        /* Source is visual state now: red/green/blue handover must repaint even
+           when both producers are continuously ON. */
+        if (!tomak_status_was_active || !tomak_status_frame_valid || tomak_status_policy_on != tomak_status_frame_on ||
+            tomak_status_policy_source != tomak_status_frame_source) {
             policy->flags |= RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY;
         }
         policy->led_min_index = 0;
@@ -577,9 +627,29 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
 bool rgb_matrix_render_status_kb(const rgb_matrix_render_policy_t *policy) {
 #    if defined(RGB_MATRIX_ENABLE)
     if ((policy->flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE) != 0) {
-        uint8_t red = tomak_status_policy_on ? 255 : 0;
+        uint8_t red   = 0;
+        uint8_t green = 0;
+        uint8_t blue  = 0;
+        if (tomak_status_policy_on) {
+            switch (tomak_status_policy_source) {
+                case TOMAK_STATUS_SOURCE_LINK_APPLY_SUCCESS:
+                    green = 255;
+                    break;
+                case TOMAK_STATUS_SOURCE_LINK_RECONCILE_SUCCESS:
+                    green = 255;
+                    break;
+                case TOMAK_STATUS_SOURCE_EEPROM_SYNC:
+                    blue = 255;
+                    break;
+                case TOMAK_STATUS_SOURCE_LAUNCH_SIGNAL:
+                case TOMAK_STATUS_SOURCE_LINK_FALLBACK:
+                default:
+                    red = 255;
+                    break;
+            }
+        }
         for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
-            rgb_matrix_set_color(i, red, 0, 0);
+            rgb_matrix_set_color(i, red, green, blue);
         }
         return true;
     }
@@ -591,11 +661,11 @@ void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags) {
     bool status_frame = (frame_flags & RGB_MATRIX_RENDER_FRAME_STATUS) != 0;
     (void)status_frame;
 #    if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
-    /* LED truth for the indicator stamps: every flushed frame reports whether
-       it was the STATUS field — the core calls this on every PWM push,
-       zero-flag frames included, so this is panel truth rather than producer
-       truth. The packed state rides along so a mid-era breaker frame is
-       latched with the three facts that name its path. */
+    /* LED truth for the storage-indicator stamps: every flushed frame reports
+       whether it was the EEPROM SYNC STATUS field — the core calls this on
+       every PWM push, zero-flag frames included, so this is panel truth rather
+       than producer truth. The packed state rides along so a mid-era breaker
+       frame is latched with the three facts that name its path. */
     uint8_t panel_state = 0;
     if (rgb_matrix_config.enable) {
         panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_ENABLED;
@@ -603,18 +673,20 @@ void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags) {
     if (rgb_matrix_get_suspend_state()) {
         panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_SUSPENDED;
     }
-    if (tomak_status_policy_on) {
+    if (tomak_eeprom_sync_status_visible_cached) {
         panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_STATUS_POLICY_ON;
     }
-    era_split_eeprom_sync_note_status_frame_presence(status_frame, frame_flags, panel_state);
+    bool eeprom_sync_status_frame = status_frame && tomak_status_policy_source == TOMAK_STATUS_SOURCE_EEPROM_SYNC;
+    era_split_eeprom_sync_note_status_frame_presence(eeprom_sync_status_frame, frame_flags, panel_state);
 #    endif
 #    if defined(RGB_MATRIX_ENABLE)
     /* Reached whenever RGB_MATRIX is built and not only when the storage
        engine is, because the launch report is the other producer and does not
        depend on it. That is the reach 79H had and 79S and `tomak` did not. */
     if (status_frame) {
-        tomak_status_frame_on    = tomak_status_policy_on;
-        tomak_status_frame_valid = true;
+        tomak_status_frame_on     = tomak_status_policy_on;
+        tomak_status_frame_source = tomak_status_policy_source;
+        tomak_status_frame_valid  = true;
     } else if (tomak_status_frame_valid) {
         /* Any non-STATUS push while the held-frame proof stands means the
            panel no longer shows the held field — the device-caught case is a
@@ -756,6 +828,8 @@ void era_board_housekeeping_task(void) {
 #if defined(RGB_MATRIX_ENABLE)
     tomak_launch_signal_visibility_task();
     tomak_link_fallback_visibility_task();
+    tomak_link_reconcile_success_visibility_task();
+    tomak_link_apply_visibility_task();
 #endif
 #if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
     tomak_eeprom_sync_status_visibility_task();

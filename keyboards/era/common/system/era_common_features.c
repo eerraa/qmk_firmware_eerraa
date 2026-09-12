@@ -8,6 +8,9 @@
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
 #    include "era_hid_report_interval.h"
 #endif
+#ifdef SPLIT_KEYBOARD
+#    include "../split/era_split_restart_agreement.h"
+#endif
 #ifdef EEPROM_CUSTOM
 #    include "../storage/era_eeprom_driver.h"
 #endif
@@ -139,6 +142,12 @@ void era_common_features_task(void) {
 
 void era_common_features_maintenance_task(void) {
 #ifdef EEPROM_CUSTOM
+#    ifdef SPLIT_KEYBOARD
+    /* Opportunistic erase has no deadline; a split transition does. */
+    if (era_split_restart_agreement_timed_window()) {
+        return;
+    }
+#    endif
 #    if defined(RGB_MATRIX_ENABLE) && defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
     /* Background bank erasure is opportunistic; a board-policy edge is a
      * presentation deadline. RGB policy refreshes can span several ordinary

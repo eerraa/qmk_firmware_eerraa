@@ -114,8 +114,9 @@ CONFIGURE -> SYSTEM에는 스플릿 전용 SYNC, LINK, SLEEP과 BOOT가 있습�
 
 SYNC:
 세 항목은 모두 기본 On이며 양쪽 유닛이 공유하는 영역을 각각 담당합니다.
-- EEPROM SYNC: 저장 설정이 바뀌고 몇 초 뒤 인디케이터와 함께 양쪽 유닛이 값을
-  맞춥니다. INPUT SYNC와 RGB SYNC가 완전히 동작하려면 먼저 켜져 있어야 합니다.
+- EEPROM SYNC: 저장 설정이 바뀌고 몇 초 뒤 양쪽 유닛이 값을 맞춥니다. 동기화
+  작업이 보이는 동안 STATUS는 파란색입니다. INPUT SYNC와 RGB SYNC가 완전히
+  동작하려면 먼저 켜져 있어야 합니다.
 - INPUT SYNC: 양쪽 유닛을 모두 PC에 연결한 DUAL-HOST에서도 레이어 상태와 키
   입력 판정을 공유해 하나의 키보드처럼 동작하게 합니다.
 - RGB SYNC: 반응형 효과를 포함해 양쪽 유닛의 조명을 맞춥니다.
@@ -125,10 +126,12 @@ LINK:
 - Medium: 230400 bps / 2 ms
 - Low: 115200 bps / 4 ms
 
-LINK 값을 고른 뒤 Apply를 사용합니다. 실제 속도가 바뀌면 양쪽 유닛이 합의해
-재시작합니다. 이미 그 속도로 동작 중이면 Apply를 사용해도 재시작하지 않습니다.
-빨간색 LED가 길게 세 번 깜빡이면 스플릿 케이블 품질에 문제가 있다는 뜻이므로
-케이블 교체를 권장합니다. 기본값은 High입니다.
+LINK 값을 고른 뒤 Apply를 사용합니다. 실제 속도가 바뀌면 양쪽 유닛이 합의한
+시점에 함께 속도를 전환합니다. 서로 다른 실행 속도에서 연결되어 한쪽 유닛이
+속도를 탐색한 뒤 relation을 정상 복구하면 양쪽 유닛 모두 녹색 STATUS가 짧게
+두 번 깜빡입니다. 빨간색 STATUS가 길게 세 번 깜빡이면 목표 속도를 유지하지
+못해 Low fallback이 발생했다는 뜻입니다. 반복되면 스플릿 케이블 교체를
+권장합니다. 기본값은 High입니다.
 
 SLEEP:
 RGB Sleep은 기본 On입니다. 끄면 유휴 시간뿐 아니라 USB 절전과 호스트 소실을
@@ -257,9 +260,9 @@ CONFIGURE -> SYSTEM includes split-specific SYNC, LINK, and SLEEP plus BOOT.
 
 SYNC:
 All three are on by default and cover different parts of what the units share.
-- EEPROM SYNC: a few seconds after a stored setting changes, an indicator shows
-  and the two units copy it across. INPUT SYNC and RGB SYNC need this on to work
-  fully.
+- EEPROM SYNC: a few seconds after a stored setting changes, the two units copy
+  it across. STATUS is blue while synchronization work is visibly active. INPUT
+  SYNC and RGB SYNC need this on to work fully.
 - INPUT SYNC: with both units plugged into the PC in DUAL-HOST, they share layer
   state and key decisions so they act as one keyboard.
 - RGB SYNC: aligns lighting across both units, reactive effects included.
@@ -270,9 +273,11 @@ LINK:
 - Low: 115200 bps / 4 ms
 
 Choose a LINK value and use Apply. If the active speed changes, both units
-agree on the change and restart. Apply does nothing if that speed is already
-running. Three long red LED pulses mean the split cable is not good enough;
-replacing the cable is recommended. The default is High.
+switch at the agreed instant. When units meet at different running rates and
+one unit has to search before restoring the relation, both units report that
+recovery with two short green STATUS pulses. Three long red STATUS pulses
+mean the target rate did not hold and Low fallback occurred; if it repeats,
+replacing the split cable is recommended. The default is High.
 
 SLEEP:
 RGB Sleep is on by default. Turning it off disables automatic RGB sleep as a

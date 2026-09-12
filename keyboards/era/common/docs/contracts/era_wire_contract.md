@@ -153,18 +153,19 @@ Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protoc
 0x01 accepted_host_open      0x10 status_response_requested
 0x02 accepted_no_host        0x20 retired (was dual_host_ready); reuse banned
 0x04 unassigned (was storage-changed hint)   0x40 matrix_ready
-0x08 unassigned              0x80 bulk_page_supported
+0x08 rate_searched           0x80 bulk_page_supported
 ```
 
 `era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x10`, then:
 
 | Check | Rule |
 | --- | --- |
-| reserved bits | any bit outside `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` refuses the **whole frame**. `0x04`, `0x08` and `0x20` are reserved-and-rejected, not ignored. A capture that sets them dates the sender |
+| reserved bits | any bit outside `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` refuses the **whole frame**. `0x04` and `0x20` are reserved-and-rejected, not ignored. A capture that sets them dates the sender |
 | role | `flags & ERA_SPLIT_WIRE_SESSION_STATUS_AUTHORITY_MASK` (`0x03`) ∈ {`0x01`, `0x02`}: exactly one role bit |
 | `matrix_ready` | refuse `0x40` without `0x02`. When a no-host half may set it: `era_authority_contract.md` **Matrix Ready** |
+| `rate_searched` | refuse `0x08` with `0x10`. The link listener's answer to the probe that found it carries it; a probe never does, because the peer-unknown initiator never moves its rate (`split/era_split_transport_scheduler.c`). What it reports, and that both halves raise the same presentation report from it: `split/era_split_link.h` **Reconciliation** |
 
-Shared with AUTHORITY: exactly one role bit, `matrix_ready` only on no-host. AUTHORITY has no reserved bit left (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_MASK` `0xFF`); reserved-zero is this frame's. Each carrier refuses whatever it has no fact for. A new flag is one line in `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK`. Storage-changed rides STORAGE_NEWS. `0x80` is the compile fact `ERA_HOST_PEER_STORAGE_V1_ENABLE` (`split/era_split_scheduler_session.c`), not route authority.
+Shared with AUTHORITY: exactly one role bit, `matrix_ready` only on no-host. AUTHORITY has no reserved bit left (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_MASK` `0xFF`); reserved-zero is this frame's. Each carrier refuses whatever it has no fact for. A new flag is one line in `ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK`. Storage-changed rides STORAGE_NEWS. `0x80` is the compile fact `ERA_HOST_PEER_STORAGE_V1_ENABLE` (`split/era_split_scheduler_session.c`), not route authority. `0x08` is the second fact this frame carries and AUTHORITY does not: a property of the discovery answer itself, built from the link lane at every build of the answer and consumed with the same session record that opens the relation; its consumer leaves the peer-cache field untouched, as it does `bulk_page_supported`. It is not the retired advisory class — it asks the peer for nothing and keeps no poll alive.
 
 `status_response_requested` is the builder's bit. `era_split_communication_core_responder_service_once()` in `split/communication_core/era_split_communication_core_responder_service.c` answers a decoded frame only when that bit is set. Discovery, bootstrap and recovery cadence: `era_route_contract.md` **SESSION_STATUS Discovery And Liveness**. Live-relation session facts ride AUTHORITY (`era_authority_contract.md` **Revalidation Authority**).
 
@@ -232,7 +233,7 @@ body byte0: bit0 host_open (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_HOST_OPEN`)
             bit2 matrix_ready (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_MATRIX_READY`)
             bits3..4 param (`ERA_SPLIT_WIRE_AUTHORITY_RESTART_PARAM_MASK`)
             bits5..6 act (`ERA_SPLIT_WIRE_AUTHORITY_RESTART_ACT_MASK`)
-            act 0 idle / 1 link / 2 CLEAN / 3 refused
+            act 0 idle / 1 link / 2 CLEAN / 3 LINK_RECOVERED
             bit7 qualified (`ERA_SPLIT_WIRE_AUTHORITY_FLAG_RESTART_ARMED`)
 body byte1..2 usb_epoch, 3..4 host_open_gen, 5..6 host_close_gen, little-endian
 ```
@@ -244,6 +245,8 @@ body byte1..2 usb_epoch, 3..4 host_open_gen, 5..6 host_close_gen, little-endian
 | idle | 0 | 0 | no restart state |
 | link speed | validated link-level parameter | 0 | request |
 | link speed | the same parameter | 1 | matching shared deadline adopted |
+| LINK_RECOVERED | 0 | 0 | presentation rendezvous request |
+| LINK_RECOVERED | 0 | 1 | matching presentation deadline adopted |
 | EEPROM CLEAN | 0 | 0 | `REQUEST` |
 | EEPROM CLEAN | 1 | 1 | `PREPARED` |
 | EEPROM CLEAN | 2 | 1 | `COMMIT_ARMED` |
@@ -270,7 +273,7 @@ RESTART_ARM (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5). Carrie
 ```text
 body byte0: bits0..1 param (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_PARAM_MASK`)
             bits2..3 act (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ACT_MASK`)
-            act 0 idle / 1 link / 2 CLEAN / 3 refused
+            act 0 idle / 1 link / 2 CLEAN / 3 LINK_RECOVERED
             bits4..7 reserved zero, refused
 body byte1..4: T_commit, sync-timer ms, little-endian
 ```
@@ -279,10 +282,39 @@ body byte1..4: T_commit, sync-timer ms, little-endian
 | --- | ---: | ---: | --- |
 | idle | 0 | 0 | canonical all-zero body |
 | link speed | validated link-level parameter | nonzero | shared-deadline arm |
+| LINK_RECOVERED | 0 | nonzero | shared presentation start |
 | EEPROM CLEAN | 1 | 0 | `PREPARE` |
 | EEPROM CLEAN | 2 | nonzero | `COMMIT` |
 
-CLEAN param 0 or 3 is malformed on this body. Act 3 is refused in every form. A nonzero deadline is absolute. PREPARE is the one admitted zero-deadline live form. Ordering: `era_host_peer_storage_contract.md`'s **Why An EEPROM Clean Is An Agreed Restart**. Fits beside AUTHORITY at `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15 (`3 + 7 + 5`).
+CLEAN param 0 or 3 is malformed on this body. LINK_RECOVERED admits only param 0 and a nonzero deadline. A nonzero deadline is absolute. PREPARE is the one admitted zero-deadline live form. Ordering: `era_host_peer_storage_contract.md`'s **Why An EEPROM Clean Is An Agreed Restart**. Fits beside AUTHORITY at `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15 (`3 + 7 + 5`).
+
+The arm's timestamp remains a shared-clock wire value, but each half converts
+it once into local monotonic execution time. A role flip or later clock anchor
+must not move a held commit; a live initiator projects that same instant into
+the current shared clock when publishing. Duplicate/replacement arms do not
+rewrite a held act. A pre-deadline idle disarms it; idle observed at or after
+the local deadline cannot retroactively cancel it. Late confirmation cannot
+revive an expired proposal. An unconfirmed arm occupies the same request slot
+as pending/request/commit, and a retired peer request requires an idle edge
+before it can arm again (`split/era_split_restart_agreement.[ch]`).
+
+The unchanged LINK carriers agree a transition, not bilateral durable success.
+Local completion is checked runtime readiness followed by checked NVM, not the
+act of scheduling a deadline. Final-message loss, hardware fault or power loss
+can still produce asymmetric local outcomes; there is no commit-completion
+ACK in these bodies. Reboot opens Low and the normal rate-winner agreement
+reconciles stored levels (`split/era_split_link.h`).
+
+LINK_RECOVERED reuses those carriers and their confirmation, timeout, and
+rotation rules without opening a section, cadence, or responder send. Its
+preparation may overlap rate confirmation and skips raw-HID quiet; neither
+changes the body, the shared deadline, or local liveness validation. It is
+peer-only: no standalone fallback; a service loss drops an unaccepted request
+or proposal. A confirmed instant survives rotation as the bounded report of
+the recovery already observed, not a continuing claim of liveness. Its checked
+dispatch reads the accepted local deadline, never the dispatch time; it changes
+no divider, durable record, USB state or reset state. Presentation ownership,
+expiry and priority are in `split/era_split_link.h` **Reconciliation**.
 
 ## `HOST_PEER_HOST_SOURCE_RSP`
 

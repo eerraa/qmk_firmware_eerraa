@@ -199,11 +199,23 @@ seeds from the *stored* level. A Right half still walking the ring toward its
 talker therefore shows the owner what they chose, not the boot-Low running
 rate.
 
-**9 is a toggle-as-action and reads back 0**, like the DFU and clean-confirm
-toggles on this channel. USB re-enumerates only after that request *commits*
-(`split/era_split_via_link.c`); an inert, refused, or expired apply does not
-bounce, so Enable staying on is how the owner sees that nothing ran. The MCU
-does not reset.
+**9 is a toggle-as-action and always reads back 0**, not a completion receipt.
+Neither a successful nor a refused Apply re-enumerates USB or resets the MCU
+(`split/era_split_via_link.c`). The requesting half's explicit receipt and
+transient indication are owned by `split/era_split_link.c`; their semantics
+are in `split/era_split_link.h` **VIA and USB**.
+
+The same SYSTEM channel has three read-only ASCII labels, each NUL-terminated
+inside the caller's report capacity (`split/era_split_via_link.c`): id 64
+`Runtime Level` is the configured divider, not proof of a live lease; id 65
+`Saved Level` is the last confirmed local durable level, or `Unknown` when
+it cannot be read; id 66 `Last Apply (local)` is this boot's latest explicit
+local Apply receipt, including the immutable requested level while pending
+or applied. SET and SAVE are refused for all three. They change no EEPROM
+layout or split-wire body. All six TOMAK VIA definitions expose these labels;
+they are snapshots refreshed when the application issues GET, not unsolicited
+status messages. Old definitions still have the unchanged Apply control and
+receive its LED feedback.
 
 **Ids 2, 3, 4 and 9 all reach the same mechanism.** The three clean-confirm
 toggles and the link Apply both raise an act on

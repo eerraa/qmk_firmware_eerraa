@@ -689,6 +689,21 @@
               "label": "Apply",
               "type": "toggle",
               "content": ["id_qmk_split_link_apply", 9, 9]
+            },
+            {
+              "label": "Last Apply (local)",
+              "type": "label",
+              "content": ["id_qmk_split_link_result", 9, 66]
+            },
+            {
+              "label": "Runtime Level",
+              "type": "label",
+              "content": ["id_qmk_split_link_runtime", 9, 64]
+            },
+            {
+              "label": "Saved Level",
+              "type": "label",
+              "content": ["id_qmk_split_link_stored", 9, 65]
             }
           ]
         },

@@ -3,15 +3,11 @@
 
 #include "era_split_via_link.h"
 
-#include "../system/era_usb_session.h"
+#include <string.h>
+
 #include "../system/era_via_system.h"
 #include "era_split_link.h"
-#include "era_split_restart_agreement.h"
-#include "timer.h"
 #include "via.h"
-#if defined(PROTOCOL_CHIBIOS)
-#    include "usb_main.h"
-#endif
 
 /* The dropdown labels name the baud, so a build that moved the rate would ship
  * a page that lies about what it does. Medium and Low are derived from this
@@ -23,39 +19,67 @@
 #    error "The SYSTEM page states the link speeds as 460800 / 230400 / 115200. A board that changes ERA_SPLIT_SERIAL_USART_SPEED must restate the three labels in its VIA definition before this check is relaxed."
 #endif
 
-static bool     g_era_split_via_link_reattach_pending;
-static uint32_t g_era_split_via_link_reattach_requested_ms;
-
 static bool era_split_via_link_value_id(uint8_t value_id) {
-    return value_id == ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID || value_id == ERA_SPLIT_VIA_LINK_APPLY_VALUE_ID;
+    return value_id == ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID || value_id == ERA_SPLIT_VIA_LINK_APPLY_VALUE_ID ||
+           value_id == ERA_SPLIT_VIA_LINK_RUNTIME_VALUE_ID || value_id == ERA_SPLIT_VIA_LINK_STORED_VALUE_ID ||
+           value_id == ERA_SPLIT_VIA_LINK_RESULT_VALUE_ID;
 }
 
-void era_split_via_link_schedule_reattach(void) {
-    g_era_split_via_link_reattach_pending      = true;
-    g_era_split_via_link_reattach_requested_ms = timer_read32();
+static const char *era_split_via_link_level_name(uint8_t level) {
+    static const char *const names[] = {"High", "Medium", "Low"};
+    return level < ERA_SPLIT_LINK_LEVEL_COUNT ? names[level] : "Unknown";
 }
 
-void era_split_via_link_task(void) {
-    if (!g_era_split_via_link_reattach_pending) {
-        return;
+static const char *era_split_via_link_result_name(void) {
+    static const char *const pending[] = {"Pending High", "Pending Medium", "Pending Low"};
+    static const char *const applied[] = {"Applied High", "Applied Medium", "Applied Low"};
+    uint8_t target = era_split_link_apply_target();
+    switch (era_split_link_apply_status()) {
+        case ERA_SPLIT_LINK_APPLY_PENDING:
+            return target < ERA_SPLIT_LINK_LEVEL_COUNT ? pending[target] : "Pending";
+        case ERA_SPLIT_LINK_APPLY_APPLIED:
+            return target < ERA_SPLIT_LINK_LEVEL_COUNT ? applied[target] : "Applied";
+        case ERA_SPLIT_LINK_APPLY_UNCHANGED:
+            return "Already set";
+        case ERA_SPLIT_LINK_APPLY_BUSY:
+            return "Busy - retry";
+        case ERA_SPLIT_LINK_APPLY_FAILED:
+            return "Failed - check levels";
+        case ERA_SPLIT_LINK_APPLY_CANCELLED:
+            return "Cancelled - retry";
+        default:
+            return "No Apply this boot";
     }
-    /* The bounce blocks in `restart_usb_driver()` (`wait_ms(50)`). Landing
-       that inside T_commit misses the shared-clock apply. */
-    if (era_split_restart_agreement_in_flight()) {
-        return;
+}
+
+static bool era_split_via_link_get_label(uint8_t value_id, uint8_t *value_data, uint8_t length) {
+    const char *text;
+    uint8_t stored;
+    switch (value_id) {
+        case ERA_SPLIT_VIA_LINK_RUNTIME_VALUE_ID:
+            text = era_split_via_link_level_name(era_split_link_active_level());
+            break;
+        case ERA_SPLIT_VIA_LINK_STORED_VALUE_ID:
+            text = era_split_link_get_stored_level(&stored) ? era_split_via_link_level_name(stored) : "Unknown";
+            break;
+        case ERA_SPLIT_VIA_LINK_RESULT_VALUE_ID:
+            text = era_split_via_link_result_name();
+            break;
+        default:
+            return false;
     }
-    if (!era_via_system_restart_quiet_ok(g_era_split_via_link_reattach_requested_ms)) {
-        return;
+    size_t bytes = strlen(text) + 1U;
+    if (length < 3U + bytes) {
+        return false;
     }
-    g_era_split_via_link_reattach_pending = false;
-#if defined(PROTOCOL_CHIBIOS)
-    era_usb_session_note_firmware_reattach();
-    restart_usb_driver(&USB_DRIVER);
-#endif
+    memcpy(value_data, text, bytes);
+    return true;
 }
 
 static bool era_split_via_link_set_value(uint8_t value_id, uint8_t *value_data, uint8_t length) {
-    (void)length;
+    if (length < 4) {
+        return false;
+    }
     switch (value_id) {
         case ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID:
             /* The dropdown alone changes nothing on the wire and nothing in
@@ -64,15 +88,9 @@ static bool era_split_via_link_set_value(uint8_t value_id, uint8_t *value_data, 
                next get with a level the owner did not pick. */
             return era_split_link_set_pending_level(value_data[0]);
         case ERA_SPLIT_VIA_LINK_APPLY_VALUE_ID:
-            /* A toggle-as-action, so only the rising edge means anything. The
-               owner instruction is to hide a control the current setting makes
-               inert, and this is the one that cannot be hidden -- VIA compares
-               value ids on one page and the running level is not one of them --
-               so the inertness lives in the firmware: an apply whose pending
-               level already matches the running one does nothing at all. */
+            /* Toggle-as-action: GET is the consumed 0, not a success status.
+             * UI refresh must not create a firmware USB/session transition. */
             if (value_data[0]) {
-                /* The bounce is armed at commit, not here. An inert, refused,
-                   or expired request must leave Enable on. */
                 (void)era_split_link_request_apply();
             }
             return true;
@@ -82,23 +100,25 @@ static bool era_split_via_link_set_value(uint8_t value_id, uint8_t *value_data, 
 }
 
 static bool era_split_via_link_get_value(uint8_t value_id, uint8_t *value_data, uint8_t length) {
-    (void)length;
+    if (length < 4) {
+        return false;
+    }
     switch (value_id) {
         case ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID:
             value_data[0] = era_split_link_pending_level();
             return true;
         case ERA_SPLIT_VIA_LINK_APPLY_VALUE_ID:
-            /* The same shape the DFU and clean-confirm toggles take: an action
-               has no state to report, so it reads back off. */
+            /* Keep the legacy action control consumed. The separate local
+               result label, not this toggle, carries the operation receipt. */
             value_data[0] = 0;
             return true;
         default:
-            return false;
+            return era_split_via_link_get_label(value_id, value_data, length);
     }
 }
 
 bool era_split_via_link_handle_via_command(uint8_t *data, uint8_t length) {
-    if (!data || data[1] != ERA_VIA_SYSTEM_CHANNEL || !era_split_via_link_value_id(data[2])) {
+    if (!data || length < 3 || data[1] != ERA_VIA_SYSTEM_CHANNEL || !era_split_via_link_value_id(data[2])) {
         return false;
     }
 
@@ -111,14 +131,10 @@ bool era_split_via_link_handle_via_command(uint8_t *data, uint8_t length) {
             return era_split_via_link_set_value(*value_id, value_data, length);
         case id_custom_get_value:
             return era_split_via_link_get_value(*value_id, value_data, length);
-        /* Claimed with nothing to do, and unreachable for a well-formed VIA
-           report: a save command is `[id_custom_save, channel_id]` with no
-           value id, so byte 2 is host padding and the gate above admits only 8
-           or 9. It stays for the reason era_split_via_sync.c keeps its own --
-           the pending level is held in RAM by design, so a save has nothing to
-           flush. */
+        /* Preserve legacy control SAVE handling: selection is RAM-only and
+           has nothing to flush. Read-only labels explicitly refuse SAVE. */
         case id_custom_save:
-            return true;
+            return *value_id == ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID || *value_id == ERA_SPLIT_VIA_LINK_APPLY_VALUE_ID;
         default:
             return false;
     }

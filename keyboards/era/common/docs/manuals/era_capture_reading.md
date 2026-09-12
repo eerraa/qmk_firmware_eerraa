@@ -196,7 +196,7 @@ never. Reserved `SESSION_STATUS` bits and section-body layouts are
 
 | Kind | Bits |
 | --- | --- |
-| `SESSION_STATUS` flags, reserved-zero (frame refused) | `0x04`, `0x08`, `0x20` |
+| `SESSION_STATUS` flags, reserved-zero (frame refused) | `0x04`, `0x20`. `0x08` is `rate_searched`, the listener's answer only: with `0x10` the frame is refused |
 | section mask | `0x01` layer, `0x02` rsp ACTIVITY, `0x04` AUTHORITY, `0x08` lock, `0x80` anchor; push ACTIVITY `0x10` |
 | `df` FIELD | `0x01` EEPROM, `0x02` INPUT, `0x04` RGB. The same `0x04` in `chg`/`probe`/`psh`/`cfl` is the macro domain by coincidence |
 
@@ -251,8 +251,8 @@ line is domain-blind** — per-domain facts stay on `chg` / `xfer`.
 
 | `led` | Meaning |
 | --- | --- |
-| `rn` | red-era count (panel truth: every flushed STATUS frame, zero-flag included) |
-| `ron`/`roff` | first STATUS flush of an era / first normal flush after it |
+| `rn` | storage-STATUS era count (blue on current TOMAK; panel truth for EEPROM SYNC STATUS only) |
+| `ron`/`roff` | first EEPROM SYNC STATUS flush of an era / first non-SYNC-STATUS flush after it |
 
 `rn == spans` is clean; `rn > spans` with visuals clean is a healed mid-era
 repaint (bracket with `roff`/`ron`); a visual gap with `rn == spans` leaves
@@ -262,7 +262,7 @@ lives in the board RGB render path; a large `ron`/`roff` lag behind
 
 | `brk` | Meaning |
 | --- | --- |
-| `count` | last frame that broke a red era while the lamp was still commanded visible; **must equal `rn - spans`** |
+| `count` | last frame that broke an EEPROM SYNC STATUS era while the lamp was still commanded visible; **must equal `rn - spans`** |
 | `flags` | raw render flags (`00` = zero-flag NONE/suspend fill) |
 | `state` | bit0 RGB enabled, bit1 suspended, bit2 arbitrated status policy on |
 | `brkms` | same instant `roff` stamps |

@@ -654,20 +654,12 @@ void era_split_transaction_backend_init(void) {
     g_era_split_transaction_backend_rp2040.initialized = true;
 }
 
-/* The baud, and everything derived from it, in one step. Core0 calls it once
-   before the wire is first opened (boot Low), again for a listener's recovery
-   step, and again for the agreed raise (era_split_link.h's Reconciliation).
-   The listener's step has no relation to interrupt; the raise runs with the
-   owner torn down at a shared-clock deadline so both halves change together.
-   Re-running the PIO init is safe by construction: the program load and the
-   state-machine claim each check for an existing allocation first, so this
-   reconfigures two state machines and allocates nothing.
-
-   The scale is a **ceiling** over the compiled speed, so a build that moved
-   SERIAL_USART_SPEED to a value the three levels do not divide rounds toward
-   more margin rather than less. It is floored at one because a baud at or
-   above the compiled speed would otherwise shrink every window below what the
-   build was measured at. */
+/* Select the baud and every derived wire-time bound while the owner is
+ * quiesced. No PIO access here: Core1's next lease initializes the selected
+ * divider and publishes READY only after role_ready() verifies success.
+ * Existing PIO program/SM allocations are reused by that initialization.
+ * The scale is a ceiling, floored at one, so no derived bound can undercut
+ * the compiled speed's margin. False means invalid/unchanged, not I/O failure. */
 bool era_split_transaction_backend_set_speed(uint32_t baud) {
     if (baud == 0U || baud == g_era_split_transaction_backend_baud) {
         return false;
@@ -678,9 +670,12 @@ bool era_split_transaction_backend_set_speed(uint32_t baud) {
     g_era_split_transaction_backend_byte_us           = 1000000U * 10U / baud;
     g_era_split_transaction_backend_turnaround_us     = 1000000U * 11U / baud;
     g_era_split_transaction_backend_serial_timeout_us = ERA_SPLIT_TRANSACTION_BACKEND_SERIAL_TIMEOUT_US * g_era_split_transaction_backend_wire_scale;
-    if (g_era_split_transaction_backend_rp2040.transaction_backend_initialized) {
-        (void)era_split_transaction_backend_pio_init(SERIAL_USART_TX_PIN, SERIAL_USART_TX_PIN);
-    }
+    /* Configuration only, with the old owner quiesced. Hardware initialization
+     * belongs to the next Core1 lease: its existing checked role-ready handshake
+     * is the one place that can report serial restart success. Clearing this
+     * existing fact means "not initialized for this configured baud", not a
+     * second pending-speed flag or an unchecked Core0 PIO restart. */
+    g_era_split_transaction_backend_rp2040.transaction_backend_initialized = false;
     return true;
 }
 

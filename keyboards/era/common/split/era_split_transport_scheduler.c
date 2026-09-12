@@ -911,7 +911,19 @@ static uint8_t era_split_transport_scheduler_dirty_flags(bool authority_changed,
     return flags;
 }
 
-static bool era_split_transport_scheduler_update_mode(void) {
+/* One relation-continuity classification with two consumers: the EEPROM SYNC
+   indicator keeps its peer mirror through it, and the link lane treats a
+   serviced edge inside it as the same pair rather than a fresh meeting. A
+   storage close forces a SESSION revalidation that can transiently forget the
+   peer; while the initiator's bootstrap has not backed off, that is one
+   physical pair still recovering one operation. A responder never sends
+   discovery and gets no streak-based hold (era_host_peer_storage_contract.md). */
+static bool era_split_transport_scheduler_relation_fast_recovery(bool local_wire_initiator) {
+    return local_wire_initiator && g_era_split_transport_scheduler.local_status_pending &&
+           g_era_split_transport_scheduler.attach_status_miss_streak < ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER;
+}
+
+static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
     era_authority_snapshot_t      auth;
     era_split_mode_peer_session_t peer_session;
 
@@ -941,7 +953,7 @@ static bool era_split_transport_scheduler_update_mode(void) {
        sleep. Peer-unknown and a peer whose status is neither keep the old
        answer, because neither is a relation worth holding. */
     bool peer_no_host_only  = peer_session.known && !peer_session.accepted_host_open && peer_session.accepted_no_host;
-    bool peer_session_stale = (local_host_closed && !peer_no_host_only) || g_era_split_transport_scheduler.peer_session_stale || era_split_transport_scheduler_responder_silence_stale(peer_session.known);
+    bool peer_session_stale = (local_host_closed && !peer_no_host_only) || g_era_split_transport_scheduler.peer_session_stale || era_split_communication_core_launch_capped() || era_split_transport_scheduler_responder_silence_stale(peer_session.known);
 
     era_split_mode_planner_input_t input = {
         .local_authority         = auth,
@@ -977,15 +989,20 @@ static bool era_split_transport_scheduler_update_mode(void) {
     bool    next_local_wire_initiator = next_local_wire_available && result.local_wire_initiator;
     bool    wire_role_changed         = !g_era_split_transport_scheduler.authority_snapshot_valid || g_era_split_transport_scheduler.local_wire_available != next_local_wire_available || g_era_split_transport_scheduler.local_wire_initiator != next_local_wire_initiator;
     uint8_t dirty_flags               = era_split_transport_scheduler_dirty_flags(authority_changed, peer_generation_changed, peer_session_stale, result.mode_changed, wire_role_changed);
+    if (repair_wire) {
+        dirty_flags |= ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE;
+    }
     bool    maintenance_performed     = dirty_flags != 0 || result.peer_matrix_flush_required || result.peer_session_forget_required || result.local_status_required;
 
-    /* The gate is unchanged: an authority, mode, or wire-role edge. What
-       changed is that the two responsibilities behind it are now separate.
+    /* An explicit dirty wire requests lease repair even with unchanged policy.
+       The reset helper already has a live-role fast path; no fake authority
+       invalidation or duplicate retry flag is needed. Its two responsibilities
+       remain separate.
        The relation rotates on exactly the pre-existing set (authority or mode
        edge, plus every wire-role change, which always takes the full path
        below), while the backend teardown/rebuild runs only when the wire lease
        itself needs it. */
-    if (authority_changed || result.mode_changed || wire_role_changed) {
+    if (authority_changed || result.mode_changed || wire_role_changed || repair_wire) {
         if (!era_split_transport_scheduler_reset_serial_for_transport_role(next_local_wire_available, next_local_wire_initiator, authority_changed || result.mode_changed)) {
             era_split_transport_scheduler_mark_dirty(dirty_flags);
             return true;
@@ -1030,9 +1047,33 @@ static bool era_split_transport_scheduler_update_mode(void) {
                                               result.next_mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT || result.next_mode == ERA_SPLIT_MODE_HOST_PEER_PEER,
                                               g_era_split_transport_scheduler.authority_snapshot.valid &&
                                                   g_era_split_transport_scheduler.authority_snapshot.is_left);
-    era_split_link_note_relation(result.next_mode != ERA_SPLIT_MODE_LOCAL_NO_LINK,
+    /* The link lane's fresh-meeting verdict. An unserviced pass outside the
+       initiator's fast recovery window is a real departure (bootstrap backed
+       off, wire lost, a responder's silence); the serviced edge that follows
+       one reopens reconciliation. A same-pair reopen inside the window -- the
+       revalidation every EEPROM SYNC push close forces on the initiator --
+       reports false and reopens nothing (era_split_link.h, Reconciliation).
+       The peer's discovery fact rides the same consumed session record: the
+       answer that produced this edge says whether the listener searched for
+       this half's rate. The settled initiator requests the pair's presentation
+       from that answer or its own search; after a Left-HOST discovery it is
+       the former listener, not the talker. It is not gated on the fresh-meeting
+       verdict: probe misses raise no dirty flag, so a search can precede a
+       meeting this classification still calls same-pair. */
+    bool next_serviced = result.next_mode != ERA_SPLIT_MODE_LOCAL_NO_LINK;
+    if (!next_serviced && !era_split_transport_scheduler_relation_fast_recovery(next_local_wire_initiator)) {
+        g_era_split_transport_scheduler.relation_departed = true;
+    }
+    bool fresh_meeting = g_era_split_transport_scheduler.relation_departed;
+    if (next_serviced) {
+        g_era_split_transport_scheduler.relation_departed = false;
+    }
+    era_split_link_note_relation(next_serviced,
                                  next_local_wire_available && !next_local_wire_initiator && result.peer_unknown,
-                                 result.next_mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT || result.next_mode == ERA_SPLIT_MODE_HOST_PEER_HOST);
+                                 result.next_mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT || result.next_mode == ERA_SPLIT_MODE_HOST_PEER_HOST,
+                                 fresh_meeting,
+                                 peer_session.known && peer_session.rate_searched,
+                                 next_local_wire_initiator);
 
     /* The peer layer is DUAL-HOST-only state. Any settled mode that is not a
        confirmed DUAL-HOST drops it, which is what keeps a cable pull from
@@ -1279,30 +1320,9 @@ _Static_assert(ERA_SPLIT_LINK_SCAN_DWELL_MS >= 2U * (ERA_SPLIT_SESSION_BOOTSTRAP
                "The listener's dwell must hold at least two backed-off discovery probes, each with its slowest response window, or a talking peer could go unheard.");
 _Static_assert(ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS >= 2U * ERA_SPLIT_RESPONDER_SILENCE_MS,
                "The raise-confirm window must outlast one responder-silence watch, or a High the cable cannot hold is not observed before the session is declared live.");
-static bool era_split_transport_scheduler_apply_link_step(uint8_t level, bool rotate_relation) {
-    if (!era_split_transport_scheduler_stop_communication_core_for_flash_write()) {
-        era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-        return false;
-    }
-    era_split_transaction_backend_set_speed(era_split_link_speed(level));
-    era_split_link_note_step_applied(level);
-    bool restored = era_split_transport_scheduler_reset_serial_for_transport_role(
-        g_era_split_transport_scheduler.local_wire_available,
-        g_era_split_transport_scheduler.local_wire_initiator,
-        rotate_relation);
-    if (!restored) {
-        era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-    }
-    return restored;
-}
-
-bool era_split_transport_scheduler_apply_link_level(uint8_t level) {
-    if (era_split_link_active_level() == level) {
-        era_split_link_note_step_applied(level);
-        return true;
-    }
-    return era_split_transport_scheduler_apply_link_step(level, false);
-}
+/* The cold transition is shared verbatim with the host fault-injection
+ * fixture. No extra runtime owner or public abstraction is introduced. */
+#include "scheduler/era_split_transport_scheduler_link.inc"
 
 bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void) {
     era_split_transport_scheduler_ensure_initialized();
@@ -1560,7 +1580,7 @@ void era_split_transport_scheduler_init(void) {
                                               &g_era_split_transport_scheduler.rgb_sync_requested_cached);
     g_era_split_transport_scheduler.initialized   = true;
     era_split_transport_scheduler_sample_authority(timer_read32(), false);
-    era_split_transport_scheduler_update_mode();
+    era_split_transport_scheduler_update_mode(false);
     era_split_transport_scheduler_refresh_route_due_flags();
     era_split_transport_scheduler_update_next_deadline();
 }
@@ -1602,7 +1622,7 @@ bool era_split_transport_scheduler_start_communication_core(void) {
            it keeps the first lease from being one the next housekeeping pass
            would tear straight down. Both still run with the wire closed. */
         (void)era_split_transport_scheduler_sample_authority(timer_read32(), false);
-        (void)era_split_transport_scheduler_update_mode();
+        (void)era_split_transport_scheduler_update_mode(false);
     }
 
     g_era_split_transport_scheduler.communication_core_started = true;
@@ -1620,17 +1640,8 @@ bool era_split_transport_scheduler_start_communication_core(void) {
         g_era_split_transport_scheduler.local_wire_initiator,
         true);
     if (!started) {
-        /* Invalidating the snapshot is what actually arms the retry, and the
-           dirty flag alone would not. update_mode() only reaches the serial
-           reset on an authority, mode or wire-role edge, and after a failed
-           launch none of the three has moved - the plan is still correct, it
-           just did not take. era_split_transport_scheduler_authority_changed()
-           reports true on an invalid snapshot, so the next housekeeping pass
-           takes the full path and retries through the ordinary runtime route
-           rather than through a second launch site. This replaces the retry the
-           ensure_core1() call in transport_master_init()/transport_slave_init()
-           used to provide. */
-        g_era_split_transport_scheduler.authority_snapshot_valid = false;
+        /* The consumed dirty bit is now an explicit lease-repair input. Keep
+         * genuine authority facts intact; a capped launch converges unavailable. */
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
     } else if (g_era_split_transport_scheduler.local_wire_available && !g_era_split_transport_scheduler.local_wire_initiator) {
         (void)era_split_transport_scheduler_publish_communication_core_responder_snapshot();
@@ -1699,9 +1710,6 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
 
     bool maintenance_performed = false;
     bool authority_changed      = false;
-#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STORAGE, era_host_peer_storage_task(now_ms));
-#endif
     /* Pair-pending presentation ordering: consume both wire roles' successful
        local-pending confirmations before storage_runtime_task() below is
        allowed to retire the local semantic arm. The initiator confirmation is
@@ -1755,7 +1763,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         era_split_transport_scheduler_note_sync_policy_edge();
     }
     if (pending_dirty_flags != 0) {
-        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_MODE, era_split_transport_scheduler_update_mode()) || maintenance_performed;
+        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_MODE, era_split_transport_scheduler_update_mode((pending_dirty_flags & ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE) != 0)) || maintenance_performed;
     }
 
     /* The agreed restart runs here rather than on the scan path, and the
@@ -1779,6 +1787,10 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
     }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    /* Cold capture can write NVM. Drain disarm/authority facts and execute a
+     * due LINK transition first; cold work itself yields during timed arms. */
+    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STORAGE, era_host_peer_storage_task(timer_read32())) || maintenance_performed;
+    now_ms = timer_read32();
     era_split_sync_policy_snapshot_t policy;
     era_split_scheduler_session_diagnostics_t session;
     era_split_sync_policy_get_snapshot(&policy);
@@ -1808,11 +1820,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
            cable loss. A peer-unknown responder never sends discovery and must
            not inherit a streak-based hold it could never retire. */
         .indicator_fast_recovery_active =
-            g_era_split_transport_scheduler.local_wire_initiator &&
-                    g_era_split_transport_scheduler.local_status_pending &&
-                    g_era_split_transport_scheduler.attach_status_miss_streak < ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER ?
-                1 :
-                0,
+            era_split_transport_scheduler_relation_fast_recovery(g_era_split_transport_scheduler.local_wire_initiator) ? 1 : 0,
         .local_policy_requested    = policy.requested[ERA_SPLIT_SYNC_POLICY_FIELD_EEPROM],
         .local_bulk_page_supported = session.local_bulk_page_supported,
         .peer_known                = session.peer_known,

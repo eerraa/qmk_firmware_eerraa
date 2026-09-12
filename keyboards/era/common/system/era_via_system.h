@@ -52,11 +52,10 @@ uint32_t era_via_system_raw_hid_quiet_ms(void);
 /* **The one restart-quiet policy.** A cut that lands inside the VIA
  * application's own traffic is what produced the captured report failures, so
  * every cut this firmware makes into that traffic waits for the application to
- * fall silent and then for a bound. Three users -- the EEPROM CLEAN, the split
- * link's agreed switch, and the VIA Apply USB re-enumeration
- * (`split/era_split_via_link.c`) -- ask this, and none of them states the
- * interval: copies of one policy at the same two values is a policy that will
- * be changed in one place. The bootloader jump beside them
+ * fall silent and then for a bound. Local and agreed EEPROM CLEAN share this
+ * predicate. LINK_SPEED keeps USB connected and explicitly skips this gate
+ * through the act table (`split/era_split_keyboard.c`); storage drain remains
+ * a separate condition. The bootloader jump
  * (`ERA_VIA_BOOTLOADER_ENABLE`) does not use this policy: it waits for explicit
  * SET/SAVE/State-Sync lifecycle facts and the RAW IN drain instead, because a
  * 500 ms State Sync poll can phase-lock a 500 ms quiet predicate.

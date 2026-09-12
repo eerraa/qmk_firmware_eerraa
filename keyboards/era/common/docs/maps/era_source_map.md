@@ -14,7 +14,8 @@ there, not restated here.
 | --- | --- |
 | `split/era_split_authority_reducer.[ch]` | local USB authority snapshot, `SPLIT_HAND_PIN` side latch, and the `is_keyboard_master()` / `is_keyboard_master_impl()` projections QMK reads |
 | `split/era_split_sync_policy.[ch]` | persisted relation-independent requested sync bits (EEPROM / INPUT / RGB) |
-| `split/era_split_link.[ch]` | stored, pending, and active link level, level-to-baud map, and Reconciliation (boot Low, winner's agreed raise, Low fallback). The header is the rule. Does not own PIO, poll-period derivation, or the two-phase agreement (`split/era_split_restart_agreement.[ch]`) |
+| `split/era_split_link.[ch]` | stored, pending, and active link level, level-to-baud map, and Reconciliation (boot Low, winner's checked agreement even at unchanged rate, Low fallback). The header is the rule. Does not own PIO, poll-period derivation, or the two-phase agreement (`split/era_split_restart_agreement.[ch]`) |
+| `split/scheduler/era_split_transport_scheduler_link.inc` | cold checked LINK transition included by the scheduler and host fault fixture: owner quiesce, configuration selection, Core1 READY, new-epoch publications; no persistence or second transaction owner |
 | `split/era_split_sync_storage.h` | sync-policy EEPROM offset, signature, storage version, and counter-byte layout constants |
 | `split/era_split_mode_planner.[ch]` | relation/mode decision and invalidation requests |
 | `split/era_split_scheduler_session.[ch]` | local/peer session caches and both carriers that write them: the `SESSION_STATUS` frame and the AUTHORITY wire section |

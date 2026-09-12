@@ -102,13 +102,12 @@ void era_split_eeprom_sync_note_status_frame_presence(bool status_frame, uint8_t
     } else if (era_split_eeprom_sync_state.red_present) {
         era_split_eeprom_sync_state.red_present = false;
         era_split_eeprom_sync_state.red_off_ms = timer_read32();
-        /* The breaker latch: a red era ending while the lamp is still
-         * commanded visible is never the span's own end — the legitimate
-         * end always arrives after the advance dropped the command — so
-         * this branch fires exactly on the healed-trigger frames the
-         * `rn`-vs-`spans` excess counts, and records which frame broke the
-         * era. Last-writer-wins is enough: the excess is the count, this
-         * is the identity. */
+        /* The breaker latch: an EEPROM SYNC STATUS era ending while the lamp
+         * is still commanded visible is never the span's own end — the
+         * legitimate end arrives after the advance dropped the command. This
+         * branch therefore records the healed-trigger frame, including a
+         * higher-priority red/green STATUS report that temporarily preempted
+         * blue synchronization. */
         if (era_split_eeprom_sync_state.span_open || era_split_eeprom_sync_state.floor_active) {
             era_split_eeprom_sync_state.break_count++;
             era_split_eeprom_sync_state.break_flags = frame_flags;

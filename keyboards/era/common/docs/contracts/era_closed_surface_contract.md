@@ -57,15 +57,16 @@ named here is closed.
 | DUAL-HOST ACTIVITY | key identity, matrix, anything that enters the HID path |
 | RESTART_ARM | an act whose consequence is not prepare-then-act at one shared deadline |
 | Restart intent (AUTHORITY flags) | a lighting-gated carrier (`era_wire_contract.md`) |
-| Wire-triggered peer erase and reset | any act outside the two the arm names. Validator refuses any other; work is a local dispatch |
+| Wire-triggered peer erase and reset | any act except EEPROM CLEAN. LINK_SPEED changes the divider and LINK_RECOVERED changes presentation only; work is a checked local dispatch |
 
 The DUAL-HOST ACTIVITY body carries a derived judgment-window flag and
 key-input counters plus a shared-clock instant — no key identity, no matrix,
 nothing that enters the HID path.
 
 The restart-arm cell **carries an act, not a feature**, and that is what this
-cell is open for. The link switch was its first user and the EEPROM clean is
-its second; a third is a new act value in an existing body, not a new opening.
+cell is open for. LINK_SPEED, EEPROM CLEAN, and the peer-only LINK_RECOVERED
+presentation rendezvous are its three acts, in the existing body, not three
+separate openings.
 CLEAN's PREPARE and COMMIT are phases of that same second act. The storage
 quarantine they drive is derived local admission state and crosses as no new
 wire fact (`era_wire_contract.md`).

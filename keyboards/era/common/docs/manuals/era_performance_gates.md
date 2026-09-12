@@ -48,6 +48,7 @@ of it — saying so is the verification statement.
 | restores or changes QMK wear-level files | the complete upstream wear-level host-test set below |
 | changes scheduler request admission, queue freshness, or Core1 liveness | the scheduler admission/liveness device gate below at every supported link level |
 | changes EEPROM CLEAN's reboot-durable prepare, agreed-restart phase machine, or storage quarantine | `era_split_restart_agreement`; a supported split build; and the EEPROM CLEAN agreement device gate below |
+| `era_split_link_lifecycle` | production VIA/LINK/agreement, the scheduler's actual cold transition and real EEPROM/NVM with two independent endpoint RAM/NOR images: timeouts, stale intents, role/clock flips, physical-before-NVM ordering, serial/publication faults, program cuts, seal/activation readback ambiguity, reboot, reconciliation scoped to a meeting of the pair (a same-pair reopen after an agreement raises nothing; a fresh meeting, a winner change, an unagreed winner, or a recovery step off the agreed level does), and the pair-wide search report (the listener advertises `rate_searched` from its step until the relation it found opens or the episode ends; the settled initiator requests one LINK_RECOVERED rendezvous from its own search or that answer; an edge with neither local nor peer search, including a same-pair reopen without one, raises no report). The agreed presentation epoch is checked across both HOST orientations and DUAL-HOST, distinct serviced edges, late dispatch/display, timer wrap, role/clock changes, loss, duplication and hidden-report expiry. Physical owner/PIO/NOR and timing are simulated; `test_source_contracts.py` pins dirty-repair, storage admission and report dispatch wiring, not hardware timing |
 | changes the PWM Backlight Pulse state machine, its indicator-supply lock policy, the Tap Dance decision or synthesized-tap width rules in `features/era_tapdance.c`, or the non-split suspend bridge that retires Pulse/Breathing | `era_backlight_pulse`; a VIA build of one effect board; and, when the lock policy changes, a build of one lock-only board |
 | changes the synthesized-tap width or the keyboard report interval | `era_hid_report_interval`, `python3 tests/era_hid_report_interval/test_source_contracts.py`, `era_backlight_pulse`; a build of one board; and the report interval device gate below |
 | changes the physical-to-visual split wake | `python3 tests/era_split_visual_input/test_source_contracts.py`; a supported split build. The fixture executes the production scheduler entry and visual wake across roles, RGB policy and idle; wire latency and physical rendering remain device checks |
@@ -73,6 +74,8 @@ make test:era_split_standing_lifecycle
 make test:era_host_peer_storage_standing_policy
 make test:era_split_responder_result_policy
 make test:era_split_restart_agreement
+make test:era_split_link_lifecycle
+python3 tests/era_split_link_lifecycle/test_source_contracts.py
 make test:era_split_storage_publication_retire
 make test:era_usb_session_policy
 make test:era_split_rgb_sleep_policy
@@ -104,7 +107,7 @@ python tests/era_firmware_version/test_definitions.py
 | `era_host_peer_storage_news` | production storage reducers and indicator: news/audit ordering, news consumed into an owed reopen audit without lighting either panel however long that audit waits, independent audit receipt, in-flight summary inbox, fresh reclassification/deferred arbitration, terminal refusal, full result-identity retirement and the unchanged minimum-visible floor |
 | `era_split_standing_lifecycle` | production standing service with a controlled in-flight transaction boundary: single-writer revocation, late old result, owner/relation cache retirement, exact-stop SESSION acknowledgement, repeated failed recovery, coherent wake identity and unchanged-state poll silence |
 | `era_split_responder_result_policy` | coalesce only an exact successful section-bearing HEARTBEAT already represented by the same immutable responder snapshot/mask (`split/communication_core/era_split_communication_core_responder_result_policy.h`); reject empty, changed-generation/mask, failed/unsent, SESSION, runtime-push and source-push. Does not pin ring slot counts |
-| `era_split_restart_agreement` | CLEAN PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare failure, quarantine, refused act/param/bit7/deadline tuples; five-byte RESTART_ARM and seven-byte AUTHORITY bodies; link-speed serviced handshake, initiator timeout, responder disarm, rotation/role-flip, standalone local deadline; eligibility table `00 00 / C5 FC / C5 FC / FE F7 / FE F7` |
+| `era_split_restart_agreement` | CLEAN PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare failure, quarantine, refused act/param/bit7/deadline tuples; five-byte RESTART_ARM and seven-byte AUTHORITY bodies; link-speed serviced handshake, initiator timeout, responder disarm, rotation/role-flip, standalone local deadline; `SESSION_STATUS` `rate_searched` codec (answer only, refused beside `0x10`, `0x04`/`0x20` still refused); eligibility table `00 00 / C5 FC / C5 FC / FE F7 / FE F7` |
 | `era_split_storage_publication_retire` | production publication unit: CLEAN terminal sentinel, ready/unclaimed discard and active claim drain on both storage directions; nonterminal relation-loss discard that clears ready result ownership and leaves source publication capacity reusable; an in-flight non-ready reservation stays owned until Core1 publishes it ready, then the same discard closes it on a later Core0 pass |
 | `era_usb_session_policy` | pure remote-wake SOF verdict plus the production RP2040 sampler with controlled register boundaries: pending DEV_SOF arrival evidence, ISR SOFRD exclusion, never-configured-port exclusion, counter alias after an unobserved interval, two full raw-timer wraps without stale-to-fresh authority/sleep alias, zero-sentinel avoidance, and ISR-to-polling handoff that re-earns loss evidence. Physical interrupt/read side effects still require device validation |
 | `era_split_rgb_sleep_policy` | local master/reason and stock-preset policy, plus the production lighting receiver/resolver: first valid wire answer survives either side of initial owner resolution; promotion/demotion and non-owner refusal; relation rotation drops the previous word even with unchanged PEER role or a role round trip between refreshes. Deterministic Core0 callback ordering, not physical IRQ/render timing |
@@ -140,6 +143,51 @@ selected non-preemptive service returns
 `split/scheduler/era_split_transport_scheduler_timing.c`,
 `split/communication_core/era_split_communication_core_lifecycle_rp2040.c`).
 A scale-one static expression cannot prove Medium/Low service occupancy.
+
+### LINK SPEED lifecycle device gate
+
+After both host suites and supported builds, exercise High/Medium/Low in both
+DUAL-HOST directions and with either physical half as HOST. Hold/release keys
+through Apply without a USB re-enumeration; inspect unchanged USB identity and
+continued reports. Test cable removal, role flip, delayed Core0 and reboot at
+request/arm/transition/write boundaries, then reconnect. Verify actual baud
+transition skew, Core1 READY/cap counters, liveness recovery, durable state
+on both halves and explicit retry after a fault. Repeat during ordinary VIA
+and storage activity. The shared wire agreement has no bilateral durable
+completion acknowledgement; do not infer that guarantee from local success.
+
+For LINK_RECOVERED, provoke a listener rate search and a successful reopened
+relation in DUAL-HOST and with either half as HOST at High/Medium/Low. On the
+same manifest-selected standard image on both halves, measure both green
+pulses' on/off edges against one capture clock. Compare with the pre-change
+image under the same load; record residual edge skew, not just visual judgment.
+Repeat with ordinary VIA/storage activity and verify that launch/failure/sleep
+priority can mask, but never postpone or replay, the agreed report. Host tests
+prove a shared software epoch, not a physical LED latency bound. They also
+exercise notification preparation during the rate-confirmation window, no
+raw-HID quiet wait for presentation, and cancellation after a failed
+confirmation but before the accepted report deadline.
+Also test the already-matching running level after listener search: a Left
+HOST / Right PEER handoff must produce one pair report even when no idle
+publication crosses between rate completion and the report. Repeat all three
+found and stored target levels, both HOST orientations and DUAL-HOST; sampled
+latest-state tests must not inject an intermediate idle to make this pass.
+
+For the explicit local LINK Apply receipt, check a changed level, the same
+runtime-and-saved level, a busy agreement, cancellation, and an injected local
+runtime/NVM failure. Only the commanded half reports the result: no pending
+frame, one green pulse after checked runtime plus persistence (or no work),
+red otherwise. A local success must not wait for raw-HID quiet or the full
+liveness-confirmation window. A failed write must never produce green even
+when runtime already changed. A later failed health check must correct the
+receipt without resetting; successful observation must not replay green.
+Measure click-to-transition, the NVM call, and transition-to-first-green
+separately under identical load. Host-test injected delays are not flash timings.
+Compare the read-only local result, configured runtime and confirmed saved
+labels from the matching VIA definition; the consumed Apply toggle is not a
+receipt. UI refresh, colour visibility and held-key continuity are device/app
+checks, not claims made by the host fixture. No case should reset or
+re-enumerate USB merely to acknowledge Apply.
 
 ### ERA NVM persistence device gate
 

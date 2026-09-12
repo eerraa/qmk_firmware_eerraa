@@ -833,7 +833,7 @@ _Static_assert(3 + ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_BYTES + E
  *   0x01 accepted_host_open      0x10 status_response_requested
  *   0x02 accepted_no_host        0x20 retired (was dual_host_ready)
  *   0x04 unassigned              0x40 matrix_ready
- *   0x08 unassigned              0x80 bulk_page_supported
+ *   0x08 rate_searched           0x80 bulk_page_supported
  *
  * 0x20 was retired un-reused with the DUAL-HOST parent (Slice 9.5) so old
  * captures showing it set keep their meaning, and Slice 10.5 kept that
@@ -899,9 +899,21 @@ _Static_assert(3 + ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_BYTES + E
  * D2 deleted the round-end re-read outright (the state it detected is
  * unreachable once the carrier only moves forward), and the same owner decision
  * makes what a mismatched peer would do a question this header does not owe an
- * answer to. */
+ * answer to.
+ *
+ * 2026-09-11 took 0x08 again, for a fact of a different kind. `rate_searched`
+ * is the listener's own answer to the probe that found it: it changed its
+ * running rate to hear this talker (era_split_link.h, Reconciliation). It is
+ * not a hint. It asks the peer for nothing and keeps no poll alive; it is
+ * read once, by the link lane, on the serviced edge the answer itself
+ * creates, so the talker raises the same presentation report the listener
+ * raises for itself -- which nothing else can give it, because a listener at
+ * the wrong rate and no listener at all look the same from its probes. A
+ * probe never carries it: the peer-unknown initiator never moves its rate
+ * (era_split_transport_scheduler.c), and the validator refuses the pair. */
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN 0x01
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST 0x02
+#define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED 0x08
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED 0x10
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MATRIX_READY 0x40
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_BULK_PAGE 0x80
@@ -912,8 +924,8 @@ _Static_assert(3 + ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_LOCK_STATE_BYTES + E
    for the reason the AUTHORITY section validated its own while it had any: the
    two carry one fact set, so they may not disagree about what a valid one is. */
 #define ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK                                                  \
-    (ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST | \
-     ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED |                                     \
+    (ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST |     \
+     ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED | \
      ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MATRIX_READY | ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_BULK_PAGE)
 
 typedef struct {
@@ -922,6 +934,8 @@ typedef struct {
     bool     status_response_requested;
     bool     matrix_ready;
     bool     bulk_page_supported;
+    /* The listener's discovery fact, answer only (flags block above). */
+    bool     rate_searched;
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;

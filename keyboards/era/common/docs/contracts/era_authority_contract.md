@@ -20,6 +20,10 @@ in `split/era_split_scheduler_session.c` projects that onto session bits. A
 valid session holds exactly one of `accepted_host_open` / `accepted_no_host`.
 `bulk_page_supported` is compile-time (`ERA_HOST_PEER_STORAGE_V1_ENABLE`) on the
 same status record, not a session fact; AUTHORITY does not carry it.
+`rate_searched` on the same record is the link listener's discovery fact
+(`split/era_split_link.c`), answer only; AUTHORITY does not carry it either,
+and `era_split_scheduler_session_note_peer_authority()` leaves both peer-cache
+fields untouched.
 
 | Close → `accepted_no_host` | Predicate in `era_split_authority_host_open_for_state_locked()` |
 | --- | --- |
@@ -42,12 +46,12 @@ Host proof: the production sampler in `tests/era_usb_session_policy`, including
 two complete raw-timer wraps and the ISR-to-polling handoff. Physical remote
 wake timing and interrupt side effects remain device gates.
 
-Firmware USB re-enumeration is not a HOST close and not lighting sleep. VIA
-Apply in `split/era_split_via_link.c` calls
-`era_usb_session_note_firmware_reattach()` then bounces the bus; the reducer
-and the frame-loss arm both ask `era_usb_session_firmware_reattach_hold()`
-(`ERA_USB_SESSION_REATTACH_HOLD_MS` 2000). A rising host-open edge calls
-`send_keyboard_report()`.
+LINK SPEED does not re-enumerate USB. Its former firmware bounce existed to
+refresh VIA's action toggle, not to establish wire correctness; that path and
+its synthetic two-second HOST/frame-loss hold are removed. Ordinary USB/SOF
+facts remain the only session input. A rising host-open edge still calls
+`send_keyboard_report()`. VIA GET Apply is a consumed action value, not an
+acknowledgement of runtime or durable completion (`split/era_split_link.h`).
 
 `is_keyboard_master()` and `is_keyboard_master_impl()` in
 `split/era_split_authority_reducer.c` are one-line projections of

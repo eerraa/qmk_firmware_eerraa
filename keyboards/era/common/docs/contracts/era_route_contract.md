@@ -124,7 +124,7 @@ Storage is a dedicated cold-task lane, not an owner route.
 | `ERA_SPLIT_LINK_SCAN_DWELL_MS` | 1500 | listener dwell. Scheduler asserts it outlasts two backed-off probes with their slowest response windows (`split/era_split_transport_scheduler.c`) |
 | `ERA_SPLIT_LINK_SCAN_NOISE_MIN` | 2 | undecodable arrivals in one dwell before the listener steps |
 | `ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS` | 200 | raise-confirm window; asserted ≥ 2 × `ERA_SPLIT_RESPONDER_SILENCE_MS` 100 |
-| `ERA_SPLIT_LINK_UPGRADE_WAIT_MS` | 500 | non-winner wait for a raise that is not coming |
+| `ERA_SPLIT_LINK_UPGRADE_WAIT_MS` | 500 | bounded initial wait for a winner arm; timeout releases the storage gate without guessing or persisting a rate |
 | `ERA_SPLIT_RESTART_ARM_TIMEOUT_MS` | 60 | restart arm timeout (`split/era_split_restart_agreement.h`) |
 | `ERA_SPLIT_RESTART_COMMIT_DELAY_MS` | 120 | commit delay; scheduler asserts it sits past the arm timeout plus two HOST-PEER poll periods |
 | storage audit / retry | `ERA_HOST_PEER_STORAGE_RETRY_MS` 25 | no periodic idle-proof; probes from the seven-domain audit sweep and the news-armed summary (`era_host_peer_storage_contract.md`) |
@@ -144,6 +144,53 @@ re-arms a past deadline and the cadence stops rather than degrades. Every
 build. Sleep fractions: `era_performance_gates.md` **Fixed Baselines**. A
 device check watches for a poll rate far above the configured period
 (`era_capture_reading.md`).
+
+### LINK SPEED transition and lease repair
+
+`split/scheduler/era_split_transport_scheduler_link.inc` is the scheduler's
+cold transition, included verbatim by the LINK host fixture. It quiesces the
+old owner, selects baud and all derived timings, then obtains the checked
+Core1 role READY. Backend rate selection itself performs no PIO restart: the
+next owner acquisition initializes the selected divider through the existing
+checked handshake. Even an equal divider requires a ready lease. New-epoch
+standing/responder publications precede LINK persistence.
+
+LINK_SPEED has no USB disconnect or reset, so its request skips the raw-HID
+quiet gate that protects EEPROM CLEAN. It still yields to admitted storage,
+requires time-anchor adoption and the same confirmed shared deadline. A local
+Apply receipt follows checked runtime plus persistence immediately; the
+existing liveness window remains a failure monitor, not a display delay
+(`split/era_split_keyboard.c`, `split/era_split_link.h` **VIA and USB**).
+
+`ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE` is an explicit repair input to
+`era_split_transport_scheduler_update_mode()` in
+`split/era_split_transport_scheduler.c`, not merely a reason to call a
+planner whose policy may be unchanged. The existing live-role fast path
+avoids needless teardown. A capped launch makes peer facts stale and converges
+to unavailable instead of leaving a phantom serviced relation.
+
+A timed restart window is derived from the agreement, not another flag.
+Opportunistic bank erasure, cold storage capture and new initiator storage
+episodes yield during it; already-admitted work drains before an arm. Due
+restart execution follows wire-result/disarm draining and precedes cold NVM
+work. These rules remove LINK's own variable-latency pre-transition work;
+arbitrary concurrent host writes, clock error and physical quiesce latency
+remain device timing bounds, not a promise made by host tests.
+
+**Reconciliation is owed once per meeting of the pair, not once per relation
+generation.** `era_split_transport_scheduler_update_mode()` in
+`split/era_split_transport_scheduler.c` classifies every unserviced pass with
+the same rule the EEPROM SYNC indicator uses for its peer-mirror hold: the
+initiator's bootstrap inside its fast recovery window (`local_status_pending`,
+miss streak below `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER`) is the same
+pair still recovering; anything else is a real departure. The serviced edge
+that follows a real departure is reported to the link lane as a fresh meeting
+and may reopen reconciliation; the same-pair reopen that every EEPROM SYNC
+push close forces through `SESSION_STATUS` is not, and a pair already agreed
+at its running level raises no agreed restart there. Without that rule a
+multi-domain sync interleaved one agreed restart per pushed domain, deferred
+every reopened relation's audit behind it, and put the responder's fallback
+report inside the sync window.
 
 ## Runtime Execution Owner
 
@@ -332,7 +379,10 @@ not. **There is one storage lane, not one per relation.**
 ## SESSION_STATUS Discovery And Liveness
 
 `SESSION_STATUS` is the discovery/revalidation route and nothing else. The
-advisory bit it used to carry is retired (`era_identifier_map.md`).
+advisory bit it used to carry is retired (`era_identifier_map.md`). The
+listener's `rate_searched` on the answer is not an advisory: it is a fact
+about the discovery itself, consumed once on the edge that answer creates
+(`era_wire_contract.md` **SESSION_STATUS**).
 
 `era_split_transport_scheduler_relation_lane_live()` in
 `split/scheduler/era_split_transport_scheduler_timing.c` is true for a
@@ -351,7 +401,24 @@ is eligible in both directions. That predicate suppresses the periodic
 `era_split_transport_scheduler_start_communication_core()` in
 `split/era_split_transport_scheduler.c`. A peer-unknown responder with no
 serviced relation still steps toward a rate it hears; the peer-unknown
-initiator never moves off *running*.
+initiator never moves off *running*. The listener that stepped answers the
+probe that finds it with `rate_searched`. The settled relation's initiator
+alone requests the presentation-only LINK_RECOVERED rendezvous from its own
+search or that answer, during the final commit-lead
+portion of rate confirmation, or immediately when idle. The liveness check
+still gates visibility; both halves display from the agreed instant, not
+their serviced edges. Presentation skips raw-HID quiet, not wire confirmation.
+It yields to admitted storage, then uses the existing bounded timed window;
+no report cadence or independent send is added. The talker has no other way to
+see the search, since from its probes a listener at the wrong rate and no
+listener at all look the same
+(`split/era_split_link.h` **Reconciliation**).
+
+Discovery's talker can become the HOST-PEER responder. Making it request a
+report immediately after an unchanged rate act can skip the idle the peer's
+duplicate-request guard requires. Initiator-local ownership avoids that
+return request without a new delay, acknowledgement, wire field or weakened
+replay guard (`split/era_split_link.c`).
 
 The listener ring, its constants, and every convergence case live in
 `split/era_split_link.h` **Reconciliation**. **The cable carries power from

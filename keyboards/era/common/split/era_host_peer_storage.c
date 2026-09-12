@@ -1698,7 +1698,8 @@ static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
 }
 
 bool era_host_peer_storage_task(uint32_t now_ms) {
-    if (!g_era_host_peer_storage_local.initialized || !era_eeprom_driver_ready() ||
+    if (era_split_restart_agreement_timed_window() ||
+        !g_era_host_peer_storage_local.initialized || !era_eeprom_driver_ready() ||
         era_split_restart_agreement_storage_quarantined() ||
         g_era_host_peer_storage_relation.active_due) {
         return false;
@@ -3249,6 +3250,10 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
 
     if (era_split_communication_core_storage_initiator_result_ready()) {
         era_host_peer_storage_process_peer_result(context);
+    }
+    if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_IDLE &&
+        era_split_restart_agreement_timed_window()) {
+        return;
     }
     if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_IDLE) {
         (void)era_host_peer_storage_start_peer_episode(context);

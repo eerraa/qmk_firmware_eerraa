@@ -51,14 +51,3 @@ bool era_usb_session_sample_frame_age(uint32_t *age_ms);
    The split layer ORs this into its own sleep predicate; a non-split board does
    not need to call it, because this unit applies the result itself. */
 bool era_usb_session_frames_lost(void);
-
-/* Firmware-initiated USB re-enumeration. The VIA Apply toggle-as-action is the
-   one caller (`split/era_split_via_link.c`): VIA does not re-GET, so the bus
-   has to drop and come back for the page to read the consumed 0. The bounce is
-   not a host unplug and not a sleep. Call `note` immediately before
-   `restart_usb_driver()`; both consumers of this session — the authority
-   reducer's host-open and the frame-loss arm — ask `hold` for the window the
-   host needs to re-enumerate. A real unplug that outlasts the hold closes as
-   before. */
-void era_usb_session_note_firmware_reattach(void);
-bool era_usb_session_firmware_reattach_hold(void);

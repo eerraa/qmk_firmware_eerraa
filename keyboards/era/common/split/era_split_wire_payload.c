@@ -344,8 +344,9 @@ static bool era_split_wire_validate_session_status_payload(const uint8_t *payloa
      * rule exists to prevent.
      *
      * The bit-by-bit history is in era_split_wire_protocol.h's SESSION_STATUS
-     * flags block, and a capture in which a SESSION_STATUS sets 0x04 or 0x08
-     * still dates the image that sent it. */
+     * flags block, and a capture in which a SESSION_STATUS sets 0x04 still
+     * dates the image that sent it; one that sets 0x08 beside 0x10 dates a
+     * defect, not an era (the rule below). */
     uint8_t flags = payload[2];
     if ((flags & (uint8_t)~ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK) != 0) {
         return false;
@@ -357,6 +358,12 @@ static bool era_split_wire_validate_session_status_payload(const uint8_t *payloa
     }
     if ((flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MATRIX_READY) != 0 &&
         (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST) == 0) {
+        return false;
+    }
+    /* The listener's discovery fact rides the answer only: a probe is the
+       peer-unknown initiator's, and that half never moves its rate. */
+    if ((flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED) != 0 &&
+        (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED) != 0) {
         return false;
     }
     return true;
@@ -633,11 +640,15 @@ bool era_split_wire_encode_session_status(uint8_t control, const era_split_wire_
     if (status->matrix_ready && !status->accepted_no_host) {
         return false;
     }
+    if (status->rate_searched && status->status_response_requested) {
+        return false;
+    }
 
     payload[0] = (uint8_t)(control | ERA_SPLIT_WIRE_CONTROL_EXT);
     payload[1] = 0x10;
     payload[2] = (uint8_t)((status->accepted_host_open ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN : 0) |
                            (status->accepted_no_host ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST : 0) |
+                           (status->rate_searched ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED : 0) |
                            (status->status_response_requested ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED : 0) |
                            (status->matrix_ready ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MATRIX_READY : 0) |
                            (status->bulk_page_supported ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_BULK_PAGE : 0));
@@ -668,6 +679,7 @@ bool era_split_wire_decode_session_status(const era_split_wire_frame_t *frame, e
     status->status_response_requested = (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RESPONSE_REQUESTED) != 0;
     status->matrix_ready              = (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MATRIX_READY) != 0;
     status->bulk_page_supported       = (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_BULK_PAGE) != 0;
+    status->rate_searched             = (flags & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED) != 0;
     status->usb_epoch                 = era_split_wire_get16(&frame->payload[3]);
     status->host_open_generation      = era_split_wire_get16(&frame->payload[5]);
     status->host_close_generation     = era_split_wire_get16(&frame->payload[7]);

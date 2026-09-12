@@ -138,11 +138,6 @@ static void era_split_authority_clear_suspend_tracking_locked(void) {
 #endif
 
 static bool era_split_authority_host_open_for_state_locked(uint8_t configure_state, bool sof_fresh, bool previous_host_open, uint32_t now) {
-    /* Firmware USB bounce is not a host unplug. Without this hold, the
-       unconfigured window steps usb_epoch and rotates a DUAL-HOST pair. */
-    if (era_usb_session_firmware_reattach_hold() && previous_host_open) {
-        return true;
-    }
     if (configure_state == USB_DEVICE_STATE_SUSPEND) {
 #if defined(MCU_RP) && defined(PROTOCOL_CHIBIOS)
         return era_split_authority_preserve_suspended_host_locked(now, previous_host_open);
