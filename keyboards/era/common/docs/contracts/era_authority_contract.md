@@ -27,6 +27,21 @@ same status record, not a session fact; AUTHORITY does not carry it.
 | unconfigured suspend | `era_usb_session_configure_state()` in `system/era_usb_session.c` remaps it to `USB_DEVICE_STATE_INIT`; not a valid HOST suspend |
 | residual | not `USB_DEVICE_STATE_CONFIGURED`, or SOF age ≥ `ERA_SPLIT_AUTHORITY_SOF_FRESH_MS` 10. Unavailable SOF is fresh here (`era_usb_session_sample_frame_age()` false → treat as fresh). Sample adjacent to this evaluation, never a prior pass's age |
 
+The raw-microsecond sampler owns bounded freshness evidence, not an unbounded
+wall-clock history. On every 1 kHz observation, it saturates the last-frame age
+at twice the SOF-loss threshold. While the remote-wake ISR owns SOFRD, the
+ownership age and unread-register age are saturated too. No mature age may
+wrap back to fresh after 2^32 microseconds, nor may saturation manufacture the
+zero/unseen sentinel. Returning register ownership to polling after a long
+gap re-earns frame-loss evidence; an equal 11-bit counter across that gap is
+not evidence of uninterrupted absence. DEV_SOF still belongs to the ISR while
+enabled: this bookkeeping never reads SOFRD in that interval. Source:
+`era_usb_session_saturate_stale_stamp()` and
+`era_usb_session_sample_frame_age()` in `system/era_usb_session.c`.
+Host proof: the production sampler in `tests/era_usb_session_policy`, including
+two complete raw-timer wraps and the ISR-to-polling handoff. Physical remote
+wake timing and interrupt side effects remain device gates.
+
 Firmware USB re-enumeration is not a HOST close and not lighting sleep. VIA
 Apply in `split/era_split_via_link.c` calls
 `era_usb_session_note_firmware_reattach()` then bounces the bus; the reducer

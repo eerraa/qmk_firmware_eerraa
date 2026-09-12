@@ -132,10 +132,11 @@ static bool     era_usb_session_sof_isr_owned;
    ~12 us and a 22 kHz scan rate read 16.4 kHz, every step of the fall
    bracketing to a commit that added conversions to this chain. The raw
    counter wraps at ~71.6 min rather than 49.7 days; every comparison below
-   is wrap-safe unsigned subtraction, and the one value that could outlive a
-   wrap — the change stamp under a bus that stays dead for over an hour — is
-   saturated at twice the stale threshold inside the sampler, so an age never
-   aliases back to "fresh". frames_lost() reads the pass's cached sample
+   is wrap-safe unsigned subtraction. Every age that can outlive a wrap is
+   saturated at twice the stale threshold on the observation cadence: the
+   last frame, and both the ISR ownership and unread-register ages during a
+   remote-wake stand-off. None can alias back to "fresh", including at the
+   handoff back to polling. frames_lost() reads the pass's cached sample
    instant instead of taking its own reading — its thresholds are hundreds of
    milliseconds, so a value one pass old is the same answer. */
 static uint32_t era_usb_session_sampled_now_us;
@@ -156,6 +157,19 @@ static uint32_t era_usb_session_now(void) {
 #endif
     return now == 0 ? 1 : now;
 }
+
+#if ERA_USB_SESSION_HAS_SOF_SAMPLE
+/* These stamps are threshold evidence, not an unbounded chronology. Keep a
+   mature age beyond every consumer's threshold even when remote wake holds
+   SOFRD indefinitely. A capped stamp must not become the zero/unseen sentinel.
+   This runs only on the 1 kHz observation boundary, never per scan. */
+static void era_usb_session_saturate_stale_stamp(uint32_t now, uint32_t *stamp) {
+    if (*stamp != 0 && (uint32_t)(now - *stamp) > 2U * ERA_USB_SESSION_SOF_STALE_US) {
+        uint32_t capped = now - 2U * ERA_USB_SESSION_SOF_STALE_US;
+        *stamp = capped == 0 ? 1 : capped;
+    }
+}
+#endif
 
 /* The remap, and the one copy of it. An unconfigured SUSPEND is what a host
    death behind a powered port leaves behind, and it is also the ordinary state
@@ -223,16 +237,16 @@ bool era_usb_session_sample_frame_age(uint32_t *age_ms) {
                    contiguous window decide — a genuinely dead bus re-earns the
                    age within one threshold. */
                 era_usb_session_sof_last_change_us = now;
-            } else if ((uint32_t)(now - era_usb_session_sof_last_change_us) > 2u * ERA_USB_SESSION_SOF_STALE_US) {
-                /* The wrap saturation the state-block comment promises: a bus
-                   that stays dead under a continuous watch grows this age
-                   without bound, and a raw-microsecond age wraps at ~71.6 min,
-                   which would read as one sub-threshold flicker of "fresh"
-                   per wrap. Holding the stamp at twice the threshold keeps
-                   frames_lost saturated-true, and a revived bus still
-                   collapses the age on its first counted frame. */
-                era_usb_session_sof_last_change_us = now - 2u * ERA_USB_SESSION_SOF_STALE_US;
             }
+        }
+        /* Ownership changes who may read SOFRD, not how long stale evidence
+           may live. The old polling-only saturation left these stamps frozen
+           while DEV_SOF stayed armed: after one raw-clock wrap, a dead host
+           looked fresh to sleep and potentially to the authority reducer. */
+        era_usb_session_saturate_stale_stamp(now, &era_usb_session_sof_last_change_us);
+        if (era_usb_session_sof_isr_owned) {
+            era_usb_session_saturate_stale_stamp(now, &era_usb_session_sof_isr_owner_started_us);
+            era_usb_session_saturate_stale_stamp(now, &era_usb_session_sof_last_read_us);
         }
     }
 
