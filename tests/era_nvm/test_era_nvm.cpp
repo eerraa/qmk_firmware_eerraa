@@ -38,6 +38,9 @@ class NorFlash {
     std::vector<ProgramOp>                            program_ops;
     std::vector<uint32_t>                            erase_ops;
 
+    uint64_t  read_calls = 0;
+    uint64_t  read_bytes = 0;
+    uint64_t  fail_read_call = 0;
     uint64_t  program_calls = 0;
     uint64_t  erase_calls   = 0;
     uint64_t  mutation_calls = 0;
@@ -56,6 +59,7 @@ class NorFlash {
     }
 
     void clear_faults() {
+        fail_read_call     = 0;
         fail_program_call  = 0;
         fail_erase_call    = 0;
         fail_mutation_call = 0;
@@ -70,6 +74,11 @@ class NorFlash {
 
     static bool Read(void *context, uint32_t offset, void *data, size_t length) {
         auto *self = static_cast<NorFlash *>(context);
+        self->read_calls++;
+        self->read_bytes += length;
+        if (self->fail_read_call != 0 && self->read_calls == self->fail_read_call) {
+            return false;
+        }
         if (length > self->bytes.size() || offset > self->bytes.size() - length) {
             return false;
         }
@@ -856,6 +865,176 @@ TEST(EraNvm, NonMacroWriteStaysDurableWhileAMacroIsStaged) {
     ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, macro_after.data(), macro_after.size()), ERA_NVM_RESULT_OK);
     EXPECT_TRUE(std::equal(macro_after.begin(), macro_after.end(), payload.begin()));
     rig.expect_geometry_clean();
+}
+
+// An unrelated durable write may rotate while an upload is still staged. The
+// snapshot must carry the last committed macro, not the public staging buffer.
+TEST(EraNvm, UnrelatedRotationPreservesCommittedMacroUntilClose) {
+    for (bool sealed_tail : {false, true}) {
+        SCOPED_TRACE(sealed_tail ? "failed append" : "journal exhaustion");
+        Rig rig;
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        auto committed = make_large(0x31);
+        committed.back() = 0U;
+        ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, committed.data(), committed.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+
+        const uint32_t marker = kMacroBase + committed.size() - 1U;
+        const uint8_t opener = 0xFF;
+        const std::array<uint8_t, 6> payload{2, 4, 6, 8, 10, 12};
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &opener, 1U), ERA_NVM_RESULT_STAGED);
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, kMacroBase, payload.data(), payload.size()), ERA_NVM_RESULT_STAGED);
+
+        constexpr uint32_t rgb_address = 23U;
+        std::array<uint8_t, 8> rgb{};
+        if (sealed_tail) {
+            rgb.fill(0x41);
+            rig.flash.fail_program_call = rig.flash.program_calls + 1U;
+            rig.flash.program_fault = FaultMode::FailPartial;
+            ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, rgb_address, rgb.data(), rgb.size()), ERA_NVM_RESULT_IO_ERROR);
+            rig.flash.clear_faults();
+        }
+        const uint32_t generation = era_nvm_generation(&rig.nvm);
+        for (uint32_t i = 0U; i < 800U && era_nvm_generation(&rig.nvm) == generation; ++i) {
+            rgb.fill(static_cast<uint8_t>(i + 1U));
+            const uint64_t read_bytes = rig.flash.read_bytes;
+            ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, rgb_address, rgb.data(), rgb.size()), ERA_NVM_RESULT_OK);
+            // A whole-domain history is parsed once, not once per snapshot page.
+            EXPECT_LT(rig.flash.read_bytes - read_bytes, 4U * ERA_NVM_PHYSICAL_SIZE_BYTES);
+        }
+        ASSERT_GT(era_nvm_generation(&rig.nvm), generation);
+        EXPECT_EQ(rig.nvm.macro_mode, ERA_NVM_MACRO_WRITE_OPEN);
+        EXPECT_EQ(rig.nvm.image[marker], opener);
+        EXPECT_TRUE(std::equal(payload.begin(), payload.end(), rig.nvm.image + kMacroBase));
+
+        std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> replay{};
+        ASSERT_EQ(era_nvm_replay_read(&rig.nvm, kMacroBase, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+        EXPECT_EQ(replay, committed);
+        Rig reboot;
+        reboot.flash.bytes = rig.flash.bytes;
+        ASSERT_EQ(reboot.mount(), ERA_NVM_RESULT_OK);
+        EXPECT_TRUE(std::equal(committed.begin(), committed.end(), reboot.nvm.image + kMacroBase));
+        EXPECT_TRUE(std::equal(rgb.begin(), rgb.end(), reboot.nvm.image + rgb_address));
+
+        const uint8_t close = 0U;
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &close, 1U), ERA_NVM_RESULT_OK);
+        std::copy(payload.begin(), payload.end(), committed.begin());
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        EXPECT_TRUE(std::equal(committed.begin(), committed.end(), rig.nvm.image + kMacroBase));
+        rig.expect_geometry_clean();
+    }
+}
+
+TEST(EraNvm, OpenMacroRotationReplaysPartialHistoryAndSurvivesOldBankReclamation) {
+    for (bool covering_record : {false, true}) {
+        SCOPED_TRACE(covering_record);
+        Rig rig;
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> committed{};
+        if (covering_record) {
+            committed = make_large(0x63);
+            committed.back() = 0U;
+            ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, committed.data(), committed.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+        }
+        // The internal replacement API also admits partial macro writes while
+        // idle. Their later overlaps must survive without a new format rule.
+        std::array<uint8_t, 600> patch{};
+        patch.fill(0x5A);
+        ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase + 253U, patch.data(), patch.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+        std::copy(patch.begin(), patch.end(), committed.begin() + 253U);
+        patch.fill(0xA5);
+        ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase + 511U, patch.data(), patch.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+        std::copy(patch.begin(), patch.end(), committed.begin() + 511U);
+
+        const uint32_t marker = kMacroBase + committed.size() - 1U;
+        const uint8_t opener = 0xFF;
+        const uint8_t payload = 0x37;
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &opener, 1U), ERA_NVM_RESULT_STAGED);
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, kMacroBase + 300U, &payload, 1U), ERA_NVM_RESULT_STAGED);
+        for (uint8_t round = 1U; round <= 3U; ++round) {
+            rig.flash.fail_program_call = rig.flash.program_calls + 1U;
+            rig.flash.program_fault = FaultMode::FailPartial;
+            ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, 23U, &round, 1U), ERA_NVM_RESULT_IO_ERROR);
+            rig.flash.clear_faults();
+            ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, 23U, &round, 1U), ERA_NVM_RESULT_OK);
+            for (uint8_t sector = 0U; sector < ERA_NVM_BANK_SIZE_BYTES / ERA_NVM_ERASE_SECTOR_BYTES; ++sector) {
+                bool did_work = false;
+                ASSERT_EQ(era_nvm_maintenance_erase_one_sector(&rig.nvm, &did_work), ERA_NVM_RESULT_OK);
+            }
+            std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> replay{};
+            ASSERT_EQ(era_nvm_replay_read(&rig.nvm, kMacroBase, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+            EXPECT_EQ(replay, committed);
+            EXPECT_EQ(rig.nvm.image[kMacroBase + 300U], payload);
+            EXPECT_EQ(rig.nvm.image[marker], opener);
+        }
+        const uint8_t close = 0U;
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &close, 1U), ERA_NVM_RESULT_OK);
+        committed[300U] = payload;
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        EXPECT_TRUE(std::equal(committed.begin(), committed.end(), rig.nvm.image + kMacroBase));
+        rig.expect_geometry_clean();
+    }
+}
+
+TEST(EraNvm, OpenMacroRotationReadAndProgramFaultsKeepCommittedImage) {
+    Rig base;
+    ASSERT_EQ(base.mount(), ERA_NVM_RESULT_OK);
+    auto committed = make_large(0x24);
+    committed.back() = 0U;
+    ASSERT_EQ(era_nvm_replace(&base.nvm, kMacroBase, committed.data(), committed.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+    const uint32_t marker = kMacroBase + committed.size() - 1U;
+    const uint8_t setting = 0x7B;
+    const uint8_t payload = 0x58;
+    auto prepare = [&](Rig &rig) {
+        rig.flash.bytes = base.flash.bytes;
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        const uint8_t opener = 0xFF;
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &opener, 1U), ERA_NVM_RESULT_STAGED);
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, kMacroBase, &payload, 1U), ERA_NVM_RESULT_STAGED);
+        rig.flash.fail_program_call = rig.flash.program_calls + 1U;
+        rig.flash.program_fault = FaultMode::FailPartial;
+        ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, 23U, &setting, 1U), ERA_NVM_RESULT_IO_ERROR);
+        rig.flash.clear_faults();
+    };
+    Rig successful;
+    ASSERT_NO_FATAL_FAILURE(prepare(successful));
+    const uint64_t read_start = successful.flash.read_calls;
+    const uint64_t program_start = successful.flash.program_calls;
+    ASSERT_EQ(era_nvm_qmk_write(&successful.nvm, 23U, &setting, 1U), ERA_NVM_RESULT_OK);
+    const uint64_t reads = successful.flash.read_calls - read_start;
+    const uint64_t programs = successful.flash.program_calls - program_start;
+    ASSERT_GT(reads, 0U);
+    ASSERT_EQ(programs, 99U);
+
+    for (bool read_fault : {false, true}) {
+        const uint64_t count = read_fault ? reads : programs;
+        for (uint64_t cut = 1U; cut <= count; ++cut) {
+            SCOPED_TRACE(read_fault ? "read" : "program");
+            SCOPED_TRACE(cut);
+            Rig rig;
+            ASSERT_NO_FATAL_FAILURE(prepare(rig));
+            if (read_fault) {
+                rig.flash.fail_read_call = rig.flash.read_calls + cut;
+            } else {
+                rig.flash.fail_program_call = rig.flash.program_calls + cut;
+                rig.flash.program_fault = FaultMode::FailPartial;
+            }
+            EXPECT_EQ(era_nvm_qmk_write(&rig.nvm, 23U, &setting, 1U), ERA_NVM_RESULT_IO_ERROR);
+            EXPECT_EQ(rig.nvm.image[23U], 0U);
+            EXPECT_EQ(rig.nvm.image[kMacroBase], payload);
+            EXPECT_EQ(rig.nvm.image[marker], 0xFFU);
+            rig.flash.clear_faults();
+            std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> replay{};
+            ASSERT_EQ(era_nvm_replay_read(&rig.nvm, kMacroBase, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+            EXPECT_EQ(replay, committed);
+            // Retry, including a lost activation readback, is still fenced by
+            // the physical macro view and never exposes staging to a reboot.
+            ASSERT_EQ(era_nvm_qmk_write(&rig.nvm, 23U, &setting, 1U), ERA_NVM_RESULT_OK);
+            ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+            EXPECT_TRUE(std::equal(committed.begin(), committed.end(), rig.nvm.image + kMacroBase));
+            EXPECT_EQ(rig.nvm.image[23U], setting);
+            rig.expect_geometry_clean();
+        }
+    }
 }
 
 // The scope is the rule: only a range that touches the staged domain is refused.

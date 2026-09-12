@@ -132,7 +132,10 @@ era_nvm_result_t era_nvm_qmk_read(era_nvm_t *nvm, uint32_t address, void *data, 
 /* Result-bearing atomic replacement. This is the Session-2 boundary for
  * REMOTE_APPLY and CLEAN. It bypasses the QMK dynamic-macro transcript.
  * BUSY only when a macro transaction is open *and* the range touches the macro
- * domain; the reasoning for that scope is at the test in era_nvm.c. */
+ * domain; the reasoning for that scope is at the test in era_nvm.c.
+ * NO_CHANGE is a durable receipt, not unconditional RAM equality. A sealed
+ * tail/failed activation must be repaired by checked rotation first, because
+ * the previous final program may have landed before its readback failed. */
 era_nvm_result_t era_nvm_replace(era_nvm_t *nvm, uint32_t address, const void *data, size_t length, era_nvm_origin_t origin);
 
 /* Replace the whole logical image with the erased/default image and publish it.

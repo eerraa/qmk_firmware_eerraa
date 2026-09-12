@@ -247,6 +247,26 @@ changed or discarded.
 
 ## Dynamic Macro Transaction
 
+An open macro's RAM staging bytes are not a durable snapshot source.
+`era_nvm_construct_bank()` in `storage/era_nvm.c` preserves the last physical
+macro commit when an unrelated write or headroom repair rotates the bank.
+A nonzero staging marker prevents execution; it does not by itself preserve
+that earlier committed macro across reboot or inactive-bank reclamation.
+
+The production replay parser builds a rotation-local durable-range descriptor
+from the active bank. A covering record replaces its physical base; only a
+later partial-record suffix is replayed. Whole-domain production history thus
+needs one journal validation pass and direct page reads, not a full journal
+CRC pass for every snapshot page. The descriptor expires before the active
+bank changes; Core0 alone writes flash and construction touches only the
+inactive bank. Failure to read that source prevents activation/publication. The existing
+256-byte scratch buffers and single 24-KiB public image remain; no second
+16-KiB staging image or persistent pointer into a retired bank is introduced.
+CLOSE, RESET and FORMAT supply their complete replacement instead. Host
+regressions: `tests/era_nvm` and the stock-helper path in
+`tests/era_nvm_qmk_driver`. Physical rotation latency still requires the
+performance gate below.
+
 Marker = final byte of the 16-KiB domain (`ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES`
 16384). Engine: `era_nvm_qmk_write()` / `era_nvm_macro_qmk_write()` in
 `storage/era_nvm.c`. Modes `ERA_NVM_MACRO_IDLE`, `ERA_NVM_MACRO_WRITE_OPEN`,

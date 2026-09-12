@@ -58,7 +58,7 @@ refusals as stop conditions — is `era_build_and_flash.md`'s.
 ### Focused host-test set
 
 Run these in the WSL-local tree after the build automation has synchronized
-it. `tests/era_*` is twenty-one directories; wear-level lives under
+it. The ERA targets below live under `tests/`; wear-level lives under
 `quantum/wear_leveling/tests/`.
 
 ```text
@@ -89,8 +89,8 @@ python tests/era_firmware_version/test_definitions.py
 
 | Test | Pins |
 | --- | --- |
-| `era_nvm` | production A/B power-cut/fault: mount and generation authority, 256-byte program split, 24-KiB logical bounds, 16-KiB atomic replacement, journal-full rotation, one-sector inactive erase, torn/mismatch seals, format, macro staging versus stock RESET, CLEAN-style write, wear-level-looking tail never migrated |
-| `era_nvm_qmk_driver` | ERA custom adapter compiled with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`: ordinary read/write/update, exact committed-span notification, non-notifying durable storage metadata, faulted counter writes that keep the previous public/replay value, the atomic counter-through-baseline convergence envelope, stock `nvm_dynamic_keymap_macro_reset()` as one durable transaction that publishes only after close, deferred RGB write inside an open macro, macro-touching replacement refused, failed close, whole-store erase, CLEAN prepare, physical prepare failure |
+| `era_nvm` | production A/B power-cut/fault: mount and generation authority, 256-byte program split, 24-KiB logical bounds, 16-KiB atomic replacement, journal-full rotation, one-sector inactive erase, torn/mismatch seals, format, macro staging versus stock RESET, open-macro isolation through unrelated rotation, partial-record replay, retired-bank reclamation, every rotation read/program failure with retry, bounded whole-domain replay reads, CLEAN-style write, wear-level-looking tail never migrated |
+| `era_nvm_qmk_driver` | ERA custom adapter compiled with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`: ordinary read/write/update, exact committed-span notification, non-notifying durable storage metadata, faulted counter writes that keep the previous public/replay value, the atomic counter-through-baseline convergence envelope, stock `nvm_dynamic_keymap_macro_reset()` as one durable transaction that publishes only after close, deferred RGB writes rotating during an open macro without changing its committed bytes or publishing MACRO, unaligned macro boundary preservation and interrupted-upload reboot, macro-touching replacement refused, failed close, whole-store erase, CLEAN prepare, physical prepare failure |
 | `era_host_peer_storage_recency_policy` | failed increment/clear cannot publish a settled capture or signal departure; failed convergence-metadata publication cannot retire recency. Tests the production policy header in `split/era_host_peer_storage_recency_policy.h`; does not construct a second fake HOST-PEER runtime |
 | `era_host_peer_storage_indicator_policy` | a serviced relation and the initiator's finite fast-recovery window both preserve continuity; a backed-off no-link state retires it. A successfully sent one stays visible-pair work after the local semantic arm falls until that role's sent-state boundary confirms zero; a one that never crossed creates no synthetic hold; a closed local gate cannot latch a new sent-one obligation and does not erase an already-confirmed one before its zero crosses. Peer-pending holds pair-pending independently. Production header: `split/era_host_peer_storage_indicator_policy.h` |
 | `era_host_peer_storage_standing_policy` | standing cadence remains admitted in ordinary service and is suppressed by transfer exclusivity, or by the push initiator's remote-responder Apply wait, or by its Complete wait (`split/era_host_peer_storage_standing_policy.h`). Responder push state does not create initiator suppression. Overlapping reasons stay suppressed. The latter two waits do not widen route exclusivity or responder-result coalescing |
@@ -142,6 +142,7 @@ wire/storage diagnostics; record wall-clock operation time separately.
 | 16-KiB dynamic-macro upload | opener through durable zero close and targeted marker readback |
 | journal-room Apply | 16-KiB replacement whose active journal has room and therefore does not rotate |
 | rotation Apply | bank rotation, remaining inactive-bank sector erases, new-bank construction |
+| unrelated save during macro staging | rotation with an open upload: elapsed time including committed-macro replay, unrelated setting readback, old complete macro after interruption, new complete macro only after CLOSE; no early MACRO revision |
 | physical diagnostic deltas | program and erase totals may move; `program_failure_count` and `erase_failure_count` stay 0 in every healthy run |
 | post-close agreement | content/readback match and exactly the expected KEYMAP/MACRO/CONFIG State Sync revision boundary |
 | relation liveness | Core1 failure, storage timeout, integrity, stale and queue-expiry counters do not increase outside the explicitly exercised failure leg, across the complete synchronous NVM window |

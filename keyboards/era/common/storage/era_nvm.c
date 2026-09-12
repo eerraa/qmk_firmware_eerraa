@@ -26,6 +26,17 @@ typedef struct {
     bool     sealed;
 } era_nvm_replay_info_t;
 
+/* A rotation-local description of a committed range, never a second public
+ * image. A covering record replaces the physical base; only later partial
+ * records need replay. Production whole-macro commits therefore need one
+ * parser pass and direct page reads, not a full journal CRC pass per page. */
+typedef struct {
+    uint32_t logical_address;
+    uint32_t physical_address;
+    uint32_t journal_begin;
+    uint32_t journal_end;
+} era_nvm_durable_view_t;
+
 typedef enum {
     ERA_NVM_SOURCE_BUFFER = 0,
     ERA_NVM_SOURCE_IMAGE,
@@ -328,9 +339,16 @@ static era_nvm_result_t era_nvm_select_physical_bank(era_nvm_t *nvm, uint8_t *ba
     return ERA_NVM_RESULT_OK;
 }
 
-static era_nvm_result_t era_nvm_replay_bank_range(era_nvm_t *nvm, uint8_t bank, uint32_t generation, uint32_t address, uint8_t *target, uint32_t length, era_nvm_replay_info_t *replay) {
+static era_nvm_result_t era_nvm_replay_bank_range(era_nvm_t *nvm, uint8_t bank, uint32_t generation, uint32_t address, uint8_t *target, uint32_t length, era_nvm_replay_info_t *replay, era_nvm_durable_view_t *view) {
     uint32_t base = era_nvm_bank_base(bank);
-    if (!era_nvm_flash_read(nvm, base + ERA_NVM_BANK_SNAPSHOT_OFFSET + address, target, length)) {
+    if (view != NULL) {
+        *view = (era_nvm_durable_view_t){
+            .logical_address  = address,
+            .physical_address = base + ERA_NVM_BANK_SNAPSHOT_OFFSET + address,
+            .journal_begin    = base + ERA_NVM_BANK_JOURNAL_OFFSET,
+            .journal_end      = base + ERA_NVM_BANK_JOURNAL_OFFSET,
+        };
+    } else if (!era_nvm_flash_read(nvm, base + ERA_NVM_BANK_SNAPSHOT_OFFSET + address, target, length)) {
         return ERA_NVM_RESULT_IO_ERROR;
     }
 
@@ -405,13 +423,22 @@ static era_nvm_result_t era_nvm_replay_bank_range(era_nvm_t *nvm, uint8_t bank, 
         uint32_t record_end   = record_begin + header.length;
         uint32_t wanted_end   = address + length;
         if (record_begin < wanted_end && address < record_end) {
-            uint32_t overlap_begin = record_begin > address ? record_begin : address;
-            uint32_t overlap_end   = record_end < wanted_end ? record_end : wanted_end;
-            uint32_t overlap_len   = overlap_end - overlap_begin;
-            uint32_t payload_index = overlap_begin - record_begin;
-            uint32_t target_index  = overlap_begin - address;
-            if (!era_nvm_flash_read(nvm, payload_offset + payload_index, target + target_index, overlap_len)) {
-                return ERA_NVM_RESULT_IO_ERROR;
+            if (view != NULL) {
+                uint32_t next = base + cursor + header.record_size;
+                if (record_begin <= address && record_end >= wanted_end) {
+                    view->physical_address = payload_offset + address - record_begin;
+                    view->journal_begin    = next;
+                }
+                view->journal_end = next;
+            } else {
+                uint32_t overlap_begin = record_begin > address ? record_begin : address;
+                uint32_t overlap_end   = record_end < wanted_end ? record_end : wanted_end;
+                uint32_t overlap_len   = overlap_end - overlap_begin;
+                uint32_t payload_index = overlap_begin - record_begin;
+                uint32_t target_index  = overlap_begin - address;
+                if (!era_nvm_flash_read(nvm, payload_offset + payload_index, target + target_index, overlap_len)) {
+                    return ERA_NVM_RESULT_IO_ERROR;
+                }
             }
         }
 
@@ -455,36 +482,100 @@ static era_nvm_result_t era_nvm_finish_inactive_erase(era_nvm_t *nvm) {
     return ERA_NVM_RESULT_OK;
 }
 
-static void era_nvm_snapshot_chunk(const era_nvm_t *nvm, uint32_t logical_offset, uint8_t *target, uint32_t length, uint32_t replacement_address, const era_nvm_source_t *replacement) {
-    memcpy(target, nvm->image + logical_offset, length);
-    if (replacement == NULL || replacement->length == 0U) {
-        return;
+static bool era_nvm_durable_view_read(const era_nvm_t *nvm, const era_nvm_durable_view_t *view, uint32_t address, uint8_t *target, uint32_t length) {
+    if (!era_nvm_flash_read(nvm, view->physical_address + address - view->logical_address, target, length)) {
+        return false;
     }
 
-    uint32_t chunk_end       = logical_offset + length;
+    /* The production parser admitted this prefix before construction began.
+     * Core0 is the sole flash writer and construction touches only the other
+     * bank, so neither these records nor the view can change during this call. */
+    uint32_t cursor = view->journal_begin;
+    while (cursor < view->journal_end) {
+        era_nvm_record_header_t header;
+        if (!era_nvm_flash_read(nvm, cursor, &header, sizeof(header)) || header.length == 0U ||
+            !era_nvm_range_valid(header.logical_address, header.length, ERA_NVM_LOGICAL_SIZE_BYTES) ||
+            header.record_size != era_nvm_record_size(header.length) || header.record_size > view->journal_end - cursor) {
+            return false;
+        }
+        uint32_t record_end = header.logical_address + header.length;
+        uint32_t wanted_end = address + length;
+        if (header.logical_address < wanted_end && address < record_end) {
+            uint32_t begin = header.logical_address > address ? header.logical_address : address;
+            uint32_t end   = record_end < wanted_end ? record_end : wanted_end;
+            if (!era_nvm_flash_read(nvm, cursor + sizeof(header) + begin - header.logical_address, target + (begin - address), end - begin)) {
+                return false;
+            }
+        }
+        cursor += header.record_size;
+    }
+    return true;
+}
+
+static bool era_nvm_snapshot_chunk(const era_nvm_t *nvm, uint32_t logical_offset, uint8_t *target, uint32_t length, uint32_t replacement_address, const era_nvm_source_t *replacement, const era_nvm_durable_view_t *macro_view) {
+    memcpy(target, nvm->image + logical_offset, length);
+    uint32_t chunk_end = logical_offset + length;
+    if (macro_view != NULL) {
+        uint32_t macro_begin = nvm->config.macro_address;
+        uint32_t macro_end   = macro_begin + nvm->config.macro_size;
+        if (macro_begin < chunk_end && logical_offset < macro_end) {
+            uint32_t begin = macro_begin > logical_offset ? macro_begin : logical_offset;
+            uint32_t end   = macro_end < chunk_end ? macro_end : chunk_end;
+            if (!era_nvm_durable_view_read(nvm, macro_view, begin, target + (begin - logical_offset), end - begin)) {
+                return false;
+            }
+        }
+    }
+    if (replacement == NULL || replacement->length == 0U) {
+        return true;
+    }
+
     uint32_t replacement_end = replacement_address + replacement->length;
     if (replacement_address >= chunk_end || logical_offset >= replacement_end) {
-        return;
+        return true;
     }
 
     uint32_t overlap_begin = replacement_address > logical_offset ? replacement_address : logical_offset;
     uint32_t overlap_end   = replacement_end < chunk_end ? replacement_end : chunk_end;
     era_nvm_source_copy(replacement, overlap_begin - replacement_address, target + (overlap_begin - logical_offset), overlap_end - overlap_begin);
+    return true;
 }
 
-static uint32_t era_nvm_snapshot_crc32(const era_nvm_t *nvm, uint32_t replacement_address, const era_nvm_source_t *replacement) {
+static bool era_nvm_snapshot_crc32(const era_nvm_t *nvm, uint32_t replacement_address, const era_nvm_source_t *replacement, const era_nvm_durable_view_t *macro_view, uint32_t *crc_out) {
     uint8_t  scratch[ERA_NVM_PROGRAM_PAGE_BYTES];
     uint32_t crc = ERA_NVM_CRC32_INITIAL;
     for (uint32_t offset = 0U; offset < ERA_NVM_LOGICAL_SIZE_BYTES; offset += sizeof(scratch)) {
-        era_nvm_snapshot_chunk(nvm, offset, scratch, sizeof(scratch), replacement_address, replacement);
+        if (!era_nvm_snapshot_chunk(nvm, offset, scratch, sizeof(scratch), replacement_address, replacement, macro_view)) {
+            return false;
+        }
         crc = era_nvm_crc32_update(crc, scratch, sizeof(scratch));
     }
-    return era_nvm_crc32_finish(crc);
+    *crc_out = era_nvm_crc32_finish(crc);
+    return true;
 }
 
 static era_nvm_result_t era_nvm_construct_bank(era_nvm_t *nvm, uint8_t bank, uint32_t generation, uint32_t replacement_address, const era_nvm_source_t *replacement) {
-    uint32_t base         = era_nvm_bank_base(bank);
-    uint32_t snapshot_crc = era_nvm_snapshot_crc32(nvm, replacement_address, replacement);
+    era_nvm_durable_view_t        durable_macro;
+    const era_nvm_durable_view_t *macro_view = NULL;
+    uint32_t macro_end = nvm->config.macro_address + nvm->config.macro_size;
+    bool replaces_macro = replacement != NULL && replacement_address <= nvm->config.macro_address &&
+                          replacement->length >= macro_end - replacement_address;
+    if (nvm->active_bank < ERA_NVM_BANK_COUNT && nvm->macro_mode != ERA_NVM_MACRO_IDLE && !replaces_macro) {
+        /* Staging owns the public macro bytes, not their durable snapshot.
+         * Unrelated writes and headroom repair must preserve the last physical
+         * commit even after journal exhaustion or a failed append sealed it.
+         * CLOSE/RESET/FORMAT supply a complete replacement and need no view. */
+        era_nvm_result_t result = era_nvm_replay_bank_range(nvm, nvm->active_bank, nvm->generation, nvm->config.macro_address, NULL, nvm->config.macro_size, NULL, &durable_macro);
+        if (result != ERA_NVM_RESULT_OK) {
+            return result;
+        }
+        macro_view = &durable_macro;
+    }
+    uint32_t base = era_nvm_bank_base(bank);
+    uint32_t snapshot_crc;
+    if (!era_nvm_snapshot_crc32(nvm, replacement_address, replacement, macro_view, &snapshot_crc)) {
+        return ERA_NVM_RESULT_IO_ERROR;
+    }
 
     era_nvm_bank_header_t header = {
         .magic           = ERA_NVM_BANK_MAGIC,
@@ -505,7 +596,9 @@ static era_nvm_result_t era_nvm_construct_bank(era_nvm_t *nvm, uint8_t bank, uin
 
     uint8_t scratch[ERA_NVM_PROGRAM_PAGE_BYTES];
     for (uint32_t offset = 0U; offset < ERA_NVM_LOGICAL_SIZE_BYTES; offset += sizeof(scratch)) {
-        era_nvm_snapshot_chunk(nvm, offset, scratch, sizeof(scratch), replacement_address, replacement);
+        if (!era_nvm_snapshot_chunk(nvm, offset, scratch, sizeof(scratch), replacement_address, replacement, macro_view)) {
+            return ERA_NVM_RESULT_IO_ERROR;
+        }
         if (!era_nvm_flash_program_verified(nvm, base + ERA_NVM_BANK_SNAPSHOT_OFFSET + offset, scratch, sizeof(scratch))) {
             return ERA_NVM_RESULT_IO_ERROR;
         }
@@ -551,6 +644,11 @@ static era_nvm_result_t era_nvm_rotate(era_nvm_t *nvm, uint32_t replacement_addr
         /* The construction target is now ambiguous. The next attempt starts by
          * erasing it from sector zero; the old active bank was never touched. */
         nvm->inactive_erase_sector = 0U;
+        /* Activation can reach NOR before its verification read fails. Until
+         * a checked rotation repairs that ambiguity, RAM equality must not
+         * be returned as a durable NO_CHANGE receipt. Reuse the sealed-tail
+         * recovery state; no second "uncertain commit" flag is needed. */
+        nvm->tail_sealed = true;
         return result;
     }
 
@@ -696,10 +794,9 @@ static era_nvm_result_t era_nvm_macro_reset_begin(era_nvm_t *nvm) {
         return ERA_NVM_RESULT_OK;
     }
 
-    /* Invalidate the public marker only after a mandatory future whole-domain
-     * write is guaranteed to fit. If an upload is already open, its opener has
-     * already made this same headroom guarantee and has issued no durable
-     * writes since. */
+    /* Preflight headroom before invalidating the marker. An open upload may
+     * have admitted unrelated durable writes since its opener; a required
+     * rotation preserves the committed macro independently of staging. */
     era_nvm_result_t result = era_nvm_ensure_macro_headroom(nvm);
     if (result != ERA_NVM_RESULT_OK) {
         return result;
@@ -897,7 +994,7 @@ era_nvm_result_t era_nvm_mount(era_nvm_t *nvm) {
     }
 
     era_nvm_replay_info_t replay;
-    result = era_nvm_replay_bank_range(nvm, bank, bank_info.generation, 0U, nvm->image, ERA_NVM_LOGICAL_SIZE_BYTES, &replay);
+    result = era_nvm_replay_bank_range(nvm, bank, bank_info.generation, 0U, nvm->image, ERA_NVM_LOGICAL_SIZE_BYTES, &replay, NULL);
     if (result != ERA_NVM_RESULT_OK) {
         nvm->state = ERA_NVM_STATE_FAULTED;
         return result;
@@ -1017,10 +1114,10 @@ era_nvm_result_t era_nvm_replace(era_nvm_t *nvm, uint32_t address, const void *d
     if (!era_nvm_range_valid(address, length, ERA_NVM_LOGICAL_SIZE_BYTES) || (length > 0U && data == NULL)) {
         return ERA_NVM_RESULT_INVALID_ARGUMENT;
     }
-    /* The exclusivity is scoped to the macro domain, and the scope is the whole
-     * rule. An open upload cannot be published by a rotation that snapshots it,
-     * because the staged marker stays nonzero - so a durable write to any other
-     * range is safe while one is open, and refusing it is not.
+    /* The exclusivity is scoped to the macro domain. Rotation reconstructs its
+     * committed bytes through the production replay parser instead of copying
+     * the public staging buffer; a nonzero marker alone prevents execution but
+     * does not preserve the previous durable macro.
      *
      * VIA runs no other save during an upload, but the *keyboard* does: an
      * RGB Toggle pressed by accident reaches eeconfig_update_rgb_matrix(),
@@ -1043,7 +1140,10 @@ era_nvm_result_t era_nvm_replace(era_nvm_t *nvm, uint32_t address, const void *d
         .buffer = (const uint8_t *)data,
         .length = (uint32_t)length,
     };
-    if (era_nvm_source_matches_image(nvm, address, &source)) {
+    /* A failed final seal/readback may leave a newer complete physical record
+     * while RAM deliberately retains the last confirmed image. A sealed tail
+     * therefore owes a checked rotation even for an identical replacement. */
+    if (!nvm->tail_sealed && era_nvm_source_matches_image(nvm, address, &source)) {
         return ERA_NVM_RESULT_NO_CHANGE;
     }
     return era_nvm_commit_source(nvm, address, &source, origin);
@@ -1124,7 +1224,7 @@ era_nvm_result_t era_nvm_replay_read(era_nvm_t *nvm, uint32_t address, void *dat
     if (result != ERA_NVM_RESULT_OK) {
         return ERA_NVM_RESULT_IO_ERROR;
     }
-    return era_nvm_replay_bank_range(nvm, bank, info.generation, address, (uint8_t *)data, (uint32_t)length, NULL);
+    return era_nvm_replay_bank_range(nvm, bank, info.generation, address, (uint8_t *)data, (uint32_t)length, NULL, NULL);
 }
 
 era_nvm_result_t era_nvm_maintenance_erase_one_sector(era_nvm_t *nvm, bool *did_work) {

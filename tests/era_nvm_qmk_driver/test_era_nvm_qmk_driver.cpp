@@ -293,6 +293,66 @@ TEST_F(EraNvmQmkDriver, StagedMacroAllowsDeferredRgbStyleWriteAndPersistsItAcros
     EXPECT_EQ(replayed_payload, payload);
 }
 
+TEST_F(EraNvmQmkDriver, StockMacroStagingSurvivesUnrelatedRotationWithoutPublishingOrReplacingCommittedBytes) {
+    uint8_t invalid = 0xFF;
+    uint8_t valid = 0U;
+    uint8_t old_payload = 0x31;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &invalid);
+    nvm_dynamic_keymap_macro_update_buffer(31U, 1U, &old_payload);
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
+    ASSERT_FALSE(era_eeprom_driver_macro_transaction_open());
+    eeprom_update_byte(reinterpret_cast<uint8_t *>(kMacroAddress - 1U), 0x7BU);
+    eeprom_update_byte(reinterpret_cast<uint8_t *>(kMacroMarker + 1U), 0x9CU);
+
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &invalid);
+    uint8_t staged = 0x58;
+    nvm_dynamic_keymap_macro_update_buffer(0U, 1U, &staged);
+    reset_notifications();
+    std::array<uint8_t, 8> rgb{};
+    // More than a complete journal of real QMK RGB-sized updates. The macro
+    // starts at an unaligned address, so both boundary pages have neighbours.
+    for (uint32_t i = 0U; i < 800U; ++i) {
+        rgb.fill(static_cast<uint8_t>(i + 1U));
+        eeprom_update_block(rgb.data(), reinterpret_cast<void *>(23U), rgb.size());
+        ASSERT_EQ(g_notify_count, i + 1U);
+        ASSERT_EQ(g_notify_offset, 23U);
+        ASSERT_EQ(g_notify_length, rgb.size());
+    }
+    ASSERT_TRUE(era_eeprom_driver_macro_transaction_open());
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), staged);
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroMarker)), invalid);
+    std::array<uint8_t, kMacroSize> expected{};
+    expected[31U] = old_payload;
+    std::array<uint8_t, kMacroSize> replay{};
+    ASSERT_EQ(era_eeprom_driver_replay_read(kMacroAddress, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(replay, expected);
+    const auto interrupted_flash = g_flash.bytes;
+
+    reset_notifications();
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
+    EXPECT_FALSE(era_eeprom_driver_macro_transaction_open());
+    EXPECT_EQ(g_notify_count, 1U);
+    EXPECT_EQ(g_notify_offset, kMacroAddress);
+    EXPECT_EQ(g_notify_length, kMacroSize);
+    expected[0U] = staged;
+    eeprom_driver_init();
+    eeprom_read_block(replay.data(), reinterpret_cast<const void *>(kMacroAddress), replay.size());
+    EXPECT_EQ(replay, expected);
+
+    // Independent reboot branch: power loss before CLOSE recovers the old
+    // complete macro and the new unrelated setting, never the staged marker.
+    g_flash.bytes = interrupted_flash;
+    eeprom_driver_init();
+    expected[0U] = 0U;
+    eeprom_read_block(replay.data(), reinterpret_cast<const void *>(kMacroAddress), replay.size());
+    EXPECT_EQ(replay, expected);
+    std::array<uint8_t, 8> rgb_after{};
+    eeprom_read_block(rgb_after.data(), reinterpret_cast<const void *>(23U), rgb_after.size());
+    EXPECT_EQ(rgb_after, rgb);
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress - 1U)), 0x7BU);
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroMarker + 1U)), 0x9CU);
+}
+
 TEST_F(EraNvmQmkDriver, MacroStagingPrecedesDurableSemanticPublication) {
     reset_notifications();
 
