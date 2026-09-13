@@ -1316,8 +1316,11 @@ bool era_split_transport_scheduler_rotate_storage_relation(void) {
    unit's, the backoff period is the scheduler's, and the response window each
    probe carries is the wire protocol's, scaled by up to the Low level's factor
    -- so the unit that includes all three is where the assert lives. */
-_Static_assert(ERA_SPLIT_LINK_SCAN_DWELL_MS >= 2U * (ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS + ERA_SPLIT_PEER_RESPONSE_WINDOW_MS * (ERA_SPLIT_LINK_SPEED_HIGH / ERA_SPLIT_LINK_SPEED_LOW)),
-               "The listener's dwell must hold at least two backed-off discovery probes, each with its slowest response window, or a talking peer could go unheard.");
+_Static_assert(ERA_SPLIT_LINK_SCAN_DWELL_MS >=
+                   2U * (ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS +
+                         ERA_SPLIT_PEER_RESPONSE_WINDOW_MS * (ERA_SPLIT_LINK_SPEED_HIGH / ERA_SPLIT_LINK_SPEED_LOW) +
+                         ERA_SPLIT_AUTHORITY_POLL_PERIOD_MS),
+               "The listener must cover two backed-off probes, slow receive windows and maintenance margins.");
 _Static_assert(ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS >= 2U * ERA_SPLIT_RESPONDER_SILENCE_MS,
                "The raise-confirm window must outlast one responder-silence watch, or a High the cable cannot hold is not observed before the session is declared live.");
 /* The cold transition is shared verbatim with the host fault-injection

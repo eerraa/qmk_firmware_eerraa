@@ -166,6 +166,35 @@ class SourceContracts(unittest.TestCase):
         self.assertNotIn(".skips_hid_quiet = true", clean)
         self.assertIn(".resets = true", clean)
 
+    def test_single_listener_window_stays_on_the_existing_cold_path(self):
+        step = body("split/era_split_link.c", "era_split_link_step_due")
+        self.assertIn("ERA_SPLIT_LINK_SCAN_DWELL_MS", step)
+        self.assertNotIn("scan_undecodable_after_guard", source("split/era_split_link.c"))
+        self.assertNotIn("ERA_SPLIT_LINK_SCAN_EARLY_MS", source("split/era_split_link.h"))
+        self.assertNotIn("ERA_SPLIT_LINK_SCAN_NOISE_GAP_MS", source("split/era_split_link.h"))
+        self.assertRegex(source("split/era_split_link.h"), r"define ERA_SPLIT_LINK_SCAN_DWELL_MS 400\b")
+        self.assertGreaterEqual(step.count("era_split_communication_core_responder_accepted_rx_count()"), 2)
+        for forbidden in ("era_split_link_store", "wait_ms", "mark_dirty", "wake", "era_split_restart_agreement_request"):
+            self.assertNotIn(forbidden, step)
+        note = body("split/era_split_link.c", "era_split_link_note_relation")
+        self.assertRegex(note, r"if \(serviced \|\| !listening\)\s*\{\s*g_era_split_link.scan_valid = false;")
+        scan = body("split/era_split_transport_scheduler.c", "era_split_transport_scheduler_transport_step")
+        self.assertNotIn("era_split_link_step_due", scan)
+        cold = body("split/era_split_transport_scheduler.c", "era_split_transport_scheduler_housekeeping_body")
+        self.assertIn("era_split_link_step_due(&link_step_level)", cold)
+
+    def test_disconnected_sender_cadence_and_wait_primitives_remain_bounded(self):
+        constants = source("split/scheduler/era_split_transport_scheduler_internal.h")
+        self.assertRegex(constants, r"define ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS 25\b")
+        self.assertRegex(constants, r"define ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER 10\b")
+        self.assertRegex(constants, r"define ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS 100\b")
+        self.assertIn("__WFE();", body("split/era_split_transaction_backend_rp2040.c", "era_split_transaction_backend_park_until"))
+        self.assertIn("era_split_transaction_backend_park_until", body("split/era_split_transaction_backend_rp2040.c", "era_split_transaction_backend_receive_response_window_until"))
+        self.assertIn("era_split_transaction_backend_park_until", body("split/era_split_transaction_backend_rp2040.c", "era_split_transaction_backend_receive_responder_until"))
+        scheduler = source("split/era_split_transport_scheduler.c")
+        self.assertIn("ERA_SPLIT_LINK_SCAN_DWELL_MS >=", scheduler)
+        self.assertRegex(scheduler, r"2U \* \(ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS \+\s*ERA_SPLIT_PEER_RESPONSE_WINDOW_MS.*\+\s*ERA_SPLIT_AUTHORITY_POLL_PERIOD_MS\)")
+
     def test_all_six_split_definitions_expose_read_only_local_link_labels(self):
         expected = {
             "id_qmk_split_link_runtime": (64, "Runtime Level"),

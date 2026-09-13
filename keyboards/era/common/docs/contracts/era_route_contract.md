@@ -111,7 +111,7 @@ Storage is a dedicated cold-task lane, not an owner route.
 | `SESSION_STATUS` post-relation | none | no post-relation cadence and no in-relation edge. Edges that still raise revalidation: `era_authority_contract.md` |
 | `ERA_SPLIT_SESSION_REFRESH_PERIOD_MS` | 50 | known peer, while that relation's own lane is not live (`scheduler/era_split_transport_scheduler_timing.c`) |
 | `ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS` | 25 | peer-unknown discovery until `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` 10 consecutive misses |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` | 500 | peer-unknown discovery after that streak |
+| `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` | 100 | completion-to-next-probe interval after that streak; at most ten steady no-link probes/s |
 | `ERA_SPLIT_SESSION_BOOTSTRAP_RESPONSE_WINDOW_MS` | 2 | `SESSION_STATUS` response window while the peer is unknown; known-peer uses `ERA_SPLIT_PEER_RESPONSE_WINDOW_MS` 20 |
 | core0-originated route cadence in a live relation | none | **Nothing core0 selects runs on a cadence in either live relation.** HOST-PEER's PEER keeps one core0-selected route (matrix source-push, event-driven). Section set: `era_wire_contract.md` |
 | `ERA_SPLIT_HOST_SOURCE_RESPONSE_POLL_PERIOD_MS` | 10 | HOST-PEER standing period. Does not scale with link. No runtime route deadline in the core0 set, so shortening costs core0 no wake |
@@ -121,7 +121,7 @@ Storage is a dedicated cold-task lane, not an owner route.
 | `ERA_SPLIT_DUAL_RUNTIME_POLL_MS` | 1 | **one period, run unconditionally.** No activity window, quiet rate, or hint. A local dirty section is due immediately. **This period is the responder's latency bound.** 1 / 2 / 4 ms High / Medium / Low = × `era_split_transaction_backend_wire_scale()` |
 | `ERA_SPLIT_STANDING_LIVENESS_MS` | 50 | `ERA_SPLIT_RESPONDER_SILENCE_MS` 100 / 2. Not per-relation. Fires only while `enabled` is clear |
 | `ERA_SPLIT_TIME_ANCHOR_REFRESH_MS` | 60000 | relation time-anchor refresh; the section is latest-state (`era_wire_contract.md`) |
-| `ERA_SPLIT_LINK_SCAN_DWELL_MS` | 1500 | listener dwell. Scheduler asserts it outlasts two backed-off probes with their slowest response windows (`split/era_split_transport_scheduler.c`) |
+| `ERA_SPLIT_LINK_SCAN_DWELL_MS` | 400 | one listener window; scheduler asserts room for two backed-off probes, their slowest receive windows and maintenance margins (`split/era_split_transport_scheduler.c`) |
 | `ERA_SPLIT_LINK_SCAN_NOISE_MIN` | 2 | undecodable arrivals in one dwell before the listener steps |
 | `ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS` | 200 | raise-confirm window; asserted ≥ 2 × `ERA_SPLIT_RESPONDER_SILENCE_MS` 100 |
 | `ERA_SPLIT_LINK_UPGRADE_WAIT_MS` | 500 | bounded initial wait for a winner arm; timeout releases the storage gate without guessing or persisting a rate |
@@ -394,7 +394,7 @@ is eligible in both directions. That predicate suppresses the periodic
 | --- | --- |
 | no sync policy gate | discovery, role change, recovery always reachable |
 | known-relation idle liveness | the relation's own lane, never `SESSION_STATUS` |
-| peer-unknown bootstrap | `ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS` 25 → `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` 500 after `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` 10 consecutive misses |
+| peer-unknown bootstrap | `ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS` 25 → `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` 100 after `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` 10 consecutive misses |
 | accepted traffic refreshes liveness regardless of class | `era_invariants.md` |
 
 **Every half opens the wire at Low.** Boot Low is
@@ -424,7 +424,12 @@ The listener ring, its constants, and every convergence case live in
 `split/era_split_link.h` **Reconciliation**. **The cable carries power from
 the hosted half**, so every plug is a late-peer case: threshold
 `ERA_SPLIT_LINK_SCAN_NOISE_MIN` 2. Ring High → Medium → Low → High. Dwell
-`ERA_SPLIT_LINK_SCAN_DWELL_MS` 1500. The three route-layer terms: settled
+`ERA_SPLIT_LINK_SCAN_DWELL_MS` 400 is one complete observation window, not
+an early/fallback pair. Any accepted frame vetoes a step; the error threshold
+is not a count of distinct packets. Role exit retires the window even when
+no step task ran between two replans. The faster no-link sender is a deliberate
+bounded cost: its completion-to-next-probe interval is 100 ms, while both
+serviced relations keep their existing poll rates. The three route-layer terms: settled
 wire role ANDed with wire availability; whether the plan is the peer-unknown
 bootstrap; whether a relation is serviced. The step runs in
 `era_split_transport_scheduler_apply_link_step()` in

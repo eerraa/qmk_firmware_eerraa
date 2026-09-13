@@ -173,6 +173,21 @@ publication crosses between rate completion and the report. Repeat all three
 found and stored target levels, both HOST orientations and DUAL-HOST; sampled
 latest-state tests must not inject an intermediate idle to make this pass.
 
+For discovery, compare the same cable, rates and attach sequence before and
+after: measure first wire activity, successful SESSION_STATUS and the green
+edges separately. Check all initial/target levels, both HOST orientations,
+DUAL-HOST, cold/late attachment, noise and loss. Silence and a single boot
+break must not change rate; any valid frame in the complete listener window
+must veto a step. Verify no persistence from search. Measure the deliberate
+no-cable probe increase against the configured completion-to-next-probe
+interval, including actual TX/wait time and the initial ten-miss bootstrap.
+There must be no independent Right send and no steady-relation cadence change.
+Compare Core0 scan rate and Core1 parked time on like-for-like diagnostic
+images with the long-park caveat in `era_capture_reading.md`'s **The qwin Window**.
+Host-injected arrivals prove policy, not CPU percentages or electrical margins.
+`tests/era_split_link_lifecycle/test_discovery_cadence.py` compiles the actual
+sender period, due, reset and completion functions against controlled time.
+
 For the explicit local LINK Apply receipt, check a changed level, the same
 runtime-and-saved level, a busy agreement, cancellation, and an injected local
 runtime/NVM failure. Only the commanded half reports the result: no pending

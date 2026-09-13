@@ -1335,3 +1335,214 @@ TEST_F(EraSplitLinkLifecycle, SampledLatestStateRecoversOnceAcrossAllRolesAndRat
         }
     }
 }
+
+
+
+// Sender and listener are retuned together. These are logical time tests,
+// not measurements of wire latency, Core0 load or LED output.
+TEST_F(EraSplitLinkLifecycle, DiscoveryWindowAdvancesAt400msWithoutAnEarlyPhase) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(10); era_test_link_noise(0,1); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,2); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(279); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(1); ASSERT_TRUE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_physical(),ERA_SPLIT_LINK_LEVEL_HIGH);
+    EXPECT_EQ(nor().programs,0U); EXPECT_EQ(nor().erases,0U);
+    EXPECT_EQ(era_test_link_resets(),0U);
+    EXPECT_FALSE(era_split_link_reconcile_success_report_advance(nullptr));
+}
+
+TEST_F(EraSplitLinkLifecycle, BurstCannotShortenTheCompleteDiscoveryWindow) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(10); era_test_link_noise(0,20);
+    for (unsigned elapsed=10;elapsed<400;elapsed+=10) {
+        set_time(1000+elapsed); EXPECT_FALSE(era_test_link_recovery_step());
+    }
+    set_time(1400); EXPECT_TRUE(era_test_link_recovery_step());
+}
+
+TEST_F(EraSplitLinkLifecycle, AcceptedFrameDominatesNoiseThroughoutTheWindow) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(10); era_test_link_noise(0,20); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(389); era_test_link_noise(1,100); EXPECT_FALSE(era_test_link_recovery_step());
+    advance_time(1); EXPECT_FALSE(era_test_link_recovery_step());
+    advance_time(400); EXPECT_FALSE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_transition_count(),0U);
+}
+
+TEST_F(EraSplitLinkLifecycle, ListenerExitRetiresEvidenceWithoutAnInterveningStepTask) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,2); ASSERT_FALSE(era_test_link_recovery_step());
+    era_test_link_meet(false,true,false,false,false,false);
+    advance_time(2000);
+    era_test_link_meet(false,false,false,false,false,false);
+    EXPECT_FALSE(era_test_link_recovery_step());
+    advance_time(400); EXPECT_FALSE(era_test_link_recovery_step());
+}
+
+TEST_F(EraSplitLinkLifecycle, DiscoveryWindowAndErrorCountsAreWrapSafe) {
+    set_time(UINT32_MAX-200U); era_test_link_noise(0,UINT32_MAX-1U);
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(10); era_test_link_noise(0,UINT32_MAX); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,0); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(279); ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(1); ASSERT_TRUE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_physical(),ERA_SPLIT_LINK_LEVEL_HIGH);
+}
+
+TEST_F(EraSplitLinkLifecycle, LateCore0SampleCannotReplayMissedWindows) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(10); era_test_link_noise(0,20);
+    advance_time(1990); ASSERT_TRUE(era_test_link_recovery_step());
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(400); EXPECT_FALSE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_transition_count(),1U);
+    EXPECT_EQ(nor().programs,0U);
+}
+
+TEST_F(EraSplitLinkLifecycle, SingleBootBreakCannotAccumulateAcrossWindows) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    for (unsigned count=1;count<=4;++count) {
+        advance_time(10); era_test_link_noise(0,count);
+        advance_time(390); EXPECT_FALSE(era_test_link_recovery_step());
+    }
+    EXPECT_EQ(era_test_link_transition_count(),0U);
+    EXPECT_FALSE(era_split_link_rate_searched());
+}
+
+TEST_F(EraSplitLinkLifecycle, SilentDisconnectedHalvesDoNotReconfigureOrWrite) {
+    for (bool initiator : {false,true}) {
+        SetUp(); era_test_link_relation(false,initiator,initiator,initiator);
+        for (unsigned t=0;t<=60000;t+=10) {
+            set_time(1000+t); EXPECT_FALSE(era_test_link_recovery_step());
+        }
+        EXPECT_EQ(era_test_link_quiesce_count(),0U);
+        EXPECT_EQ(era_test_link_transition_count(),0U);
+        EXPECT_EQ(nor().programs,0U); EXPECT_EQ(nor().erases,0U);
+        EXPECT_FALSE(era_split_link_rate_searched());
+        EXPECT_FALSE(era_split_link_reconcile_success_report_advance(nullptr));
+    }
+}
+
+TEST_F(EraSplitLinkLifecycle, NewDividerCannotReusePreviousDiscoveryEvidence) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,2);
+    advance_time(290); ASSERT_TRUE(era_test_link_recovery_step());
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(400); EXPECT_FALSE(era_test_link_recovery_step());
+    advance_time(400); EXPECT_FALSE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_transition_count(),1U);
+    EXPECT_EQ(nor().programs,0U);
+}
+
+TEST_F(EraSplitLinkLifecycle, FailedDiscoveryTransitionNeverPersistsAnUnagreedRate) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,2);
+    advance_time(290); era_test_link_fault(2); EXPECT_FALSE(era_test_link_recovery_step());
+    EXPECT_NE(era_test_link_dirty(),0U);
+    EXPECT_EQ(nor().programs,0U); EXPECT_EQ(nor().erases,0U);
+    EXPECT_FALSE(era_split_link_reconcile_success_report_advance(nullptr));
+    era_test_link_fault(0); EXPECT_TRUE(era_test_link_repair());
+    EXPECT_EQ(era_test_link_physical(),ERA_SPLIT_LINK_LEVEL_HIGH);
+    EXPECT_EQ(era_test_link_stored(),ERA_SPLIT_LINK_LEVEL_HIGH);
+}
+
+TEST_F(EraSplitLinkLifecycle, PeriodicProbePhaseModelFindsEveryRateWithoutExtraTransitions) {
+    // Supplied arrivals cover a fast probe, backed-off absent-peer response,
+    // and a conservative Low known-peer window plus maintenance. 1ms phases
+    // deliberately sweep across the independent 10ms listener task boundary.
+    unsigned cases=0;
+    for (uint32_t period : {30U,110U,190U}) {
+        for (uint32_t phase=1;phase<=period;++phase) {
+            for (uint8_t initial=0;initial<ERA_SPLIT_LINK_LEVEL_COUNT;++initial) {
+                for (uint8_t target=0;target<ERA_SPLIT_LINK_LEVEL_COUNT;++target) {
+                    SetUp(); choose(1,1000);
+                    era_test_link_set_physical(initial,true);
+                    era_test_link_relation(false,false,false,false);
+                    ASSERT_FALSE(era_test_link_recovery_step());
+                    unsigned errors=0, probes=0;
+                    uint32_t found_at=0;
+                    const unsigned hops=(target+ERA_SPLIT_LINK_LEVEL_COUNT-initial)%ERA_SPLIT_LINK_LEVEL_COUNT;
+                    for (uint32_t t=1;t<=2500;++t) {
+                        set_time(1000+t);
+                        if (t>=phase && (t-phase)%period==0) {
+                            ++probes;
+                            if (era_test_link_physical()==target) {
+                                era_test_link_noise(1,errors);
+                                EXPECT_FALSE(era_test_link_recovery_step());
+                                found_at=t;
+                                break;
+                            }
+                            era_test_link_noise(0,++errors);
+                        }
+                        if (t%10==0) (void)era_test_link_recovery_step();
+                        EXPECT_FALSE(era_split_link_reconcile_success_report_advance(nullptr));
+                    }
+                    ASSERT_NE(found_at,0U);
+                    EXPECT_LE(found_at,hops*(400U+10U)+period);
+                    EXPECT_EQ(era_test_link_transition_count(),hops);
+                    EXPECT_EQ(probes,1U+(found_at-phase)/period);
+                    EXPECT_EQ(era_test_link_physical(),target);
+                    EXPECT_EQ(nor().programs,0U); EXPECT_EQ(nor().erases,0U);
+                    ++cases;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(cases,2970U);
+}
+
+TEST_F(EraSplitLinkLifecycle, AcceptedFrameArrivingDuringTheDecisionVetoesTheStep) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    advance_time(110); era_test_link_noise(0,2);
+    advance_time(290); era_test_link_accept_after_next_read();
+    EXPECT_FALSE(era_test_link_recovery_step());
+    EXPECT_EQ(era_test_link_quiesce_count(),0U);
+    EXPECT_EQ(era_test_link_physical(),ERA_SPLIT_LINK_LEVEL_LOW);
+    EXPECT_FALSE(era_split_link_rate_searched());
+}
+
+TEST_F(EraSplitLinkLifecycle, OneCorruptProbeCannotHideTheNextCorrectRateProbe) {
+    for (unsigned period : {110U,190U}) {
+        for (unsigned phase=1;phase<=period;++phase) {
+            SetUp(); era_test_link_relation(false,false,false,false);
+            ASSERT_FALSE(era_test_link_recovery_step());
+            for (unsigned t=1;t<=400;++t) {
+                set_time(1000+t);
+                // One malformed frame can produce multiple decoder errors.
+                if (t==phase) era_test_link_noise(0,5);
+                if (t==phase+period) era_test_link_noise(1,5);
+                if (t%10==0) EXPECT_FALSE(era_test_link_recovery_step());
+            }
+            EXPECT_EQ(era_test_link_transition_count(),0U);
+        }
+    }
+}
+
+TEST_F(EraSplitLinkLifecycle, ContinuousNoiseCannotSpinTheRateSelector) {
+    era_test_link_relation(false,false,false,false);
+    ASSERT_FALSE(era_test_link_recovery_step());
+    unsigned previous=0; uint32_t last=1000;
+    for (unsigned t=10;t<=2000;t+=10) {
+        set_time(1000+t); era_test_link_noise(0,t);
+        (void)era_test_link_recovery_step();
+        unsigned count=era_test_link_transition_count();
+        if (count!=previous) {
+            EXPECT_EQ(count,previous+1);
+            EXPECT_GE(1000+t-last,400U);
+            previous=count; last=1000+t;
+        }
+    }
+    EXPECT_LE(previous,5U);
+    EXPECT_EQ(nor().programs,0U); EXPECT_EQ(nor().erases,0U);
+}

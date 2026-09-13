@@ -48,26 +48,29 @@ _Static_assert(ERA_SPLIT_LINK_LEVEL_LOW + 1 == ERA_SPLIT_LINK_LEVEL_COUNT, "The 
 #define ERA_SPLIT_LINK_SPEED_MEDIUM (ERA_SPLIT_LINK_SPEED_HIGH / 2U)
 #define ERA_SPLIT_LINK_SPEED_LOW (ERA_SPLIT_LINK_SPEED_HIGH / 4U)
 
-/* The listener's dwell: how long it listens at one level before it judges the
- * window. Two things bound it from below and one from above. It must hold at
- * least two of the talker's discovery probes, because a peer that has just
- * been given power holds the line low until its firmware claims the pin -- the
- * cable carries power from the hosted half, so plugging it boots the other,
- * and an RP2040 pad resets with its pull-down enabled -- and that break
- * produces exactly one undecodable arrival (the RX program parks after the
- * error until the line idles), so one arrival must never move a level; the
- * probe backs off to 500 ms after ten misses, and each probe carries its own
- * response window, so two of them fit inside 1500 ms with room -- the
- * scheduler asserts that arithmetic beside the constants it owns. It must also outlast the time a
- * correct level takes to prove itself, and it does easily: at the right rate
- * the first probe decodes, and one decoded frame inside the window is what
- * cancels the step. From above, every 1500 ms of mismatch is one lap of the
- * ring's three levels at most, so a mismatched pair meets in <= 2 dwells plus
- * discovery, and that is the cost the owner sees once, on a recovery path,
- * not on the common boot. */
+/* One listener window, sized with the sender's backed-off probe interval.
+ * The scheduler asserts room for two probe opportunities, each with the
+ * slowest receive window and a maintenance pass. A decoded frame anywhere in
+ * the window vetoes a step; silence and one boot break never change rate.
+ * A powered peer can hold the line low during boot, producing one decoder
+ * failure, so the noise threshold remains at least two.
+ *
+ * The fixed window deliberately replaces a separate early-noise phase. Faster
+ * discovery pays bounded extra no-link traffic instead of retaining timing
+ * state to infer whether errors observed on different passes were separate.
+ * It does not prove that multiple decoder errors represent different packets:
+ * the complete window and positive-frame veto provide the discovery chance.
+ * Electrical noise and physical timing still require the device gates.
+ *
+ * The existing cold task owns this decision. No new polling loop, interrupt,
+ * wire field or Core1 state is introduced. Role exit and rate selection retire
+ * the window; a late task evaluates it once, never catches up by replaying
+ * missed windows. Boot Low, the listener-only ring and persistence are intact. */
 #ifndef ERA_SPLIT_LINK_SCAN_DWELL_MS
-#    define ERA_SPLIT_LINK_SCAN_DWELL_MS 1500
+#    define ERA_SPLIT_LINK_SCAN_DWELL_MS 400
 #endif
+_Static_assert(ERA_SPLIT_LINK_SCAN_DWELL_MS > 0 && ERA_SPLIT_LINK_SCAN_DWELL_MS < INT32_MAX,
+               "The listener window must fit the wrap-safe timer range.");
 /* Undecodable arrivals in one dwell before the listener steps. Two, for the
  * break above: one is what a peer booting on cable power produces before it
  * speaks, and the talker's probes repeat, so a peer that is actually talking

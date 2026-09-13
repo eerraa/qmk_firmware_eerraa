@@ -23,14 +23,18 @@
 #ifndef ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER
 #    define ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER 10
 #endif
-/* The peer-unknown discovery backoff target: after the backoff threshold
-   above, a half with no confirmed peer probes at this period instead of the
-   25 ms bootstrap period. Known-relation liveness always runs at
-   ERA_SPLIT_SESSION_REFRESH_PERIOD_MS; the HOST-HOST slow-liveness caller
-   this constant once served retired with the DUAL-HOST parent (Slice 9.5). */
+/* Completion-to-next-probe quiet interval after the initial miss streak.
+ * At most ten steady no-link probes per second: a bounded Core0 publication /
+ * result cost and Core1 TX/RX work in exchange for prompt late attachment.
+ * The waits still park; wire occupancy is not CPU utilization. The initial
+ * bootstrap cadence and miss-count continuity classification stay unchanged.
+ * This is not the period of either serviced relation's standing exchange. */
 #ifndef ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS
-#    define ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS 500
+#    define ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS 100
 #endif
+_Static_assert(ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS > 0 &&
+                   ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS >= ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS,
+               "No-link backoff must remain bounded and no faster than bootstrap.");
 #ifndef ERA_SPLIT_SESSION_REFRESH_PERIOD_MS
 #    define ERA_SPLIT_SESSION_REFRESH_PERIOD_MS 50
 #endif

@@ -28,6 +28,7 @@ static struct {
     uint8_t physical, selected;
     bool ready, published, quiet, storage_busy, anchor;
     uint32_t transitioned_ms, accepted, undecodable;
+    bool accept_after_next_read;
 } test_hw;
 
 static bool era_split_transport_scheduler_stop_communication_core_for_flash_write(void) {
@@ -82,7 +83,14 @@ bool era_host_peer_storage_restart_quarantine_ready(void) { return true; }
 void era_host_peer_storage_note_eeprom_commit(uint32_t address, uint32_t length) {
     (void)address; (void)length; test_hw.notifications++;
 }
-uint32_t era_split_communication_core_responder_accepted_rx_count(void) { return test_hw.accepted; }
+uint32_t era_split_communication_core_responder_accepted_rx_count(void) {
+    uint32_t observed = test_hw.accepted;
+    if (test_hw.accept_after_next_read) {
+        test_hw.accept_after_next_read = false;
+        test_hw.accepted++;
+    }
+    return observed;
+}
 uint32_t era_split_communication_core_responder_undecodable_rx_count(void) { return test_hw.undecodable; }
 void __wrap_soft_reset_keyboard(void) { test_hw.resets++; }
 
@@ -188,3 +196,5 @@ bool era_test_link_repair(void) {
     return result;
 }
 uint32_t era_test_link_address(void) { return ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_LINK_CONFIG_OFFSET; }
+
+void era_test_link_accept_after_next_read(void) { test_hw.accept_after_next_read = true; }

@@ -61,3 +61,21 @@ presenter timing is exercised across wrap and hidden expiration, and the VIA
 labels reject short reports and write commands. The adjacent source checks pin
 all six JSON label definitions and the family's colour/priority dispatch;
 actual GUI refresh and LED visibility remain device/app checks.
+
+Listener-search coverage exercises the production counter consumer and cold
+transition, not a copied scan algorithm. One complete observation window
+replaces the early/fallback split; accepted frames veto it. Silence, a single
+boot break, burst noise before the deadline, counter/time wrap, role exit
+without an intervening task, rate changes and serial faults are covered. A
+late task may evaluate one window but never replay missed windows.
+
+The periodic-probe model sweeps initial/target rates, probe phases and fast or
+backed-off completion intervals with an independently clocked cold task. It
+checks convergence without extra rate transitions, writes or presentation;
+it is not a PIO/IRQ, CPU utilization or electrical-noise measurement. The
+source checks keep listener work off the scan path and pin the bounded faster
+no-peer sender cadence and unchanged parked RX waits. Run
+`python3 tests/era_split_link_lifecycle/test_discovery_cadence.py` in the WSL
+tree: it compiles the actual sender period, due, reset and completion functions
+against controlled time, exercising the initial miss threshold, success,
+failed/unsent requests, timer wrap, stale revalidation and the steady rate cap.

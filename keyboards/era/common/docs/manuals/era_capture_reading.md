@@ -428,7 +428,7 @@ have been wrong.
 | --- | --- |
 | `loop` ≈ 100/s, **`idle` = 0** | HOST-PEER, this half the HOST (wire responder; idle park unreachable) |
 | `loop` ≈ 2,955/s, `idle` ≈ 1,970/s | DUAL-HOST, this half the initiator |
-| `loop` ≈ 6/s with `sess` = `loop`/3 | no cable — discovery backoff only |
+| `sess` follows the configured no-link backoff; no source-push transactions | no cable — discovery only; use the completion-to-next-probe interval in `era_route_contract.md`, not a fixed loop-rate signature |
 
 Periods that produce those rates are `era_route_contract.md`.
 

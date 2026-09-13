@@ -33,6 +33,7 @@ unsigned era_test_link_dirty(void);
 unsigned era_test_link_notifications(void);
 unsigned era_test_link_resets(void);
 void era_test_link_noise(uint32_t accepted, uint32_t undecodable);
+void era_test_link_accept_after_next_read(void);
 bool era_test_link_recovery_step(void);
 bool era_test_link_repair(void);
 uint32_t era_test_link_address(void);

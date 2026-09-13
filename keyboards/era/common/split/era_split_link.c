@@ -285,6 +285,11 @@ bool era_split_link_apply(uint8_t level) {
 
 void era_split_link_note_relation(bool serviced, bool listening, bool local_is_rate_winner, bool fresh_meeting,
                                   bool peer_rate_searched, bool local_is_initiator) {
+    /* Retire evidence at the role edge, not only when the step task next runs.
+     * Multiple replans can occur without an intervening listener evaluation. */
+    if (serviced || !listening) {
+        g_era_split_link.scan_valid = false;
+    }
     bool winner_changed = local_is_rate_winner != g_era_split_link.local_is_rate_winner;
     if (serviced && (!g_era_split_link.relation_serviced || winner_changed)) {
         g_era_split_link.serviced_since_ms    = timer_read32();
@@ -337,10 +342,10 @@ bool era_split_link_rate_searched(void) {
 }
 
 static void era_split_link_scan_open(uint32_t now_ms, uint32_t accepted, uint32_t undecodable) {
-    g_era_split_link.scan_valid               = true;
-    g_era_split_link.scan_since_ms            = now_ms;
-    g_era_split_link.scan_accepted_at_open    = accepted;
-    g_era_split_link.scan_undecodable_at_open = undecodable;
+    g_era_split_link.scan_valid                   = true;
+    g_era_split_link.scan_since_ms                = now_ms;
+    g_era_split_link.scan_accepted_at_open        = accepted;
+    g_era_split_link.scan_undecodable_at_open     = undecodable;
 }
 
 bool era_split_link_step_due(uint8_t *next_level) {
@@ -372,19 +377,24 @@ bool era_split_link_step_due(uint8_t *next_level) {
         era_split_link_scan_open(now_ms, accepted, undecodable);
         return false;
     }
-    if (timer_elapsed32(g_era_split_link.scan_since_ms) < ERA_SPLIT_LINK_SCAN_DWELL_MS) {
+    if ((uint32_t)(now_ms - g_era_split_link.scan_since_ms) < ERA_SPLIT_LINK_SCAN_DWELL_MS) {
         return false;
     }
-
-    /* The window is judged once, at its end. An accepted frame anywhere in it
-     * is a talker this half can hear -- the right level, whatever else arrived
-     * -- and the answer is to stay and open a fresh window. Noise without one
-     * is a talker it cannot hear, and the answer is the next level on the
-     * ring. Silence is neither and also stays: there is nobody to follow. */
+    /* One complete window covers two backed-off probe opportunities, including
+     * slow receive and maintenance margins. Any accepted frame vetoes the step.
+     * A boot break alone and silence are not rate-mismatch evidence. There is
+     * no early sub-window whose stale counter samples need their own lifetime. */
     bool heard_a_frame = accepted != g_era_split_link.scan_accepted_at_open;
     bool heard_noise   = (uint32_t)(undecodable - g_era_split_link.scan_undecodable_at_open) >= ERA_SPLIT_LINK_SCAN_NOISE_MIN;
     if (heard_a_frame || !heard_noise) {
         era_split_link_scan_open(now_ms, accepted, undecodable);
+        return false;
+    }
+    /* Core1 may have accepted a frame since the first counter read. Give that
+     * positive evidence priority before the cold owner transition as well. */
+    uint32_t latest_accepted = era_split_communication_core_responder_accepted_rx_count();
+    if (latest_accepted != accepted) {
+        era_split_link_scan_open(now_ms, latest_accepted, undecodable);
         return false;
     }
     g_era_split_link.reconcile_search_stepped = true;
