@@ -12,17 +12,12 @@
  * pattern are the rows this unit routed there, so no per-cycle pin priority
  * between state machines is ever in play (design brief, census 1.1).
  *
- * What is deliberately identical to the retired CPU engine it replaced, and
- * therefore what the device evidence taken on that engine still covers: rows
- * are
- * push-pull, HIGH at rest and LOW while selected, one row at a time; the
- * settle before the sample is the same ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY
- * (the fixed baseline in era_performance_gates.md); the pad register of a row
- * pin is byte-identical (input enable only, 2 mA, slow slew); columns stay SIO
- * inputs with pull-ups and are read through PIO input, which every GPIO
- * reaches regardless of function select. Only the release gap between rows
- * changes -- and it grows (64 cycles against the ~50-70 the CPU decode gave),
- * so the electrical case is a re-verification, not a new one.
+ * Rows are push-pull, HIGH at rest and LOW while selected, one row at a
+ * time. Row pads use input enable only, 2 mA and slow slew; columns are SIO
+ * inputs with pull-ups read through PIO input, which every GPIO reaches
+ * regardless of function select. The family settle/release policy and its
+ * device grounds are the fixed baseline in era_performance_gates.md. A
+ * timing change does not change these electrical drive modes.
  *
  * What is deliberately not done: no fold of every frame since the last pass
  * into an OR/AND (that would change the debounce input semantics
@@ -31,8 +26,7 @@
  * decision), no PIO or DMA interrupt (nothing
  * needs to be told: the sampler free-runs and the consumer reads).
  *
- * The DMA transfer counts are finite (0xFFFFFFFF words, about 93 minutes at
- * this frame rate). When one runs out the state machine stalls -- TXSTALL on an
+ * The DMA transfer counts are finite (0xFFFFFFFF words). When one runs out the state machine stalls -- TXSTALL on an
  * empty pattern FIFO, RXSTALL on a full sample FIFO -- and stalling loses
  * nothing: READ_ADDR/WRITE_ADDR stay inside their rings and the next word
  * still lands in the next slot. The consumer notices the frozen write pointer
@@ -79,11 +73,11 @@
 #    define MATRIX_INPUT_PRESSED_STATE 0
 #endif
 
-/* The row-select drive: how long a driven row is held before the sample. The
-   value is the CPU engine's, and the fixed baseline that rejected 32 and 64
-   on device (era_performance_gates.md, Fixed Baselines) binds it here too. */
+/* The row-select drive: how long a driven row is held before the sample.
+   The family default and device grounds are in era_performance_gates.md,
+   Fixed Baselines. Keep this fallback equal to era_build_options.mk. */
 #ifndef ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY
-#    define ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY 128
+#    define ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY 256
 #endif
 
 /* Cycles every row is released (all HIGH) between one row's sample and the
@@ -95,7 +89,7 @@
 #endif
 
 /* Frames the sample ring holds. Two would do -- the consumer only ever reads
-   the newest complete frame -- but four puts three frames (~37 us) between a
+   the newest complete frame -- but four puts three frames between a
    frame being read and the writer wrapping onto it, so a torn read needs core0
    to be held off for that long mid-decode. It costs 64 more bytes. */
 #ifndef ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES

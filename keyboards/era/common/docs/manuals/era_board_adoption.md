@@ -55,10 +55,10 @@ manifest default (`ERA_RP2040_MATRIX_ENABLE ?= yes`); every board under
 the engine requires nothing of split (`era_split_qmk_rules.mk`).
 
 A board that has never scanned a key through this engine owes device
-verification. The 128-cycle `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` 128 is
-tuning measured on TOMAK79H only; every other board carries that number
-without a measurement of its own. A slower-settling matrix produces a missed
-or ghosted key, not a build failure.
+verification. Every RP2040 board inherits the family settle/release policy
+from the common layer; device grounds and the scope of that evidence are
+`era_performance_gates.md`'s **Fixed Baselines**. A slower-settling matrix
+produces a missed or ghosted key, not a build failure.
 
 ## Copy-To-RAM Policy
 

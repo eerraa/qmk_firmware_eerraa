@@ -71,23 +71,23 @@ static uint32_t program_cycles(const uint16_t *words, size_t count) {
 
 TEST(EraMatrixPioFrame, ProgramForTheShippedSettleAndRelease) {
     uint16_t words[ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS];
-    size_t   len = era_rp2040_matrix_pio_program_encode(words, ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS, 128, 64);
-    ASSERT_EQ(len, 8u);
-    /* out [31], nop [31] x3, nop [1], in, mov pins,~null [31], nop [31] */
+    size_t   len = era_rp2040_matrix_pio_program_encode(words, ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS, 256, 64);
+    ASSERT_EQ(len, 12u);
+    /* out [31], nop [31] x7, nop [1], in, mov pins,~null [31], nop [31] */
     EXPECT_EQ(words[0], ERA_RP2040_MATRIX_PIO_INSTR_OUT_PINS_32 | (31u << 8));
-    EXPECT_EQ(words[1], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
-    EXPECT_EQ(words[2], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
-    EXPECT_EQ(words[3], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
-    EXPECT_EQ(words[4], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (1u << 8));
-    EXPECT_EQ(words[5], ERA_RP2040_MATRIX_PIO_INSTR_IN_PINS_32);
-    EXPECT_EQ(words[6], ERA_RP2040_MATRIX_PIO_INSTR_MOV_PINS_NOT_NULL | (31u << 8));
-    EXPECT_EQ(words[7], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
-    /* Drive edge to IN issue: 130 cycles (128 + the two synchroniser cycles);
+    for (size_t i = 1; i <= 7; ++i) {
+        EXPECT_EQ(words[i], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
+    }
+    EXPECT_EQ(words[8], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (1u << 8));
+    EXPECT_EQ(words[9], ERA_RP2040_MATRIX_PIO_INSTR_IN_PINS_32);
+    EXPECT_EQ(words[10], ERA_RP2040_MATRIX_PIO_INSTR_MOV_PINS_NOT_NULL | (31u << 8));
+    EXPECT_EQ(words[11], ERA_RP2040_MATRIX_PIO_INSTR_NOP | (31u << 8));
+    /* Drive edge to IN issue: 258 cycles (256 + the two synchroniser cycles);
        IN one; release 64. */
-    EXPECT_EQ(program_cycles(words, len), 195u);
-    EXPECT_EQ(era_rp2040_matrix_pio_slot_cycles(128, 64), 195u);
+    EXPECT_EQ(program_cycles(words, len), 323u);
+    EXPECT_EQ(era_rp2040_matrix_pio_slot_cycles(256, 64), 323u);
     /* The IN issues exactly settle+sync cycles after the OUT issued. */
-    EXPECT_EQ(program_cycles(words, 5), 128u + ERA_RP2040_MATRIX_PIO_INPUT_SYNC_CYCLES);
+    EXPECT_EQ(program_cycles(words, 9), 256u + ERA_RP2040_MATRIX_PIO_INPUT_SYNC_CYCLES);
 }
 
 TEST(EraMatrixPioFrame, ProgramEdgesAndBudget) {

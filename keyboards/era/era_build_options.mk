@@ -100,10 +100,10 @@ ERA_BOARD_COMMON_ENABLE ?= yes
 # of this file holds, so a name here would be a pointer to nothing.
 ERA_RP2040_MATRIX_ENABLE ?= yes
 # Cycles a driven row is held before the columns are sampled -- the sampler's
-# settle, in PIO cycles at the CPU clock, so the fixed baseline measured on the
-# CPU engine (era_performance_gates.md: 32 and 64 rejected on device) carries
-# over unchanged. Lower it only with a measured scan rate in hand.
-ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY ?= 128
+# settle, in PIO cycles at the CPU clock. Every RP2040 board inherits the
+# family default; device grounds and the conditions for changing it live in
+# era_performance_gates.md, Fixed Baselines.
+ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY ?= 256
 
 # --- Keyboard features -----------------------------------------------------
 # SOCD resolution and its VIA page.

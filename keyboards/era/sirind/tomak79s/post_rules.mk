@@ -12,7 +12,6 @@ ERA_RP2040_MATRIX_ENABLE = yes
 #     features, are in keyboards/era/era_build_options.mk.
 #     `-e ERA_SHOW_OPTIONS=yes` on a build prints what it actually used.
 
-ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY = 128
 ERA_SOCD_ENABLE = yes
 ERA_KKUK_ENABLE = yes
 ERA_DEBOUNCE_ENABLE = yes

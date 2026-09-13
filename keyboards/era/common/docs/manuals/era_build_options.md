@@ -107,7 +107,7 @@ inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`.
 | `ERA_BUILD_IDENTITY_REPORT` | `no` | — | firmware-inert launcher handshake. `yes` prints `variant=` and the labelled five-axis tuple |
 | `ERA_BOARD_COMMON_ENABLE` | `yes` | — | the class skeleton. `era_common_qmk_rules.mk` adds the non-split unit when `SPLIT_KEYBOARD` is not `yes`, `era_split_qmk_rules.mk` the split one; both add `era_board_hooks.c`. `no` returns a board to writing those QMK hooks itself |
 | `ERA_RP2040_MATRIX_ENABLE` | `yes` | split transport without it (`era_split_qmk_rules.mk`) | every RP2040 board under `keyboards/era` runs the engine. Raw backend is the PIO+DMA sampler alone (`system/era_rp2040_matrix_pio.c`); `RP_DMA_REQUIRED=TRUE` is a rule-5 fact beside its `SRC` line. **There is no second raw backend.** Non-split `no` leaves QMK's stock matrix |
-| `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` | `128` | — | sampler settle in PIO cycles at the CPU clock. Fixed baseline (`era_performance_gates.md`); rejected downward on device evidence |
+| `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` | `256` | — | sampler settle in PIO cycles at the CPU clock; every RP2040 board inherits this common value. Fixed baseline (`era_performance_gates.md`); rejected downward on device evidence |
 | `ERA_SOCD_ENABLE` | `yes` | — | SOCD unit and VIA page |
 | `ERA_KKUK_ENABLE` | `yes` | — | KKUK unit and VIA page. Independent of SOCD (`era_kkuk.c`, `#ifdef`) |
 | `ERA_DEBOUNCE_ENABLE` | `yes` | — | VIA-configurable debounce. This selector alone owns `DEBOUNCE_TYPE`; `no` returns QMK stock debounce |
