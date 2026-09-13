@@ -61,7 +61,7 @@ void expect_handler_declines_unchanged(uint8_t command, uint8_t channel, uint8_t
 } // namespace
 
 TEST(EraFirmwareVersion, CanonicalIdentityAndCompleteNulTerminatedPayload) {
-    static constexpr char kExpected[] = "260914R1";
+    static constexpr char kExpected[] = "260913R1";
 
     EXPECT_STREQ(ERA_FIRMWARE_VERSION, kExpected);
     EXPECT_STREQ(era_firmware_version, kExpected);
