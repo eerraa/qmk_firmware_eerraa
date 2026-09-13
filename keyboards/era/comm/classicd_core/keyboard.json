@@ -68,6 +68,7 @@
     },
     "default": {
       "animation": "rainbow_swirl",
+      "speed": 15,
       "val": 127
     },
     "led_count": 4,

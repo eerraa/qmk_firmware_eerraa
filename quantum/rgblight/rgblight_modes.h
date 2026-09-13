@@ -61,6 +61,13 @@ _RGBM_TMP_DYNAMIC(twinkle_40, TWINKLE)
 _RGBM_TMP_DYNAMIC(twinkle_41, TWINKLE)
 _RGBM_TMP_DYNAMIC(TWINKLE_end, TWINKLE)
 #    endif
+#    ifdef ERA_RGBLIGHT_PULSE_ENABLE
+// ERA: keypress-reactive Pulse, keyboards/era/common/features/era_rgblight_pulse.c
+_RGBM_SINGLE_DYNAMIC(ERA_PULSE_OFF_PRESS)
+_RGBM_SINGLE_DYNAMIC(ERA_PULSE_ON_PRESS)
+_RGBM_SINGLE_DYNAMIC(ERA_PULSE_OFF_PRESS_HOLD)
+_RGBM_SINGLE_DYNAMIC(ERA_PULSE_ON_PRESS_HOLD)
+#    endif
 ////  Add a new mode here.
 // #ifdef RGBLIGHT_EFFECT_<name>
 //    _RGBM_<SINGLE|MULTI>_<STATIC|DYNAMIC>( <name> )

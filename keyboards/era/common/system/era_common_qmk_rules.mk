@@ -175,6 +175,18 @@ ifeq ($(strip $(ERA_BACKLIGHT_LOCK_ENABLE)), yes)
     SRC += keyboards/era/common/features/era_backlight_lock.c
 endif
 
+ifeq ($(strip $(ERA_RGBLIGHT_PULSE_ENABLE)), yes)
+    # The backlight effect layer's refusal, for the same reason: this unit
+    # calls RGBLight symbols on every path, so without QMK's RGBLight the
+    # honest failure is one line here rather than a page of undefined
+    # references at the link.
+    ifneq ($(strip $(RGBLIGHT_ENABLE)), yes)
+        $(error ERA RGBLight Pulse requires RGBLIGHT_ENABLE; it is a layer over QMK's RGBLight, not a driver)
+    endif
+    OPT_DEFS += -DERA_RGBLIGHT_PULSE_ENABLE
+    SRC += keyboards/era/common/features/era_rgblight_pulse.c
+endif
+
 ifeq ($(strip $(ERA_RGB_INDICATOR_ENABLE)), yes)
     # Refused in make for era_backlight's reason: without the QMK feature this
     # unit's every call is to an RGB Matrix symbol that is not there, so one

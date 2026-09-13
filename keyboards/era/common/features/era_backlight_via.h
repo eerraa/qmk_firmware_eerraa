@@ -13,7 +13,7 @@
  *   0 brightness        range 0..BACKLIGHT_LEVELS, or 1.. on a locked rail
  *   1 effect            dropdown, `enum era_backlight_effect`
  *   2 breathing period  range 1..10, shown for effect 1
- *   3 pulse speed       range 1..10, shown for effects 2..5
+ *   3 pulse speed       range 0..255, shown for effects 2..5; 5 + speed ms
  *
  * The band 0..4 is otherwise where the tomak family and odessey keep their
  * board-local ids (`era_identifier_map.md`), and this router runs *ahead* of

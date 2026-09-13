@@ -140,6 +140,15 @@ ERA_BACKLIGHT_EFFECT_ENABLE ?= no
 # while a persisted `enable = 0` is not. It composes with the effect layer and
 # clamps its own brightness controls away from zero. Requires BACKLIGHT_ENABLE.
 ERA_BACKLIGHT_LOCK_ENABLE ?= no
+# The underglow (RGBLight) Pulse layer: four keypress-reactive modes appended
+# to QMK's own channel-2 effect list (43..46, after Twinkle), the same Pulse
+# state machine as the backlight effect layer, timed by the ordinary Effect
+# Speed value (5 + speed ms). Default no for the reason the RGB indicator
+# gives: the modes change what the shipped Effect dropdown of an RGBLight board
+# offers, so a board asks for them beside its definition rather than being
+# given them. Requires QMK's RGBLIGHT_ENABLE, which the fragment refuses by
+# name.
+ERA_RGBLIGHT_PULSE_ENABLE ?= no
 # The RGB Matrix lock-indicator slots and their seven keyboard-channel value
 # ids (6..12): a master role switch, then a lock source, a brightness and a
 # colour per slot. Default no because the feature takes QMK's own weak

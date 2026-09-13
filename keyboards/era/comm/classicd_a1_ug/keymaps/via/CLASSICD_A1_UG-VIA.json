@@ -47,7 +47,7 @@
               "showIf": "{id_custom_backlight_effect} == 2 || {id_custom_backlight_effect} == 3 || {id_custom_backlight_effect} == 4 || {id_custom_backlight_effect} == 5",
               "label": "Pulse Speed",
               "type": "range",
-              "options": [1, 10],
+              "options": [0, 255],
               "content": ["id_custom_blink_speed", 0, 3]
             }
           ]
@@ -109,7 +109,11 @@
                 "Twinkle 3",
                 "Twinkle 4",
                 "Twinkle 5",
-                "Twinkle 6"
+                "Twinkle 6",
+                "Pulse Off Press",
+                "Pulse On Press",
+                "Pulse Off Press (Hold)",
+                "Pulse On Press (Hold)"
               ]
             },
             {

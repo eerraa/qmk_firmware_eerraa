@@ -1,0 +1,4 @@
+// Copyright 2026 Hyojin Bak (@eerraa)
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+#include "../era_rgblight_pulse/ch.h"

@@ -36,8 +36,8 @@ enum era_backlight_effect {
 enum {
     ERA_BACKLIGHT_PERIOD_MIN = 1,
     ERA_BACKLIGHT_PERIOD_MAX = 10,
-    ERA_BACKLIGHT_SPEED_MIN  = 1,
-    ERA_BACKLIGHT_SPEED_MAX  = 10,
+    ERA_BACKLIGHT_SPEED_MIN  = 0,
+    ERA_BACKLIGHT_SPEED_MAX  = 255,
 };
 
 void era_backlight_init(void);
@@ -52,7 +52,7 @@ void era_backlight_task(void);
 /* Physical matrix-key edge, before tap/hold resolution and semantic filters.
    Pulse is input feedback, so it must not inherit the settlement timing of the
    keycode currently mapped at that switch. */
-void era_backlight_note_key_event(bool pressed);
+void era_backlight_note_key_event(uint8_t row, uint8_t col, bool pressed);
 
 /* Non-split lighting sleep enters through QMK's suspend hooks. These calls
  * cancel an in-flight pulse and keep timer callbacks from relighting the PWM
@@ -67,3 +67,6 @@ uint8_t era_backlight_get_breathing_period(void);
 void    era_backlight_set_breathing_period(uint8_t period);
 uint8_t era_backlight_get_pulse_speed(void);
 void    era_backlight_set_pulse_speed(uint8_t speed);
+/* The one-shot interval the current Pulse Speed arms: the family width
+   (`era_pulse_policy.h`), 5 + speed ms. */
+uint16_t era_backlight_get_pulse_duration_ms(void);

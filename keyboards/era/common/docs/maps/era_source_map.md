@@ -247,10 +247,25 @@ change.** A fork edit nobody records is a fork edit nobody can retire.
   default accelerated mouse engine. No runtime state of its own
   (`quantum/mousekey.c`). The two engine macros that become variables under
   `ERA_MOUSEKEY_RUNTIME_DELTA`: `era_qmk_fork_ledger.md`.
+- `features/era_pulse_policy.h`: the family Pulse state machine — pure,
+  clock-free press/release/expire/suspend transitions, matrix-position tracking
+  that rejects releases from before a mode/sleep reset, and the resting-state
+  answer — and the one width the 0..255 speed value maps to (5 + speed ms),
+  that both keypress-reactive lighting units run, so the two families pulse
+  identically by construction.
 - `features/era_backlight.[ch]` + `features/era_backlight_pulse_policy.h`: PWM
   backlight effect layer (Steady, Breathing, four keypress-reactive Pulse
-  modes). The pure policy owns overlapping-key Hold state; the ChibiOS unit
-  owns the one-shot and PWM writes. The matrix-pass fast path reads no clock.
+  modes). The policy header binds the six effects onto the family policy; the
+  ChibiOS unit owns the one-shot and the PWM writes; Pulse Speed is the
+  family width. The matrix-pass fast path reads no clock.
+- `features/era_rgblight_pulse.[ch]`: the underglow Pulse layer — four modes
+  appended to QMK's RGBLight effect list under `ERA_RGBLIGHT_PULSE_ENABLE`,
+  the same family policy, Effect Speed as the pulse width (`5 + speed` ms), a
+  ChibiOS one-shot armed on the switch edge, and a render from the 1 ms
+  RGBLight animation tick only when the requested output or colour changed,
+  plus native layer-edge refresh. Mode changes reset before the next switch
+  edge, and actual RGBLight sleep owns suspend after the master gate.
+  The core seams it rides are `era_qmk_fork_ledger.md`'s.
 - `features/era_backlight_lock.[ch]`: indicator-supply policy — repairs a
   stored disabled/zero-level block and owns QMK backlight keycodes that would
   persist the rail below level 1. It composes with the effect unit: transient

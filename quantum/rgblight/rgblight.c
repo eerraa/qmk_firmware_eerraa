@@ -26,6 +26,17 @@
 #include <lib/lib8tion/lib8tion.h>
 #include "eeconfig.h"
 
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+/* ERA engine: keyboards/era/common/features/era_rgblight_pulse.c. The core
+   owns mode and actual lighting-sleep edges; the animation tick only renders. */
+bool era_rgblight_pulse_mode(uint8_t mode);
+void era_rgblight_pulse_effect(animation_status_t *anim);
+void era_rgblight_pulse_reset(void);
+void era_rgblight_pulse_refresh(void);
+void era_rgblight_pulse_suspend(void);
+void era_rgblight_pulse_resume(void);
+#endif
+
 #ifdef RGBLIGHT_SPLIT
 /* for split keyboard */
 #    define RGBLIGHT_SPLIT_SET_CHANGE_MODE rgblight_status.change_flags |= RGBLIGHT_STATUS_CHANGE_MODE
@@ -408,6 +419,9 @@ void rgblight_mode_eeprom_helper(uint8_t mode, bool write_to_eeprom) {
     animation_status.restart = true;
 #endif
     rgblight_sethsv_noeeprom(rgblight_config.hue, rgblight_config.sat, rgblight_config.val);
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_reset();
+#endif
 }
 
 void rgblight_mode(uint8_t mode) {
@@ -451,6 +465,9 @@ void rgblight_enable_noeeprom(void) {
 }
 
 void rgblight_disable(void) {
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_reset();
+#endif
     rgblight_config.enable = 0;
     eeconfig_update_rgblight(&rgblight_config);
     dprintf("rgblight disable [EEPROM]: rgblight_config.enable = %u\n", rgblight_config.enable);
@@ -460,6 +477,9 @@ void rgblight_disable(void) {
 }
 
 void rgblight_disable_noeeprom(void) {
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_reset();
+#endif
     rgblight_config.enable = 0;
     dprintf("rgblight disable [NOEEPROM]: rgblight_config.enable = %u\n", rgblight_config.enable);
     rgblight_timer_disable();
@@ -897,6 +917,9 @@ void rgblight_blink_layer_repeat_helper(void) {
 void rgblight_suspend(void) {
     rgblight_timer_disable();
     if (!is_suspended) {
+#    ifdef ERA_RGBLIGHT_PULSE_ENABLE
+        era_rgblight_pulse_suspend();
+#    endif
         is_suspended        = true;
         pre_suspend_enabled = rgblight_config.enable;
 
@@ -911,6 +934,9 @@ void rgblight_suspend(void) {
 }
 
 void rgblight_wakeup(void) {
+#    ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_resume();
+#    endif
     is_suspended = false;
 
     if (pre_suspend_enabled) {
@@ -1121,6 +1147,15 @@ void rgblight_timer_task(void) {
             effect_func   = (effect_func_t)rgblight_effect_twinkle;
         }
 #    endif
+#    ifdef ERA_RGBLIGHT_PULSE_ENABLE
+        else if (era_rgblight_pulse_mode(rgblight_status.base_mode)) {
+            /* ERA Pulse: the engine consumes its own one-shot expiry and
+               writes the chain only on a state or colour change. The 1 ms
+               schedule does not bound latency while the keyboard loop stalls. */
+            interval_time = 1;
+            effect_func   = era_rgblight_pulse_effect;
+        }
+#    endif
         if (animation_status.restart) {
             animation_status.restart    = false;
             animation_status.last_timer = sync_timer_read();
@@ -1164,6 +1199,14 @@ void rgblight_timer_task(void) {
         if (rgblight_status.timer_enabled == false) {
             rgblight_mode_noeeprom(rgblight_config.mode);
         }
+#        ifdef ERA_RGBLIGHT_PULSE_ENABLE
+        else if (era_rgblight_pulse_mode(rgblight_config.mode)) {
+            /* Dynamic Pulse deliberately does not redraw unchanged frames.
+               A layer edge must repaint the base and its current overlays. */
+            era_rgblight_pulse_refresh();
+            era_rgblight_pulse_effect(&animation_status);
+        }
+#        endif
 
 #        ifdef RGBLIGHT_LAYERS_OVERRIDE_RGB_OFF
         // If not enabled, then nothing else will actually set the LEDs...

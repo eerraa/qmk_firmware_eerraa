@@ -87,7 +87,8 @@
   || defined(RGBLIGHT_EFFECT_CHRISTMAS)     \
   || defined(RGBLIGHT_EFFECT_RGB_TEST)      \
   || defined(RGBLIGHT_EFFECT_ALTERNATING)   \
-  || defined(RGBLIGHT_EFFECT_TWINKLE)
+  || defined(RGBLIGHT_EFFECT_TWINKLE)       \
+  || defined(ERA_RGBLIGHT_PULSE_ENABLE)
 #    define RGBLIGHT_USE_TIMER
 #endif
 

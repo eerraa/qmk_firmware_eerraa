@@ -57,20 +57,21 @@
 #endif
 
 enum {
-    /* Pulse speed is 1..10 with 10 the fastest, which is the range the shipped
-       definitions offer. The unit is chosen here because the definition states
-       a range and not a duration: 20 ms a step puts the slowest pulse at
-       200 ms and the fastest at 20 ms, which spans "clearly a pulse" to "just
-       perceptible" without ever approaching a length a fast typist would
-       notice as lag. */
-    ERA_BACKLIGHT_PULSE_UNIT_MS = 20,
-    ERA_BACKLIGHT_DEFAULT_SPEED = 5,
+    /* Pulse speed is the ordinary 0..255 VIA slider, the same control and the
+       same width as the underglow Pulse's Effect Speed: `era_pulse_policy.h`
+       maps it to 5 + speed ms, so 15 is the 20 ms default. The shipped
+       definitions once offered 1..10 over a 20 ms unit; that scale is what
+       the config block's valid byte below retired. */
+    ERA_BACKLIGHT_DEFAULT_SPEED = 15,
     /* Seconds per breath. QMK's `BREATHING_PERIOD` is the board's own default
        and is what a board with no stored config should start at. */
     ERA_BACKLIGHT_DEFAULT_PERIOD = BREATHING_PERIOD,
     /* Any byte but zero would do; a fresh EEPROM reads zero and must land on
-       the defaults rather than on Steady with a zero period. */
-    ERA_BACKLIGHT_CONFIG_VALID = 0xB1,
+       the defaults rather than on Steady with a zero period. 0xB1 was the
+       block whose pulse speed meant 1..10 steps of 20 ms; a block carrying it
+       is reset to the defaults rather than read as a 6..15 ms pulse
+       (`era_source_map.md`, Stored-Data Compatibility). */
+    ERA_BACKLIGHT_CONFIG_VALID = 0xB2,
 };
 
 typedef struct __attribute__((packed)) {
@@ -238,7 +239,7 @@ void era_backlight_task(void) {
     era_backlight_apply();
 }
 
-void era_backlight_note_key_event(bool pressed) {
+void era_backlight_note_key_event(uint8_t row, uint8_t col, bool pressed) {
     /* This input is deliberately a physical matrix-key edge. Feeding Pulse
        from process_record_kb() made a Layer-Tap press arrive only when QMK's
        tapping engine settled it, while a Tap Dance press arrived immediately.
@@ -249,13 +250,15 @@ void era_backlight_note_key_event(bool pressed) {
     }
 
     if (!pressed) {
-        if (era_backlight_pulse_release(&backlight_pulse_state, backlight_config_era.effect)) {
+        if (era_backlight_pulse_release(&backlight_pulse_state, backlight_config_era.effect, row, col)) {
             backlight_apply_due = true;
         }
         return;
     }
 
-    era_backlight_pulse_press(&backlight_pulse_state);
+    if (!era_backlight_pulse_press(&backlight_pulse_state, row, col)) {
+        return;
+    }
     backlight_set(era_backlight_output_level());
     /* Retire an expiry the previous pulse may already have published but the
        task has not consumed yet, then re-arm under the same ChibiOS system
@@ -265,7 +268,7 @@ void era_backlight_note_key_event(bool pressed) {
        O(1) work; the matrix-pass fast path remains untouched. */
     chSysLock();
     backlight_pulse_timer_due = false;
-    chVTSetI(&backlight_pulse_vt, TIME_MS2I((uint16_t)(ERA_BACKLIGHT_SPEED_MAX + 1 - backlight_config_era.pulse_speed) * ERA_BACKLIGHT_PULSE_UNIT_MS), era_backlight_pulse_expired, NULL);
+    chVTSetI(&backlight_pulse_vt, TIME_MS2I(era_backlight_get_pulse_duration_ms()), era_backlight_pulse_expired, NULL);
     chSysUnlock();
 }
 
@@ -347,6 +350,10 @@ void era_backlight_set_breathing_period(uint8_t period) {
 
 uint8_t era_backlight_get_pulse_speed(void) {
     return backlight_config_era.pulse_speed;
+}
+
+uint16_t era_backlight_get_pulse_duration_ms(void) {
+    return era_pulse_duration_ms(backlight_config_era.pulse_speed);
 }
 
 void era_backlight_set_pulse_speed(uint8_t speed) {

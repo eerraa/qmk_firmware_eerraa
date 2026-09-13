@@ -101,7 +101,7 @@ void suspend_wakeup_init_kb(void) {
 
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
 void switch_event_kb(uint8_t row, uint8_t col, bool pressed) {
-    era_common_features_switch_event(pressed);
+    era_common_features_switch_event(row, col, pressed);
     switch_event_user(row, col, pressed);
 }
 #endif

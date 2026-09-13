@@ -29,6 +29,9 @@
             "static_gradient": true,
             "twinkle": true
         },
+        "default": {
+            "speed": 15
+        },
         "led_count": 31,
         "sleep": true
     },

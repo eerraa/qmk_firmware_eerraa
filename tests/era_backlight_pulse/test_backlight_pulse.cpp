@@ -1,6 +1,7 @@
 // Copyright 2026 Hyojin Bak (@eerraa)
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -44,15 +45,11 @@ keyrecord_t key_event(bool pressed, uint8_t row = 0, uint8_t col = 0) {
 }
 
 void press(uint8_t row = 0, uint8_t col = 0) {
-    (void)row;
-    (void)col;
-    era_backlight_note_key_event(true);
+    era_backlight_note_key_event(row, col, true);
 }
 
 void release(uint8_t row = 0, uint8_t col = 0) {
-    (void)row;
-    (void)col;
-    era_backlight_note_key_event(false);
+    era_backlight_note_key_event(row, col, false);
     era_backlight_task();
 }
 
@@ -165,7 +162,7 @@ uint8_t get_breathing_period(void) {
 }
 
 void switch_event_kb(uint8_t row, uint8_t col, bool pressed) {
-    era_common_features_switch_event(pressed);
+    era_common_features_switch_event(row, col, pressed);
     switch_event_user(row, col, pressed);
 }
 
@@ -196,6 +193,34 @@ TEST_F(EraBacklightPulse, NormalPressExpiresBackToDefault) {
     expire_pulse();
     EXPECT_EQ(g_pwm_level, 7U);
     release();
+}
+
+TEST_F(EraBacklightPulse, ReleaseFromBeforeModeChangeCannotEndANewerHold) {
+    era_backlight_set_effect(ERA_BACKLIGHT_EFFECT_PULSE_ON_PRESS_HOLD);
+    era_backlight_task();
+    press(0, 0);
+    era_backlight_set_effect(ERA_BACKLIGHT_EFFECT_PULSE_OFF_PRESS_HOLD);
+    era_backlight_task();
+    press(0, 1);
+    expire_pulse();
+    release(0, 0);
+    EXPECT_EQ(g_pwm_level, 0U);
+    release(0, 1);
+    EXPECT_EQ(g_pwm_level, 7U);
+}
+
+TEST_F(EraBacklightPulse, ReleaseFromBeforeSuspendCannotEndANewerHold) {
+    era_backlight_set_effect(ERA_BACKLIGHT_EFFECT_PULSE_OFF_PRESS_HOLD);
+    era_backlight_task();
+    press(0, 0);
+    era_backlight_suspend();
+    era_backlight_resume();
+    press(0, 1);
+    expire_pulse();
+    release(0, 0);
+    EXPECT_EQ(g_pwm_level, 0U);
+    release(0, 1);
+    EXPECT_EQ(g_pwm_level, 7U);
 }
 
 TEST_F(EraBacklightPulse, RepeatedPressRestartsActivePulse) {
@@ -356,6 +381,62 @@ TEST_F(EraBacklightPulse, SaveReloadRestoresConfigAndRetiresRuntimePulse) {
     EXPECT_EQ(era_backlight_get_pulse_speed(), 9U);
     EXPECT_FALSE(g_pulse_timer->armed);
     EXPECT_EQ(g_pwm_level, 0U);
+}
+
+TEST_F(EraBacklightPulse, PulseSpeedIsTheFullSliderAndFiveMsPlusSpeed) {
+    era_backlight_set_effect(ERA_BACKLIGHT_EFFECT_PULSE_OFF_PRESS);
+    era_backlight_task();
+    EXPECT_EQ(era_backlight_get_pulse_speed(), 15U);
+    EXPECT_EQ(era_backlight_get_pulse_duration_ms(), 20U);
+    press();
+    EXPECT_EQ(g_pulse_timer->interval, 20U);
+    expire_pulse();
+    release();
+
+    era_backlight_set_pulse_speed(ERA_BACKLIGHT_SPEED_MIN);
+    EXPECT_EQ(era_backlight_get_pulse_duration_ms(), 5U);
+    press();
+    EXPECT_EQ(g_pulse_timer->interval, 5U);
+    expire_pulse();
+    release();
+
+    era_backlight_set_pulse_speed(ERA_BACKLIGHT_SPEED_MAX);
+    EXPECT_EQ(era_backlight_get_pulse_duration_ms(), 260U);
+    press();
+    EXPECT_EQ(g_pulse_timer->interval, 260U);
+    expire_pulse();
+    release();
+
+    uint16_t previous = 0;
+    for (unsigned speed = ERA_BACKLIGHT_SPEED_MIN; speed <= ERA_BACKLIGHT_SPEED_MAX; speed++) {
+        era_backlight_set_pulse_speed((uint8_t)speed);
+        EXPECT_EQ(era_backlight_get_pulse_speed(), speed);
+        uint16_t duration = era_backlight_get_pulse_duration_ms();
+        EXPECT_EQ(duration, 5U + speed);
+        EXPECT_GT(duration, previous);
+        previous = duration;
+    }
+}
+
+TEST_F(EraBacklightPulse, ABlockStoredOnTheRetiredTenStepScaleIsResetToDefaults) {
+    era_backlight_set_effect(ERA_BACKLIGHT_EFFECT_PULSE_ON_PRESS_HOLD);
+    era_backlight_set_breathing_period(3);
+    era_backlight_set_pulse_speed(7);
+    era_backlight_save_config();
+
+    /* The block is valid byte, effect, period, speed; the valid byte is the
+       only 0xB2 in an otherwise near-empty image. 0xB1 marked the block whose
+       speed meant 1..10 steps of 20 ms. */
+    auto valid = std::find(g_era_config.begin(), g_era_config.end(), 0xB2);
+    ASSERT_NE(valid, g_era_config.end());
+    *valid = 0xB1;
+
+    era_backlight_reload_from_eeprom();
+    era_backlight_task();
+    EXPECT_EQ(era_backlight_get_effect(), ERA_BACKLIGHT_EFFECT_STEADY);
+    EXPECT_EQ(era_backlight_get_breathing_period(), 5U);
+    EXPECT_EQ(era_backlight_get_pulse_speed(), 15U);
+    EXPECT_EQ(g_pwm_level, 7U);
 }
 
 TEST_F(EraBacklightPulse, LockedIndicatorRailRefusesPersistentOffKeycodes) {

@@ -111,6 +111,16 @@ Backlight Pulse를 지원하는 보드의 효과 이름은 다음과 같습니�
 - Pulse On Press
 - Pulse On Press (Hold)
 
+Pulse Speed가 펄스 길이이며 0이 가장 짧고 255가 가장 깁니다.
+
+Underglow(RGBLight)를 지원하는 보드는 Effect 목록의 Twinkle 6 뒤에 같은
+Pulse 효과 네 가지가 있습니다. Effect Speed가 펄스 길이이며 0이 가장 짧습니다.
+
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
+- Pulse On Press (Hold)
+
 7B75에는 Backlight와 별도로 RGB Badge 메뉴가 있습니다. Backlight의
 Indicator Brightness와 위 여섯 효과, RGB Badge의 RGB 효과/밝기/색/속도를
 각각 설정할 수 있습니다.
@@ -251,6 +261,17 @@ Boards with Backlight Pulse use these effect names:
 - Pulse Off Press
 - Pulse Off Press (Hold)
 - Pulse On Press
+- Pulse On Press (Hold)
+
+Pulse Speed is the pulse length; 0 is the shortest and 255 the longest.
+
+Boards with Underglow (RGBLight) list the same four Pulse effects after
+Twinkle 6 in the Effect dropdown. Effect Speed is the pulse length; 0 is the
+shortest.
+
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
 7B75 has an RGB Badge menu in addition to Backlight. Backlight exposes

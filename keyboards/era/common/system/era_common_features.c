@@ -30,6 +30,9 @@
 #ifdef ERA_BACKLIGHT_LOCK_ENABLE
 #    include "../features/era_backlight_lock.h"
 #endif
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+#    include "../features/era_rgblight_pulse.h"
+#endif
 #ifdef ERA_RGB_INDICATOR_ENABLE
 #    include "../features/era_rgb_indicator.h"
 #endif
@@ -73,6 +76,9 @@ void era_common_features_init(void) {
 #endif
 #ifdef ERA_BACKLIGHT_EFFECT_ENABLE
     era_backlight_init();
+#endif
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_init();
 #endif
 #ifdef ERA_BACKLIGHT_LOCK_ENABLE
     /* Before `backlight_init()`, which is what makes it enough to repair the
@@ -169,12 +175,19 @@ void era_common_features_maintenance_task(void) {
 #endif
 }
 
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-void era_common_features_switch_event(bool pressed) {
+#if defined(ERA_BACKLIGHT_EFFECT_ENABLE) || defined(ERA_RGBLIGHT_PULSE_ENABLE)
+void era_common_features_switch_event(uint8_t row, uint8_t col, bool pressed) {
     /* Called from QMK's electrical switch-event fanout, the same layer that
        feeds RGB/LED Matrix reactive tracking. Tap/hold settlement, semantic
-       filters and split keypress ownership therefore cannot shift this edge. */
-    era_backlight_note_key_event(pressed);
+       filters and split keypress ownership therefore cannot shift this edge.
+       Both Pulse families take the same edge, so a two-family board's rail
+       and chain pulse together. */
+#    ifdef ERA_BACKLIGHT_EFFECT_ENABLE
+    era_backlight_note_key_event(row, col, pressed);
+#    endif
+#    ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    era_rgblight_pulse_note_key_event(row, col, pressed);
+#    endif
 }
 #endif
 
