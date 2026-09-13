@@ -25,7 +25,11 @@ Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
 - 해당 유닛의 Reset 버튼을 빠르게 두 번 누르거나 RST/GND를 짧게 접촉
 
 일반 UF2 업데이트는 EERRAA의 저장 영역을 지우는 절차가 아닙니다. 다만
-중요한 키맵은 업데이트나 EEPROM CLEAN 전에 별도로 백업해 두는 것을 권장합니다.
+설정 형식이 바뀐 기능은 기본값으로 돌아갈 수 있습니다. 중요한 키맵은 업데이트나
+EEPROM CLEAN 전에 별도로 백업해 두는 것을 권장합니다.
+
+사용 중인 보드 이름과 일치하는 UF2를 사용하십시오. 업데이트 뒤 SYSTEM ->
+VERSION에서 버전을 확인할 수 있습니다.
 
 ■ 키보드 설정
 
@@ -35,7 +39,8 @@ Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
 
 공식 VIA(https://usevia.app)를 직접 사용하려면 배포 ZIP의 usevia.app/ 폴더를
 참고하십시오. 그 폴더의 usevia.txt에 좌/우 Draft Definition을 불러오는 방법과
-스플릿 전용 설정을 포함한 상세 설명이 들어 있습니다.
+스플릿 전용 설정을 포함한 상세 설명이 들어 있습니다. 링크·동기화 STATUS의
+색과 점멸 횟수도 그 안내문에서 확인하십시오.
 
 
 ----------------------------------------------------------------------
@@ -60,8 +65,12 @@ Use any of these methods to enter the bootloader:
 - Hold that unit's physical top-left key while connecting USB (Bootmagic)
 - Double-tap that unit's Reset, or briefly short its RST/GND
 
-A normal UF2 update is not an EERRAA storage erase. Backing up an important
-keymap before an update or EEPROM CLEAN is still recommended.
+A normal UF2 update is not an EERRAA storage erase. Features whose stored
+format changed may return to defaults. Back up an important keymap before an
+update or EEPROM CLEAN.
+
+Use the UF2 matching the board name. After updating, check the version under
+SYSTEM -> VERSION.
 
 ■ Keyboard Configuration
 
@@ -71,4 +80,5 @@ not required.
 
 If you want to use the official VIA app at https://usevia.app directly, see the
 usevia.app/ folder in the distribution ZIP. Its usevia.txt explains how to load
-the left/right Draft Definitions and describes the split-specific controls.
+the left/right Draft Definitions, the split-specific controls, and the colours
+and flash patterns of link/synchronization STATUS signals.

@@ -111,10 +111,15 @@ Backlight Pulse를 지원하는 보드의 효과 이름은 다음과 같습니�
 - Pulse On Press
 - Pulse On Press (Hold)
 
-Pulse Speed가 펄스 길이이며 0이 가장 짧고 255가 가장 깁니다.
+Breathing을 선택하면 Breathing Period(1~10)로 숨쉬기 주기를 조절합니다.
+값이 작을수록 빠릅니다. Pulse Speed는 Pulse에서만 표시되며 펄스 길이는
+5 + 값 ms입니다. 0은 5 ms, 255는 260 ms이고 기본값 15는 20 ms입니다.
+Hold 효과는 펄스 시간이 끝나도 해당 모드에서 눌린 키가 남아 있으면 유지됩니다.
 
 Underglow(RGBLight)를 지원하는 보드는 Effect 목록의 Twinkle 6 뒤에 같은
-Pulse 효과 네 가지가 있습니다. Effect Speed가 펄스 길이이며 0이 가장 짧습니다.
+Pulse 효과 네 가지가 있습니다. Effect Speed는 이 네 효과에서만 표시되며
+위와 같은 펄스 길이를 조절합니다. 일반 Breathing 1~4 등의 속도는 Effect의
+번호로 선택하고, 지원 효과에서는 Velocikey로 입력 속도에 반응하게 할 수 있습니다.
 
 - Pulse Off Press
 - Pulse On Press
@@ -124,6 +129,9 @@ Pulse 효과 네 가지가 있습니다. Effect Speed가 펄스 길이이며 0�
 7B75에는 Backlight와 별도로 RGB Badge 메뉴가 있습니다. Backlight의
 Indicator Brightness와 위 여섯 효과, RGB Badge의 RGB 효과/밝기/색/속도를
 각각 설정할 수 있습니다.
+
+INDICATOR는 Caps/Scroll/Num Lock 상태 표시입니다. 색은 사용자가 정하며,
+스플릿 TOMAK의 링크·동기화 STATUS 색상표를 논스플릿 키보드에 적용하지 않습니다.
 
 Riley에는 RGBLight와 INDICATOR 메뉴가 있습니다. RGB1/2/3은 IND1/2/3에
 대응합니다. 각 IND 슬롯의 Mode는 다음 중 하나입니다.
@@ -263,11 +271,16 @@ Boards with Backlight Pulse use these effect names:
 - Pulse On Press
 - Pulse On Press (Hold)
 
-Pulse Speed is the pulse length; 0 is the shortest and 255 the longest.
+Breathing exposes Breathing Period (1–10); smaller values mean faster breaths.
+Pulse Speed appears only for Pulse effects. Duration is 5 + value ms: 0 is
+5 ms, 255 is 260 ms, and the default 15 is 20 ms. Hold effects remain active
+after that duration while keys pressed in the current mode remain held.
 
 Boards with Underglow (RGBLight) list the same four Pulse effects after
-Twinkle 6 in the Effect dropdown. Effect Speed is the pulse length; 0 is the
-shortest.
+Twinkle 6 in the Effect dropdown. Effect Speed appears only for these four
+effects and controls the same pulse duration. For ordinary effects such as
+Breathing 1–4, choose the numbered Effect variant. Supported effects can also
+use Velocikey to react to typing speed.
 
 - Pulse Off Press
 - Pulse On Press
@@ -277,6 +290,10 @@ shortest.
 7B75 has an RGB Badge menu in addition to Backlight. Backlight exposes
 Indicator Brightness and the six effects above; RGB Badge separately exposes
 its RGB effect, brightness, colour, and speed controls.
+
+INDICATOR shows Caps/Scroll/Num Lock using the chosen colours. The split
+TOMAK link/synchronization STATUS colour meanings do not apply to non-split
+keyboards.
 
 Riley has RGBLight plus INDICATOR. RGB1/2/3 map to IND1/2/3. Each IND slot Mode
 is one of:
