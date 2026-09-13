@@ -1,5 +1,5 @@
 ======================================================================
-EERRAA Split Firmware Guide
+Split Firmware Guide
 ======================================================================
 
 ----------------------------------------------------------------------
@@ -24,7 +24,7 @@ Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
 - 플래시할 유닛의 가장 왼쪽 위 물리 키를 누른 채 USB 연결(Bootmagic)
 - 해당 유닛의 Reset 버튼을 빠르게 두 번 누르거나 RST/GND를 짧게 접촉
 
-일반 UF2 업데이트는 EERRAA의 저장 영역을 지우는 절차가 아닙니다. 다만
+일반 UF2 업데이트는 키보드의 저장 영역을 지우는 절차가 아닙니다. 다만
 설정 형식이 바뀐 기능은 기본값으로 돌아갈 수 있습니다. 중요한 키맵은 업데이트나
 EEPROM CLEAN 전에 별도로 백업해 두는 것을 권장합니다.
 
@@ -65,7 +65,7 @@ Use any of these methods to enter the bootloader:
 - Hold that unit's physical top-left key while connecting USB (Bootmagic)
 - Double-tap that unit's Reset, or briefly short its RST/GND
 
-A normal UF2 update is not an EERRAA storage erase. Features whose stored
+A normal UF2 update is not a keyboard storage erase. Features whose stored
 format changed may return to defaults. Back up an important keymap before an
 update or EEPROM CLEAN.
 
