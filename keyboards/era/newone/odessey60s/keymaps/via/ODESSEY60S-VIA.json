@@ -83,7 +83,7 @@
               ]
             },
             {
-              "showIf": "{id_qmk_rgblight_effect} != 0",
+              "showIf": "{id_qmk_rgblight_effect} == 43 || {id_qmk_rgblight_effect} == 44 || {id_qmk_rgblight_effect} == 45 || {id_qmk_rgblight_effect} == 46",
               "label": "Effect Speed",
               "type": "range",
               "options": [0, 255],
