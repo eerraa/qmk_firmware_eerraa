@@ -161,6 +161,14 @@ ERA_RGBLIGHT_PULSE_ENABLE ?= no
 ERA_RGB_INDICATOR_ENABLE ?= no
 
 # --- VIA system commands ---------------------------------------------------
+ifeq ($(strip $(VIA_ENABLE)), yes)
+# ERA VIA builds keep the historical VIA/H7S Matrix Test behavior: expose the
+# debounced switch matrix through GET_KEYBOARD_VALUE/SWITCH_MATRIX_STATE.
+# Upstream QMK gates that read behind VIA_INSECURE; setting the QMK-owned switch
+# here makes it the ERA default while preserving an explicit per-build `no`
+# override. Non-VIA builds never declare it.
+VIA_INSECURE ?= yes
+endif
 # The VIA "jump to bootloader" command.
 ERA_VIA_BOOTLOADER_ENABLE ?= yes
 # The VIA EEPROM CLEAN command, which restarts the board afterwards.

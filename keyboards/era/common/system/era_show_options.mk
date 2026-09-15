@@ -61,7 +61,7 @@ ERA_SHOW_OPTIONS_NOT_OPTIONS := \
 # the block once rather than once per parse.
 ifeq ($(strip $(ERA_SHOW_OPTIONS))$(MAKE_RESTARTS), yes)
 ERA_SHOW_OPTIONS_NAMES := $(sort $(filter-out $(ERA_SHOW_OPTIONS_NOT_OPTIONS), \
-    $(filter ERA_% RGB_MATRIX_% TAP_DANCE_ENABLE,$(.VARIABLES))))
+    $(filter ERA_% RGB_MATRIX_% TAP_DANCE_ENABLE VIA_INSECURE,$(.VARIABLES))))
 
 $(info )
 $(info ERA build options for $(KEYBOARD):$(KEYMAP))

@@ -26,6 +26,12 @@ CONFIGURE -> SYSTEM -> VERSION은 이 키보드의 펌웨어 버전을 YYMMDDRn 
 표시합니다. 연·월·일과 리비전을 키보드에서 읽어 오는 값이며 VIA에서 수정할 수
 없습니다. 문제를 제보할 때 이 값을 함께 적어 두면 좋습니다.
 
+■ MATRIX TEST
+
+260916R1 이후의 VIA 펌웨어는 VIA의 Matrix Test에서 물리 매트릭스 눌림을
+표시합니다. 이 기능을 위해 VIA Raw HID를 사용할 수 있는 호스트 프로그램은 현재
+눌린 매트릭스 위치를 조회할 수 있습니다. 신뢰할 수 있는 PC에서 사용하십시오.
+
 ■ TAPDANCE
 
 CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번호를
@@ -184,6 +190,12 @@ TAPDANCE fields. Use VIA SAVE + LOAD to back up a keymap you want to keep.
 CONFIGURE -> SYSTEM -> VERSION shows this keyboard's firmware version in
 YYMMDDRn form. The year, month, day, and revision are read from the keyboard and
 cannot be changed in VIA. Include this value when reporting a problem.
+
+■ MATRIX TEST
+
+VIA firmware from 260916R1 onward reports physical matrix presses to VIA Matrix
+Test. A host program with access to VIA Raw HID can therefore query currently
+pressed matrix positions. Use the keyboard with trusted host software.
 
 ■ TAPDANCE
 

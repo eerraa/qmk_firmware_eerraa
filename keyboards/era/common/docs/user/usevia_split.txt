@@ -29,6 +29,13 @@ CONFIGURE -> SYSTEM -> VERSION은 현재 USB로 연결한 유닛의 펌웨어 �
 YYMMDDRn 형식으로 표시합니다. 연·월·일과 리비전을 유닛에서 읽어 오는 값이며
 VIA에서 수정할 수 없습니다. 양쪽 유닛은 같은 버전을 사용해야 합니다.
 
+■ MATRIX TEST
+
+260916R1 이후의 VIA 펌웨어는 VIA의 Matrix Test에서 현재 USB 유닛이 구성한
+물리 매트릭스 눌림을 표시합니다. 이 기능을 위해 VIA Raw HID를 사용할 수 있는
+호스트 프로그램은 현재 눌린 매트릭스 위치를 조회할 수 있습니다. 신뢰할 수 있는
+PC에서 사용하십시오.
+
 ■ TAPDANCE
 
 CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번호를
@@ -180,6 +187,13 @@ TAPDANCE fields. Use VIA SAVE + LOAD to back up a keymap you want to keep.
 CONFIGURE -> SYSTEM -> VERSION shows the firmware version of the unit currently
 connected by USB in YYMMDDRn form. The year, month, day, and revision are read
 from the unit and cannot be changed in VIA. Both units must run the same version.
+
+■ MATRIX TEST
+
+VIA firmware from 260916R1 onward reports the physical matrix composed by the
+currently USB-connected unit to VIA Matrix Test. A host program with access to
+VIA Raw HID can therefore query currently pressed matrix positions. Use the
+keyboard with trusted host software.
 
 ■ TAPDANCE
 

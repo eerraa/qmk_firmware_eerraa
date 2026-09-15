@@ -98,7 +98,9 @@ mutate the tuple.
 
 RGB Matrix selectors are declared only inside
 `ifeq ($(strip $(RGB_MATRIX_ENABLE)), yes)`. Split selectors are declared only
-inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`.
+inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`. `VIA_INSECURE` is QMK's own
+switch and is declared only inside `ifeq ($(strip $(VIA_ENABLE)), yes)`; the ERA
+default deliberately restores the historical VIA Matrix Test behavior.
 
 | Selector | Default | Refused with | Meaning |
 | --- | --- | --- | --- |
@@ -118,6 +120,7 @@ inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`.
 | `ERA_BACKLIGHT_LOCK_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | indicator-supply policy; repairs a stored disabled/zero-level block before `backlight_init()` reads it and intercepts QMK backlight keycodes so the persistent level cannot cross below 1. It composes with `ERA_BACKLIGHT_EFFECT_ENABLE`: Pulse and USB sleep may still drive transient PWM zero |
 | `ERA_RGBLIGHT_PULSE_ENABLE` | `no` | `RGBLIGHT_ENABLE=no` | underglow Pulse layer: four keypress-reactive modes appended to QMK's channel-2 effect list (43..46, `features/era_rgblight_pulse.h`) on the family Pulse policy (`features/era_pulse_policy.h`). The pulse width is the ordinary Effect Speed, `5 + speed` ms, 20 ms at the boards' `keyboard.json` default 15; a ChibiOS-VT one-shot and the 1 ms animation tick own timing, and the switch edge writes state only |
 | `ERA_RGB_INDICATOR_ENABLE` | `no` | `RGB_MATRIX_ENABLE=no` | lock-indicator slots; ids `6..12`. Takes `rgb_matrix_indicators_kb`, `rgb_matrix_indicators_advanced_kb`, `led_update_kb` and `rgb_matrix_render_policy_kb` strongly. A board states `ERA_RGB_INDICATOR_1_LED` and optionally `_2_LED` in its `config.h` under rule 3 |
+| `VIA_INSECURE` | `yes` on a VIA build | — | QMK's switch-matrix telemetry gate. ERA VIA builds expose debounced physical matrix state so Matrix Test works in stock VIA and the custom app, matching the long-standing VIA behavior and the H7S platform policy. `no` restores current upstream QMK's default zero-filled matrix replies. This is a host-readable key-position surface, so the default is an explicit product policy rather than an accidental QMK inheritance |
 | `ERA_VIA_BOOTLOADER_ENABLE` | `yes` | — | VIA jump-to-bootloader. All four combinations of this pair with `ERA_EEPROM_CLEAN_ENABLE` are valid; both off drops `era_via_system.c` |
 | `ERA_EEPROM_CLEAN_ENABLE` | `yes` | — | VIA EEPROM CLEAN |
 | `ERA_STORAGE_QUIET_DEFER_MS` | `500` | — | Rule 2's stated exception: the readers that need the default are QMK core files preprocessed before any ERA header (`quantum/eeconfig.h`, `quantum/rgb_matrix/rgb_matrix.c`, `quantum/rgblight/rgblight.c`, `quantum/via.c`) |
@@ -200,6 +203,15 @@ system selector is on, `era_nkro_via.c` when `NKRO_ENABLE=yes`,
 `ERA_COMMON_VIA_SRCS` is collected outside the gate and joined to `SRC` only
 inside it.
 
+The same gate declares `VIA_INSECURE ?= yes`. QMK's later
+`builddefs/common_features.mk` consumes that switch and emits `-DVIA_INSECURE`,
+so `quantum/via.c` returns `matrix_get_row()` for Matrix Test instead of a
+zero-filled reply. This is deliberately an ERA build policy, not a fork of
+QMK's handler: H7S and historical QMK/VIA already expose the same physical
+matrix information, and ERA accepts that host-readable key-position surface in
+exchange for stock/custom VIA Matrix Test compatibility. An explicit
+`VIA_INSECURE=no` build remains possible.
+
 `ERA_VIA_BOOTLOADER_ENABLE` and `ERA_EEPROM_CLEAN_ENABLE` are read in
 `era_via_system.c`; their `-D` sits under the same gate. Handler declarations
 in `system/era_common_via.h` sit outside `VIA_ENABLE`, so a future non-VIA
@@ -238,7 +250,7 @@ manifest records `requested_variant=`, `variant=`, `resolved_tuple=`,
 `compiled_tuple=`, and the exact `-e ERA_BUILD_VARIANT=...` command.
 
 The printer's set is make-declared only, derived from `$(.VARIABLES)` matching
-`ERA_%`, `RGB_MATRIX_%`, or `TAP_DANCE_ENABLE`. **A derived set is only
+`ERA_%`, `RGB_MATRIX_%`, `TAP_DANCE_ENABLE`, or `VIA_INSECURE`. **A derived set is only
 derived if its predicate is one a new member satisfies by existing.**
 
 ## The dependencies, and which layer each can be declared in
