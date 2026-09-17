@@ -147,7 +147,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
         # A valid VIA definition can silently lose every optional layout label.
         # Keep the physical-layout inventory independent of the JSON being checked.
         expected = {
-            "comm/7b75": [],
+            "comm/7b75": [2, 2, 2, 2],
             "comm/classicd_a1": [2, 2, 2, 2, 2],
             "comm/classicd_a1_ug": [2, 2, 2, 2, 2],
             "comm/classicd_core": [2, 2, 2, 2, 2],
@@ -188,6 +188,53 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                                 if len(legends) > 3 and legends[3]:
                                     tags.add(tuple(map(int, legends[3].split(","))))
                     self.assertEqual(tags, {(group, choice) for group, count in enumerate(counts) for choice in range(count)})
+
+    def test_7b75_original_choices_cover_all_firmware_switches(self) -> None:
+        [path] = self.board_definitions["comm/7b75"]
+        definition = load_json(path)
+        self.assertEqual(definition["layouts"]["labels"], [
+            ["Backspace", "Unified", "Split"],
+            ["Enter", "ANSI", "ISO"],
+            ["Left Shift", "ANSI", "ISO"],
+            ["Bottom Row", "6U", "6.25U"],
+        ])
+        expected = {
+            (0, 0): ["1,14"], (0, 1): ["1,13", "1,14"],
+            (1, 0): ["2,14", "3,14"], (1, 1): ["3,14", "3,12"],
+            (2, 0): ["4,0"], (2, 1): ["4,0", "4,1"],
+            (3, 0): ["5,0", "5,1", "5,2", "5,6", "5,10", "5,11"],
+            (3, 1): ["5,0", "5,1", "5,2", "5,6", "5,10", "5,11"],
+        }
+        fixed = []
+        options: dict[tuple[int, int], list[str]] = {}
+        for row in definition["layouts"]["keymap"]:
+            for key in row:
+                if not isinstance(key, str):
+                    continue
+                legends = key.split("\n")
+                if len(legends) > 3:
+                    group = tuple(map(int, legends[3].split(",")))
+                    options.setdefault(group, []).append(legends[0])
+                else:
+                    fixed.append(legends[0])
+        self.assertEqual(options, expected)
+        self.assertEqual(definition["matrix"], {"rows": 6, "cols": 16})
+        firmware = {
+            tuple(key["matrix"])
+            for key in self.board_metadata["comm/7b75"]["layouts"]["LAYOUT"]["layout"]
+        }
+        covered = set()
+        for bits in range(16):
+            choices = [(bits >> group) & 1 for group in range(4)]
+            selected = fixed + [key for group, choice in enumerate(choices) for key in options[group, choice]]
+            with self.subTest(choices=choices):
+                self.assertEqual(len(selected), len(set(selected)))
+                self.assertEqual(len(selected), 80 + choices[0] + choices[2])
+                coordinates = {tuple(map(int, key.split(","))) for key in selected}
+                self.assertLessEqual(coordinates, firmware)
+                covered.update(coordinates)
+        self.assertEqual(len(firmware), 83)
+        self.assertEqual(covered, firmware)
 
     def test_brick65s_backspace_choices_match_both_firmware_layouts(self) -> None:
         [path] = self.board_definitions["sirind/brick65s"]
