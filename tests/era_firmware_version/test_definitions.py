@@ -143,6 +143,114 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
 
         self.assertEqual(checked, 27)
 
+    def test_layout_option_inventory_and_choice_tags(self) -> None:
+        # A valid VIA definition can silently lose every optional layout label.
+        # Keep the physical-layout inventory independent of the JSON being checked.
+        expected = {
+            "comm/7b75": [],
+            "comm/classicd_a1": [2, 2, 2, 2, 2],
+            "comm/classicd_a1_ug": [2, 2, 2, 2, 2],
+            "comm/classicd_core": [2, 2, 2, 2, 2],
+            "comm/classicd_coreless": [2, 2, 2, 2, 2],
+            "comm/et_tkl": [2, 2, 2, 2],
+            "comm/riley": [2, 2, 2, 2, 2],
+            "divine": [2, 2],
+            "era65": [2, 2, 4],
+            "linx3/fave65s": [2, 2, 2, 2],
+            "linx3/n86": [2, 2],
+            "linx3/n87": [2, 2],
+            "linx3/n8x": [2, 2, 2, 2, 2],
+            "newone/a1": [2, 2, 2, 2, 2],
+            "newone/h1": [2, 2],
+            "newone/odessey60h": [2, 2, 3],
+            "newone/odessey60s": [2, 2, 2, 2, 3],
+            "sirind/brick65": [2, 2],
+            "sirind/brick65s": [2],
+            "sirind/chickpad": [],
+            "sirind/klein_hs": [2, 3],
+            "sirind/klein_sd": [2, 3],
+            "sirind/tomak": [2, 2, 2],
+            "sirind/tomak79h": [2],
+            "sirind/tomak79s": [2, 2, 2],
+        }
+        self.assertEqual(set(expected), set(self.board_definitions))
+        for board, counts in expected.items():
+            for path in self.board_definitions[board]:
+                with self.subTest(path=path.as_posix()):
+                    layout = load_json(path)["layouts"]
+                    labels = layout.get("labels", [])
+                    self.assertEqual([len(label) - 1 if isinstance(label, list) else 2 for label in labels], counts)
+                    tags = set()
+                    for row in layout["keymap"]:
+                        for key in row:
+                            if isinstance(key, str):
+                                legends = key.split("\n")
+                                if len(legends) > 3 and legends[3]:
+                                    tags.add(tuple(map(int, legends[3].split(","))))
+                    self.assertEqual(tags, {(group, choice) for group, count in enumerate(counts) for choice in range(count)})
+
+    def test_brick65s_backspace_choices_match_both_firmware_layouts(self) -> None:
+        [path] = self.board_definitions["sirind/brick65s"]
+        layout = load_json(path)["layouts"]
+        self.assertEqual(layout["labels"], [["Backspace", "Unified", "Split"]])
+        keys = [key.split("\n") for row in layout["keymap"] for key in row if isinstance(key, str)]
+        for choice, name in enumerate(("LAYOUT_ansi", "LAYOUT_ansi_split_bs")):
+            selected = [key[0] for key in keys if len(key) == 1 or key[3] == f"0,{choice}"]
+            coordinates = {tuple(map(int, key.split(","))) for key in selected}
+            expected = {tuple(key["matrix"]) for key in self.board_metadata["sirind/brick65s"]["layouts"][name]["layout"]}
+            with self.subTest(layout=name):
+                self.assertEqual(len(selected), 65 + choice)
+                self.assertEqual(len(selected), len(coordinates))
+                self.assertEqual(coordinates, expected)
+
+    def test_riley_layout_choices_cover_all_firmware_switches_without_duplicates(self) -> None:
+        [path] = self.board_definitions["comm/riley"]
+        definition = load_json(path)
+        self.assertEqual(definition["layouts"]["labels"], [
+            ["Backspace", "Unified", "Split"],
+            ["Enter", "ANSI", "ISO"],
+            ["Left Shift", "ANSI", "ISO"],
+            ["Right Shift", "Unified", "Split"],
+            ["Bottom Row", "7U", "Split"],
+        ])
+        expected = {
+            (0, 0): ["1,13"], (0, 1): ["0,13", "1,13"],
+            (1, 0): ["2,13", "3,13"], (1, 1): ["3,13", "2,12"],
+            (2, 0): ["3,0"], (2, 1): ["3,0", "3,1"],
+            (3, 0): ["3,12"], (3, 1): ["3,12", "4,13"],
+            (4, 0): ["4,6"], (4, 1): ["4,4", "4,6", "4,8"],
+        }
+        fixed = []
+        options: dict[tuple[int, int], list[str]] = {}
+        for row in definition["layouts"]["keymap"]:
+            for key in row:
+                if not isinstance(key, str):
+                    continue
+                legends = key.split("\n")
+                if len(legends) > 3:
+                    group = tuple(map(int, legends[3].split(",")))
+                    options.setdefault(group, []).append(legends[0])
+                else:
+                    fixed.append(legends[0])
+        self.assertEqual(options, expected)
+        self.assertEqual(definition["matrix"], {"rows": 5, "cols": 14})
+        firmware = {
+            tuple(key["matrix"])
+            for key in self.board_metadata["comm/riley"]["layouts"]["LAYOUT"]["layout"]
+        }
+        covered = set()
+        for bits in range(32):
+            choices = [(bits >> group) & 1 for group in range(5)]
+            selected = fixed + [key for group, choice in enumerate(choices) for key in options[group, choice]]
+            with self.subTest(choices=choices):
+                self.assertEqual(len(selected), len(set(selected)))
+                self.assertEqual(len(selected), 58 + choices[0] + choices[2] + choices[3] + 2 * choices[4])
+                coordinates = {tuple(map(int, key.split(","))) for key in selected}
+                self.assertLessEqual(coordinates, firmware)
+                covered.update(coordinates)
+        self.assertEqual(len(firmware), 64)
+        self.assertEqual(covered, firmware)
+
     def test_riley_rgb_effect_and_three_lock_slots_match_firmware_ids(self) -> None:
         [path] = self.board_definitions["comm/riley"]
         definition = load_json(path)
