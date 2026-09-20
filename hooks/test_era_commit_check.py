@@ -51,6 +51,19 @@ def test_wiring():
         "pre-commit calls era_commit_check.py",
         "era_commit_check.py" in PRE_COMMIT.read_text(encoding="utf-8"),
     )
+    commit_check_text = COMMIT_CHECK.read_text(encoding="utf-8")
+    check(
+        "commit check loads document checker from staged index",
+        '["git", "show", f":{DOC_REFS_REL}"]' in commit_check_text,
+    )
+    check(
+        "staged document checker decodes explicit UTF-8 bytes",
+        "sys.stdin.buffer.read().decode('utf-8')" in commit_check_text,
+    )
+    check(
+        "staged document checker receives index mode",
+        'str(DOC_REFS), "--index"' in commit_check_text,
+    )
     settings = json.loads(
         (REPO / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
@@ -124,51 +137,6 @@ def test_units():
         not gate.fork_layer_armed({"readme.md"}),
     )
 
-    conflicts = gate.checked_surface_conflicts(
-        {"AGENTS.md", "tmk_core/a.c", "readme.md"}, set(), True, True
-    )
-    check(
-        "doc check catches every unstaged tracked input",
-        conflicts == {"AGENTS.md", "tmk_core/a.c", "readme.md"},
-    )
-    check(
-        "index-pure fork check ignores working-tree differences",
-        not gate.checked_surface_conflicts({"quantum/a.c"}, set(), True, False),
-    )
-    check(
-        "doc surface catches py and json changes",
-        gate.checked_surface_conflicts(
-            {"keyboards/era/common/tools/new_tool.py", "board.json"},
-            set(), False, True
-        ) == {"keyboards/era/common/tools/new_tool.py", "board.json"},
-    )
-    check(
-        "doc surface catches any untracked path",
-        gate.checked_surface_conflicts(
-            set(), {"scratch/new-target"}, False, True
-        ) == {"scratch/new-target"},
-    )
-
-    original_name_only = gate.name_only
-    try:
-        gate.name_only = lambda *args: (
-            {"AGENTS.md"}
-            if args == ("ls-files", "--others", "--exclude-standard")
-            else set()
-        )
-        surface_problems = []
-        check(
-            "untracked checked-surface file refuses validation",
-            not gate.check_checked_surface_matches_index(
-                False, True, surface_problems
-            ),
-        )
-        check(
-            "untracked refusal names the file",
-            any("AGENTS.md" in problem for problem in surface_problems),
-        )
-    finally:
-        gate.name_only = original_name_only
 
     check("pristine snapshot parses", gate.pristine_snapshot(
         "The vendored pristine QMK snapshot is named `c93ef27143`."
@@ -252,7 +220,13 @@ def test_end_to_end():
         )
         doc_tool.parent.mkdir(parents=True)
         doc_tool.write_text(
-            "#!/usr/bin/env python3\nprint('temporary doc refs ok')\n",
+            "#!/usr/bin/env python3\n"
+            "# staged UTF-8 확인\n"
+            "import sys\n"
+            "if sys.argv[1:] != ['--index']:\n"
+            "    print('expected --index')\n"
+            "    raise SystemExit(2)\n"
+            "print('temporary doc refs ok')\n",
             encoding="utf-8",
         )
         _git(root, "config", "core.hooksPath", "hooks")
@@ -277,26 +251,46 @@ def test_end_to_end():
         partial.write_text("staged\n", encoding="utf-8")
         _git(root, "add", "AGENTS.md")
         partial.write_text("unstaged\n", encoding="utf-8")
-        refused_partial = _git(
+        accepted_partial = _git(
             root, "commit", "-m", "partial checked surface", check=False
         )
-        partial_output = (
-            (refused_partial.stdout or "") + (refused_partial.stderr or "")
+        check(
+            "end-to-end staged document accepted with unstaged work preserved",
+            accepted_partial.returncode == 0,
         )
         check(
-            "end-to-end partial checked surface refused",
-            refused_partial.returncode != 0,
-        )
-        check(
-            "end-to-end partial refusal names staged mismatch",
-            "different content from what Git commits" in partial_output,
+            "end-to-end unstaged document content preserved",
+            partial.read_text(encoding="utf-8") == "unstaged\n",
         )
 
-        partial.write_text("staged\n", encoding="utf-8")
-        _git(root, "add", "AGENTS.md")
-        accepted_doc = _git(root, "commit", "-m", "complete document")
-        check("end-to-end fully staged document accepted",
-              accepted_doc.returncode == 0)
+        doc_tool.write_text(
+            "#!/usr/bin/env python3\nimport sys\n"
+            "print('intentional doc refs failure')\nraise SystemExit(1)\n",
+            encoding="utf-8",
+        )
+        claude = root / "CLAUDE.md"
+        claude.write_text("staged entry\n", encoding="utf-8")
+        _git(root, "add", "CLAUDE.md")
+        accepted_dirty_checker = _git(
+            root, "commit", "-m", "use staged checker", check=False
+        )
+        check(
+            "end-to-end unstaged checker change does not replace staged checker",
+            accepted_dirty_checker.returncode == 0,
+        )
+        check(
+            "end-to-end unstaged checker change preserved",
+            "intentional doc refs failure" in doc_tool.read_text(encoding="utf-8"),
+        )
+
+        _git(root, "add", str(doc_tool.relative_to(root)))
+        refused_doc_check = _git(
+            root, "commit", "-m", "broken document checker", check=False
+        )
+        check(
+            "end-to-end failing staged document check refused",
+            refused_doc_check.returncode != 0,
+        )
 
 
 def test_live_tree():

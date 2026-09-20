@@ -52,16 +52,18 @@ ERA 전용 QMK fork에서 모든 에이전트가 따르는 로컬 작업 규칙�
   문서 포인터 검사는
   `keyboards/era/common/tools/era_doc_refs.py`가 소유한다.
 - 문서 구조나 라우팅을 바꾸면 이 파일, `era_active_index.md`, 해당 adapter와
-  검사 포인터를 같은 관심사 변경에서 정렬한다. 문서 줄을 삭제할 때는
-  `python keyboards/era/common/tools/era_doc_refs.py --homeless`를 실행하고,
-  집이 없는 고유 요구·식별자는 삭제 전에 실제 소유 위치를 정한다.
+  검사 포인터를 같은 관심사 변경에서 정렬한다. 문서 줄 삭제 시
+  `python keyboards/era/common/tools/era_doc_refs.py --homeless`로 사라진 식별자를
+  검토할 수 있다. 출력 자체는 보존 의무가 아니며, 고유 제품 요구·안전·호환
+  제약만 실제 소유 위치에 남기고 소스 소유 식별자나 폐기명은 새 집을 만들지 않는다.
 
-이 집합은 에이전트 문서 규약 v1
-([eerraa-agent-docs](https://github.com/eerraa/eerraa-agent-docs) 태그
-**v1**)을 따른다. 선언된 이탈은 셋이다: 장르별 디렉터리(20편, 규약의 약 20편
-경계), 별도 진입 라우터(`era_active_index.md`), Genre 헤더가 있는
-계약·지도·매뉴얼·state의 영어 산문. 진입(`AGENTS.md`, 포인터를 넘는
-`CLAUDE.md`)은 한국어다.
+이 집합은 `eerraa-agent-docs` v2의 commit
+`4bd84f45dd3e970bf25505059431058efbe7680a` 고정본을 따른다. 문서 규약은
+[AGENT_DOCS_CONVENTION.md](https://github.com/eerraa/eerraa-agent-docs/blob/4bd84f45dd3e970bf25505059431058efbe7680a/AGENT_DOCS_CONVENTION.md),
+채택 판단 기준은 같은 고정본의
+[ADOPTION.md](https://github.com/eerraa/eerraa-agent-docs/blob/4bd84f45dd3e970bf25505059431058efbe7680a/ADOPTION.md)다.
+장르별 디렉터리, 별도 진입 라우터(`era_active_index.md`), Genre 헤더와
+진입 한국어/본문 영어는 로컬 표현 선택이며 중앙 규약의 의미상 예외가 아니다.
 
 ## 검증과 종료
 

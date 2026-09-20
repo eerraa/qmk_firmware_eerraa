@@ -20,6 +20,15 @@ LEDGER_REL = "keyboards/era/common/docs/manuals/era_qmk_fork_ledger.md"
 LEDGER = REPO / LEDGER_REL
 DOC_REFS_REL = "keyboards/era/common/tools/era_doc_refs.py"
 DOC_REFS = REPO / DOC_REFS_REL
+STAGED_PYTHON_RUNNER = (
+    "import sys\n"
+    "path = sys.argv[1]\n"
+    "args = sys.argv[2:]\n"
+    "code = sys.stdin.buffer.read().decode('utf-8')\n"
+    "sys.argv = [path, *args]\n"
+    "scope = {'__name__': '__main__', '__file__': path}\n"
+    "exec(compile(code, path, 'exec'), scope)\n"
+)
 
 DOC_LAYER = ("keyboards/era/common/docs/", "AGENTS.md", "CLAUDE.md",
              ".claude/rules/")
@@ -181,48 +190,30 @@ def fork_layer_armed(changed):
     )
 
 
-def checked_surface_conflicts(unstaged, untracked, fork_armed, doc_armed):
-    # The fork check is index-pure. era_doc_refs.py is not: its path resolver,
-    # function-owner grep, source-comment scan, submodule fallback and line
-    # counts all reuse the live tree. When it is armed, only a wholly staged
-    # non-ignored tree is the tree Git is about to commit.
-    del fork_armed
-    return set(unstaged) | set(untracked) if doc_armed else set()
-
-
-def check_checked_surface_matches_index(fork_armed, doc_armed, problems):
-    """Keep the working-tree document scanner honest about the commit."""
-    unstaged = name_only("diff", "--name-only", "--ignore-submodules=none")
-    # era_doc_refs.py intentionally includes untracked, non-ignored files, so
-    # they are part of the same mismatch test even though `git diff` cannot see
-    # them yet.
-    untracked = name_only("ls-files", "--others", "--exclude-standard")
-    conflicts = checked_surface_conflicts(
-        unstaged, untracked, fork_armed, doc_armed
-    )
-    if not conflicts:
-        return True
-    problems.append(
-        "the staged commit arms a working-tree check, but the checked surface "
-        "also has unstaged changes:\n"
-        + "\n".join(f"  {path}" for path in sorted(conflicts))
-        + "\nStage the whole files or leave this surface for a later commit; "
-        "the hook will not validate different content from what Git commits."
-    )
-    return False
-
 
 def check_doc_layer(problems, notes):
-    proc = subprocess.run(
-        [sys.executable, str(DOC_REFS)], cwd=str(REPO),
-        capture_output=True, encoding="utf-8", errors="replace",
+    staged = subprocess.run(
+        ["git", "show", f":{DOC_REFS_REL}"], cwd=str(REPO),
+        capture_output=True,
     )
-    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    if staged.returncode != 0:
+        problems.append(
+            "the staged index does not contain `era_doc_refs.py`; "
+            "document references have no staged checker to validate them."
+        )
+        return
+    proc = subprocess.run(
+        [sys.executable, "-c", STAGED_PYTHON_RUNNER, str(DOC_REFS), "--index"],
+        cwd=str(REPO), input=staged.stdout, capture_output=True,
+    )
+    output = ((proc.stdout or b"") + (proc.stderr or b"")).decode(
+        "utf-8", errors="replace"
+    ).strip()
     if proc.returncode == 0:
         notes.append("doc refs: " + output)
     else:
         problems.append(
-            "era_doc_refs.py fails on the tree this commit produces:\n"
+            "era_doc_refs.py fails on the staged index this commit produces:\n"
             + output
             + "\nFix the references in this commit, or run it by hand to "
             "inspect: python keyboards/era/common/tools/era_doc_refs.py"
@@ -232,11 +223,10 @@ def check_doc_layer(problems, notes):
     if any(line.startswith("-") and not line.startswith("---")
            for line in removed.splitlines()):
         notes.append(
-            "this commit deletes doc lines. If any deletion retires a "
-            "fact rather than moving it, run the safety net first: "
-            "python keyboards/era/common/tools/era_doc_refs.py --homeless "
-            "(a homeless token is a promotion candidate, not a deletion "
-            "candidate)."
+            "this commit deletes doc lines. Review unique requirements before "
+            "dropping them; `python keyboards/era/common/tools/era_doc_refs.py "
+            "--homeless` can surface identifiers that lost every mention, but "
+            "source-owned or deliberately retired identifiers need no new home."
         )
 
 
@@ -248,14 +238,10 @@ def main():
     check_whitespace(False, problems, notes)   # staged → problems, unstaged → notes
     fork_armed = fork_layer_armed(changed)
     doc_armed = doc_layer_armed(changed)
-    surface_matches = check_checked_surface_matches_index(
-        fork_armed, doc_armed, problems
-    )
-    if surface_matches:
-        if fork_armed:
-            check_fork_ledger(problems, notes)
-        if doc_armed:
-            check_doc_layer(problems, notes)
+    if fork_armed:
+        check_fork_ledger(problems, notes)
+    if doc_armed:
+        check_doc_layer(problems, notes)
     for note in notes:
         print("note: " + note)
     if problems:

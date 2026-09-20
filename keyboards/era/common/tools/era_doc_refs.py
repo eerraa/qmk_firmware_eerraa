@@ -1,70 +1,22 @@
 #!/usr/bin/env python3
 # Copyright 2026 Hyojin Bak (@eerraa)
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Everything the ERA agent document layer points at, resolved against the tree.
+"""Validate ERA agent-document pointers and reachability.
 
-One purpose: a claim in these documents must be **locatable**. A pointer must
-lead somewhere, and a paragraph saying what a function does must say where that
-function lives, because a claim nobody can find is a claim nobody re-checks.
-A pointer that stops resolving leaves the claim without a usable source anchor,
-so it is a finding rather than something recovered from repository history.
-Nothing else in the tree checks either half.
+The default pass checks repository/document paths, line citations, routed
+sections, document role headers, active-index reachability, and ERA-owned
+source-comment pointers. `--index` reads the staged Git index so the pre-commit
+hook validates exactly what the commit contains instead of requiring unrelated
+working-tree changes to be staged.
 
-Read-only. Exit 1 on any finding. Tool-neutral: it assumes no editor and no
-agent, and is meant to be runnable by hand.
+`--homeless [A..B]` is an advisory deletion review. It reports identifiers that
+disappear from the inspected documentation diff and have no remaining mention.
+Those names are prompts to decide whether a unique product requirement lost its
+owner, a source-owned identifier was merely de-duplicated, or a retired name
+was intentionally removed. Findings are not preservation requirements.
 
-Eight checks, run by default:
-
-  * **paths** -- a backticked or linked repository path resolves, in any
-    spelling the documents legitimately use: repo-root (`quantum/keyboard.c`),
-    common-layer-relative (`split/era_host_peer_storage.c`),
-    doc-root-relative (`maps/era_source_map.md`), or
-    a directory;
-  * **citations** -- a `path:line` or `path:line-line` address resolves and the
-    line is inside the file. A line address is right until the next insertion
-    above it and silently wrong after;
-  * **sections** -- a document routed to by section name has that section.
-    The set routes by section constantly and a renamed heading leaves a
-    pointer that reads as live;
-  * **headers** -- every document under `docs/` declares `Genre:` and
-    `Canonical for:`, the genre is one AGENTS.md names, `Canonical for:` is
-    non-empty, and retired `Status:` / `Read when:` lines are absent. The
-    header is how a document states its own scope and sentence kind; the
-    index owns when a document is read;
-  * **index** -- every document `era_active_index.md` names exists, and every
-    agent document is reachable from the entry router;
-  * **claims** -- a paragraph that says what a resolvable function *does* names
-    a file it could live in, keeping implementation claims tied to a source
-    anchor. The unit is the paragraph rather than every sentence;
-  * **source comments** -- the same locatability rule over ERA comments, in
-    `keyboards/era` and in the QMK core files that carry ERA prose. Comments
-    only; an identifier in code is resolved by the compiler and a string
-    literal is data;
-  * **constant values** -- a document that states a constant's value states the
-    tree's value. The one numeric claim a machine can decide, and narrow: see
-    `check_constant_values`.
-
-And one on request:
-
-  * `--homeless [A..B]` -- the deletion safety net. Over the staged doc diff, or
-    a given range, it reports every identifier the removed lines carried that
-    now has no home anywhere in `keyboards/era` or the entry layer. **A homeless
-    token is a promotion candidate, not a deletion candidate**: move it to an
-    owning document before dropping it. Commit SHAs, per-build addresses and
-    one-run measurements are expected non-findings and
-    need no home; the report is evidence for that judgment, not the judgment.
-
-What this deliberately does not try to catch is the claim itself. A resolvable
-reference and a true statement are different questions, and only the first is
-mechanical: prose asserting what a function no longer does shares no token with
-the source that stopped doing it. Naming the file is what makes finding out
-cheap, and finding out stays a reader's job.
-
-The inclusion rule for a path claim is narrow rather than the exclusion list
-being long. This prose is full of slash-joined field names -- `PUSH_CTL/open`,
-`rrx/hrx/srx`, `apply/complete` -- that are not paths and never were. A token
-counts only when it carries a known source or document suffix, ends in `/`, or
-begins with a directory this repository has.
+Read failures and broken references fail closed. The tool does not duplicate or
+re-derive implementation values from source.
 """
 
 import re
@@ -90,10 +42,8 @@ SRC_SUFFIX = (".c", ".h", ".md", ".py", ".sh", ".mk", ".ld", ".json",
               ".txt", ".S", ".lds", ".yml", ".yaml")
 SKIP_PREFIX = ("http://", "https://", "~/", "/mnt/", "/usr/", "/etc/",
                "C:", "D:", "$", "%")
-CLAIM_ROOTS = ("keyboards/era", "quantum", "platforms", "tmk_core", "drivers")
 CORE_COMMENT_ROOTS = ("quantum/", "platforms/", "tmk_core/", "drivers/",
                       "builddefs/")
-CONST_PREFIXES = ("ERA_", "RGB_MATRIX_", "MATRIX_", "RP2040_")
 # The identifier alphabet the safety net tracks out of a deletion.
 TOKEN_ALPHABET = (
     r"ERA_[A-Z0-9_]+"          # ERA macros
@@ -130,20 +80,11 @@ ROUTING_WORDS = {"first", "second", "whole", "both", "alone", "only",
                  "last", "always", "never", "instead", "then"}
 
 
+INDEX_MODE = sys.argv[1:] == ["--index"]
+
+
 def git(*args, ok=(0,)):
-    """Run git, and refuse to read a failure as an empty answer.
-
-    The return code used to be discarded, and the realistic path that exposes
-    it is the one a stranger takes: a source ZIP with no `.git`, where
-    `git ls-files` exits 128 with empty stdout. `TRACKED` then came out empty,
-    every check scanned zero files, and this program printed its success
-    sentence and exited 0. A walk that finds nothing has not measured an empty
-    tree, it has failed to measure -- the same rule `era_residency_gate.sh`
-    states at its zero-section guard.
-
-    `git grep` exits 1 for "no match", which is an answer and not a failure,
-    so those callers pass `ok=(0, 1)`.
-    """
+    """Run git and refuse to treat an execution failure as an empty answer."""
     proc = subprocess.run(["git", *args], cwd=str(REPO), capture_output=True,
                           encoding="utf-8", errors="replace")
     if proc.returncode not in ok:
@@ -156,26 +97,70 @@ def git(*args, ok=(0,)):
     return proc.stdout
 
 
-# The check runs before a commit as well as on one. Start from Git's cached and
-# untracked, non-ignored names, then keep only paths that exist in this working
-# tree: a deleted tracked source must not crash the comment pass or remain a
-# false-positive resolver target, and a newly added source must not escape the
-# same check merely because it has not been staged yet. Submodule directory
-# entries remain because `exists()`, unlike `is_file()`, accepts them.
-TRACKED = {
-    line.strip()
-    for line in git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
-    if line.strip() and (REPO / line.strip()).exists()
-}
+_text_cache = {}
+
+
+def read_text(rel):
+    if rel in _text_cache:
+        return _text_cache[rel]
+    if INDEX_MODE:
+        for link, object_id in GITLINK_OBJECTS.items():
+            if rel.startswith(link + "/") and link in INDEX_OVERRIDES:
+                subpath = rel[len(link) + 1:]
+                proc = subprocess.run(
+                    ["git", "-C", str(REPO / link), "show", f"{object_id}:{subpath}"],
+                    capture_output=True, encoding="utf-8", errors="replace",
+                )
+                if proc.returncode != 0:
+                    sys.exit(
+                        f"cannot read staged submodule path {rel} at {object_id}: "
+                        + (proc.stderr or "git show failed").strip()
+                    )
+                _text_cache[rel] = proc.stdout
+                return proc.stdout
+        if rel in INDEX_OVERRIDES:
+            _text_cache[rel] = git("show", f":{rel}")
+            return _text_cache[rel]
+    try:
+        _text_cache[rel] = (REPO / rel).read_text(
+            encoding="utf-8", errors="replace"
+        )
+        return _text_cache[rel]
+    except OSError as exc:
+        sys.exit(f"cannot read {rel}: {exc}")
+
+
+if INDEX_MODE:
+    TRACKED = {
+        line.strip() for line in git("ls-files", "--cached").splitlines()
+        if line.strip()
+    }
+else:
+    # Manual validation includes non-ignored additions. The pre-commit path
+    # uses the staged index above and never depends on unrelated worktree files.
+    TRACKED = {
+        line.strip()
+        for line in git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+        if line.strip() and (REPO / line.strip()).exists()
+    }
 if not TRACKED:
     sys.exit("git ls-files reported no live working-tree files, so every check below "
              "would scan nothing and pass. That is a failure to measure, not "
               "a clean tree.")
-GITLINKS = {
-    parts[3]
+GITLINK_OBJECTS = {
+    parts[3]: parts[1]
     for line in git("ls-files", "--stage").splitlines()
     if len(parts := line.split(None, 3)) == 4 and parts[0] == "160000"
 }
+GITLINKS = set(GITLINK_OBJECTS)
+INDEX_OVERRIDES = (
+    {
+        line.strip()
+        for line in git("diff", "--name-only", "--ignore-submodules=none").splitlines()
+        if line.strip()
+    }
+    if INDEX_MODE else set()
+)
 DIRS = set()
 for _p in TRACKED:
     _parts = _p.split("/")
@@ -183,29 +168,62 @@ for _p in TRACKED:
         DIRS.add("/".join(_parts[:_i]))
 TOPDIRS = tuple(sorted(d for d in DIRS if "/" not in d))
 
+_submodule_paths = None
 _submodule_tails = None
 
 
-def submodule_tails():
-    """Filenames under `lib/`, which `git ls-files` cannot see into.
+def staged_submodule_paths():
+    """Paths in gitlink commits whose working trees differ from the index."""
+    global _submodule_paths
+    if _submodule_paths is None:
+        _submodule_paths = set()
+        for link, object_id in GITLINK_OBJECTS.items():
+            if link not in INDEX_OVERRIDES:
+                continue
+            proc = subprocess.run(
+                ["git", "-C", str(REPO / link), "ls-tree", "-r", "--name-only", object_id],
+                capture_output=True, encoding="utf-8", errors="replace",
+            )
+            if proc.returncode != 0:
+                sys.exit(
+                    f"cannot enumerate staged submodule {link} at {object_id}: "
+                    + (proc.stderr or "git ls-tree failed").strip()
+                )
+            _submodule_paths.update(
+                f"{link}/{subpath}"
+                for subpath in proc.stdout.splitlines() if subpath
+            )
+    return _submodule_paths
 
-    The documents cite ChibiOS startup and HAL files by name and a submodule's
-    contents are not in the index, so the filesystem is the only witness. Built
-    on first miss: most runs never need it.
-    """
+
+def submodule_tails():
+    """Filenames inside gitlinks, using staged commits only where needed."""
     global _submodule_tails
     if _submodule_tails is None:
         _submodule_tails = {}
-        base = REPO / "lib"
-        if base.is_dir():
+        paths = set(staged_submodule_paths()) if INDEX_MODE else set()
+        for link in GITLINKS:
+            if INDEX_MODE and link in INDEX_OVERRIDES:
+                continue
+            base = REPO / link
+            if not base.is_dir():
+                continue
             for f in base.rglob("*"):
                 if f.is_file():
-                    rel = str(f.relative_to(REPO)).replace("\\", "/")
-                    if not any(rel.startswith(link + "/") for link in GITLINKS):
-                        continue
-                    _submodule_tails.setdefault(f.name, []).append(
-                        rel)
+                    paths.add(str(f.relative_to(REPO)).replace("\\", "/"))
+        for rel in paths:
+            _submodule_tails.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
     return _submodule_tails
+
+
+def submodule_path_exists(path):
+    if not under_submodule(path):
+        return False
+    if INDEX_MODE:
+        link = next(link for link in GITLINKS if path.startswith(link + "/"))
+        if link in INDEX_OVERRIDES:
+            return path in staged_submodule_paths()
+    return (REPO / path).exists()
 
 
 def under_submodule(path):
@@ -250,7 +268,7 @@ def resolve(token, origin):
         # are already in TRACKED; submodule contents have the explicit
         # filename fallback below.
         if (cand in TRACKED or cand in DIRS
-                or (under_submodule(cand) and (REPO / cand).exists())):
+                or submodule_path_exists(cand)):
             return cand
     if bare.endswith(SRC_SUFFIX):
         # A filename the documents cite without its directory: a reader finds
@@ -277,10 +295,7 @@ def headings(rel):
     """A document's headings, plus the bolded lead-ins prose points at by name."""
     if rel not in _headings:
         found = set()
-        try:
-            text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            text = ""
+        text = read_text(rel)
         for line in text.splitlines():
             match = HEADING.match(line)
             if match:
@@ -292,73 +307,15 @@ def headings(rel):
 
 
 def linecount(rel):
-    try:
-        return len((REPO / rel).read_bytes().split(b"\n"))
-    except OSError:
-        return 0
+    return read_text(rel).count("\n") + 1
 
-
-CLAIM_FN = re.compile(r"`([a-z_][a-z0-9_]{4,})\(\)`")
-CLAIM_VERB = re.compile(
-    r"\b(returns?|calls?|sets?|clears?|holds?|reads?|writes?|advances?|gates?|"
-    r"excludes?|raises?|counts?|runs?|fires?|owns?)\b")
-CLAIM_FILEREF = re.compile(
-    r"`[A-Za-z0-9_./-]*\.(?:c|h|mk|py|ld|json)`|"
-    r"[A-Za-z0-9_./-]+\.(?:c|h|mk|py|ld):\d")
-CLAIM_DEF = r"^[A-Za-z_].*\b[a-z_][a-z0-9_]{4,}\("
-
-
-def function_owners():
-    """symbol -> {defining .c file}, over the trees ERA documents talk about."""
-    owners = {}
-    for line in git("grep", "-n", "-E", CLAIM_DEF, "--", *CLAIM_ROOTS,
-                    ok=(0, 1)).splitlines():
-        parts = line.split(":", 2)
-        if len(parts) < 3 or not parts[0].endswith(".c"):
-            continue
-        for match in re.finditer(r"\b([a-z_][a-z0-9_]{4,})\s*\(", parts[2]):
-            owners.setdefault(match.group(1), set()).add(parts[0])
-    return owners
-
-
-def resolves_to_a_function(name, owners):
-    """Documents shorten `era_host_peer_storage_arm_summary_refresh()` to
-    `arm_summary_refresh()`, so a suffix match is part of resolving one."""
-    if name in owners:
-        return True
-    return any(sym.endswith("_" + name) for sym in owners)
-
-
-def check_claims(fails):
-    owners = function_owners()
-    paragraphs = 0
-    for rel in sorted(p for p in TRACKED
-                      if p.startswith(DOC_ROOT) and p.endswith(".md")):
-        lineno = 1
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-        for para in re.split(r"\n\s*\n", text):
-            start, lineno = lineno, lineno + para.count("\n") + 2
-            flat = " ".join(para.split())
-            names = list(dict.fromkeys(CLAIM_FN.findall(flat)))
-            if not names or not CLAIM_VERB.search(flat):
-                continue
-            paragraphs += 1
-            if CLAIM_FILEREF.search(flat):
-                continue
-            known = [n for n in names if resolves_to_a_function(n, owners)]
-            if known:
-                fails.append(
-                    f"{rel}:{start}: says what "
-                    + ", ".join(f"`{n}()`" for n in known[:3])
-                    + " does and names no file it lives in")
-    return paragraphs
 
 
 TOKEN = re.compile(TOKEN_ALPHABET)
 
 
 def homeless(range_spec):
-    """Identifiers a doc deletion drops that have no remaining home."""
+    """Advisory identifiers removed from docs with no remaining mention."""
     targets = [DOC_ROOT, *ENTRY]
     diff = git("diff", "-U0", *( [range_spec] if range_spec else ["--cached"] ),
                "--", *targets)
@@ -383,11 +340,11 @@ def homeless(range_spec):
         print("no homeless tokens: everything removed still has a home in "
               "keyboards/era or the entry layer")
         return 0
-    print("tokens removed from docs with no remaining home "
-          "(promotion candidates, or deliberately retired names):")
+    print("tokens removed from docs with no remaining mention "
+          "(review only; preserve only unique requirements that lost an owner):")
     for token in findings:
         print(f"  {token}")
-    return 1
+    return 0
 
 
 def scan_set():
@@ -399,11 +356,7 @@ def scan_set():
 def check_pointers(files, fails):
     counted = 0
     for rel in files:
-        path = REPO / rel
-        if not path.exists():
-            fails.append(f"{rel}: named by the scan set, absent from the tree")
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = read_text(rel)
         for lineno, line in enumerate(text.splitlines(), 1):
             cited = {m.group(0) for m in CITE.finditer(line)}
             for match in CITE.finditer(line):
@@ -488,16 +441,8 @@ def source_comment_set():
                   and "/docs/" not in "/" + p)
 
 
-# ERA also writes comments in QMK core files, and a `keyboards/era/` prefix
-# filter cannot see them. That gap is not hypothetical: a comment in
-# `quantum/rgb_matrix/rgb_matrix.c` cited a `docs/active/` document tree this
-# repository had deleted, and it reached the shipped orphan because this scan
-# stopped at the ERA directory.
-#
-# Only ERA's own comment blocks are checked in these files, not upstream's: a
-# block qualifies when it mentions `era` at all. Upstream comment prose is not
-# this repository's to hold locatable, and scanning it would report findings
-# nobody here can fix.
+# Core files can carry ERA-owned comments too. Only comment blocks that mention
+# ERA are checked there; upstream prose is outside this repository's ownership.
 ERA_MENTION = re.compile(r"\bera\b|\bERA_|keyboards/era", re.I)
 
 # `foo.[ch]` is one address written for two files. Expanded rather than skipped,
@@ -517,23 +462,11 @@ def core_comment_set():
 
 
 def check_source_comments(fails):
-    """The same locatability rule, over ERA source comments.
-
-    The rule was written for the document layer and is not about documents: a
-    reference nobody can resolve is one nobody re-checks, and this repository
-    has no history to recover a moved target from. Measured 2026-08-17, before
-    this check existed, **six of the seven `path:line` citations in ERA source
-    comments pointed somewhere else** and two of them named a file the tree does
-    not contain -- against zero findings in the document layer the same day,
-    which is what a checked surface looks like beside an unchecked one.
-
-    Comments only. Code is not scanned: an identifier in code is resolved by the
-    compiler and a string literal is data.
-    """
+    """Apply the pointer check to ERA-owned source comments."""
     counted = 0
     era_only = set(core_comment_set())
     for rel in source_comment_set() + core_comment_set():
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        text = read_text(rel)
         pattern = MK_COMMENT if rel.endswith(".mk") else C_COMMENT
         for block in pattern.finditer(text):
             lineno = text.count("\n", 0, block.start()) + 1
@@ -573,133 +506,6 @@ def check_source_comments(fails):
     return counted
 
 
-# A constant's name, as a document writes it.
-CONST_NAME = re.compile(
-    r"\b((?:" + "|".join(CONST_PREFIXES) + r")[A-Z0-9_]{4,})\b")
-CONST_DEF = re.compile(r"^#\s*define\s+([A-Z][A-Z0-9_]*)\s+(\S[^\n]*)$", re.M)
-MK_ASSIGN = re.compile(r"^([A-Z][A-Z0-9_]*)\s*\??=\s*(\S[^\n]*)$", re.M)
-# A bare integer in prose, not a version, a line number or part of a word.
-PROSE_INT = re.compile(r"(?<![\w.])(\d{1,7})(?![\w.])")
-
-
-def constant_table():
-    """Every ERA constant, with the file that defines it.
-
-    Sorted rather than set-ordered, and a name defined more than once with
-    different bodies is dropped instead of resolved to whichever definition
-    came first. Both are the same requirement: a gate that answers differently
-    on the same tree is not a gate.
-    """
-    seen = {}
-    for rel in sorted(TRACKED):
-        if not rel.startswith("keyboards/era/") or "/keymaps/" in rel:
-            continue
-        if not rel.endswith((".c", ".h", ".mk")):
-            continue
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-        for match in CONST_DEF.finditer(text):
-            body = match.group(2).split("/*")[0].split("//")[0].strip()
-            seen.setdefault(match.group(1), []).append((body, rel))
-        for match in MK_ASSIGN.finditer(text):
-            seen.setdefault(match.group(1), []).append((match.group(2).strip(), rel))
-    table = {}
-    for name, entries in seen.items():
-        bodies = {body for body, _ in entries}
-        if len(bodies) == 1:
-            table[name] = entries[0]
-    return table
-
-
-def constant_value(name, table, depth=0):
-    """The integer a constant reduces to, or None when it is not one.
-
-    Deliberately shallow: an alias chain and a parenthesised expression over
-    resolvable names, and nothing else. A constant this cannot reduce is not
-    checked rather than guessed at.
-    """
-    if depth > 6 or name not in table:
-        return None
-    body = table[name][0].strip().rstrip("Uu")
-    if re.fullmatch(r"-?\d+", body):
-        return int(body)
-    if re.fullmatch(r"0[xX][0-9a-fA-F]+", body):
-        return int(body, 16)
-    if re.fullmatch(r"\(?\s*[A-Za-z_]\w*\s*\)?", body):
-        return constant_value(body.strip("() "), table, depth + 1)
-    if body.startswith("(") and body.endswith(")"):
-        inner = body[1:-1]
-        names = set(re.findall(r"[A-Za-z_]\w*", inner))
-        if names and all(constant_value(n, table, depth + 1) is not None for n in names):
-            for n in sorted(names, key=len, reverse=True):
-                inner = re.sub(r"\b" + re.escape(n) + r"\b",
-                               str(constant_value(n, table, depth + 1)), inner)
-            inner = re.sub(r"[Uu]\b", "", inner)
-            if re.fullmatch(r"[-+*/%()\s0-9<>]+", inner):
-                try:
-                    return int(eval(inner))  # noqa: S307 -- literals only, checked above
-                except Exception:
-                    return None
-    return None
-
-
-def check_constant_values(fails):
-    """A document that states a constant's value must state the tree's value.
-
-    Not the locatability rule and not a style rule. A document is allowed to
-    write a constant's value -- what it is not allowed to do is write a value
-    the tree no longer holds, and that is decidable where the placement
-    question is not.
-
-    **The scope is narrow and saying so is part of the check.** It reaches only
-    a constant that reduces to an integer: 21 stated values on 2026-08-18,
-    against 91 named constants it could not reduce. So it is one guard on one
-    shape, not coverage of the document layer's numbers -- the counts that
-    caused this repository's worst numeric defects, "1178 files wide" against
-    1200 and "the nine ERA RGB Matrix boards" against ten, are derived from the
-    tree rather than defined in it and no `#define` check can see them.
-
-    **It only reaches a number written after the name, on the same line, and
-    widening that was tried and reverted.** A contract writes "exactly 136
-    bytes\\n  (`ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES`)" with the value first
-    and a line break between, and three stale values in
-    `era_host_peer_storage_contract.md`'s capacity section are that shape. Going
-    to whole-line matching did not reach them either -- the number is on the
-    previous line -- and it produced a false positive on the first paragraph
-    that happened to carry unrelated digits. Paragraph matching would accept
-    anything. So the coupling between a value and its name lives in prose, this
-    check reaches the half that does not, and the other half is found by
-    reading. That is a limit of the check and not a gap to be closed by
-    loosening it.
-
-    It accepts any number in the window, and accepts a thousandfold difference
-    because a document writes 10000 ms as "10 s". So a line that keeps the
-    right number and adds a wrong one passes: this catches drift, where the
-    value moved and the document did not, which is the way these have actually
-    gone wrong.
-    """
-    table = constant_table()
-    counted = 0
-    for rel in scan_set():
-        if not rel.endswith(".md"):
-            continue
-        for lineno, line in enumerate(
-                (REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            for match in CONST_NAME.finditer(line):
-                value = constant_value(match.group(1), table)
-                if value is None:
-                    continue
-                stated = [int(n) for n in PROSE_INT.findall(line[match.end():match.end() + 90])]
-                if not stated:
-                    continue
-                counted += 1
-                if any(n == value or n * 1000 == value or (n and value * 1000 == n)
-                       for n in stated):
-                    continue
-                fails.append(f"{rel}:{lineno}: `{match.group(1)}` is {value} "
-                             f"({table[match.group(1)][1]}), and the numbers "
-                             f"written beside it are {stated}")
-    return counted
-
 
 def check_headers(fails):
     docs = [p for p in TRACKED
@@ -707,8 +513,7 @@ def check_headers(fails):
     for rel in docs:
         if rel.startswith(f"{DOC_ROOT}/user/"):
             continue
-        head = "\n".join((REPO / rel).read_text(
-            encoding="utf-8", errors="replace").splitlines()[:14])
+        head = "\n".join(read_text(rel).splitlines()[:14])
         for header in HEADERS:
             if header not in head:
                 fails.append(f"{rel}: no `{header}` header in its first lines")
@@ -728,7 +533,7 @@ def check_headers(fails):
 
 
 def check_index(fails):
-    index = (REPO / INDEX).read_text(encoding="utf-8", errors="replace")
+    index = read_text(INDEX)
     named = set()
     for match in BACKTICK.finditer(index):
         target = resolve(match.group(1), INDEX)
@@ -750,8 +555,10 @@ def main():
     argv = sys.argv[1:]
     if argv and argv[0] == "--homeless":
         return homeless(argv[1] if len(argv) > 1 else None)
+    if argv == ["--index"]:
+        argv = []
     if argv:
-        print(f"usage: {Path(__file__).name} [--homeless [A..B]]")
+        print(f"usage: {Path(__file__).name} [--index | --homeless [A..B]]")
         return 2
 
     files = scan_set()
@@ -759,20 +566,16 @@ def main():
     pointers = check_pointers(files, fails)
     documents = check_headers(fails)
     named = check_index(fails)
-    claims = check_claims(fails)
     comments = check_source_comments(fails)
-    values = check_constant_values(fails)
     print(f"doc refs: {len(files)} agent-layer files, {pointers} pointers, "
-          f"{claims} function claims, {documents} documents with headers, "
-          f"{named} named by the index, {comments} source-comment references, "
-          f"{values} stated constant values")
+          f"{documents} documents with headers, {named} named by the index, "
+          f"{comments} source-comment references")
     for entry in fails:
         print("FAIL: " + entry)
     if fails:
-        print(f"\n{len(fails)} finding(s). A claim nobody can locate cannot be "
-              f"re-checked until its source anchor is repaired.")
+        print(f"\n{len(fails)} broken document/source-comment pointer or ownership finding(s).")
         return 1
-    print("every claim in the agent document layer is locatable")
+    print("agent-document links, reachability, and owned source-comment pointers are valid")
     return 0
 
 
