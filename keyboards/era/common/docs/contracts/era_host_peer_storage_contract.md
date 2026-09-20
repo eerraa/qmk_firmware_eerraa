@@ -114,6 +114,30 @@ Page-program fills unaddressed bytes of the 256 B page with `0xFF`.
 > **WHY:** Apply and CLEAN have no error return on the QMK surface; only the result-bearing engine plus readback decides old or new.
 > **REOPENS:** a QMK EEPROM API that returns program/erase results on this board.
 
+## Stored-Data Compatibility
+
+A split pair runs one identical firmware image; mixed versions are unsupported.
+Stored-data backward compatibility is not supported. No compatibility-only ERA
+path may read, accept, or convert an earlier stored layout merely to preserve
+old stored data. Stale bytes still must not be reinterpreted under a new
+layout: any old block that is not valid under the current meaning must fail the
+applicable signature/magic/prefix/version guard and be reinitialized rather
+than misread. If that fallback cannot be established, compatibility is
+unverified and the detector must not be removed.
+
+`ERA_FIRMWARE_VERSION` is compile-time identity only. It is independent of
+`ERA_EEPROM_RESET_KEY`, `ERA_NVM_FORMAT_VERSION`, the persisted sync-policy
+version, State Sync revisions, and the storage source revision. Those identities
+move independently; one changing is not proof that another stale layout is
+unreachable. A default-only version change is not a layout change. A normal
+UF2 flash does not erase ERA NVM, so same-format data may remain mounted;
+physical-format rejection and logical owner-map/reset-key invalidation are
+separate decisions.
+
+> **REFUSED:** keep an older-layout reader or converter only for backward storage compatibility.
+> **WHY:** the product does not promise stored-data compatibility; a compatibility-only reader creates a second interpretation of persistent bytes, while weakening a stale-layout guard risks silently misreading them.
+> **REOPENS:** an explicit requirement to preserve a named older layout, with a versioned reader and tests for both migration and rejection.
+
 ## Current Storage Inventory
 
 Seven portable domains. Table `g_era_host_peer_storage_domains` in
@@ -126,7 +150,7 @@ logical ranges only — never NVM banks, journal, or local metadata.
 `ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
 `ERA_HOST_PEER_STORAGE_SCHEMA_V1` 1 on every row. Probe/proof refuses a
 schema or size mismatch before content moves. Both halves of a pair run one
-identical image (`era_source_map.md` **Stored-Data Compatibility**).
+identical image; mixed versions are unsupported (**Stored-Data Compatibility**).
 
 Reload is `era_split_eeprom_sync_reload_domain_kb()` in
 `sirind/common/tomak_common.c`. The weak default in
@@ -247,31 +271,11 @@ changed or discarded.
 
 ## Dynamic Macro Transaction
 
-An open macro's RAM staging bytes are not a durable snapshot source.
-`era_nvm_construct_bank()` in `storage/era_nvm.c` preserves the last physical
-macro commit when an unrelated write or headroom repair rotates the bank.
-A nonzero staging marker prevents execution; it does not by itself preserve
-that earlier committed macro across reboot or inactive-bank reclamation.
-
-The production replay parser builds a rotation-local durable-range descriptor
-from the active bank. A covering record replaces its physical base; only a
-later partial-record suffix is replayed. Whole-domain production history thus
-needs one journal validation pass and direct page reads, not a full journal
-CRC pass for every snapshot page. The descriptor expires before the active
-bank changes; Core0 alone writes flash and construction touches only the
-inactive bank. Failure to read that source prevents activation/publication. The existing
-256-byte scratch buffers and single 24-KiB public image remain; no second
-16-KiB staging image or persistent pointer into a retired bank is introduced.
-CLOSE, RESET and FORMAT supply their complete replacement instead. Host
-regressions: `tests/era_nvm` and the stock-helper path in
-`tests/era_nvm_qmk_driver`. Physical rotation latency still requires the
-performance gate below.
-
-Marker = final byte of the 16-KiB domain (`ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES`
-16384). Engine: `era_nvm_qmk_write()` / `era_nvm_macro_qmk_write()` in
-`storage/era_nvm.c`. Modes `ERA_NVM_MACRO_IDLE`, `ERA_NVM_MACRO_WRITE_OPEN`,
-`ERA_NVM_MACRO_RESET_OPEN`. Staging mutates the one 24-KiB public image while
-the marker stays nonzero. QMK will not execute a nonzero-marker image.
+An open macro's RAM staging bytes are not a durable snapshot source. The
+16-KiB domain's final byte is the marker: nonzero means the transaction is open
+and QMK must not execute the staged image. Staging may mutate the one 24-KiB
+public RAM image, but it creates no durable macro record, State Sync revision,
+or portable dirty claim.
 
 Externally observable upload transcript:
 
@@ -279,41 +283,32 @@ Externally observable upload transcript:
 RESET -> FF opener -> payload -> zero close -> targeted marker read
 ```
 
-| Step | Public image | Durable record (`storage/era_nvm.c`) | State Sync / dirty |
-| ---: | --- | --- | --- |
-| 1 | nonzero final-byte write; `era_nvm_ensure_macro_headroom()` first | none | none. Display-only pending arm may rise |
-| 2 | payload copies into the same RAM image | none per write | none |
-| 3 | marker held nonzero (`leave_zero_marker_invalid`) | — | still open |
-| 4 | final zero after `macro_payload_seen` | one whole-domain `era_nvm_commit_source()` origin `MACRO_TRANSACTION` | none until success |
-| 5 | marker 0 published only after durable success | committed | MACRO + ordinary committed-span; mode returns to `IDLE` |
-| 6 | failed close keeps marker `0xFF`; old durable image mount-recoverable | none | no MACRO advance |
+The final zero is accepted only after payload was seen. It commits one
+whole-domain `MACRO_TRANSACTION` record; marker zero and the ordinary committed
+span become public only after that durable commit succeeds. A failed close
+keeps the marker invalid and the previous complete macro mount-recoverable.
+Reads, unrelated writes, headroom repair, and bank rotation must preserve that
+last complete durable macro without a second 16-KiB staging image. If the
+durable source cannot be read while constructing a replacement bank, that bank
+must not activate or publish. `CLOSE`, `RESET`, and `FORMAT` supply complete
+replacements. `tests/era_nvm` and `tests/era_nvm_qmk_driver` prove the
+production and QMK-facing paths.
 
-A zero close with no payload seen is `ERA_NVM_RESULT_PROTOCOL` and leaves the
-marker `0xFF`. Opener/payload without a prior open is `PROTOCOL`. The macro
-transaction gates **only durable writes whose ranges touch the macro domain**.
-A keyboard-originated EEPROM write outside that range — including the deferred
-RGB Matrix flush during an upload — goes through `era_nvm_replace()` in
-`storage/era_nvm.c` origin `LOCAL_QMK` and survives the next mount.
-`era_nvm_replace()` overlapping the macro domain while staging is open returns
+A zero close with no payload, or opener/payload without an open transaction, is
+`ERA_NVM_RESULT_PROTOCOL`. A durable write outside the macro domain remains
+allowed during upload; replacement that overlaps the open macro domain is
 `ERA_NVM_RESULT_BUSY`.
 
 ### Stock QMK macro RESET transcript is a bound dependency
 
-`nvm_dynamic_keymap_macro_reset()` in
-`quantum/nvm/eeprom/nvm_dynamic_keymap.c` loops `eeprom_update_block()` on a
-local `uint8_t dummy[16]`. `era_nvm_qmk_read()` in `storage/era_nvm.c`
-recognizes that sequential 16-byte scan without a QMK Core hook; the matching
-zero writes then become one RESET transaction. Already-zero whole scan:
-`ERA_NVM_RESULT_NO_CHANGE`, no durable write. Failed RESET leaves the marker
-invalid; a later payload write may resume `WRITE_OPEN`. An unrelated EEPROM
-read interleaved into the scan aborts recognition
-(`era_nvm_macro_reset_abort_scan()`).
-
-`ERA_NVM_QMK_MACRO_RESET_CHUNK_BYTES` 16.
-`quantum/nvm/eeprom/nvm_dynamic_keymap.c` must retain the sequential 16-byte
-stock reset loop unless this recognition rule is deliberately replaced.
-`tests/era_nvm_qmk_driver` compiles that stock QMK source file and calls
-`nvm_dynamic_keymap_macro_reset()`.
+Production RESET recognition is bound to QMK's sequential 16-byte
+`eeprom_update_block()` scan in `nvm_dynamic_keymap_macro_reset()` from
+`quantum/nvm/eeprom/nvm_dynamic_keymap.c`;
+`ERA_NVM_QMK_MACRO_RESET_CHUNK_BYTES` is 16. An already-zero whole scan is
+`ERA_NVM_RESULT_NO_CHANGE`; an interleaved unrelated EEPROM read aborts
+recognition; a failed RESET leaves the marker invalid. The stock loop must
+retain this transcript unless this contract and `tests/era_nvm_qmk_driver`,
+which compiles the stock QMK source, are changed together.
 
 > **REFUSED:** treat an aligned-all-zero 16-byte write as production RESET recognition.
 > **WHY:** the production rule is the sequential 16-byte stock-QMK scan transcript; a second implicit recognizer would accept a different write shape as RESET without replacing that contract.
@@ -321,28 +316,22 @@ stock reset loop unless this recognition rule is deliberately replaced.
 
 ## External H7S State-Sync And Macro Handoff
 
-This is the QMK/ERA producer for the existing 32-byte VIA RAW HID surface.
-Producer: `system/era_state_sync.c`, compiled only under `VIA_ENABLE`
-(`system/era_common_qmk_rules.mk`). Entry is `via_command_kb()` in
-`system/era_via_system.c` when `ERA_VIA_SYSTEM_ENABLE`, else the same symbol in
-`system/era_state_sync.c`. Both call `era_state_sync_via_command()`. It is not
-an H7S implementation plan.
+This is the QMK/ERA producer contract for the existing 32-byte VIA RAW HID
+surface, not an H7S implementation plan. The source owner is
+`system/era_state_sync.[ch]`, compiled only under `VIA_ENABLE`.
 
-No new command id, report, transaction id, capability bit, or BUSY status is
-added. `VIA_PROTOCOL_VERSION` in `quantum/via.h` is `0x000C`. Stock GET
-selectors are `id_uptime` `0x01` .. `id_firmware_version` `0x04`; SET-only
-`id_device_indication` is `0x05`. Selector `ERA_STATE_SYNC_KEYBOARD_VALUE`
-`0x06` is unused on that stock GET/SET table. `id_set_keyboard_value` with
-selector `0x06` is not claimed by `era_state_sync_via_command()`; `quantum/via.c`
-marks `id_unhandled` `0xFF`.
+The envelope reuses `id_get_keyboard_value` `0x02` with
+`ERA_STATE_SYNC_KEYBOARD_VALUE` `0x06`; SET selector `0x06` remains unclaimed.
+`ERA_STATE_SYNC_ENVELOPE_VERSION` is `0x01`. No new command id, report,
+transaction id, capability bit, or `BUSY` status is added.
+`VIA_PROTOCOL_VERSION` remains `0x000C` and is a separate protocol version. A
+handled envelope is 32 bytes and reports RAM revisions only; the GET path does
+not read EEPROM, CRC, or NVM.
 
 ### Envelope v1
 
 `id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x06`) +
 `ERA_STATE_SYNC_ENVELOPE_VERSION` (`0x01`). Integers on the wire are big-endian.
-`era_state_sync_via_command()` in `system/era_state_sync.c` always
-`raw_hid_send()`s 32 bytes when it handles the report. The GET path does not
-read EEPROM, CRC, or NVM.
 
 Request (`system/era_state_sync.c`; names in `system/era_state_sync.h`):
 
@@ -389,71 +378,31 @@ not bump any revision.
 > layout; a second shape would be another protocol.
 > **REOPENS:** a new envelope version, approved on this tree.
 
-### `length` and short packets (this tree)
+### `length` and short packets
 
-`era_state_sync_via_command()` in `system/era_state_sync.c` returns false with
-no `raw_hid_send()` when `data` is null, `length` is less than 2, the command
-is not GET selector `0x06`, or `length` is less than 32. Returning false leaves
-the report to `raw_hid_receive()` in `quantum/via.c`, which for an unknown GET
-selector writes `id_unhandled` `0xFF` and then `raw_hid_send()`s `data` with
-the same `length`. `send_raw_hid()` in `tmk_core/protocol/chibios/usb_main.c`
-drops a send when `length != RAW_EPSIZE`.
-
-On the USB RAW path that `length` is not the host OUT byte count.
-`raw_hid_task()` in `tmk_core/protocol/chibios/usb_main.c` calls
-`raw_hid_receive(buffer, sizeof(buffer))` with `RAW_EPSIZE` 32
-(`tmk_core/protocol/usb_descriptor.h`). The same fact is written on the custom
-value rail in `system/era_common_via.h`: a short OUT still arrives as 32 with
-the tail of an uninitialised stack buffer. A reserved-byte nonzero tail is
-therefore `INVALID` `0x02` on that path, not a `length < 32` miss. The C
-`length < 32` arm is what `tests/era_via_exact_ms/test_exact_ms.cpp` exercises;
-the USB path does not pass a `length` other than 32.
-
-### Peer observation (not edited, not decided here)
-
-Byte layout of the 32-byte v1 envelope matches this tree on the VIA ADR 0001
-and H7S `contract_via` §5 texts read for this re-measure. Peers document bytes
-`4..5` as BE16; this tree echoes the two bytes without combining them.
-
-Short-packet semantics do not match. This table records both sides and does
-not pick a winner.
-
-| Side | What it documents or does with `length < 32` |
-| --- | --- |
-| this tree, `era_state_sync_via_command()` | returns false; no send from this unit (`system/era_state_sync.c`; test above) |
-| this tree, USB RAW | `length` is always 32; short OUT is not visible as `length < 32`; garbage reserved bytes are `INVALID` |
-| this tree, VIA fallback after false | `quantum/via.c` writes `0xFF`; `send_raw_hid()` then drops a non-32 `length` |
-| H7S `contract_via` §5 | not `INVALID`; handler returns false; `via.c` writes `id_unhandled` `0xFF`; buffer is not rewritten as a v1 envelope. REFUSED answering `INVALID` on `length < 32`. H7S TX is `via_hid_task` enqueue of the same 32-byte buffer; H7S `raw_hid_send()` is an empty stub |
-| VIA ADR 0001 | `0xFF` is not an envelope; probe `0xFF` is the unhandled-selector fallback. H7S §5's peer note: app `parseStateSyncEnvelope` returns null when the IN length is not 32 (neither `0xFF` nor `INVALID`) |
-
-H7S previously documented `INVALID` for this case; current H7S `contract_via`
-§5 documents `0xFF`.
+Only a full 32-byte payload is a v1 envelope. A direct handler call with
+`length < 32` returns unhandled and emits no State Sync envelope;
+`tests/era_via_exact_ms/test_exact_ms.cpp` covers the length-31 case. The current
+ChibiOS RAW dispatcher calls this producer with `RAW_EPSIZE` 32, so transport-
+specific short-OUT handling is not an envelope rule. A consumer must treat any
+non-32-byte IN as no v1 envelope, never `INVALID` or a fourth status.
 
 ### Revisions
 
-Three RAM `uint32` tokens in `system/era_state_sync.c`, each starting at 1.
-`era_state_sync_next()` skips 0 on wrap. They are not NVM generations and not
-the wire source-revision.
+KEYMAP, MACRO, and CONFIG are RAM `uint32` tokens, each starting at 1 and
+skipping zero on wrap. They are neither NVM generations nor the storage source
+revision.
 
-| Token | Advances when (`system/era_state_sync.c`) |
+| Token | Advances when |
 | --- | --- |
-| KEYMAP | `era_state_sync_note_eeprom_span()` overlaps `[ERA_STORAGE_DYNAMIC_KEYMAP_ADDR, ERA_STORAGE_DYNAMIC_MACRO_ADDR)`, or `era_state_sync_note_storage_domain()` for `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP`. Schema 1 has no encoder map in that span |
-| MACRO | `era_state_sync_note_eeprom_span()` overlaps the 16-KiB macro domain, or `era_state_sync_note_storage_domain()` for `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO`. The custom adapter emits that span only after a completed macro transaction; opener/payload staging emits nothing. Transcript: **Dynamic Macro Transaction** |
-| CONFIG | SET-before-SAVE via `era_state_sync_note_config_semantic_commit()`; a later matching `era_eeprom_update_config()` persist in `storage/era_eeprom_config_io.c` is suppressed for that region only (`era_state_sync_config_persist_begin()` / `_end()`). Independent durable span: syncable ERA config (`ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 / size 176) except the suppressed region, plus RGB Matrix, `keymap_config`, default layer, and VIA layout options. Remote Apply: `era_state_sync_note_storage_domain()` for ERA_CONFIG, QMK_RGB_MATRIX, QMK_KEYMAP_CONFIG, QMK_DEFAULT_LAYER, VIA_LAYOUT_OPTIONS |
+| KEYMAP | a durable local write changes the dynamic-keymap span, or remote Apply durably replaces the dynamic-keymap domain |
+| MACRO | the dynamic-macro transaction closes durably, or remote Apply durably replaces the macro domain; opener/payload staging does not advance it |
+| CONFIG | a semantic SET-before-SAVE commits a configuration change (the matching later persist is suppressed as a duplicate), or an independent durable change/remote Apply reaches syncable ERA config, RGB Matrix, `keymap_config`, default layer, or VIA layout options |
 
-Does not advance: protected ERA config, recency/storage-metadata origin,
-`REMOTE_APPLY` / `CLEAN_PREPARE` / `FORMAT` through
-`era_eeprom_driver_note_commit()` in `storage/era_eeprom_driver.c` (those
-origins return before notification; remote Apply uses
-`era_state_sync_note_storage_domain()` in `split/era_host_peer_storage.c`
-after durable success), an open macro's staging writes, and a no-op persist
-of a region already published by SET-before-SAVE.
-
-On a storage-adoption board, `era_eeprom_driver_note_commit()` forwards
-`LOCAL_QMK` and `MACRO_TRANSACTION` through
-`era_host_peer_storage_note_eeprom_commit()` in `split/era_host_peer_storage.c`,
-which calls `era_state_sync_note_eeprom_span()`. Without the storage engine,
-the same notifier calls `era_state_sync_note_eeprom_span()` directly.
+Protected ERA config, recency/storage metadata, `CLEAN_PREPARE`, `FORMAT`, an
+open macro's staging writes, and a no-op persist do not advance these tokens.
+Remote Apply advances the named token only after durable replacement succeeds;
+it is not also reported as a fresh local dirty edit.
 
 > **REFUSED:** H7S copying ERA NVM banks, split authority, replacement Apply
 > internals, or RP2040 flash policy.
@@ -595,123 +544,74 @@ owns physical wire execution and copies only from immutable published storage
 images. Core0 owns QMK state, domain capture, arbitration, admission, NVM
 Apply, runtime reload, manifests and semantic publication.
 
-## Transaction State Machine
+## Transaction Semantics
 
-Runtime states: `era_host_peer_storage_runtime_state_t` in
-`split/era_host_peer_storage.c`. Ops: `era_split_eeprom_sync_op_t` in
-`split/era_split_eeprom_sync.h`. Core1 snapshot answers
-`ERA_SPLIT_EEPROM_SYNC_STATUS_APPLY_READY` in
-`split/communication_core/era_split_communication_core_storage.c`. There is no
-`APPLY_WRITE` slice state: `era_nvm_replace()` is one synchronous old-or-new
-call. Direction changes wire roles, never NVM semantics. The apply target is
-the half that receives the candidate.
+The runtime state enum is source-owned by `era_host_peer_storage_runtime_state_t`
+in `split/era_host_peer_storage.c`; operation ids are source-owned by
+`era_split_eeprom_sync_op_t` in `split/era_split_eeprom_sync.h`. Pull and push
+share one storage meaning; direction changes wire roles, not NVM semantics, and
+the half receiving the candidate is the Apply target.
 
-`ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE` ends at transfer-verified:
-pull, when staged bytes equal image size and the full CRC matches; push, when
-the last chunk ACK advances to apply-wait. Apply/COMPLETE are compact control.
+Every replacement follows the same required boundaries:
 
-### Pull
+1. probe/proof fixes domain, schema, size, source revision and content CRC;
+2. transfer completes an immutable full candidate and verifies its CRC;
+3. `APPLY_READY` means the accepted transaction may reach Core0 Apply; it is
+   **not durable success**;
+4. the current relation/policy/source facts are revalidated at the final ADMIT
+   boundary;
+5. after ADMIT, the result-bearing NVM call decides complete old or complete new;
+6. only durable NVM success permits reload, State Sync publication and
+   convergence bookkeeping; a later transport/close failure never rolls the
+   persistent bytes backward.
 
-Initiator states `PEER_PROBE` → `PEER_TRANSFER` → `PEER_APPLY` →
-(local ADMIT + NVM) → `PEER_REVALIDATE` → `PEER_COMPLETE`.
-
-| Step | State / op | Abort |
-| ---: | --- | --- |
-| 1 | `PEER_PROBE` / `PROBE_REQ` | identity / policy / schema / size refuse |
-| 2 | `PROOF_RSP` MATCH (done) or TRANSFER | generation / CRC mismatch |
-| 3 | `PEER_TRANSFER` / `CHUNK_REQ` into candidate staging | transfer / timeout / stale / `SOURCE_CHANGED` |
-| 4 | full candidate CRC vs proof | `INTEGRITY_FAIL`; exclusivity drops |
-| 5 | `PEER_APPLY` / `APPLY_REQ`; `APPLY_RSP` `APPLY_READY` | relation / policy / source change |
-| 6 | `era_host_peer_storage_apply_commit()` revalidation | any precondition below; no NVM |
-| 7 | ADMIT | — |
-| 8 | `era_eeprom_driver_replace()` origin `REMOTE_APPLY` → `era_nvm_replace()` in `storage/era_nvm.c` | NVM failure leaves public RAM old (`BUSY` or `INTEGRITY_FAIL`) |
-| 9 | `era_split_eeprom_sync_reload_domain_kb()`; manifest; `era_state_sync_note_storage_domain()` | post-NVM publication repairs forward; no EEPROM rewrite |
-| 10 | `PEER_REVALIDATE`: same peer usb/open/close generations and policy; wait while `status_revalidation_due` or `general_initiator_pending` | identity change tears the episode; NVM already new |
-| 11 | `PEER_COMPLETE` / `COMPLETE_REQ`; `CLOSE_RSP` `COMPLETE` then `era_host_peer_storage_note_domain_converged()` | stale close aborts the episode, not the NVM image |
-
-### Push Transaction
-
-Initiator: `PEER_PUSH_OPEN` / `PUSH_CTL` `OPEN` → `PEER_PUSH_CHUNKS` /
-`PUSH_CHUNK_REQ` → `PEER_PUSH_APPLY` / `PUSH_CTL` `APPLY` →
-`PEER_PUSH_COMPLETE` / `PUSH_CTL` `COMPLETE`.
-
-Responder: `HOST_PUSH_OPEN` → `HOST_PUSH_STAGING` → `HOST_PUSH_APPLY_WAIT` →
-on Core1 `APPLY_READY`, the same `era_host_peer_storage_apply_commit()`
-(`host_push` true) → `HOST_PUSH_DURABLE`. Convergence baseline is written at
-that durable declaration. After `COMPLETE`,
-`era_split_transport_scheduler_rotate_storage_relation()`.
-
-Open compare MATCH is the pull-symmetric short circuit: nothing to move.
+`ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE` protects only the bulk
+transfer and ends once the candidate is transfer-verified; Apply/COMPLETE use
+the compact control path. A proof/open MATCH is the symmetric no-transfer
+short circuit. Detailed states and operations are recovered from the source
+enums and `split/communication_core/era_split_communication_core_storage.c`.
 
 ## LINK SPEED and restart storage ordering
 
-LINK's four-byte record remains outside EEPROM SYNC. All its durable writes
-now belong to the checked LINK act, after physical runtime readiness; a
-non-winner no longer stores a guessed Low after an observation timeout. Even
-an unchanged winner rate is agreed once. `split/era_split_link.h` owns the
-complete local success/failure and reboot contract.
+LINK's four-byte record remains outside EEPROM SYNC. Its durable writes belong
+to the checked LINK act only after physical runtime readiness; the complete
+local success/failure/reboot rules remain in `split/era_split_link.h`.
 
-An admitted storage episode, including a read-only audit, and its outstanding
-result prevent a new LINK arm: the audit can still discover content requiring
-Apply. This is independent of indicator visibility. Queued boot audit work
-alone does not prevent reconciliation. During an existing timed arm, cold
-capture and new initiator episode admission yield; active/context-loss result
-retirement remains runnable. CLEAN's deadline-free prepared quarantine keeps
-its own existing retirement path.
+An admitted storage episode, including verify-only audit, and any outstanding
+result prevent a new LINK arm because the audit may still discover an Apply.
+Queued boot-audit work alone does not. During an already timed LINK arm, new
+cold capture/initiator admission yields while active/context-loss retirement
+still runs; CLEAN's prepared quarantine retains its own retirement path.
 
-A detected NVM final-program/readback failure may leave a new complete record
-physically committed while the public RAM image stays at its last confirmed
-value. `storage/era_nvm.c` therefore treats both failed append and failed bank
-construction as sealed recovery state. RAM-identical replacement cannot return
-`NO_CHANGE` through that state: checked rotation must first establish the
-requested durable image. This uses the existing sealed-tail owner rather than
-a LINK-specific retry/uncertain-write flag. Power loss before a checked result
-may recover either complete image, never a promise of pair-wide durability.
+A final program/readback failure can leave a new complete record physically
+committed while public RAM still exposes the last confirmed value. Such an
+append or bank-construction failure is sealed recovery state: a RAM-identical
+replacement must establish the requested durable image by checked rotation
+before it can report `NO_CHANGE`. Power loss before a checked result may recover
+either complete image, never a promise of pair-wide durability.
 
 ## Replacement Apply: ADMIT And Public Authority
 
-ADMIT is the last cancellation boundary inside
+ADMIT is the last cancellation boundary. Before it, the implementation must
+revalidate the pinned relation/owner/role and policy/source identity (including
+the pull-side host generations), complete size/CRC, domain-0 reserved-zero
+rule, target-not-dirty/not-stale state, and publication/revision capacity.
+Schema/size refusal happens earlier at probe/proof; an overlapping open macro
+may still return `ERA_NVM_RESULT_BUSY`. The current source predicate is
 `era_host_peer_storage_apply_commit()` in `split/era_host_peer_storage.c`.
-The comment at that predicate is the fence: no cancellation check belongs
-below it. Core1 may advance relation facts during the flash window; that
-affects COMPLETE/re-proof, not rollback.
 
-Revalidated before ADMIT:
+`APPLY_READY` or any other accepted wire/runtime result is not durable success.
+Only `ERA_NVM_RESULT_OK` or `ERA_NVM_RESULT_NO_CHANGE` from the result-bearing
+replacement is durable success. Other results publish no reload, manifest,
+State Sync revision, or COMPLETE.
 
-| Check (`split/era_host_peer_storage.c`) | Source |
-| --- | --- |
-| `era_host_peer_storage_context_host()` or `_peer()` | current relation/owner/role |
-| `owner_epoch`, `relation_generation`, `policy_generation` | pinned vs live |
-| pull only: `peer_usb_epoch`, `peer_host_open_generation`, `peer_host_close_generation` | same |
-| staging complete; `image_size` == domain descriptor size | domain table |
-| full candidate CRC32 == `expected_crc32` | `era_split_wire_crc32()` |
-| domain 0: `era_host_peer_storage_reserved_era_config_is_zero()` | reserved-zero walk |
-| `TARGET_DIRTY` clear and `image_stale` clear | not dirtied since transfer |
-| `era_host_peer_storage_apply_publication_preflight()` | `era_eeprom_driver_ready()`; domain id; even `image_publication_seq` with room; `source_revision_counter != UINT32_MAX`; no `revision_wrap_pending` |
-
-Schema/size mismatch is refused at probe/proof, not re-decoded here. Macro-domain
-availability is `era_nvm_replace()` returning `ERA_NVM_RESULT_BUSY`.
-
-If any row fails, no candidate NVM transaction starts. After ADMIT the
-function clears `ROUTE_EXCLUSIVE` and calls `era_eeprom_driver_replace()`.
-Relation/policy/source change is **not rollback authority**: the synchronous
-NVM call finishes and its own atomicity decides old or new.
-`era_nvm_replace()` in `storage/era_nvm.c` publishes the changed public RAM
-range only after durable commit succeeds — complete old domain until then,
-complete candidate immediately after. No generic alternate EEPROM view.
-
-NVM `OK` or `NO_CHANGE` is durable success. Any other result: `BUSY` maps to
-`ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY`, else `INTEGRITY_FAIL`; no reload, no
-manifest, no State Sync, no COMPLETE. Once NVM succeeds, NVM is canonical. A
-later `era_host_peer_storage_publish_current_image()` failure in
-`split/era_host_peer_storage.c` refills the staging buffer from
-`eeprom_read_block()` in `storage/era_eeprom_driver.c` and retries; a second
-failure marks `image_stale` and returns `STALE`. It never writes the old
-candidate back to EEPROM. Remote Apply origin `REMOTE_APPLY` is not a fresh
-local dirty edit (`era_eeprom_driver_note_commit()` ignores it).
-
-Push writes the convergence baseline at durable success. Pull writes it on
-`CLOSE_RSP` `COMPLETE`.
+After ADMIT, a relation, policy, or source change has no rollback authority.
+The synchronous NVM operation decides old-or-new; public EEPROM remains the
+complete old domain until durable commit and becomes the complete candidate
+after it. If later runtime/publication work fails, recovery repairs forward from
+the canonical NVM image and never rewrites the old candidate. Remote Apply is
+not a fresh local dirty edit. Push records convergence at durable success; pull
+records convergence only after `CLOSE_RSP` `COMPLETE`.
 
 > **REFUSED:** a post-ADMIT relation, policy, or source change as authority to rewrite the old domain.
 > **WHY:** the public/durable boundary is the NVM commit; rolling bytes back to repair transport would invent a second EEPROM view.
@@ -744,25 +644,17 @@ Healthy device acceptance requires `program_failure_count == 0` and
 
 ## Inactive-Bank Maintenance And Rotation
 
-After mount/rotation, `era_nvm_scan_inactive_erase_prefix()` in
-`storage/era_nvm.c` counts already-erased inactive sectors.
-`era_eeprom_driver_maintenance_task()` in `storage/era_eeprom_driver.c` erases
-at most one 4-KiB sector. `era_common_features_maintenance_task()` in
-`system/era_common_features.c` is the caller. Both class skeletons place that
-call after the board presentation tick: `split/era_split_board.c` and
-`system/era_nonsplit_board.c`. The maintenance function returns without erasing
-while `rgb_matrix_render_policy_refresh_active()` in
-`quantum/rgb_matrix/rgb_matrix.c` is true.
+Background maintenance may erase at most one inactive 4-KiB sector per call
+and must yield while the board presentation refresh is active. If rotation is
+required before maintenance finishes, ERA NVM synchronously completes the
+remaining sectors and constructs the inactive bank; correctness is bounded by
+the finite 16-sector bank, but wall time is device evidence and must not be
+claimed from source arithmetic. A macro-triggered rotation remains subject to
+the same rule.
 
-The NVM layer never calls keyboard, matrix, wire or scheduler work from inside
-a program/erase primitive. If background maintenance has not finished when
-rotation is mandatory, `era_nvm_finish_inactive_erase()` in `storage/era_nvm.c`
-synchronously completes the remaining inactive-bank erases, then bank
-construction. That window is
-correctness-bounded by the finite 16-sector bank; its device time is a required
-performance measurement, not a source-arithmetic latency claim. A macro upload
-that itself triggers rotation may still take the open-then-append shape;
-optimising that shape requires device evidence.
+Program/erase primitives must not call keyboard, matrix, wire, or scheduler
+work. Source owners are `storage/era_nvm.c`, `storage/era_eeprom_driver.c`,
+and `system/era_common_features.c`.
 
 > **REFUSED:** reintroduce recursive keyboard/wire work from inside ERA NVM to make a long rotation appear interruptible.
 > **WHY:** it creates storage re-entry and makes public/runtime authority depend on arbitrary action code executed in the middle of a physical transaction.
@@ -869,31 +761,22 @@ mutated while Core1 is permitted to copy it. CLEAN's quarantine waits until
 source publications and result reservations are terminally retired. Immutable
 Core1 storage publications remain seqlock/generation fenced.
 
-A published ready storage result is a core0 wake fact. If no matching
-HOST/PEER runtime remains, `era_host_peer_storage_runtime_task()` in
-`split/era_host_peer_storage.c` calls
-`era_split_communication_core_storage_discard_ready_results()` in
-`split/communication_core/era_split_communication_core_storage.c` before any
-unserviced early return. A same-role transition may keep the live Core1 lease.
-Deferred retirement occupies the one responder-result slot and leaves
-`storage_result_due()` asserted: a permanent response-timeout loop or a
-permanent core0 housekeeping wake.
+A published ready storage result remains a Core0 wake obligation until matching
+runtime consumes it or context loss terminally discards it. A same-role
+transition may retain the live Core1 lease; deferred retirement occupies the
+single responder-result slot and must keep `storage_result_due()` asserted
+rather than turn a lost consumer into a permanent timeout/housekeeping loop.
 
 ## Scheduler And Matrix Recovery
 
-`ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE` protects the bulk chunk
-stream and clears at transfer-verified (Pull/Push tables above). The NVM
-replacement that follows is one synchronous Core0 call in
-`era_host_peer_storage_apply_commit()` (`split/era_host_peer_storage.c`).
-Push-initiator standing suppression after exclusivity:
-`era_host_peer_storage_standing_suppressed()` in that file — route-exclusive
-OR (initiator AND (`PEER_PUSH_APPLY` or `PEER_PUSH_COMPLETE`)); composition
-`era_route_contract.md`. APPLY/COMPLETE stay on the dedicated storage lane.
-
-ERA NVM program/erase primitives do not call keyboard, matrix, wire, or
-scheduler work (`storage/era_nvm.c`). Relation liveness during the Core0 flash
-window is Core1's standing exchange (`era_invariants.md`). Scheduler recovery
-never rolls persistent bytes backward for relation recovery.
+Storage-specific scheduler requirements are only these: route exclusivity
+protects the bulk transfer, Apply/COMPLETE remain runnable on the storage
+control lane after transfer verification, NVM replacement is synchronous
+Core0 work, and Core1's standing exchange carries relation liveness across the
+flash window. Storage recovery never rolls persistent bytes backward.
+Cadence/suppression composition is owned by `era_route_contract.md`; source
+anchors are `split/era_host_peer_storage.c` and
+`split/era_host_peer_storage_standing_policy.h`.
 
 ## Diagnostics
 
@@ -905,43 +788,26 @@ never rolls persistent bytes backward for relation recovery.
 | State Sync revision | advances exactly at semantic durability |
 | relation liveness | continues through accepted flash windows |
 
-Protocol-visible counts and NVM program/erase plus verified-failure totals are
-the acceptance surface. Decode: `era_capture_reading.md`. Pending composition
-and its consumer live here
-(`split/era_host_peer_storage.c`,
-`split/communication_core/era_split_communication_core_standing.c`,
-`split/scheduler/era_split_transport_scheduler_responder.c`).
+Protocol-visible counts and verified NVM program/erase failure totals are the
+acceptance surface; decode lives in `era_capture_reading.md`.
 
-| Pending term | Rule |
-| --- | --- |
-| composition | this half's visible work ∪ the peer's advertised pending mirror ∪ this half's last successfully sent pending=1 |
-| confirm | initiator: standing `STORAGE_PENDING` sent state; responder: `STORAGE_NEWS` sent-shadow commit |
-| hold / retire | a local fall cannot retire the panel while the peer may still hold the previously confirmed one; a never-crossed one creates no hold; retire on confirmed zero or real service departure |
-| local work arm | gated by serviceability and local EEPROM sync policy. Policy off prevents a new sent-one; it does not erase a one the peer already holds |
-| boot-only conservative baseline | display-provisional until a transfer/fault proves pair work |
-| not a timer | affects no arbitration, persistence, or restart/CLEAN predicate |
+The storage-pending indication is presentation only. It composes local visible
+work, the peer's advertised pending mirror, and the last successfully sent
+pending-one. A local fall cannot retire an indication while the peer may still
+hold that confirmed one; retirement needs confirmed zero or real service
+departure. Policy-off prevents arming a new local one but does not erase a
+peer-held confirmation. The boot-only conservative baseline remains
+provisional, and none of these indication facts may change arbitration,
+persistence, or restart/CLEAN predicates.
 
-The scheduler in `split/era_split_transport_scheduler.c` consumes both
-local-carrier confirmations before it runs
-`era_host_peer_storage_runtime_task()` in `split/era_host_peer_storage.c`
-(responder results, then standing latest-state, then storage runtime).
-
-**Storage recovery does not end an operation merely because the mode label
-temporarily reads `LOCAL_NO_LINK`.** The initiator keeps the peer-pending
-mirror through the scheduler's fast bootstrap-recovery window; a
-bootstrap-backoff miss retires it as a real service departure. Only the
-initiator uses that streak-bounded hold
-(`split/era_host_peer_storage_indicator_policy.h`,
-`split/era_host_peer_storage.c`). After local-clock offset the two logical
-edges may differ only by standing poll/housekeeping propagation; **no
-opportunistic flash window may then delay one panel's STATUS frame while the
-other panel has already changed.** Class skeletons run the board presentation
-tick before background NVM maintenance;
-`era_common_features_maintenance_task()` in `system/era_common_features.c`
-yields while `rgb_matrix_render_policy_refresh_active()` in
-`quantum/rgb_matrix/rgb_matrix.c` says the policy edge has not reached PWM
-flush. Release authority is a successful local carrier zero, not receipt of
-the peer's zero. The `cause` `wire storage ppath` probe is diagnostic only.
+A transient `LOCAL_NO_LINK` label inside fast bootstrap recovery is not by
+itself operation completion. After clock alignment, opportunistic flash
+maintenance must not delay one panel's storage STATUS edge after the other has
+changed; presentation runs before background NVM maintenance and maintenance
+yields to an active refresh. Release authority is the successful local carrier
+zero, not receipt of the peer's zero. The host-testable policy owner is
+`split/era_host_peer_storage_indicator_policy.h`; the `cause` `wire storage
+ppath` probe remains diagnostic only.
 
 ## What The Lane Costs A Typist
 

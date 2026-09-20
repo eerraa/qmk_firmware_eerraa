@@ -105,9 +105,9 @@ tool and no driver.
    itself when the copy finishes.
 
 **A split pair's two halves run one identical image and are flashed together.**
-Mixed versions are not a supported configuration, and no code in this firmware
-reads a format an earlier firmware stored (`era_source_map.md`'s
-**Stored-Data Compatibility**). Flashing one half and not the other leaves the
+Mixed versions are not a supported configuration; stored-data compatibility and
+stale-layout rejection are canonical in `era_host_peer_storage_contract.md`
+**Stored-Data Compatibility**. Flashing one half and not the other leaves the
 pair in a state nothing is written to recover.
 
 **A normal UF2 flash does not erase ERA NVM.** The firmware UF2 contains only

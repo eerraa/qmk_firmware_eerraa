@@ -68,7 +68,7 @@ Ops do not encode relation. The `HOST_PEER` envelope name is historical; renamin
 
 ## HOST-PEER Replacement Storage Class
 
-Body layout of the seven domains, state machine, capacity, retry, and durable apply: `era_host_peer_storage_contract.md`. Status ids: `era_identifier_map.md`. Identical-image rule: `era_source_map.md`'s **Stored-Data Compatibility**. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
+Body layout of the seven domains, state machine, capacity, retry, durable apply, and stored-data compatibility: `era_host_peer_storage_contract.md`. Status ids: `era_identifier_map.md`. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
 
 ```text
 ERA_SPLIT_EEPROM_SYNC_CLASS = 0xE0   (split/era_split_eeprom_sync.h)

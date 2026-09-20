@@ -362,67 +362,11 @@ tables above.
 
 ## Stored-Data Compatibility
 
-**There is none** (owner decision). No ERA code exists to read,
-accept, or convert a format some earlier firmware stored. A firmware upload
-already clears the keymap by design, the shipped guidance states that as a
-fact and points at VIA's SAVE and LOAD in both user guides
-(`user/readme.txt`, `user/readme_split.txt`), and an existing
-owner's stored data is explicitly not a consideration. Every path that survives
-only to accept an older stored layout is a deletion candidate — and the
-deletion, not the finding, is where the difficulty is.
-
-`ERA_FIRMWARE_VERSION` in `system/era_firmware_version.h` is compile-time
-identity only. Changing it adds no EEPROM bytes and by itself moves neither
-`ERA_EEPROM_RESET_KEY`, `ERA_NVM_FORMAT_VERSION`, the sync-policy storage
-version, nor any State Sync or storage source revision.
-
-**Deleting an old-format acceptance is safe only when the code that runs
-instead treats the old block as invalid and writes a fresh one.** Trace the
-fallback before deleting and classify it:
-
-- **A. Clean reset** — the old block fails a signature, magic, or prefix check,
-  the code writes defaults over it, and the owner sees factory settings. Safe.
-- **B. Misread** — the old block passes the surviving validity check and is
-  then interpreted under the new layout. Not safe, and not a deletion either:
-  it is silent corruption of a configuration, which is a worse outcome than the
-  compatibility being retired. It needs a guard bump, not a deletion.
-- **C. Undefined** — the fallback cannot be traced. Report it; do not guess.
-
-**Worked example, the link block's 2026-08-19 change** (`split/era_split_link.c`).
-One of its three reserved bytes became a flags byte carrying the agreed/unagreed
-mark. Traced both directions: an older block reads with the byte at zero, which
-is *agreed* — the level itself is read identically and the conservative mark
-means a level that fails is dropped to High after one boot rather than
-re-raised, so **class A**, and the only cost is that a pre-upgrade pair set
-half-by-half converges to High instead of to the chosen level, one Apply away.
-A newer block read by an older image fails that image's reserved-zero test and
-reads as High, also class A and owed to nobody. **No key bump**, because
-nothing is misread under either layout — which is the whole of what the
-classification asks.
-
-**Do not skip the trace on the reasoning that nobody can still be holding an
-older block — that claim is short, plausible, and wrong.** It runs: a deployed
-owner's reset key is older than the compiled one, so the guard fails, the
-strict reset zeroes the ERA block, and no real block is ever read under a newer
-layout. What it misses is that **the reset key and the block version move
-independently**. `ERA_EEPROM_RESET_KEY` changes rarely and the sync-policy
-block has been through five versions; every build made between a key change and
-a later version bump carries the *current* key over an *older* block, so the
-guard passes and the old-version path is live for whoever is holding one. A
-firmware upload does not close it either: the build-date magic resets VIA's
-region, not the ERA config block. That is why each deletion is classified by
-its fallback rather than waived; where the fallback is A the loss is accepted
-and bounded — the whole-block rewrite costs three sync toggles (EEPROM, INPUT,
-RGB) and the seven divergence counters.
-
-A version bump that changes only a default is not a layout change and is not
-a compatibility fact. Canonical in `era_authority_contract.md` **Persisted Sync Policy**.
-
-**The detectors are what make a fallback clean, and this decision does not
-reach them.** `ERA_EEPROM_RESET_KEY`, the reset-guard record, the board files'
-strict reset, and every signature/magic/prefix validity check stay exactly as
-they are. Retiring compatibility while weakening the thing that catches a stale
-block is precisely how outcome B is produced.
+Stored-data compatibility, stale-layout rejection, and the independence of
+firmware identity, physical NVM format, logical reset key, persisted policy,
+State Sync revision, and storage source revision are canonical in
+`era_host_peer_storage_contract.md` **Stored-Data Compatibility**. This map
+only locates the implementing sources above.
 
 ## Closed Boundaries
 
