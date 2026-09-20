@@ -29,19 +29,20 @@ Payload byte0 on every lane (`split/era_split_wire_frame.c`):
 
 ## Compact Payload Kinds
 
-`era_split_wire_payload_kind_t` in `split/era_split_wire_protocol.h`. `era_split_wire_classify_payload()` in `split/era_split_wire_payload.c` reports the kind. Class is `payload[1] & 0xF0` when EXT is set.
+The classifier enum and its numeric slots are source-owned by
+`era_split_wire_payload_kind_t` in `split/era_split_wire_protocol.h`; the
+mapping is owned by `era_split_wire_classify_payload()` in
+`split/era_split_wire_payload.c`. This contract keeps only the wire-visible
+classification boundary: an EXT-clear one-byte compact payload is the
+control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x10` with length 9,
+storage uses class `0xE0`, and HOST-PEER uses class `0x20` with ops `0x20` and
+`0x21`. Retired `ERROR_NACK` class `0x40`, the unallocated `0x6x` class, and
+unmatched HOST-PEER ops including `0x22` and `0x23..0x2F` are `default`
+reject. Retired classifier slots remain retired so captured diagnostic kind
+numbering is not reinterpreted.
 
-| Kind | Name | Packet |
-| ---: | --- | --- |
-| 1 | `GRANT_ACK` | compact, EXT clear, `payload_len == 1` |
-| 2 | `SESSION_STATUS` | compact, EXT set, byte1 `0x10`, `payload_len == 9` |
-| 3 | `EEPROM_SYNC` | class `0xE0`; compact fifteen-byte ops, or bulk-page `CHUNK_RSP` / `PUSH_CHUNK_REQ` |
-| 4 | retired (`ERROR_NACK`, class `0x40`) | no encoder; `default` reject. Number stays allocated |
-| 5 | `HOST_PEER` | class `ERA_SPLIT_WIRE_HOST_PEER_CLASS` `0x20`, op `0x20` |
-| 6 | retired (`DUAL_HOST`, class `0x6x`) | no compiled id and no reservation; `default` reject. Number stays allocated |
-| 7 | `HOST_PEER_HOST_SOURCE_RSP` | class `0x20`, op `0x21` |
-
-`HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over kind 1. They MUST NOT take class/op ids. Unmatched class/op, including `0x22` and `0x23..0x2F` of class `0x20`, is `default` reject.
+`HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over
+the control-only packet. They MUST NOT take class/op ids.
 
 ## HOST-PEER Class
 
@@ -390,9 +391,16 @@ INPUT, TIME_ANCHOR, and STORAGE_NEWS admit every value of their width.
 
 ## Closed ids
 
-Retired payload kinds 4 (`ERROR_NACK`, class `0x40`) and 6 (`DUAL_HOST`, class `0x6x`): Compact Payload Kinds. Unmatched `0x22` and `0x23..0x2F` of class `0x20`: `default` reject.
+Wire-visible closed ids are the retired `ERROR_NACK` class `0x40`, the
+unallocated `0x6x` class, and unmatched `0x22` / `0x23..0x2F` HOST-PEER ops;
+all are `default` reject. The classifier enum's retired numeric slots are
+source-owned by `era_split_wire_payload_kind_t` in
+`split/era_split_wire_protocol.h` and are not a second wire-id space.
 
-Stays-closed `_Static_assert`s sit beside the eligibility macros in `split/era_split_wire_protocol.h`. Row-array `transport_master()` / `transport_slave()` are absent from `split/era_split_transport.c` (a re-added caller fails at link).
+Stays-closed `_Static_assert`s sit beside the eligibility macros in
+`split/era_split_wire_protocol.h`. Row-array `transport_master()` /
+`transport_slave()` are absent from `split/era_split_transport.c` (a re-added
+caller fails at link).
 
 > **REFUSED:** restore the layout walk's variable-length machinery.
 > **WHY:** its bound is the `payload_len != 3 + fixed_total` arm, which the parameter selected around rather than provided — the machinery never carried the check it appeared to.
@@ -487,21 +495,17 @@ Arm leads because five bytes do not fit beside the never-deferring core and the 
 > **WHY:** it preserves accepted behaviour bit-for-bit but adds a planner branch and keeps two orders forever, and the order it would preserve is a landing artifact rather than a judgement that a lighting refresh outranks AUTHORITY.
 > **REOPENS:** a measurement that the two relations need different yielding ranks.
 
-`_Static_assert` family in `split/era_split_wire_protocol.h` against `ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15:
-
-| Kind | Requirement |
-| --- | --- |
-| never-deferring DUAL-HOST | `3 + INPUT + AUTHORITY + STORAGE_NEWS` (rsp) and `3 + INPUT + AUTHORITY + STORAGE_PENDING` (push) |
-| never-deferring HOST-PEER | `3 + LOCK + AUTHORITY + STORAGE_NEWS` (rsp) and `3 + AUTHORITY + STORAGE_PENDING` (push) |
-| authority-only | `3 + AUTHORITY`; if this fails the relation has no carrier for its own revalidation |
-| drain | each deferrable (arm, RGB, ACTIVITY, visual, TIME_ANCHOR) fits beside the never-deferring one-byte facts |
-| ACTIVITY drain | eleven bytes fit beside *each* one-byte fact but not both at once (`3 + 1 + 1 + 11` is 16); INPUT and news, or INPUT and pending, both due with ACTIVITY defers ACTIVITY one further poll |
-| arm beside AUTHORITY | `3 + 7 + 5` lands on fifteen |
-| AUTHORITY + RGB | 14 body bytes against 12; exclusion deliberately not asserted |
+The compact-capacity `_Static_assert` family is executable and source-owned in
+`split/era_split_wire_protocol.h` beside the eligibility macros; this contract
+does not mirror its arithmetic list. It enforces the rule above against
+`ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN` 15: the never-deferring core must fit,
+each required yielding drain must have a legal carrier, and the known
+AUTHORITY+RGB exclusion remains intentional rather than asserted as a legal
+composition.
 
 ## Control-Only Payloads
 
-Kind 1 (`GRANT_ACK`): compact, EXT clear, `payload_len == 1`.
+`GRANT_ACK`: compact, EXT clear, `payload_len == 1`.
 `HOST_PEER_HEARTBEAT` (request) and `HOST_PEER_ACK_STATUS` (response) are that
 packet. Neither takes a class/op id. Semantics come from route kind, relation
 mode, direction, and expected response context — not from a second wire id.
