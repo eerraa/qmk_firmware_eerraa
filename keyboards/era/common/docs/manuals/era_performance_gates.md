@@ -359,9 +359,9 @@ inside `.flash_startup` is a pre-copy caller reaching into `.sram_image`.
 
 RAM placement, load-image scope and budget:
 `era_sram_residency_contract.md`. Per board. The live instrument is
-`common/tools/era_residency_gate.sh` (SRAM budget, allocator, `.vectors`);
-it uses neither Layout phrase. That contract still writes this procedure as
-Layout Gate; the name here is **Layout Checks**.
+`common/tools/era_residency_gate.sh` (SRAM budget, allocator, `.vectors`).
+The contract's **Verification** section points here; this procedure is
+**Layout Checks**.
 
 | Check | Accept |
 | --- | --- |
