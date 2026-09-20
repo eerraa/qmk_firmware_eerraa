@@ -5,32 +5,23 @@ Canonical for: what a change owes before it is believed — the build, the sourc
 and static checks, the refactor tiers, and every standing figure a change must
 not regress
 
-## The Instruments Are In The Tree And Off In Release
+## Diagnostic Images And Measurement Authority
 
-Five diagnostic selectors in `keyboards/era/era_build_options.mk` default
-`?= no`: `ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE`,
-`ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`,
-`ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE`,
-`ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE`. All five off is the release image.
-Switching an instrument on is a build variant, never a re-instrumentation.
-Variants: `era_build_options.md`, `era_build_and_flash.md`.
+Build-variant definitions and diagnostic-axis defaults are source-owned by
+`keyboards/era/era_build_options.mk`; selection rules are in
+`era_build_options.md`. `standard` is the release image with the diagnostic
+axes off. Diagnostic variants are measurement fixtures, not a second
+implementation path, and are built through `era-build` only when their gate
+calls for them, as described in `era_build_and_flash.md`.
 
-1. **Select the common build variant.** `era-build keyboard:keymap` with
-   `standard`, `wire`, `qwin`, `cause`, `stale` or `qwin_phase` applies
-   `common/build_variants/`. Make refuses a variant whose prerequisites the
-   target lacks. The launcher `common/tools/era_qmk_build.sh` refuses unless
-   the resolved five-axis tuple equals the link-visible ELF witnesses, before
-   writing an artifact or manifest.
-2. **Bind a keycode.** `WIRE_DIAG`, `WIRE_DIAG_2` and `WIRE_QWIN` live in
-   `sirind/common/tomak_common.h`. `era/sirind/tomak:via` binds `WIRE_DIAG` on
-   both physical F6/F7 as a capture fixture
-   (`sirind/tomak/keymaps/via/keymap.c`). Other shipped keymaps bind none.
-   On a board that has none: bind one, measure, restore the keymap.
-3. **Read what it prints** with `era_capture_reading.md`.
+The shipped TOMAK capture fixture is source-owned by
+`keyboards/era/sirind/tomak/keymaps/via/keymap.c`; temporary bindings on another
+board must be restored after measurement. Decode diagnostic output with
+`era_capture_reading.md`.
 
-**Do not infer a figure from source and record it as measured.** A `#define`
-is not a baseline. **Fixed Baselines** below are either owner rules or the
-last instrument reading this manual still judges against.
+**Do not infer a measured figure from source.** A constant is not a device
+reading. **Fixed Baselines** below contain only rules or measurements that still
+constrain later changes.
 
 ## What A Change Owes
 
@@ -44,8 +35,8 @@ of it — saying so is the verification statement.
 | touches a closed surface, a retired path, or a QMK core matrix file | the **Source Gate** |
 | touches RAM placement or the load image | the **Layout Checks**, per board |
 | adds core1 call depth | a measured stack figure from `common/tools/era_core1_stack_walk.py` — no compile-time construct can report one |
-| changes replacement Apply, the custom EEPROM adapter, ERA NVM, or dynamic-macro durability | `era_nvm`, `era_nvm_qmk_driver`, the focused storage/State-Sync/CLEAN set below, and a supported split build |
-| restores or changes QMK wear-level files | the complete upstream wear-level host-test set below |
+| changes replacement Apply, the custom EEPROM adapter, ERA NVM, or dynamic-macro durability | `era_nvm`, `era_nvm_qmk_driver`, the directly affected storage/State-Sync/CLEAN tests under `tests/`, and a supported split build |
+| restores or changes QMK wear-level files | all host-test targets owned by `quantum/wear_leveling/tests/` |
 | changes scheduler request admission, queue freshness, or Core1 liveness | the scheduler admission/liveness device gate below at every supported link level |
 | changes EEPROM CLEAN's reboot-durable prepare, agreed-restart phase machine, or storage quarantine | `era_split_restart_agreement`; a supported split build; and the EEPROM CLEAN agreement device gate below |
 | `era_split_link_lifecycle` | production VIA/LINK/agreement, the scheduler's actual cold transition and real EEPROM/NVM with two independent endpoint RAM/NOR images: timeouts, stale intents, role/clock flips, physical-before-NVM ordering, serial/publication faults, program cuts, seal/activation readback ambiguity, reboot, reconciliation scoped to a meeting of the pair (a same-pair reopen after an agreement raises nothing; a fresh meeting, a winner change, an unagreed winner, or a recovery step off the agreed level does), and the pair-wide search report (the listener advertises `rate_searched` from its step until the relation it found opens or the episode ends; the settled initiator requests one LINK_RECOVERED rendezvous from its own search or that answer; an edge with neither local nor peer search, including a same-pair reopen without one, raises no report). The agreed presentation epoch is checked across both HOST orientations and DUAL-HOST, distinct serviced edges, late dispatch/display, timer wrap, role/clock changes, loss, duplication and hidden-report expiry. Physical owner/PIO/NOR and timing are simulated; `test_source_contracts.py` pins dirty-repair, storage admission and report dispatch wiring, not hardware timing |
@@ -58,81 +49,20 @@ of it — saying so is the verification statement.
 The build itself — what WSL must provide, the automated command, and its
 refusals as stop conditions — is `era_build_and_flash.md`'s.
 
-### Focused host-test set
+### Focused host tests
 
-Run these in the WSL-local tree after the build automation has synchronized
-it. The ERA targets below live under `tests/`; wear-level lives under
-`quantum/wear_leveling/tests/`.
+The test and fixture source owns the target inventory and exact assertions.
+ERA host tests live under `tests/`; QMK wear-level tests live under
+`quantum/wear_leveling/tests/`. Run the target or source-contract script named
+by **What A Change Owes** from the synchronized WSL-local tree. `make test:<target>`
+is the QMK host-test entry; referenced Python or shell source-contract checks
+run directly from their test directory.
 
-```text
-make test:era_nvm
-make test:era_nvm_qmk_driver
-make test:era_host_peer_storage_recency_policy
-make test:era_host_peer_storage_indicator_policy
-make test:era_host_peer_storage_news
-make test:era_split_standing_lifecycle
-make test:era_host_peer_storage_standing_policy
-make test:era_split_responder_result_policy
-make test:era_split_restart_agreement
-make test:era_split_link_lifecycle
-python3 tests/era_split_link_lifecycle/test_source_contracts.py
-make test:era_split_storage_publication_retire
-make test:era_usb_session_policy
-make test:era_split_rgb_sleep_policy
-make test:era_via_exact_ms
-make test:era_firmware_version
-make test:era_rgb_matrix_persistence
-make test:era_backlight_pulse
-make test:era_rgblight_pulse
-make test:era_rgblight_pulse_integration
-python3 tests/era_rgblight_pulse/test_source_contracts.py
-make test:era_hid_report_interval
-python3 tests/era_hid_report_interval/test_source_contracts.py
-make test:era_riley_rgb_indicator
-make test:wear_leveling_general
-make test:wear_leveling_2byte_optimized_writes
-make test:wear_leveling_2byte
-make test:wear_leveling_4byte
-make test:wear_leveling_8byte
-make test:era_rp2040_matrix_pio
-make test:era_matrix_debounce_runtime
-bash tests/era_build_variant_rules/test_variant_rules.sh
-python tests/era_firmware_version/test_definitions.py
-```
-
-| Test | Pins |
-| --- | --- |
-| `era_nvm` | production A/B power-cut/fault: mount and generation authority, 256-byte program split, 24-KiB logical bounds, 16-KiB atomic replacement, journal-full rotation, one-sector inactive erase, torn/mismatch seals, format, macro staging versus stock RESET, open-macro isolation through unrelated rotation, partial-record replay, retired-bank reclamation, every rotation read/program failure with retry, bounded whole-domain replay reads, CLEAN-style write, wear-level-looking tail never migrated |
-| `era_nvm_qmk_driver` | ERA custom adapter compiled with stock QMK EEPROM helpers and stock `nvm_dynamic_keymap.c`: ordinary read/write/update, exact committed-span notification, non-notifying durable storage metadata, faulted counter writes that keep the previous public/replay value, the atomic counter-through-baseline convergence envelope, stock `nvm_dynamic_keymap_macro_reset()` as one durable transaction that publishes only after close, deferred RGB writes rotating during an open macro without changing its committed bytes or publishing MACRO, unaligned macro boundary preservation and interrupted-upload reboot, macro-touching replacement refused, failed close, whole-store erase, CLEAN prepare, physical prepare failure |
-| `era_host_peer_storage_recency_policy` | failed increment/clear cannot publish a settled capture or signal departure; failed convergence-metadata publication cannot retire recency. Tests the production policy header in `split/era_host_peer_storage_recency_policy.h`; does not construct a second fake HOST-PEER runtime |
-| `era_host_peer_storage_indicator_policy` | a serviced relation and the initiator's finite fast-recovery window both preserve continuity; a backed-off no-link state retires it. A successfully sent one stays visible-pair work after the local semantic arm falls until that role's sent-state boundary confirms zero; a one that never crossed creates no synthetic hold; a closed local gate cannot latch a new sent-one obligation and does not erase an already-confirmed one before its zero crosses. Peer-pending holds pair-pending independently. Production header: `split/era_host_peer_storage_indicator_policy.h` |
-| `era_host_peer_storage_standing_policy` | standing cadence remains admitted in ordinary service and is suppressed by transfer exclusivity, or by the push initiator's remote-responder Apply wait, or by its Complete wait (`split/era_host_peer_storage_standing_policy.h`). Responder push state does not create initiator suppression. Overlapping reasons stay suppressed. The latter two waits do not widen route exclusivity or responder-result coalescing |
-| `era_host_peer_storage_news` | production storage reducers and indicator: news/audit ordering, news consumed into an owed reopen audit without lighting either panel however long that audit waits, independent audit receipt, in-flight summary inbox, fresh reclassification/deferred arbitration, terminal refusal, full result-identity retirement and the unchanged minimum-visible floor |
-| `era_split_standing_lifecycle` | production standing service with a controlled in-flight transaction boundary: single-writer revocation, late old result, owner/relation cache retirement, exact-stop SESSION acknowledgement, repeated failed recovery, coherent wake identity and unchanged-state poll silence |
-| `era_split_responder_result_policy` | coalesce only an exact successful section-bearing HEARTBEAT already represented by the same immutable responder snapshot/mask (`split/communication_core/era_split_communication_core_responder_result_policy.h`); reject empty, changed-generation/mask, failed/unsent, SESSION, runtime-push and source-push. Does not pin ring slot counts |
-| `era_split_restart_agreement` | CLEAN PREPARE/COMMIT/echo loss and duplication, relation rotation, sticky prepare failure, quarantine, refused act/param/bit7/deadline tuples; five-byte RESTART_ARM and seven-byte AUTHORITY bodies; link-speed serviced handshake, initiator timeout, responder disarm, rotation/role-flip, standalone local deadline; `SESSION_STATUS` `rate_searched` codec (answer only, refused beside `0x10`, `0x04`/`0x20` still refused); eligibility table `00 00 / C5 FC / C5 FC / FE F7 / FE F7` |
-| `era_split_storage_publication_retire` | production publication unit: CLEAN terminal sentinel, ready/unclaimed discard and active claim drain on both storage directions; nonterminal relation-loss discard that clears ready result ownership and leaves source publication capacity reusable; an in-flight non-ready reservation stays owned until Core1 publishes it ready, then the same discard closes it on a later Core0 pass |
-| `era_usb_session_policy` | pure remote-wake SOF verdict plus the production RP2040 sampler with controlled register boundaries: pending DEV_SOF arrival evidence, ISR SOFRD exclusion, never-configured-port exclusion, counter alias after an unobserved interval, two full raw-timer wraps without stale-to-fresh authority/sleep alias, zero-sentinel avoidance, and ISR-to-polling handoff that re-earns loss evidence. Physical interrupt/read side effects still require device validation |
-| `era_split_rgb_sleep_policy` | local master/reason and stock-preset policy, plus the production lighting receiver/resolver: first valid wire answer survives either side of initial owner resolution; promotion/demotion and non-owner refusal; relation rotation drops the previous word even with unchanged PEER role or a role round trip between refreshes. Deterministic Core0 callback ordering, not physical IRQ/render timing |
-| `era_matrix_debounce_runtime` | production debounce reconfiguration with unchanged raw input: pending press, pending release over all nine profile transitions, all rows/columns, repeated applies, timer wrap, no synthetic edges on stable held keys, and return to the clock-free idle path. Physical switch bounce remains a device test |
-| `era_via_exact_ms` | State Sync envelope, unsupported-version once, 7-storage-to-3-UI domain map, revision wrap skips zero, exact-ms / tap-dance / legacy grid, Jump-to-BOOT SET/SAVE/State-Sync/RAW-IN lifecycle + fallback, local CLEAN quiet-gate regression |
-| `era_firmware_version` | exact compile-time identity and complete NUL-terminated VERSION GET; the common SYSTEM router; RGB Sleep master default/GET/SET persistence in the unchanged 2-byte QMK keymap-config record without disturbing existing keymap flags; unchanged-buffer refusal of wrong/short/master-SAVE requests. Its definition script derives the 25-board inventory, requires every physical RGB board to compile `rgb_matrix.sleep`/`rgblight.sleep`, exposes the master only on RGB definitions, keeps timeout controls only on TOMAK, requires the exact VERSION label binding on all 27 RP2040 JSON files, compares split L/R controls, pins the common RGB-Matrix indicator wrappers, locks Riley's RGBLight/three-slot indicator surface, rejects fixed SOCD/KKUK mode rows, and locks KKUK/TAPPING control order |
-| `era_rgb_matrix_persistence` | deferred RGB Matrix save gate and ERA render-policy refresh. A policy edge stays refresh-active from its external request through the replacement PWM flush (or until the policy proves no frame is needed), which keeps opportunistic NVM bank erasure out of a split STATUS transition |
-| `era_backlight_pulse` | production Backlight effect and lock units with a deterministic ChibiOS virtual-timer shim: Pulse Off/On expiry and repeated re-arm, the Pulse Speed width (5 ms at 0, 20 ms at the default 15, 260 ms at 255, strictly longer per step) and the reset of a block stored on the retired 1..10 scale, short/long Hold, overlapping keys held through the last release, releases from before mode/sleep reset refused by matrix position, active-mode switch, brightness refresh, Pulse and Breathing suspend/resume, EEPROM save/reload, lock-keycode floor/off refusal and boot-time repair of a stored disabled block; Tap Dance timing beside the physical Pulse: Vial's release-time decision for a Tap+Hold-only slot and on a Double Tap slot's second release, Term for every other layout and for every hold, per-slot terms across the timer wrap, and QMK's synthesized-tap width (Caps Lock `TAP_HOLD_CAPS_DELAY`, anything else `TAP_CODE_DELAY`) on Layer-Tap and Tap Dance alike |
-| `era_rgblight_pulse` | production underglow Pulse engine on the family policy with the same virtual-timer shim, RGBLight stubbed at its public boundary: Effect Speed to duration (5 ms at 0, 20 ms at 15, 260 ms at 255), the four contiguous modes, resting state on mode entry with no write on unchanged ticks, Off/On press and expiry, restart on a repeated press and after an ISR expiry the tick has not consumed, short/long Hold and overlapping keys through the last release, colour change re-rendered with the current polarity, mode re-entry retiring held keys and the one-shot, an expiry published under another mode dropped, presses ignored outside a Pulse mode or with RGBLight off, suspend cancel and resume. Its source-contract script pins the four modes after Twinkle, the timer clause, the 1 ms dispatch, the switch-edge and actual RGBLight suspend wiring, the synchronous mode reset, the make refusal, and the seven boards' selector, default speed 15 and definition labels 43..46 |
-| `era_rgblight_pulse_integration` | production RGBLight core with a simulated LED driver and virtual timer: press before the first animation tick, disable/re-enable, actual lighting sleep and the RGB Sleep master, idle write suppression, colour polarity, old/duplicate/unmatched key edges, and native lock-layer refresh without cancelling a Hold. Physical LED visibility and suspend-loop timing remain device checks |
-| `era_hid_report_interval` | production report-interval unit with a recording sink and a test clock: width measured from completion, elapsed time credited, larger request wins, held reports in order each carrying its own width, backlog fold at sixteen, other shared-endpoint posts in the completion order, the anchor-limit valve, reset drop, suspend keep, no-room deferral, clock unit and cap, clock wrap. `test_source_contracts.py` pins the core sites that request instead of wait and the transport hooks |
-| `era_riley_rgb_indicator` | production Riley RGBLight-layer unit at the renderer boundary: all three RGB-Effect slots, Caps/Scroll/Num combinations, Indicator-Only black/inherit policy, per-slot brightness/colour, active-lock mode switch, effect recovery, runtime sleep/disabled non-wake, boot-only repair of persistent RGB-off, exact ten-byte EEPROM save/reload/CLEAN defaults, independent GP25 Caps LED and Velocikey |
-| wear-level set | the five `wear_leveling_*` targets in `quantum/wear_leveling/tests/` prove the QMK files restored at cutover behave like stock QMK again; they are not ERA production persistence |
-| `era_rp2040_matrix_pio` | PIO instruction encodings against the RP2040 datasheet; shipped settle 256 / release 64 program (323 slot cycles); tomak79h LEFT/RIGHT pin patterns; decode tables against the header reference rule; ring latest-complete frame and torn copy |
-| `test_variant_rules.sh` | all six tuples via direct assignments, `MAKEFLAGS`, exported environment and `make -e`; non-split `standard`-only; retired `ERA_TOMAK79H_BUILD_PROFILE` refused |
-
-A make-only variant test is not the launcher. Only
-`common/tools/era_qmk_build.sh` derives `compiled_tuple` from the ELF
-(`era_split_wire_diagnostics_task`, `era_split_qwin_diagnostics_tick_1ms`,
-`era_pass_phase_mark`, `era_host_peer_storage_get_cause_timeline_snapshot`,
-`era_split_era_mirror_force_stale_compiled`) and binds that result to artifact
-and manifest identity.
+Build-variant identity is the exception worth spelling out:
+`tests/era_build_variant_rules/test_variant_rules.sh` checks the make-layer
+selection rules, while `common/tools/era_qmk_build.sh` binds the resolved tuple
+to the linked ELF and manifest. A make-only variant pass is not launcher
+evidence.
 
 ### Scheduler admission/liveness device gate
 
@@ -382,56 +312,18 @@ its own gate.
 | --- | --- | --- | --- |
 | ERA RP2040 row-settle | family default `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` 256 cycles; release `ERA_RP2040_MATRIX_PIO_ROW_RELEASE_CYCLES` 64 cycles. `era_rp2040_matrix_pio` encodes that pair as 323 slot cycles | Owner-selected H1 A policy: the previously failing H1 operated normally with this pair. This is evidence for that device, not a measured margin for every board. Earlier TOMAK tests rejected settle `32` and `64` for false local input. Lowering the family default or overriding a board requires electrical settle-margin evidence | matrix / typing; PIO host test |
 | Split USART | `ERA_SPLIT_SERIAL_USART_SPEED` 460800 baud. `split/era_split_via_link.c` `#error`s any other High | `576000` and `748800` produced source-push ACK gaps under high-rate typing; stay rejected until separate signal-margin work proves otherwise | wire / typing |
-| Performance floor | 18 kHz on each half, cable or no cable (owner decision 2026-08-01) | lowest cabled-rig window ever recorded is `21463` | qwin |
+| Performance floor | 18 kHz on each half, cable or no cable | This standing usability floor moves only with its own controlled real-device gate | qwin |
 | PIO sampler frame rate | designed about 48375 Hz (20.672 µs frame = 8 slots × 323 cycles at 125 MHz); this is sampler arithmetic, not a measured Core0 scan rate | `ovr=0 rearm=0 fd1=0` on every window; any of them non-zero is a finding | qwin / PIO; `era_rp2040_matrix_pio` |
 | Render chunk | `c + LEDs × e` with `led_process_limit` 4 on TOMAK79H (`keyboard.json`); **c ≈ 8–11 µs** a chunk; **e ≈ 2.97 µs** an LED on a non-reactive effect; **e ≈ 14.9 µs** on the heaviest reactive effect (five-fold in `e`, `c` unchanged) | the fixed term is the per-chunk policy update, effect dispatch and `rgb_matrix_indicators_advanced()` call in `quantum/rgb_matrix/rgb_matrix.c`, so it does not shrink when the chunk does. Worst chunk `c + L·e` falls linearly in `L` while the frame's fixed cost `ceil(n/L)·c` rises as `1/L`. Between the shipping four and a hypothetical three the marginal price of a microsecond of worst case rises **six-fold** | RGB / chunk |
 | RGB frame rate | 62.34 fps with the idle gate, against 62.50 without it | the 0.26 % is the gate sampling a millisecond clock at a period one pass longer than a millisecond, and is the whole of the mechanism's behavioural residue. **It does not reach animation speed**: effect phase is computed from `g_rgb_timer` | RGB |
 
 Changing any fixed baseline requires its own controlled real-device gate.
 
-### What the shipped firmware measures, on TOMAK79H
-
-Taken on 80–110 s windows, two per configuration, every window flat. Pass
-time is `1e6 / scan_hz` µs and is not restated.
-
-| connection | half | scan rate | ratio to no cable |
-| --- | --- | ---: | ---: |
-| no cable (LOCAL_NO_LINK) | LEFT | **56,190** | — |
-| no cable (LOCAL_NO_LINK) | RIGHT | **55,516** | — |
-| **HOST-PEER, this half the HOST** | LEFT | **54,924** | **97.72 %** |
-| DUAL-HOST, this half the initiator | LEFT | **54,841** | 97.59 % |
-| DUAL-HOST, this half the responder | RIGHT | **54,052** | 97.32 % |
-
-**HOST-PEER is the baseline performance configuration and DUAL-HOST is the
-option** (owner decision) — a HOST-PEER figure outranks a DUAL-HOST one
-wherever the two disagree. Both cost gates pass on every row.
-
-- **A cabled figure reproduces about ten times worse than a no-cable one, and
-  a power cycle is enough to show it** — 0.075 µs apart across a power cycle
-  against 0.005 for two no-cable windows in the same sitting. **Take a cabled
-  figure twice, in two sittings, before believing a change of less than
-  0.1 µs in it.**
-- **RIGHT runs below LEFT with no cable, and that is the halves' LED
-  counts** — `split_count` `[41, 55]` in
-  `keyboards/era/sirind/tomak79h/keyboard.json`.
-
-**Two core1 figures any later core1 work is argued against**: the initiator's
-core1 **sleeps 84.0 % of a cabled window**, the responder 89.1 %. The PIO
-sampler's consumer costs **3.18 µs a pass**.
-
-**The core1 stack is 912 B used on `standard`, `qwin` and `qwin_phase`,
-992 B on `wire` and `stale`, and 1000 B on `cause`, against a 2048 B
-reservation**, exception frame included — 1048 B headroom in the worst
-image. `cause` is eight bytes deeper (selector-only pending-path probe).
-**Per variant; a reading that does not name its image is not a reading.**
-Re-derive with `common/tools/era_core1_stack_walk.py <elf>` on the ELF
-beside the variant's UF2. A change that adds core1 call depth re-runs the
-walk. Not re-walked in this re-measure: no ELF in the tree.
 
 ## The Split-Relation Cost Gates
 
-**Two gates, side by side, and a candidate must pass both** (owner decision
-2026-08-01). Either alone admits a failure the other catches.
+**Two gates, side by side, and a candidate must pass both.** Either alone
+admits a failure the other catches.
 
 | Gate | Value | The failure it catches |
 | --- | --- | --- |
@@ -456,12 +348,10 @@ target is a ratio and must not be written as an absolute.**
 > pass than of a slower one, so the percentage is not a portable figure.
 > **REOPENS:** a comparison that names the pass.
 
-**The ownership rule that once kept RGB on core0 is withdrawn.** What
-replaces it: **core0 owns the path from a switch to a HID report, and core1
-owns presentation.** The withdrawal does not license three things: it is not
-a claim that rendering is cheap to move; it does not move the floor or the
-target; it does not make the ceiling a target. **Reopening the rule needs an
-owner decision, not a measurement.**
+**Core0 owns the path from a switch to a HID report; core1 owns presentation.**
+This does not claim rendering is cheap to move, move the floor or target, or
+make the ceiling a target. **Reopening the rule needs an owner decision, not a
+measurement.**
 
 ## Evidence Storage
 

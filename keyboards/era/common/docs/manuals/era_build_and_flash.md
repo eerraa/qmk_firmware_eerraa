@@ -24,27 +24,23 @@ On a refusal, report the environment and stop.
 
 ## What The Build Needs
 
-| Need | Rule |
-| --- | --- |
-| POSIX shell and Python 3 | Three tools in `keyboards/era/common/tools/` are bash; `era_core1_stack_walk.py` and `era_doc_refs.py` are Python 3. QMK is GNU make. A native Windows shell is not a supported host. The core1 stack figure is taken with `python3 keyboards/era/common/tools/era_core1_stack_walk.py` (`era_performance_gates.md`); the document-locatability check is run by hand. A POSIX `awk` is enough: the gates parse decimal `arm-none-eabi-size` output. |
-| `qmk` CLI, its ARM toolchain first on `PATH` | A distribution toolchain that shadows `arm-none-eabi-size`/`nm` voids the gate figure. Confirm with `arm-none-eabi-gcc --version` before trusting any figure. |
-| Initialised submodules | `lib/chibios` and `lib/chibios-contrib` are ERA forks; an incomplete worktree does not build. |
-| Local filesystem | The gate launcher refuses a network or cross-OS mount. |
+The supported evidence path is WSL2 Ubuntu on the WSL local filesystem. Before
+trusting a build, the environment must provide `qmk`, GNU make, Python 3, the
+QMK ARM toolchain, and initialised submodules. `arm-none-eabi-gcc`,
+`arm-none-eabi-size`, and `arm-none-eabi-nm` must resolve from the intended
+toolchain; otherwise the gate figure is void.
 
-## Which Boards And Keymaps Exist
+Machine paths and Windows-to-WSL synchronization are owned by
+`.claude/tools/era-sync.sh`; the callable wrapper is
+`.claude/tools/era-build.sh`. Both refuse a missing or moved environment rather
+than falling back to a Windows or `/mnt/` build. The internal compiler/gate
+entry is `keyboards/era/common/tools/era_qmk_build.sh`.
 
-A board is a directory under `keyboards/era/` with a `keyboard.json`; its
-keymaps live in that board's keymaps directory. Do not list them here:
-
-```sh
-ls keyboards/era/*/keyboard.json keyboards/era/*/*/keyboard.json
-qmk list-keyboards | grep '^era/'
-```
-
-Every board carries `default` and `via`; `sirind/tomak` carries four more
-layout variants. `sirind/brick65` is atmega32u4 and takes none of the
-copy-to-RAM image, so the gates below do not apply to it — that exception is
-canonical in `era_board_adoption.md`'s **Copy-To-RAM Policy**.
+Board and keymap inventory is source-owned. Use
+`qmk list-keyboards | grep '^era/'` and the selected board's keymap directory
+when choosing a target. Copy-to-RAM applicability and board
+exceptions are canonical in `era_board_adoption.md` **Copy-To-RAM Policy**;
+do not maintain a second board list here.
 
 ## Building
 
@@ -64,33 +60,21 @@ wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via wire'
 wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via standard wire qwin cause'
 ```
 
-`.claude/tools/era-build.sh` first runs `era-sync`, builds clean in
-`~/projects/qmk_firmware_eerraa`, invokes the common gate launcher, and returns
-only that invocation's manifest-declared artifacts to the Windows
-`.era-artifacts/` directory. A compile without that sync is not an ERA
-evidence build. Select the firmware and ELF from the `Manifest:` path the
-command reports; never select an artifact by modification time. Each stem
-includes the first 16 hexadecimal digits of the firmware SHA-256, so a
-different uncommitted binary at the same HEAD cannot overwrite an image already
-handed to a device test.
+`.claude/tools/era-build.sh` owns synchronization and the handoff back to the
+Windows edit tree. `keyboards/era/common/tools/era_qmk_build.sh` owns the
+compile invocation, manifest identity, hashes, output paths, and the call to
+`keyboards/era/common/tools/era_residency_gate.sh`. This manual does not
+duplicate those paths or filename formulas.
 
-The filename contract for all twenty-five keyboards:
-`<keyboard>_<keymap>_<variant>_<git10>[_dirty][_<fixed-date>]_<sha16>.<format>`,
-slashes converted to underscores. RP2040 boards produce `.uf2`; atmega32u4
-`sirind/brick65` produces `.hex`.
+Treat the `Manifest:` line emitted by `era-build` as the authority for the
+firmware, ELF, map/logs, and hashes produced by that invocation. Never select
+an artifact by modification time or by a remembered directory. A compile that
+did not pass through the configured `era-build` synchronization is not ERA
+evidence.
 
-`keyboards/era/common/tools/era_qmk_build.sh` is the internal launcher, not a
-second user entry point. It refuses a call without the completed sync marker,
-performs the clean compile, records firmware, ELF, map, logs, hashes,
-toolchain and exact command, and runs
-`keyboards/era/common/tools/era_residency_gate.sh` for every UF2. Artifact and
-manifest carry the selected `variant`; the recorded QMK command always contains
-`-e ERA_BUILD_VARIANT=<name>`. The residency gate is ELF-only so every
-copy-to-RAM board is judged by the same checks. What it checks,
-and what a change may also owe, is `era_performance_gates.md`'s.
-
-Which build selectors exist, what each costs, and where a new one is declared
-are canonical in `era_build_options.md`.
+Build selectors and prerequisites are canonical in `era_build_options.md`.
+Gate semantics and additional validation owed by a change are in
+`era_performance_gates.md`.
 
 ## Flashing
 
@@ -110,18 +94,15 @@ stale-layout rejection are canonical in `era_host_peer_storage_contract.md`
 **Stored-Data Compatibility**. Flashing one half and not the other leaves the
 pair in a state nothing is written to recover.
 
-**A normal UF2 flash does not erase ERA NVM.** The firmware UF2 contains only
-the linked firmware load range; the linker-reserved ERA NVM starts at effective
-XIP `0x101E0000`, outside those UF2 blocks. A same-format upgrade therefore
-mounts the existing ERA NVM image. Incompatible physical bytes are rejected
-and a fresh current-format bank is constructed. Logical-layout incompatibility
-remains a separate `ERA_EEPROM_RESET_KEY`/CLEAN decision.
+**A normal UF2 flash does not erase ERA NVM.** Physical placement and
+stored-data compatibility are owned by `era_host_peer_storage_contract.md`.
+A same-format upgrade therefore reuses compatible stored state; incompatible
+physical state is rejected or reinitialised by the storage implementation.
+Logical-layout incompatibility remains a separate CLEAN decision.
 
-**A VIA EEPROM CLEAN after flashing is an owner step, not a build step.** Use
-it to discard a stored keymap a keycode renumbering has made wrong. What a
-CLEAN boot costs is read with the wire diagnostics:
-`era_performance_gates.md` says how to turn them on and
-`era_capture_reading.md` says how to decode.
+**VIA EEPROM CLEAN is an owner action, not build or flash automation.** Run it
+only when the stored layout must be intentionally discarded. Its device gate is
+`era_performance_gates.md`; diagnostic decoding is `era_capture_reading.md`.
 
 ## TOMAK_TKL Hardware Acceptance Route
 
@@ -151,29 +132,21 @@ smoke. How to bind and read `WIRE_DIAG` is in `era_capture_reading.md`.
 
 ### One-time setup
 
-1. Export the existing VIA layout once before flashing if it must be restored
-   after CLEAR. This backup is cleanup only; do not use it as an unexamined test
-   input.
-2. Flash both halves with the UF2 above, reconnect the normal inter-half cable,
-   load the JSON for the USB-connected half, and wait for EEPROM SYNC to finish.
-3. Keep the shipped layer-1 lighting keys: `Fn+A` is `RM_TOGG`, `Fn+S`/`Fn+X`
-   are RGB Matrix brightness up/down, `Fn+Z` is the next effect, and `Fn+Esc`
-   is `QK_BOOT`. These bindings are in
-   `keyboards/era/sirind/tomak/keymaps/via/keymap.c`.
-4. For the two remaining reset legs, temporarily put `QK_REBOOT` and
-   `QK_CLEAR_EEPROM` on unused layer-1 keys, for example `Fn+F1` and `Fn+F2`.
-   Run CLEAR last because it deliberately deletes this keymap. Do not spend a
-   second setup cycle restoring it before then.
-5. Export this prepared layout once as the gate LOAD, then make one known,
-   harmless keymap or macro change so loading it back performs real work. Keep
-   the dedicated ERA NVM timing legs from `era_performance_gates.md` separate:
-   journal-room Apply, mandatory-rotation Apply and the full 16-KiB macro close
-   are each measured once under a known starting state.
+1. Export the existing VIA layout only if it is needed to return the board to
+   service after CLEAR; it is cleanup material, not an unexamined test input.
+2. Flash both halves with the same manifest-selected UF2, reconnect the normal
+   inter-half cable, load the JSON for the USB-connected half, and wait for
+   EEPROM SYNC to finish.
+3. Use `keyboards/era/sirind/tomak/keymaps/via/keymap.c` as the authority for
+   shipped bindings. Put `QK_REBOOT` and `QK_CLEAR_EEPROM` temporarily on unused
+   layer-1 keys only for the reset legs, and run CLEAR last.
+4. Export the prepared layout once as the gate LOAD, then make one known,
+   harmless keymap or macro change so loading it back performs real work.
+5. Keep the ERA NVM timing legs in `era_performance_gates.md` separate and start
+   each from its stated known condition.
 
-Use visibly different RGB markers for successive legs, for example blue/64,
-red/128, green/192 and purple/96. For the TOMAK indicator use Caps Lock,
-priority on, yellow and brightness 96. Write down only the chosen values and
-PASS/FAIL/NOT EXERCISED; raw logs and EEPROM bytes are not test records.
+Record the chosen test values and PASS/FAIL/NOT EXERCISED. Raw logs and EEPROM
+bytes are not test records.
 
 ### Short sequence
 
