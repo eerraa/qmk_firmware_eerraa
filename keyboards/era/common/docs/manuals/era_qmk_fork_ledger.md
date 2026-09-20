@@ -1,119 +1,87 @@
 # ERA QMK Fork Ledger
 
 Genre: manual
-Canonical for: every current ERA edit under QMK-owned source directories, why
-it exists, the gate it rides, and how the whole five-directory surface is
-re-derived against the vendored pristine snapshot
+Canonical for: the current ERA departures under QMK-owned source roots, the
+reason/gate for each departure, the pristine comparison baseline, and the
+upstream rebase boundary
 
 The commit-time check in `hooks/era_commit_check.py` compares the staged index
-under `quantum/`, `platforms/`, `tmk_core/`, `drivers/`, and `builddefs/` with
-the pristine snapshot named below. Every differing path must appear in
-**Current Fork Edits**. The ledger is read from the staged index too, so neither
-an unstaged core file nor an unstaged ledger can change the commit's answer.
+under `quantum/`, `platforms/`, `tmk_core/`, `drivers/`, and
+`builddefs/` with the pristine baseline below. It parses only the first column
+of **Current Fork Edits** and requires exact agreement in both directions.
 
-The vendored pristine QMK snapshot is named `c93ef27143`. Do not compare against
-another ERA branch.
+The vendored pristine QMK snapshot is named `c93ef27143`. Do not compare the
+fork ledger against another ERA branch.
 
-ERA NVM sits below QMK's supported `EEPROM_DRIVER=custom` boundary. A/B banks,
-macro durability, local changed-span notification, remote Apply and CLEAN replay
-proof live under `keyboards/era/common/`, not in QMK Core.
+ERA-owned NVM protocol, split storage, and product policy belong under
+`keyboards/era/common/`. A QMK-core departure is justified here only when the
+required seam or behavior actually remains in a QMK-owned file.
 
 ## Current Fork Edits
 
 | Files | Current ERA reason | Gate / scope |
 | --- | --- | --- |
-| `builddefs/common_features.mk` | Emits `LIB8TION_ENABLE` as a C define beside QMK's existing lib8tion source selection, so RGBLight can choose lib8tion RNG without guessing feature composition. | Inside existing `LIB8TION_ENABLE` make branch. |
-| `platforms/bootloader.h`, `platforms/chibios/bootloaders/rp2040.c` | ERA's non-blocking RP2040 double-tap bootloader window: pre-copy CLEAR/ARMED/REQUEST classification, loop-driven close, and software-reset/bootloader disarm. | `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING`; pre-copy arm additionally `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_PRE_COPY_ARM`. |
-| `platforms/chibios/drivers/serial_protocol.h`, `platforms/chibios/drivers/serial_usart.c`, `platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` | Upstream-shaped `serial_transport_receive_timeout()` in `platforms/chibios/drivers/serial_protocol.h`. ERA split does not link these serial implementations. | No ERA selector; ERA split uses `SPLIT_TRANSPORT=custom`. |
-| `platforms/chibios/timer.c` | Once-per-millisecond `timer_read32()` cache preserving QMK's value/epoch semantics while avoiding repeated RP2040 64-bit conversion work. | `ERA_TIMER_MS_CACHE`. |
-| `quantum/action_layer.c` | OR-composes the peer's DUAL-HOST layer contribution at action lookup without mutating local `layer_state`. | `ERA_SPLIT_PEER_LAYER_MERGE_ENABLE`. |
-| `quantum/action_tapping.c` | Speculative-hold / cross-half tap-hold judgment seams and associated diagnostic sinks. | `SPECULATIVE_HOLD`, `ERA_SPECULATIVE_LAYER_ENABLE`, `ERA_SPLIT_TAP_ACTIVITY_ENABLE`. |
-| `quantum/keycode_config.h` | Allocates one formerly-unused keymap-config bit as inverted `era_rgb_sleep_disabled`, preserving the 2-byte QMK record and zero/default semantics while giving every ERA RGB board one persisted master. | Bit meaning is consumed only under `ERA_RGB_SLEEP_MASTER_ENABLE`; record size remains statically 2 bytes. |
-| `quantum/eeconfig.h` | Generic quiet/deferred eeconfig helper used for accepted RGB Matrix persistence coalescing. Kept after the NVM cutover: stock restoration would turn each VIA slider SAVE into an immediate physical NVM write. | `ERA_STORAGE_QUIET_DEFER_MS`. |
-| `quantum/keyboard.[ch]` | Pass-phase diagnostic marks and weak `switch_event_kb()` / `switch_event_user()` fanout for debounced physical transitions, used by ERA Backlight Pulse independently of semantic tapping replay. The storage-driven `matrix_task()` export is gone. | Diagnostics: `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; switch hooks have inert weak defaults. |
-| `quantum/matrix.[ch]` | Stock-matrix raw/count diagnostic hooks plus the accepted debounce/matrix-post-scan separation described by `era_invariants.md`. | `MATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE`, `MATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE`; structural split is ungated. `quantum/matrix_common.c` remains identical to the vendored pristine snapshot. |
-| `quantum/mousekey.[ch]` | Inert-task early-out in `quantum/mousekey.c`, missing runtime-variable declarations, and ERA-adjustable default accelerated-mode movement/wheel deltas. | Runtime deltas: `ERA_MOUSEKEY_RUNTIME_DELTA`; inert guard/declarations are behaviour-preserving ungated fixes. |
-| `quantum/process_keycode/process_tap_dance.[ch]`, `quantum/quantum.c` | Weak `tap_dance_remap_keycode()` / `tap_dance_get_tapping_term()` / `tap_dance_finish_on_release()` in `quantum/process_keycode/process_tap_dance.c`; the third lets a release decide a dance before the timeout, Vial's rule, with the policy in `features/era_tapdance.c`; its 32-bit elapsed clock permits expiry after the full uint16 slot term, including 65535 ms. `process_record_quantum()` applies the remap both before preprocessing and after a layer-changing relookup. The same `quantum.c` also gates RGBLight/RGB Matrix **suspend entry only** on the ERA RGB Sleep master, while wake remains unconditional to clear stale darkness. `tap_code16_delay()` in `quantum/quantum.c` requests its width through `tap_code_wait()`. | Tap Dance uses weak upstream-defaulted hooks; RGB gate is `ERA_RGB_SLEEP_MASTER_ENABLE`. |
-| `quantum/rgb_matrix/animations/digital_rain_anim.h` | Replaces `rand()` with lib8tion `random16()` so ERA images do not pull newlib allocator state. Ungated in this file. RGB Matrix already sets `LIB8TION_ENABLE := yes` in `builddefs/common_features.mk`. | Ungated `random16()`. |
-| `quantum/rgb_matrix/rgb_matrix.[ch]` | Accepted RGB Matrix persistence coalescing plus ERA render policy/idle and pass-phase performance hooks. Board-policy refresh and idle-wake live in `quantum/rgb_matrix/rgb_matrix.c`; read-only `rgb_matrix_render_policy_refresh_active()` remains true through the refreshed PWM flush or a no-frame update. Presentation priority only; not NVM ownership. | `ERA_STORAGE_QUIET_DEFER_MS`, `RGB_MATRIX_RENDER_POLICY_ENABLE`, `RGB_MATRIX_IDLE_GATE_ENABLE`, `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`; the small value-preserving performance guards are ungated. |
-| `quantum/rgblight/rgblight.[ch]`, `quantum/rgblight/rgblight_modes.h` | Accepted VIA RGBLight quiet-save gate with flush-before-reset/suspend support; lib8tion RNG substitution avoids allocator linkage; the four ERA Pulse modes after Twinkle in `quantum/rgblight/rgblight_modes.h`, their animation-timer clause in `quantum/rgblight/rgblight.h`, and the 1 ms dispatch to `era_rgblight_pulse_effect()`, synchronous mode/disable reset, actual RGBLight suspend/wake hooks and native layer-edge refresh in `quantum/rgblight/rgblight.c` (engine: `keyboards/era/common/features/era_rgblight_pulse.c`). | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; RNG: `LIB8TION_ENABLE`; Pulse: `ERA_RGBLIGHT_PULSE_ENABLE`. |
-| `quantum/split_common/split_util.[ch]` | Extracts `split_hand_pin_is_left()` in `quantum/split_common/split_util.c` so ERA authority can sample the physical side without adopting QMK's boot-master policy. | Present only where `SPLIT_HAND_PIN` exists; weak upstream `is_keyboard_left_impl()` still delegates to it. |
-| `quantum/sync_timer.[ch]` | Replaces hardcoded keyboard-master time-source decisions with weak `sync_timer_is_time_source()` in `quantum/sync_timer.c`, defaulting to upstream mastery; ERA split overrides it with committed wire role. | Weak default; only ERA split scheduler changes semantics. |
-| `quantum/via.c` | Accepted deferred SAVE participation for QMK RGB Matrix/RGBLight channels plus cause-variant macro timing instrumentation. Dynamic macro persistence itself is stock QMK again. | Persistence: `ERA_STORAGE_QUIET_DEFER_MS`; timing: `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE`. |
-| `tmk_core/protocol/chibios/usb_driver.c` | Stops IN endpoint resend/flush work when USB is no longer ACTIVE, avoiding an unbounded retry across disconnect/suspend transitions. `usb_endpoint_in_tx_complete_cb()` also stamps each completed report for the keyboard report interval through `era_hid_report_interval_endpoint_completed_i()`. | Ungated ChibiOS fix; the completion hook under `ERA_HID_REPORT_INTERVAL_ENABLE`. |
-| `tmk_core/protocol/chibios/usb_report_handling.c` | Zero-fills unsupported GET_REPORT storage and paces host-requested idle-report walks to millisecond cadence. | Zero-fill ungated; pacing under `ERA_TIMER_MS_CACHE`. |
-| `tmk_core/protocol/chibios/usb_main.c` | `send_keyboard()` and `send_nkro()` ask the keyboard report-interval hold before posting, `send_report()` counts every post, and `usb_event_cb()` reports session edges to the unit (`era_hid_report_contract.md` **Tap width and the report interval**). | `ERA_HID_REPORT_INTERVAL_ENABLE`. |
-| `tmk_core/protocol/host.[ch]` | Weak `host_keyboard_delay()` defaulting to `wait_ms()`: the seam through which a synthesized tap's width reaches the transport. | Ungated weak default; `keyboards/era/common/system/era_hid_report_interval_chibios.c` defines the strong one. |
-| `quantum/action.[ch]` | `tap_code_wait()`: every synthesized tap's width is requested through `host_keyboard_delay()` for a keyboard-class usage and waited for otherwise; the Layer-Tap/Mod-Tap release, swap-hands, retro-tapping, Caps Word and `tap_code_delay()` sites all route through it. | Ungated; the weak host default keeps upstream's wait on boards outside the ERA layer. |
-| `tmk_core/protocol/usb_descriptor.[ch]` | Weak device/product/serial descriptor override hooks used by ERA split USB identity. | `USB_DEVICE_DESCRIPTOR_OVERRIDE_ENABLE`, `USB_PRODUCT_STRING_OVERRIDE_ENABLE`, `USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE`. |
+| `builddefs/common_features.mk` | Exposes QMK's lib8tion selection as a C define for RGBLight code that must know the linked RNG facility. | Existing `LIB8TION_ENABLE` make branch. |
+| `platforms/bootloader.h`, `platforms/chibios/bootloaders/rp2040.c` | Non-blocking RP2040 double-tap classification/close path, including the pre-copy arm needed by SRAM-resident boot. | `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING`; pre-copy arm has its own gate. |
+| `platforms/chibios/drivers/serial_protocol.h`, `platforms/chibios/drivers/serial_usart.c`, `platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` | Adds an upstream-shaped receive-timeout transport seam. ERA split itself uses custom transport. | No ERA selector; not linked by the ERA split transport. |
+| `platforms/chibios/timer.c` | Millisecond cache for `timer_read32()` without changing QMK value/epoch semantics. | `ERA_TIMER_MS_CACHE`. |
+| `quantum/action_layer.c` | Composes the peer DUAL-HOST layer contribution at lookup without mutating local `layer_state`. | `ERA_SPLIT_PEER_LAYER_MERGE_ENABLE`. |
+| `quantum/action_tapping.c` | Tap-hold decision seams and their diagnostic sinks for ERA split policy. | `SPECULATIVE_HOLD`, `ERA_SPECULATIVE_LAYER_ENABLE`, `ERA_SPLIT_TAP_ACTIVITY_ENABLE`. |
+| `quantum/keycode_config.h` | Reserves the persisted inverted RGB Sleep master bit while preserving QMK's record width/default semantics. | Consumed under `ERA_RGB_SLEEP_MASTER_ENABLE`. |
+| `quantum/eeconfig.h` | Quiet/deferred eeconfig helper so accepted continuous VIA saves can coalesce before physical NVM persistence. | `ERA_STORAGE_QUIET_DEFER_MS`. |
+| `quantum/keyboard.[ch]` | Physical-switch event fanout plus pass-phase diagnostics used by ERA features. | Weak hooks are inert by default; diagnostics use `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`. |
+| `quantum/matrix.[ch]` | Raw/count diagnostic seams and the accepted debounce/post-scan separation. | Diagnostic gates named in source; structural split is ungated. `quantum/matrix_common.c` remains pristine. |
+| `quantum/mousekey.[ch]` | Runtime-adjustable mousekey deltas plus value-preserving declarations/inert-task guard. | Runtime deltas under `ERA_MOUSEKEY_RUNTIME_DELTA`. |
+| `quantum/process_keycode/process_tap_dance.[ch]`, `quantum/quantum.c` | Weak tap-dance policy seams, remap integration, synthesized-tap timing route, and ERA RGB Sleep suspend-entry gate. | Weak upstream defaults; RGB entry gate under `ERA_RGB_SLEEP_MASTER_ENABLE`. |
+| `quantum/rgb_matrix/animations/digital_rain_anim.h` | Uses lib8tion RNG so the ERA image does not acquire newlib allocator state through this animation. | Ungated in this animation; QMK RGB Matrix already links lib8tion. |
+| `quantum/rgb_matrix/rgb_matrix.[ch]` | Deferred persistence plus render-policy/idle/pass-phase hooks required by ERA presentation scheduling. | Storage/render/diagnostic gates remain source-owned. |
+| `quantum/rgblight/rgblight.[ch]`, `quantum/rgblight/rgblight_modes.h` | Deferred RGBLight save, allocator-free RNG, and the ERA Pulse mode/dispatch/suspend integration. | Persistence/RNG/Pulse gates remain source-owned. |
+| `quantum/split_common/split_util.[ch]` | Exposes physical-side sampling separately from QMK boot-master policy. | Present where `SPLIT_HAND_PIN` exists; weak QMK ownership remains default. |
+| `quantum/sync_timer.[ch]` | Weak time-source decision so ERA split can use committed wire role instead of hardcoded keyboard mastery. | Weak default preserves upstream behavior outside ERA split. |
+| `quantum/via.c` | Participates in accepted deferred RGB save and storage-cause instrumentation. | `ERA_STORAGE_QUIET_DEFER_MS` and the storage timeline diagnostic gate. |
+| `tmk_core/protocol/chibios/usb_driver.c` | Stops IN retry/flush after USB leaves ACTIVE and exposes completed keyboard-report timing to ERA. | Disconnect/suspend guard is unconditional; report hook has its ERA gate. |
+| `tmk_core/protocol/chibios/usb_report_handling.c` | Zero-fills unsupported GET_REPORT storage and bounds idle-report pacing. | Zero-fill unconditional; pacing follows `ERA_TIMER_MS_CACHE`. |
+| `tmk_core/protocol/chibios/usb_main.c` | Routes keyboard reports through the ERA report-interval hold/post accounting and reports USB session edges. | `ERA_HID_REPORT_INTERVAL_ENABLE`. |
+| `tmk_core/protocol/host.[ch]` | Weak keyboard-delay seam through which synthesized tap width reaches the transport. | Ungated weak default keeps upstream wait behavior. |
+| `quantum/action.[ch]` | Routes synthesized keyboard-class tap width through the host delay seam. | Ungated; weak host default preserves behavior outside ERA. |
+| `tmk_core/protocol/usb_descriptor.[ch]` | Weak device/product/serial descriptor override hooks used by ERA split USB identity. | The three USB descriptor override gates. |
 
-`drivers/sensors/cirque_pinnacle.c` contains `ERA_ReadBytes` and
-`ERA_WriteByte`, where ERA means Cirque's Extended Register Access, not this
-firmware. The file is identical to the vendored pristine snapshot and therefore
-does not enter the staged-index difference set.
+`drivers/sensors/cirque_pinnacle.c` contains identifiers named
+`ERA_ReadBytes` and `ERA_WriteByte` where ERA means Cirque Extended Register
+Access. That file is pristine and is not part of this ledger's difference set.
 
-A row whose files no longer differ from that snapshot is stale. A five-directory
-edit with no row is an undocumented fork. The hook parses only the first column
-of **Current Fork Edits**, expands `.[ch]`, and refuses either mismatch: a
-difference with no row or a row whose files have returned to pristine.
-
-## Storage-Specific QMK Surface Restored
-
-The following storage-driven QMK files/edits are identical to the vendored
-pristine snapshot and therefore **do not belong in the current fork surface**:
-`drivers/eeprom/eeprom_driver.h`; `drivers/eeprom/eeprom_wear_leveling.c`;
-`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash.c`;
-`quantum/wear_leveling/wear_leveling.c` and `.h`;
-`quantum/wear_leveling/tests/rules.mk` and
-`quantum/wear_leveling/tests/wear_leveling_general.cpp`;
-`quantum/nvm/eeprom/nvm_dynamic_keymap.c` and
-`quantum/nvm/nvm_dynamic_keymap.h`; `quantum/nvm/eeprom/nvm_eeconfig.c`;
-`quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h`;
-`quantum/nvm/eeprom/nvm_via.c`; `quantum/keyboard.h` and the storage-only
-`matrix_task()` visibility change formerly paired with it.
-
-The stock QMK dynamic-macro RESET loop is now deliberately a dependency rather
-than a fork edit. ERA NVM recognizes its sequential 16-byte
-`eeprom_update_block()` transcript below QMK Core. The exact constraint and the
-regression that compiles stock `nvm_dynamic_keymap.c` itself are canonical in
-`era_host_peer_storage_contract.md` and `tests/era_nvm_qmk_driver`.
-
-The retained QMK quiet-save edits are not hidden storage ownership. They remain
-for one accepted behavior: VIA emits SAVE alongside continuous slider SET
-traffic, and the ERA gate coalesces that stream and flushes a pending save
-before controlled reset/suspend.
-
-> **REFUSED:** restore the quiet-save QMK edits to pristine to shrink the fork
-> **WHY:** VIA SAVE rides continuous slider SET traffic, and stock persistence writes each slider step durably.
-> **REOPENS:** an explicit product decision to accept the extra physical writes, or a cleaner QMK-external interception
+A row whose first-column path no longer differs from the pristine baseline is
+stale. A differing file under the five checked roots with no row is an
+undocumented fork. `hooks/era_commit_check.py` rejects either condition from
+the staged index.
 
 ## Matrix Boundary
 
-`era_invariants.md` remains canonical for `quantum/matrix.c` and
-`quantum/matrix_common.c`. The latter is identical to the vendored pristine
-snapshot. The former contains only the documented diagnostic hooks and the
-accepted debounce/post-scan separation.
-Do not infer permission for additional matrix-core edits from the existence of
-those changes.
+`contracts/era_invariants.md` owns the permitted matrix-core boundary and
+`manuals/era_performance_gates.md` owns its Source Gate. The ledger records
+the current files, not permission to add another matrix departure.
 
 ## Submodule Surface Outside The Five Directories
 
-One ERA platform edit is outside `tmk_core/`, `quantum/`, `platforms/`,
-`drivers/`, and `builddefs/` because it is a submodule pin. `lib/chibios` and
+The five-root checker does not cover submodule pins. `lib/chibios` and
 `lib/chibios-contrib` use the `custom/qmk-rp-usb` branch; the ChibiOS pin
-supplies the remote-wake status hook consumed by the ERA RP2040 USB sleep
-synchronization path. Re-derive that with `git submodule status` and the branch
-recorded in `.gitmodules`, not with the five-directory commit check.
+supplies the remote-wake status hook consumed by ERA's RP2040 USB sleep path.
+Re-derive this boundary with `git submodule status` and the branches recorded
+in `.gitmodules`, not with the five-directory fork check.
 
 ## Rebase Rule
 
-For every rebase or QMK-core edit:
+For an upstream rebase or a QMK-core edit:
 
-1. let `hooks/era_commit_check.py` compare the staged five-directory index with
-   the pristine snapshot named above;
-2. reconcile every current fork file to this table in both directions, including
-   removal of a row whose file returned to pristine;
-3. verify that the storage-restoration list remains absent unless a newly
-   approved independent QMK reason is documented;
-4. run the Source Gate and the tests in `era_performance_gates.md`;
-5. update this ledger in the same change as any QMK-core movement.
+1. stage only the intended concern and let `hooks/era_commit_check.py` compare
+   the five checked roots against `c93ef27143`;
+2. reconcile **Current Fork Edits** in both directions in the same change;
+3. confirm any proposed QMK-owned storage change has an independent current
+   reason rather than resurrecting a retired storage ownership layer;
+4. run the Source Gate and other affected checks named by
+   `manuals/era_performance_gates.md`;
+5. separately verify the submodule boundary when its pins or remote-wake seam
+   are involved.
+
+The ledger is a functional input to the commit gate, not a historical change
+log.

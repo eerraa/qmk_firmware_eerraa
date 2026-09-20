@@ -1,304 +1,146 @@
 # ERA Build Options
 
 Genre: manual
-Canonical for: where an ERA build option is declared and why that file rather
-than another, every selector with its default, the dependency edges and the
-layer each may be stated in, the arrangements considered and rejected, and
-what a build combination is expected to do
+Canonical for: classifying a new ERA build option, deciding its owner, the
+resolution order between QMK/keymap/board/ERA layers, and locating the live
+selector and variant definitions
 
-Use `era_source_map.md` for the first build owner; the current option reader is
-source-owned. Which board ships which feature set is that board's
-`post_rules.mk`.
+Live defaults and resolved values are source-owned. Use
+`keyboards/era/era_build_options.mk`,
+`keyboards/era/era_build_identity_options.mk`, the selected board's
+`post_rules.mk`, and the selected variant fragment rather than copying their
+values here.
 
 ## Where a build option is declared
 
-QMK divides these files by what each one can decide. Owner decision, taken on
-a commissioned judgement of three candidate arrangements.
+Choose the first matching rule.
 
-| Layer | What it can decide |
-| --- | --- |
-| make — ERA `.mk` fragments, a board's `rules.mk` and `post_rules.mk` | whether a translation unit compiles. `SRC`, `QUANTUM_LIB_SRC`, `CUSTOM_MATRIX`, `DEBOUNCE_TYPE`, `SPLIT_TRANSPORT`, `CONSOLE_ENABLE`, `INTROSPECTION_KEYMAP_C`, `MCU_LDSCRIPT`, `LDFLAGS`, and `$(error)` are make's alone |
-| `config.h` | values and behaviour inside code compiled either way. `builddefs/common_rules.mk:275` turns every `config.h` into an `-include`; it adds no translation unit, and make never parses it |
-| `keyboard.json` | what QMK's own schema owns, and only that |
-| `<board>.h` | no build option. Its `#define`s are visible only to a unit that includes it. Derived macros (`ERA_TAP_DANCE_ENABLE`) are emitted from `era_tapdance_rules.mk`, never a board header |
+1. **Compile/link choice or a dependency make must reject before C compiles:**
+   use a make variable declared with `?=` in the ERA declaration file and
+   consumed by the fragment that owns the `SRC`/`OPT_DEFS`/refusal. If C
+   also needs the decision, emit the same-name define from that branch.
+2. **A number, duration, or string that only tunes code already being compiled:**
+   keep the default beside the C reader with `#ifndef`. Make may pass through
+   an explicit override but does not duplicate the default. If every reader is
+   QMK core and no ERA header can reach them, use rule 1 instead;
+   `ERA_STORAGE_QUIET_DEFER_MS` is the intentional case.
+3. **A fact about one board:** put it in that board's `config.h`.
+4. **A key QMK's schema already owns:** put it in `keyboard.json` and nowhere
+   else. `RGB_MATRIX_LED_PROCESS_LIMIT` is the worked shape: QMK already maps
+   its schema key to that C macro.
+5. **A fact about what an ERA build is, not a user choice:** do not create a
+   selector/default. Emit the derived define next to the source-selection fact
+   that makes it true.
 
-Apply in order; the first matching rule wins.
+For a genuinely ambiguous build-time choice, use rule 1: make is the layer that
+can keep the source selection, define, dependency refusal, and command-line
+override in one decision.
 
-1. **Does it change what is compiled or linked, or carry a dependency make can refuse before compiling?** → a **make variable**, `?=`-declared in the ERA fragment that reads it. Where C must also see the decision, emit a bare `-D` of the identical name from inside the same `ifeq`, and test it only with `#ifdef` / `#if defined`, never `#if X`.
-2. **Is it a number, a duration or a string that only tunes code compiled either way?** → **`#ifndef` / `#define` in the C file that reads it**, with at most a guarded `ifneq ($(strip $(X)),)` pass-through so a build can override it. Make must not carry the default. **Unless every reader is a QMK core file that includes no ERA header** — then rule 2 has no reachable home and the option falls back to rule 1. `ERA_STORAGE_QUIET_DEFER_MS` is the whole of that exception.
-3. **Is it a fact about one board — a pin, a PID, a product string, an EEPROM address, a keycode base?** → **that board's `config.h`**.
-4. **Does QMK's schema already own the key?** → **`keyboard.json`, and nowhere else.** `rgb_matrix.led_process_limit` is the worked case: the render chunk's LED count is `RGB_MATRIX_LED_PROCESS_LIMIT`, which `data/mappings/info_config.hjson` already maps, so the boards state it in their `keyboard.json` and no ERA `.mk` or `config.h` mentions it.
-5. **Is it not a choice at all, but a fact about what an ERA build *is*?** → no declaration and no default. An unconditional `-D` on the line beside the `SRC` line it is one fact with. Giving one of these a `?=` is always wrong.
+Firmware selectors are declared in exactly one place:
+`keyboards/era/era_build_options.mk`. Firmware-inert build identity controls
+are separate in `keyboards/era/era_build_identity_options.mk`. A board's
+`post_rules.mk` states the feature choices that board ships; that is a
+product choice, not a second declaration.
 
-**Genuinely ambiguous → rule 1.** Make is the only layer that can express the `-D`, the `SRC` line and the refusal in one place, and the only one with a command line.
+The rejected ownership alternatives remain rejected for structural reasons:
 
-**One option, one declaration**, and that is one file —
-`keyboards/era/era_build_options.mk`. `era_common_qmk_rules.mk` is the sole
-owner of `DEBOUNCE_TYPE`; no ERA `keyboard.json` mentions debounce.
+- `config.h` cannot add/remove translation units or enforce make dependencies;
+- arbitrary feature names in `keyboard.json` are not an ERA configuration
+  authority merely because QMK can emit a make variable; use it only for keys
+  the QMK schema actually owns. QMK lint's `INVALID_KB_FEATURES` is a separate
+  guard against some unsupported keyboard-level feature names;
+- `post_config.h` runs in the C include layer and cannot own source selection
+  or one-shot make refusals.
 
-> **REFUSED:** move the declarations into `config.h`, where a stock QMK
-> keyboard puts build-time configuration.
-> **WHY:** not expressible — `era_split_qmk_rules.mk` and
-> `era_common_qmk_rules.mk` own the `SRC` lines and the `$(error)` refusals,
-> and `config.h` can add no translation unit and set none of the core
-> variables make owns. So the move can only take *some* of them, split by a
-> criterion (does this option add a `.c` file) that is invisible to whoever
-> reads the option list, and every option that moved would lose its `-e` and
-> become an edit to a tracked file. Not one of QMK's own generic feature
-> switches is a `config.h` define (`builddefs/generic_features.mk`).
-> **REOPENS:** permanent while a header cannot add a translation unit.
-
-> **REFUSED:** declare them in `keyboard.json`.
-> **WHY:** available for half of what is needed. The schema really is open —
-> `features` is a `boolean_array` with no allowlist, so `era_socd: true`
-> validates and `rules_mk.py` emits `ERA_SOCD_ENABLE ?= yes` — but
-> `config_h.py` contains the token `features` zero times, so the `config.h`
-> half of the data-driven route does not exist; the only way to a `#define`
-> is a row in upstream's `data/mappings/info_config.hjson`, which has no
-> per-keyboard override. What it emits is one shape, `X_ENABLE ?= yes|no`,
-> arriving at `builddefs/build_keyboard.mk:143` *after* the board's own
-> `rules.mk` and therefore inert against anything a board sets — and a
-> misspelled key validates, emits a variable nobody reads, and fails
-> silently. `qmk lint`'s `INVALID_KB_FEATURES` separately bans `tap_dance`
-> and `via` as keyboard-level feature keys.
-> **REOPENS:** `config_h.py` learning `features`, and the emission moving
-> ahead of the board's `rules.mk`.
-
-> **REFUSED:** adopt `post_config.h` for the derived defaults and the
-> dependency checks.
-> **WHY:** the argument for it — that C could then see `VIA_ENABLE` — is
-> already false: GCC processes every `-D` before any `-include` and
-> `builddefs/common_rules.mk` puts the `-D` set first, so an ordinary
-> board `config.h` sees every make-emitted switch today. What ERA wants from
-> a derived default is that it arrive bundled with the `SRC` lines it
-> implies, and `post_config.h` has no build-system reach at all
-> (`builddefs/build_keyboard.mk:537` only adds it to the `-include` list).
-> An `#error` from it would also repeat across every in-flight compile,
-> where an `$(error)` prints once.
-> **REOPENS:** permanent while a header cannot add an `SRC` line.
-
-## The three shapes the `_ENABLE` suffix still names
-
-| Shape | Rule | Form |
-| --- | --- | --- |
-| selector | 1 | a make variable with a declared default a build may turn on or off, emitted as a `-D` |
-| not an option | 5 | an unconditional `-D` that only looks like a selector — a fact about what an ERA split build is |
-| board fact | 3 | a macro whose value is per board |
+These decisions reopen only if the relevant QMK layer gains the missing
+build-system authority.
 
 ## The selectors
 
-Every firmware selector below is declared `?=` in
-`keyboards/era/era_build_options.mk`. `ERA_BUILD_VARIANT`, `ERA_SHOW_OPTIONS`
-and `ERA_BUILD_IDENTITY_REPORT` are declared in
-`keyboards/era/era_build_identity_options.mk` so Brick65 can adopt the same
-artifact identity without an RP2040 firmware default. Each firmware `.mk`
-fragment includes its declaration file first; a board assigns above that
-include and wins. A selected variant's five diagnostic axes are `override :=`,
-so command-line values, `MAKEFLAGS`, exported environment and `make -e` cannot
-mutate the tuple.
+The current selector names and defaults are canonical in
+`keyboards/era/era_build_options.mk`. The current identity-only controls are
+canonical in `keyboards/era/era_build_identity_options.mk`. Do not maintain a
+second selector/default table in this manual.
 
-RGB Matrix selectors are declared only inside
-`ifeq ($(strip $(RGB_MATRIX_ENABLE)), yes)`. Split selectors are declared only
-inside `ifeq ($(strip $(SPLIT_KEYBOARD)), yes)`. `VIA_INSECURE` is QMK's own
-switch and is declared only inside `ifeq ($(strip $(VIA_ENABLE)), yes)`; the ERA
-default deliberately restores the historical VIA Matrix Test behavior.
+Resolution order matters:
 
-| Selector | Default | Refused with | Meaning |
-| --- | --- | --- | --- |
-| `ERA_BUILD_VARIANT` | `standard` | split-only variants on a non-split target; each diagnostic selector's existing dependency refusal | board-independent identity. `standard`/`wire`/`qwin`/`cause`/`stale`/`qwin_phase` live in `common/build_variants/`; `era_build_variant_rules.mk` applies the immutable five-axis tuple. `sirind/brick65/post_rules.mk` takes the validator and printer only — its only valid identity is firmware-inert `standard`. The launcher requires make's printed tuple to match ELF witnesses |
-| `ERA_SHOW_OPTIONS` | `no` | — | firmware-inert printer. `yes` prints every make-declared ERA option with value and origin |
-| `ERA_BUILD_IDENTITY_REPORT` | `no` | — | firmware-inert launcher handshake. `yes` prints `variant=` and the labelled five-axis tuple |
-| `ERA_BOARD_COMMON_ENABLE` | `yes` | — | the class skeleton. `era_common_qmk_rules.mk` adds the non-split unit when `SPLIT_KEYBOARD` is not `yes`, `era_split_qmk_rules.mk` the split one; both add `era_board_hooks.c`. `no` returns a board to writing those QMK hooks itself |
-| `ERA_RP2040_MATRIX_ENABLE` | `yes` | split transport without it (`era_split_qmk_rules.mk`) | every RP2040 board under `keyboards/era` runs the engine. Raw backend is the PIO+DMA sampler alone (`system/era_rp2040_matrix_pio.c`); `RP_DMA_REQUIRED=TRUE` is a rule-5 fact beside its `SRC` line. **There is no second raw backend.** Non-split `no` leaves QMK's stock matrix |
-| `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` | `256` | — | sampler settle in PIO cycles at the CPU clock; every RP2040 board inherits this common value. Fixed baseline (`era_performance_gates.md`); rejected downward on device evidence |
-| `ERA_SOCD_ENABLE` | `yes` | — | SOCD unit and VIA page |
-| `ERA_KKUK_ENABLE` | `yes` | — | KKUK unit and VIA page. Independent of SOCD (`era_kkuk.c`, `#ifdef`) |
-| `ERA_DEBOUNCE_ENABLE` | `yes` | — | VIA-configurable debounce. This selector alone owns `DEBOUNCE_TYPE`; `no` returns QMK stock debounce |
-| `ERA_TAPPING_CONFIG_ENABLE` | `yes` | `no` on a split board | tap-hold policy unit and VIA page |
-| `ERA_MOUSEKEY_CONFIG_ENABLE` | `yes` | `MOUSEKEY_ENABLE=no` (make); a non-default mousekey mode (`quantum/mousekey.h`) | VIA channel 13. Rule-5 fact `ERA_MOUSEKEY_RUNTIME_DELTA` beside its `SRC` line — one fact with the unit that writes the runtime variables `quantum/mousekey.c` defines |
-| `TAP_DANCE_ENABLE` | `yes` | — | QMK's switch; the ERA surface is derived in `era_tapdance_rules.mk` |
-| `ERA_BACKLIGHT_EFFECT_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | PWM effect layer; ids `0..3` (`features/era_backlight_via.h`). Modes are Steady, Breathing, Pulse Off/On Press and their Hold variants. The Pulse one-shot is ChibiOS-VT driven; the matrix-pass task reads no clock. Pulse Speed is the ordinary 0..255 slider and the pulse width, 5 + speed ms exactly as the underglow Pulse's Effect Speed, 15 the 20 ms default; the config block's valid byte moved so a speed stored on the retired 1..10 scale is reset rather than misread |
-| `ERA_BACKLIGHT_LOCK_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | indicator-supply policy; repairs a stored disabled/zero-level block before `backlight_init()` reads it and intercepts QMK backlight keycodes so the persistent level cannot cross below 1. It composes with `ERA_BACKLIGHT_EFFECT_ENABLE`: Pulse and USB sleep may still drive transient PWM zero |
-| `ERA_RGBLIGHT_PULSE_ENABLE` | `no` | `RGBLIGHT_ENABLE=no` | underglow Pulse layer: four keypress-reactive modes appended to QMK's channel-2 effect list (43..46, `features/era_rgblight_pulse.h`) on the family Pulse policy (`features/era_pulse_policy.h`). The pulse width is the ordinary Effect Speed, `5 + speed` ms, 20 ms at the boards' `keyboard.json` default 15; a ChibiOS-VT one-shot and the 1 ms animation tick own timing, and the switch edge writes state only |
-| `ERA_RGB_INDICATOR_ENABLE` | `no` | `RGB_MATRIX_ENABLE=no` | lock-indicator slots; ids `6..12`. Takes `rgb_matrix_indicators_kb`, `rgb_matrix_indicators_advanced_kb`, `led_update_kb` and `rgb_matrix_render_policy_kb` strongly. A board states `ERA_RGB_INDICATOR_1_LED` and optionally `_2_LED` in its `config.h` under rule 3 |
-| `VIA_INSECURE` | `yes` on a VIA build | — | QMK's switch-matrix telemetry gate. ERA VIA builds expose debounced physical matrix state so Matrix Test works in stock VIA and the custom app, matching the long-standing VIA behavior and the H7S platform policy. `no` restores current upstream QMK's default zero-filled matrix replies. This is a host-readable key-position surface, so the default is an explicit product policy rather than an accidental QMK inheritance |
-| `ERA_VIA_BOOTLOADER_ENABLE` | `yes` | — | VIA jump-to-bootloader. All four combinations of this pair with `ERA_EEPROM_CLEAN_ENABLE` are valid; both off drops `era_via_system.c` |
-| `ERA_EEPROM_CLEAN_ENABLE` | `yes` | — | VIA EEPROM CLEAN |
-| `ERA_STORAGE_QUIET_DEFER_MS` | `500` | — | Rule 2's stated exception: the readers that need the default are QMK core files preprocessed before any ERA header (`quantum/eeconfig.h`, `quantum/rgb_matrix/rgb_matrix.c`, `quantum/rgblight/rgblight.c`, `quantum/via.c`) |
-| `RGB_MATRIX_RENDER_POLICY_ENABLE` | `yes` | — | declared only on an `RGB_MATRIX_ENABLE` board |
-| `RGB_MATRIX_RENDER_DOMAIN_ENABLE` | `yes` | the policy off | per-domain render scheduling |
-| `RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE` | `yes` | the policy off | indicators render independently of the effect frame |
-| `RGB_MATRIX_INDICATORS_WHEN_DISABLED_ENABLE` | `yes` | the policy off | indicators still render with the RGB effect off |
-| `RGB_MATRIX_IDLE_GATE_ENABLE` | `yes` | — | `rgb_matrix_task()` in `quantum/rgb_matrix/rgb_matrix.c` evaluates `SYNCING` once a millisecond (`RGB_MATRIX_IDLE_GATE_US` 1000, rule 2 in that file) instead of once a scan pass. Rule 1's tie-break; C also asks `MCU_RP`. `no` is per-pass evaluation |
-| `ERA_SPLIT_SERIAL_USART_SPEED` | `460800` | a speed the SYSTEM-page labels were not written for (`era_split_via_link.c` `#error`) | the High link level; Medium/Low = /2 / /4. Wire scale = `ceil(SERIAL_USART_SPEED / baud)` |
-| `ERA_SPLIT_EEPROM_SYNC_ENABLE` | `no` | the derived V1 engine without `VIA_ENABLE` and `RGB_MATRIX_ENABLE` (`era_split_qmk_rules.mk`) | `sirind/tomak`, `tomak79h` and `tomak79s` set `yes` when `VIA_ENABLE=yes`. `ERA_HOST_PEER_STORAGE_V1_ENABLE` is derived from it |
-| `ERA_SPLIT_RP_USB_SLEEP_SYNC` | `1` | — | also accepts `RP_USB_SYNC_SUSPEND_AFTER_REMOTE_WAKEUP_SET` (`era_split_usb_sleep_rules.mk`) |
-| `ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE` | `no` | — | full wire diagnostics. `wire`/`cause`/`stale` set it. Forces `CONSOLE_ENABLE` |
-| `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` | `no` | — | count-only scan-rate diagnostics. `qwin`/`qwin_phase` set it. Forces `CONSOLE_ENABLE` |
-| `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE` | `no` | without `ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE` | twelve segments on the qwin line. Own axis: twelve counter reads cost **4.13 µs a pass, −14.3 %**. Only `qwin_phase` sets it |
-| `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE` | `no` | without wire diagnostics, EEPROM sync, and storage V1 | `cause` sets it |
-| `ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE` | `no` | without wire diagnostics | `stale` sets it |
-| the seven split timing knobs | empty | — | see **The values whose default lives in C** |
+1. QMK reads the keyboard/rules chain and generated QMK information, then the
+   keymap's `rules.mk`.
+2. It then reads the board's `post_rules.mk`. ERA fragments that need QMK
+   switches run from this phase, so values such as `VIA_ENABLE` are already
+   known.
+3. Board feature assignments appear above the ERA includes that consume them.
+   A declaration using `?=` therefore supplies only an otherwise-unset value;
+   ordinary GNU make command-line precedence still applies to normal selectors.
+4. `system/era_build_variant_rules.mk` selects one complete diagnostic
+   variant from `common/build_variants/`. Those axis assignments use
+   `override :=` so a named variant remains one immutable tuple.
 
-The five axes are ordered `wire,qwin,phase,cause,stale`; the mapping is fixed:
+A fragment moved earlier can still parse while silently seeing the wrong QMK
+state. `system/era_common_qmk_rules.mk` owns the phase guard that rejects that
+arrangement.
 
-| Variant | Immutable tuple |
-| --- | --- |
-| `standard` | `no,no,no,no,no` |
-| `wire` | `yes,no,no,no,no` |
-| `qwin` | `no,yes,no,no,no` |
-| `cause` | `yes,no,no,yes,no` |
-| `stale` | `yes,no,no,no,yes` |
-| `qwin_phase` | `no,yes,yes,no,no` |
+Every declared firmware selector's off state must build. The sole deliberate
+exception is `ERA_TAPPING_CONFIG_ENABLE=no` on a split target, which the split
+rules refuse by name; that same off state remains valid on a non-split target.
 
-The make layer prints the resolved name and labelled tuple only when
-`ERA_BUILD_IDENTITY_REPORT=yes`. The launcher derives the compiled tuple from
-one link-visible production witness per axis and refuses any mismatch. The
-stale axis uses a zero-storage absolute symbol in
-`split/era_split_transaction_engine.c`. Direct option overrides, `MAKEFLAGS`,
-exported variables and `make -e` are test inputs, not a seventh combination.
-
-| Derived | Value | File |
-| --- | --- | --- |
-| `ERA_HOST_PEER_STORAGE_V1_ENABLE` | derived from `ERA_SPLIT_EEPROM_SYNC_ENABLE` | `era_split_qmk_rules.mk` |
-| `ERA_SPLIT_COMMUNICATION_CORE_STAGE` | `CORE1_FULL` only | `era_split_qmk_rules.mk`, beside the `$(error)` that says so |
-| `ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE` | derived from wire or qwin | `era_split_qmk_rules.mk` |
-| `ERA_VIA_SYSTEM_ENABLE` | derived from bootloader or EEPROM CLEAN, under `VIA_ENABLE` | `era_common_qmk_rules.mk` |
-| `ERA_TAP_DANCE_ENABLE` | derived from `TAP_DANCE_ENABLE` | `era_tapdance_rules.mk` |
-| `ERA_NKRO_VIA_ENABLE` | derived from `NKRO_ENABLE`, under `VIA_ENABLE` | `era_common_qmk_rules.mk` |
-
-The names in the RGB rows have no `ERA_` prefix on purpose: the macro and the
-make variable are one name, and they are read in
-`quantum/rgb_matrix/rgb_matrix.c`.
-
-**A selector is in this table or it does not exist.** A selector read but never
-declared still builds (`ifeq` on unset is false); a hand-copied `OPT_DEFS` line
-has no default and no off state.
-
-## The values whose default lives in C
-
-Seven split timing knobs are rule 2: each default is a `#ifndef` in the file
-that reads it; make carries an empty `?=` so a build can override.
-
-| Knob | File |
-| --- | --- |
-| `ERA_SPLIT_PEER_RESPONSE_WINDOW_MS` | `era_split_wire_protocol.h` |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_RESPONSE_WINDOW_MS` | `era_split_wire_protocol.h` |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` | `scheduler/era_split_transport_scheduler_internal.h` |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` | `scheduler/era_split_transport_scheduler_internal.h` |
-| `ERA_SPLIT_SESSION_REFRESH_PERIOD_MS` | `scheduler/era_split_transport_scheduler_internal.h` |
-| `ERA_SPLIT_HOST_SOURCE_RESPONSE_POLL_PERIOD_MS` | `scheduler/era_split_transport_scheduler_internal.h` |
-| `ERA_SPLIT_SESSION_STALE_MS` | `scheduler/era_split_transport_scheduler_internal.h` |
+Derived build facts are owned beside the rule that derives them. In particular,
+split dependencies and diagnostic-axis dependencies are in
+`split/era_split_qmk_rules.mk`; tap-dance derivation is in
+`features/era_tapdance_rules.mk`; RGB Matrix policy dependencies are in
+`system/era_rgb_matrix_rules.mk`; RP USB sleep emission is in
+`split/era_split_usb_sleep_rules.mk`. Timing constants such as
+`RGB_MATRIX_IDLE_GATE_US` stay with their QMK C reader rather than becoming
+selector defaults here. Read those files for the current predicate instead of
+copying dependency truth tables here.
 
 ## The VIA surface and its gate
 
-**A build without VIA links no ERA VIA code** (owner decision). The gate is
-`ifeq ($(strip $(VIA_ENABLE)), yes)` in `era_common_qmk_rules.mk`,
-`era_tapdance_rules.mk` and `era_split_qmk_rules.mk`, and is possible only
-because the ERA layer runs in the `post_rules.mk` phase.
+A build without VIA links no ERA VIA surface. The gate is the
+`VIA_ENABLE` branch in `system/era_common_qmk_rules.mk`,
+`features/era_tapdance_rules.mk`, and `split/era_split_qmk_rules.mk`. This
+works because those ERA fragments run from `post_rules.mk` after the keymap
+has stated its QMK switches.
 
-Under that gate: `era_common_via.c`, `era_state_sync.c`, the
-`ERA_COMMON_VIA_SRCS` feature adapters, `era_via_system.c` when either
-system selector is on, `era_nkro_via.c` when `NKRO_ENABLE=yes`,
-`era_tapdance_via.c`, `era_split_via_sync.c`, and `era_split_via_link.c`.
-`ERA_COMMON_VIA_SRCS` is collected outside the gate and joined to `SRC` only
-inside it.
+`VIA_INSECURE` is a deliberate ERA build policy for VIA Matrix Test: when
+enabled, QMK exposes debounced matrix positions to the host rather than the
+upstream zero-filled reply. QMK's enabled branch materializes that state as
+`-DVIA_INSECURE`; the current default belongs to the make source, not this
+manual. An explicit off build remains supported.
 
-The same gate declares `VIA_INSECURE ?= yes`. QMK's later
-`builddefs/common_features.mk` consumes that switch and emits `-DVIA_INSECURE`,
-so `quantum/via.c` returns `matrix_get_row()` for Matrix Test instead of a
-zero-filled reply. This is deliberately an ERA build policy, not a fork of
-QMK's handler: H7S and historical QMK/VIA already expose the same physical
-matrix information, and ERA accepts that host-readable key-position surface in
-exchange for stock/custom VIA Matrix Test compatibility. An explicit
-`VIA_INSECURE=no` build remains possible.
+`ERA_VIA_BOOTLOADER_ENABLE` and `ERA_EEPROM_CLEAN_ENABLE` are independent
+under the VIA gate; all four on/off combinations remain supported. System VIA
+routing derives their shared unit rather than coupling the two choices. Non-VIA
+callers must not gain a second route merely to bypass that gate.
 
-`ERA_VIA_BOOTLOADER_ENABLE` and `ERA_EEPROM_CLEAN_ENABLE` are read in
-`era_via_system.c`; their `-D` sits under the same gate. Handler declarations
-in `system/era_common_via.h` sit outside `VIA_ENABLE`, so a future non-VIA
-caller fails at link. `via_custom_value_command_kb()` in
-`system/era_nonsplit_board.c` and `split/era_split_board.c` is itself
-`#ifdef VIA_ENABLE`. The split class reaches
-`era_split_keyboard_handle_via_command()` in `split/era_split_keyboard.c`
-first.
+## Option and identity owners
 
-## Where the options live, and how to see what a build used
-
-| File | Its job |
+| Concern | Owner |
 | --- | --- |
-| `keyboards/era/era_build_identity_options.mk` | firmware-inert `ERA_BUILD_VARIANT`, `ERA_SHOW_OPTIONS`, `ERA_BUILD_IDENTITY_REPORT`. No QMK feature switch or ERA firmware selector — Brick65 includes it without the firmware layer |
-| `keyboards/era/era_build_options.mk` | **every firmware selector declaration.** The one file to edit for firmware configuration |
-| `system/era_common_qmk_rules.mk` | the phase guard, and the `ifeq`/`SRC`/`-D` for the matrix engine, the feature selectors, the VIA surface, and the non-split class skeleton |
-| `system/era_build_variant_rules.mk` | variant name validation, refusal of split-only variants on non-split targets, the include that applies a selected complete combination, and the machine-readable resolved identity line |
-| `common/build_variants/` | the complete five-axis combination for `standard`, `wire`, `qwin`, `cause`, `stale` and `qwin_phase`; each axis `override :=` |
-| `tools/era_qmk_build.sh` | the WSL-local launcher: identity line, requested/resolved match, ELF compiled axes, then names the artifact |
-| `split/era_split_qmk_rules.mk` | the split `SRC` block, its `$(error)` refusals, the storage derivation and the stage |
-| `features/era_tapdance_rules.mk` | the tap-dance units and the ERA surface derived from QMK's switch |
-| `system/era_rgb_matrix_rules.mk` | the RGB render policy emissions and their refusal |
-| `split/era_split_usb_sleep_rules.mk` | the RP USB sleep sync emission |
-| `system/era_sram_resident_rules.mk` | nothing declarable — the copy-to-RAM bundle is an include, not a variable |
-| `storage/era_storage_adoption_rules.mk` | nothing declarable — the EEPROM adoption bundle is an include. Its only make-visible product is the marker `era_split_qmk_rules.mk` refuses EEPROM sync without (`era_board_adoption.md`'s **Storage Adoption**) |
-| each board's `post_rules.mk` | **the feature set that board ships, written out explicitly** — every feature option at its value, above the includes that read them (owner decision). Diagnostics and timing axes are absent: they are per-build instruments, not board features |
-| `system/era_show_options.mk` | the printer below |
+| firmware selector declarations | `keyboards/era/era_build_options.mk` |
+| firmware-inert identity controls | `keyboards/era/era_build_identity_options.mk` |
+| board-shipped feature choices | each board's `post_rules.mk` |
+| selector consumption and common dependency refusals | `system/era_common_qmk_rules.mk` and the feature/split fragments it includes |
+| named diagnostic variants and immutable axis tuples | `system/era_build_variant_rules.mk` and `common/build_variants/` |
+| resolved option printer | `system/era_show_options.mk` |
+| build identity verification/artifact naming | `tools/era_qmk_build.sh` |
+| copy-to-RAM adoption | `system/era_sram_resident_rules.mk`; it is a bundle, not a selector |
+| storage-layout adoption | `storage/era_storage_adoption_rules.mk`; see `manuals/era_board_adoption.md` **Storage Adoption** |
 
-Two places hold a value, and they are not two authorities. The declaration
-declares with `?=`. A board `post_rules.mk` states with `=` what that board
-ships, and the board wins.
+Two files can therefore mention one choice without becoming two authorities:
+the declaration provides an unset fallback; the board states what that product
+ships.
 
-**`era-build --show-options <board>:<keymap>`** prints every ERA option with
-its value and origin — `file`, `command line`, or `environment`. The artifact
-manifest records `requested_variant=`, `variant=`, `resolved_tuple=`,
-`compiled_tuple=`, and the exact `-e ERA_BUILD_VARIANT=...` command.
+The supported inspection command is:
 
-The printer's set is make-declared only, derived from `$(.VARIABLES)` matching
-`ERA_%`, `RGB_MATRIX_%`, `TAP_DANCE_ENABLE`, or `VIA_INSECURE`. **A derived set is only
-derived if its predicate is one a new member satisfies by existing.**
+    era-build --show-options <board>:<keymap>
 
-## The dependencies, and which layer each can be declared in
+It prints the resolved ERA options with make origin information. Build artifact
+identity is checked by `tools/era_qmk_build.sh` against the make-reported
+variant and the compiled witnesses; use those live outputs instead of a copied
+tuple table.
 
-The ERA option layer runs from each board's `post_rules.mk`.
-`builddefs/build_keyboard.mk` takes the keyboard `rules.mk` chain at
-`builddefs/build_keyboard.mk:101-105`, generated `info_rules.mk` at
-`builddefs/build_keyboard.mk:143`, the keymap's `rules.mk` at
-`builddefs/build_keyboard.mk:146`, and `post_rules.mk` at
-`builddefs/build_keyboard.mk:445-449` — before `INTROSPECTION_KEYMAP_C` at
-`builddefs/build_keyboard.mk:473` and before `common_features.mk` /
-`generic_features.mk` at `builddefs/build_keyboard.mk:494-495`. Nothing ERA
-sets is consumed before that `post_rules.mk` include.
-
-A fragment included from the wrong phase still builds and silently loses the
-conditional half; `era_common_qmk_rules.mk` refuses that outright.
-
-| Depends on | Declared where |
-| --- | --- |
-| split transport → `ERA_RP2040_MATRIX_ENABLE`, `NO_USB_STARTUP_CHECK=yes` | `era_split_qmk_rules.mk`, `$(error)` |
-| `..._CAUSE_TIMELINE_ENABLE` → wire diagnostics + EEPROM sync + storage V1 | `era_split_qmk_rules.mk`, `$(error)` |
-| `..._MIRROR_FORCE_STALE_ENABLE` → wire diagnostics | `era_split_qmk_rules.mk`, `$(error)` |
-| `ERA_HOST_PEER_STORAGE_V1_ENABLE` → `ERA_SPLIT_EEPROM_SYNC_ENABLE` | `era_split_qmk_rules.mk`, derived plus `$(error)` |
-| `ERA_DEBOUNCE_ENABLE` shares its runtime unit with `ERA_RP2040_MATRIX_ENABLE` | `era_common_qmk_rules.mk`, one `SRC` line each way |
-| `ERA_DEBOUNCE_ENABLE` owns `DEBOUNCE_TYPE` | `era_common_qmk_rules.mk` **alone**. A board `keyboard.json` also stating `build.debounce_type: custom` is rule 4's failure — two owners, so turning the ERA selector off leaves `DEBOUNCE_TYPE = custom` standing with nothing supplying `debounce()` |
-| ERA split → `ERA_TAPPING_CONFIG_ENABLE=yes` | `era_split_qmk_rules.mk`, `$(error)` beside the tap-activity `SRC` line |
-| KKUK ↔ SOCD | `era_kkuk.c`, `#ifdef` with a `static inline` false. Composition, not a requirement |
-| `ERA_VIA_SYSTEM_ENABLE` ← `ERA_VIA_BOOTLOADER_ENABLE` or `ERA_EEPROM_CLEAN_ENABLE` | `era_common_qmk_rules.mk`, derived; the `#ifdef` at the router entry in `era_common_via.c` is what makes all four combinations of the pair valid |
-| the four common lighting selectors → the QMK feature each layers over: `ERA_BACKLIGHT_EFFECT_ENABLE` and `ERA_BACKLIGHT_LOCK_ENABLE` → `BACKLIGHT_ENABLE`, `ERA_RGB_INDICATOR_ENABLE` → `RGB_MATRIX_ENABLE`, `ERA_RGBLIGHT_PULSE_ENABLE` → `RGBLIGHT_ENABLE` | `era_common_qmk_rules.mk`, one `$(error)` each |
-| `ERA_BACKLIGHT_LOCK_ENABLE` + `ERA_BACKLIGHT_EFFECT_ENABLE` | valid composition. The lock owns only persistent QMK enable/positive-level policy; the effect owns transient PWM presentation, including deliberate zero |
-| storage V1 engine → `VIA_ENABLE` and `RGB_MATRIX_ENABLE` | `era_split_qmk_rules.mk`, `$(error)` |
-| the split INPUT layer section → a one-byte `layer_state_t` | `era_split_qmk_rules.mk` supplies `LAYER_STATE_8BIT` (wire-format fact, eight layers); `era_split_peer_layer.c` `#error`s on `DYNAMIC_KEYMAP_LAYER_COUNT` above eight |
-| ERA split → no `BACKLIGHT`/`RGBLIGHT`/`LED_MATRIX`/`SLEEP_LED`/`OLED`/`ST7565` | `era_split_qmk_rules.mk`, `$(error)`. `NO_USB_STARTUP_CHECK` deletes QMK's suspend loop, so the split lighting-sleep apply drives RGB Matrix only |
-
-## What a build combination is expected to do
-
-**Every RP2040 board builds both its `default` and its `via` keymap**, and
-every one of those builds passes the three copy-to-RAM gates. `default` is the
-ERA performance work without the VIA surface.
-
-**A declared selector's off state builds.** Sole exception:
-`ERA_TAPPING_CONFIG_ENABLE=no` on a split board, refused by name before any
-compile. On a non-split board it turns off cleanly.
-
-| Failure shape | What it looked like |
-| --- | --- |
-| unguarded cross-feature call | `era_kkuk.c` asked SOCD unconditionally |
-| unit left in `SRC` under a derived selector | `ERA_EEPROM_CLEAN_ENABLE` under `ERA_VIA_SYSTEM_ENABLE` referenced its own missing statics |
-| one decision with two owners | rule 4: `keyboard.json` kept `DEBOUNCE_TYPE = custom` after `ERA_DEBOUNCE_ENABLE` stopped supplying `debounce()` |
-| real non-composition | `ERA_TAPPING_CONFIG_ENABLE=no` on split — the one off state that still does not build |
+When adding an option, update the declaration/consumer and any dependency
+refusal in the same ownership layer. When adding a board, state only that
+board's shipped choices in its `post_rules.mk`; do not fork the declaration
+list into board documentation.

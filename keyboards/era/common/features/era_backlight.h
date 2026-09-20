@@ -14,7 +14,7 @@
  * It is common rather than per board because
  * what differs between backlight boards is the pin and the level count, which
  * are `keyboard.json`'s -- the behaviour is the same one
- * (`era_board_adoption.md`, the lighting families).
+ * (`era_board_adoption.md`, **The lighting-surface rule**).
  *
  * **The four value ids are not chosen here.** They are keyboard-channel 0..3,
  * because that is what the shipped definitions already address, and a firmware

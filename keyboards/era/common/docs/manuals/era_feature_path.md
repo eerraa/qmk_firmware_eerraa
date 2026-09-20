@@ -1,120 +1,95 @@
 # ERA Feature Path
 
 Genre: manual
-Canonical for: the order a new ERA feature is added in, the decision each step
-makes, and what the finished feature owes before it is believed
+Canonical for: the decision order for adding firmware behavior that ERA does
+not already have, and the document/source owner to consult at each step
 
-`era_board_adoption.md` is the same document for a new *board*. This one is for
-a new behaviour on the boards that exist. It defines no rule of its own: every
-step names the document that owns its decision, and the value here is the
-**order**, because each step's choices close options in the next.
+This manual adds no product rule. It prevents a new behavior from choosing an
+implementation surface before its requirement, compatibility boundary, build
+ownership, and verification owner are known. For a new board rather than a new
+behavior, use `era_board_adoption.md`.
 
-## 1. Decide which layer owns it, before writing anything
+## 1. Identify the requirement owner
 
-| The behaviour is… | It lives in | Named by |
-| --- | --- | --- |
-| the same on every ERA board, split or not | `common/features/` or `common/system/` | `era_source_map.md` |
-| a property of the split relation | `common/split/` | `era_route_contract.md`, `era_wire_contract.md` |
-| shared by one product family only | that family's `_common.[ch]` | the family header's own preamble |
-| geometry — a matrix, a pin, an LED range | `keyboard.json` or the board's `config.h` | `era_board_adoption.md` |
+Classify the behavior before editing:
 
-**A family unit may not reach the split class layer's internals and the class
-layer may not name a family type.** That boundary is stated in each family
-unit's own header.
+| The change introduces or alters | Read first |
+| --- | --- |
+| persistent identifier, value id, or external compatibility name | `contracts/era_invariants.md` **Identifier Compatibility**, then `maps/era_identifier_map.md` |
+| split wire marker/body/eligibility or a new cross-half state | `contracts/era_wire_contract.md` and `contracts/era_closed_surface_contract.md` |
+| route grant, cadence, deadline, or scan-bound scheduling | `contracts/era_route_contract.md` |
+| authority/session/lighting-sleep policy | `contracts/era_authority_contract.md` |
+| durable storage layout, Apply/CLEAN, or sync semantics | `contracts/era_host_peer_storage_contract.md` |
+| SRAM placement, boot-copy, or core1 residency | `contracts/era_sram_residency_contract.md` |
+| board geometry or one-board hardware fact | that board's `keyboard.json` or `config.h`, then `era_board_adoption.md` if adoption rules are affected |
 
-**Nothing new goes in a board `.c`.** What differs between boards of a family
-is geometry, and geometry needs no translation unit.
+If none applies, the current source may already own the decision. Use
+`maps/era_source_map.md` only to locate the first owner; do not invent a
+contract solely to restate implementation.
 
-## 2. Decide whether it crosses the wire
+## 2. Choose the implementation boundary
 
-If the halves must agree about it, read `era_route_contract.md` **first** — the
-standing exchange grant and **One carrier for the response section set** govern
-the whole lane — then `era_wire_contract.md` for the marker, the body layout
-and the per-relation eligibility.
+Trace from the requirement owner to the current source owner before adding a
+new unit. Extend an existing owner when the new behavior has the same lifetime,
+authority, and persistence domain.
 
-- **The response section set has one carrier.** A new fact does not get a lane;
-  it gets a section on the standing answer, or it widens an existing body.
-- **The section mask is a byte and it is full.** What that leaves is widening
-  an existing body, and `era_closed_surface_contract.md` records what opening a
-  section costs.
-- **A section is latest-state, not an event stream.** It is advertised only
-  while its value differs from what the wire last confirmed, and a receiver
-  applies it idempotently. A feature that needs delivery counted rather than
-  state converged is asking for a different mechanism.
+A feature crosses the split wire only when its requirement needs cross-half
+state. Then its carrier must fit the standing exchange and closed response
+surface described by `contracts/era_wire_contract.md`,
+`contracts/era_route_contract.md`, and
+`contracts/era_closed_surface_contract.md`. A local UI or local lighting
+behavior does not gain a wire section merely because a split board can expose
+it.
 
-## 3. Declare its build selector
+If the change touches QMK-owned source, read `era_qmk_fork_ledger.md` before
+editing and add/reconcile its current-fork row in the same change.
 
-A new option is declared in `keyboards/era/era_build_options.mk` with a
-default, and every fragment that reads one runs from a board's
-`post_rules.mk`. Three existing selectors are declared elsewhere for ordering
-reasons and none of them is a precedent for a fourth. **The classification
-rule that decides where a new option goes is canonical in
-`era_build_options.md`**, along with the three arrangements that were tried
-and rejected.
+## 3. Decide whether it needs a build selector
 
-QMK includes `post_rules.mk` *after* the keymap's `rules.mk`, so `VIA_ENABLE`
-and every other QMK switch is visible there and not in `rules.mk`. An option
-line placed *below* an `include` in a board's `post_rules.mk` is read after
-the fragment that would have used it, so it is silently ignored.
+Use `era_build_options.md` **Where a build option is declared**. Do not create
+an `_ENABLE` variable until that classification says the behavior is a real
+compile/link choice.
 
-## 4. Give it a surface, if a user configures it
+Live selector declarations and defaults remain in
+`keyboards/era/era_build_options.mk`. Board-shipped choices remain in that
+board's `post_rules.mk`. Derived facts stay beside the rule that derives them.
 
-- **A VIA value id** on the board's own table (`era_board_via_get_value` /
-  `era_board_via_set_value`) or on the common feature table, plus a menu entry
-  in that board's VIA definition JSON. The live id is source-owned by that
-  adapter or board header; use `maps/era_identifier_map.md` only to locate
-  competing namespace owners and `contracts/era_invariants.md` **Identifier
-  Compatibility** before allocating or reusing one.
-- **A keycode only when VIA cannot do it.** A keycode is a second control path
-  over one state, it consumes a `QK_KB_*` slot, and renumbering that enum
-  invalidates every keymap already stored on a device.
-- **Persisted state** uses an existing canonical owner whenever one already fits
-  the meaning. RGB Sleep is the example: the master occupies one formerly-unused
-  inverted bit in QMK's 2-byte keymap config, which is already a portable split
-  storage domain; TOMAK's timeout stays in its board record. Do not allocate a
-  new ERA region merely because the UI is new.
-- **Compile capability and runtime preference are separate layers.** If
-  `keyboard.json` owns the compiled capability (for example `rgb_matrix.sleep`
-  -> `RGB_MATRIX_SLEEP`), every capable board keeps that switch on. The VIA
-  master may then gate the entire product behavior at runtime without pretending
-  that a compile-time feature disappeared.
-  A dependent control may use V3 `showIf`; hiding it is presentation, not a
-  second firmware gate, and its stored value must survive while hidden.
+## 4. Give user configuration one owner
 
-## 5. Keep it off the hot path
+If users configure the behavior, locate the existing VIA/keyboard-channel owner
+and identifier namespace through `maps/era_identifier_map.md` and
+`era_board_adoption.md` **The lighting-surface rule** where lighting is
+involved.
 
-`AGENTS.md` owns the repository-level scan-bound hot-path rule; the relevant
-Task Read Matrix row routes any additional invariant contract before editing.
-**A matrix-scan path may read cached scalars and publish bounded latches, and
-may not capture EEPROM, compute a CRC, build a snapshot, enqueue, decode or
-apply.** Work that must happen per millisecond rather than per pass hangs off
-the board housekeeping tick in `system/era_board_hooks.c`, one call per
-millisecond.
+Prefer an existing persistence domain whose meaning already matches the state.
+A new UI does not by itself justify a new EEPROM region or a second save path.
+Storage-format changes must instead go through
+`contracts/era_host_peer_storage_contract.md`.
 
-If the feature adds core1 call depth, it owes a measured stack figure — the
-`_Static_assert` beside the reservation cannot report that one, and no
-compile-time construct can.
+Compile capability and runtime preference are separate decisions. A runtime
+preference must not counterfeit removal of a capability that `keyboard.json`
+still owns.
 
-## 6. Verify what the change actually touched
+## 5. Re-check hot-path and ownership constraints
 
-`era_performance_gates.md` is canonical and scoped by what was touched.
+Use the task row in `era_active_index.md` for the affected runtime domain.
+`AGENTS.md` owns the repository scan-bound hot-path rule; route/core1/storage
+contracts add narrower constraints when the feature enters those paths. Keep
+diagnostic or persistence work out of a scan-bound path unless the applicable
+contract explicitly admits it.
 
-- **Any build offered as evidence** runs through the launcher, from a tree
-  synchronised to the change.
-- **A change that claims to touch no behaviour** owes the Refactor Self-Check
-  tier its binary actually earns — T1 identical UF2, T2 identical symbols and
-  sizes, T3 an explained delta. **The tier is a result, not a judgment call.**
-- **A closed-surface, retired-path or QMK core matrix change** owes the Source
-  Gate.
-- **A change to scan-bound work, RAM placement, scheduler behaviour, core1
-  ownership or storage** owes the device gate its own row in the Task Read
-  Matrix names.
-- **Device evidence outranks source inference**, and the reverse is also true:
-  refusing a correct change by reasoning about a mechanism, without reading the
-  paths that already exercise it, is the same error pointed the other way.
+## 6. Verify the affected boundary
 
-## 7. Land it in separated commits
+`era_performance_gates.md` owns evidence and acceptance scope. Choose the
+gate for what actually changed rather than treating a successful build as proof
+of wire, storage, timing, or device behavior.
 
-Keep contract content, source implementation, diagnostics-only change, and
-entry-policy updates separable. The repository-level commit and deletion rules
-are in `AGENTS.md`'s **검증과 종료**.
+For document-only routing changes, use the document checks named by
+`AGENTS.md`. For a behavior change, run the focused unit/source/device gate
+the task row names. A skipped or unavailable device measurement remains
+unverified.
+
+The order above is intentional: requirement -> source boundary -> build
+ownership -> user/persistence ownership -> runtime constraints -> evidence.
+Each earlier decision constrains the next; none is a substitute for reading the
+current source at the chosen owner.
