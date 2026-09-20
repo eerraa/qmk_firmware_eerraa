@@ -116,7 +116,8 @@ HOST-PEER HOST or the DUAL-HOST Right.
   write/readback, runtime reload, Core1 restart, and relation revalidation may
   publish durable apply (`era_nvm_replace()` in `storage/era_nvm.c`).
 - Core1 never reads live QMK/VIA/EEPROM/RGB/matrix/USB/HID state and never
-  writes EEPROM (`era_overview.md` **The Two Cores**).
+  writes EEPROM (`era_overview.md` **Execution Model**; normative boundary in
+  `era_invariants.md` **Core Lifetime And Thread Boundary**).
 
 ## Classifier Rule
 

@@ -1,85 +1,74 @@
 # ERA Overview
 
 Genre: contract
-Canonical for: the ERA mental model and shared vocabulary. The plain-language
-architecture picture and the glossary live only here; every rule, ownership
-row, and symbol name stays canonical in the documents this file points to.
+Canonical for: the ERA system mental model and shared vocabulary. Detailed
+rules, numeric contracts, symbol behavior, and validation stay in their owning
+contracts, source, and checks.
 
-## What ERA Is
+## Product Shape
 
-Every board under `keyboards/era` is an ERA board. Twenty-four RP2040 boards
-take the whole ERA firmware layer; `sirind/brick65` (atmega32u4) takes none
-of that firmware — a permanent runtime exception, not a debt. All twenty-five
-share one automated-build identity under `keyboards/era/common/`. Every RP2040
-board runs the image from SRAM
-(`manuals/era_board_adoption.md`'s **Copy-To-RAM Policy**).
+RP2040 ERA boards use the common ERA firmware layer and execute from SRAM.
+`sirind/brick65` is the permanent atmega32u4 runtime exception, not migration
+debt. Split and non-split boards are both first-class product modes. Board
+adoption and build identity are owned by `manuals/era_board_adoption.md` and
+`manuals/era_build_options.md`.
 
-Three boards are split — `sirind/tomak`, `sirind/tomak79h`, `sirind/tomak79s`
-— and talk over one serial wire. Non-split boards are first-class
-(`manuals/era_board_adoption.md`'s **Non-Split Board Baseline**). On every
-board, QMK's matrix/debounce path is the sole HID producer
-(`contracts/era_invariants.md`).
+Split boards share one serial relation between halves. Non-split boards have no
+split-runtime dependency. The HID-production boundary and QMK-fork constraints
+are owned by `contracts/era_invariants.md`.
 
-## The Two Cores
+## Execution Model
 
-Two cores. Core0 publishes immutable requests and applies generation-matched
-results. Core1 is the wire executor: every serial RX/TX under an owner epoch.
-Core1 never reads live QMK state and never writes EEPROM. Placement does not
-move that split (`contracts/era_sram_residency_contract.md`'s **Ownership Does Not Move With Placement**). `CORE1_FULL` is the only stage (`contracts/era_invariants.md`).
+| Plane | Owner | First source anchor |
+| --- | --- | --- |
+| QMK-visible policy, live state, snapshots, result apply | core0 | `split/era_split_transport_scheduler.c` |
+| split serial execution under an owner epoch | core1 | `split/communication_core/` |
+| memory placement and copy-to-RAM lifetime | residency contract | `contracts/era_sram_residency_contract.md` |
 
-## The Relation Model
+The ownership boundary is normative only in `contracts/era_invariants.md`; this
+table is the mental model used to find that contract.
 
-The scheduler classifies the split link into a relation
-(`contracts/era_authority_contract.md`; mode identifiers:
-`maps/era_identifier_map.md`). Routes follow that classification
-(`contracts/era_route_contract.md`).
+## Relation Model
+
+The scheduler classifies the split link into one relation. Relation ownership,
+hold, initiator selection, and session authority are canonical in
+`contracts/era_authority_contract.md`; route grants and timing are canonical in
+`contracts/era_route_contract.md`.
 
 | Relation | Meaning |
 | --- | --- |
-| **LOCAL_NO_LINK** | no confirmed peer; the half runs standalone |
-| **HOST-PEER** | one half is USB-enumerated (**HOST**); the other is not (**PEER**) |
-| **DUAL-HOST** | both halves independently USB-enumerated, normally two ports on the same computer. Both-hosted is always DUAL-HOST |
+| **LOCAL_NO_LINK** | no confirmed peer; the half operates locally |
+| **HOST-PEER** | exactly one half owns a usable USB host session; roles are HOST and PEER |
+| **DUAL-HOST** | both halves independently own usable USB host sessions |
 
-Initiator, responder, and which routes may open are projections of that
-relation (`contracts/era_authority_contract.md`, `contracts/era_invariants.md`).
+Wire eligibility is not inferred from this table. The exact section surface is
+`contracts/era_wire_contract.md` and `contracts/era_closed_surface_contract.md`.
 
-## How State Crosses
+## State Boundaries
 
-Three boundaries, one mechanism each:
+| Boundary | Contract owner |
+| --- | --- |
+| local USB facts -> relation authority | `contracts/era_authority_contract.md` |
+| core0 policy/snapshot -> core1 execution -> result | `contracts/era_route_contract.md` and `contracts/era_invariants.md` |
+| half <-> half packet and section content | `contracts/era_wire_contract.md` |
+| durable cross-half replacement | `contracts/era_host_peer_storage_contract.md` |
 
-| Boundary | What crosses | Where it is canonical |
-| --- | --- | --- |
-| core0 ↔ its own USB hardware | local authority facts | `contracts/era_authority_contract.md` |
-| core0 ↔ core1 | published plans and results | `contracts/era_route_contract.md` |
-| half ↔ half | wire sections, per relation | `contracts/era_wire_contract.md` |
+The authority sample is the architecture's intentional poll. Other steady-state
+cross-boundary work is driven by published state, deadlines, or admitted wire
+traffic; exact cadence and the exception are owned by the authority and route
+contracts.
 
-The side that changes publishes; the side that consumes wakes on an edge.
-Cost scales with how often the fact changes, not with how often anyone looks.
-
-**Exactly one thing polls**, and it is named rather than tolerated: the
-authority sample of the USB SOF counter. Everything else is an edge. The
-sample itself: `contracts/era_authority_contract.md`. Both serviced relations
-run core1's standing exchange as their steady state
-(`contracts/era_route_contract.md`).
-
-## Glossary
+## Shared Vocabulary
 
 | Term | Meaning |
 | --- | --- |
-| **HOST / PEER** | the two roles of a HOST-PEER relation (above) |
-| **DUAL-HOST** | the both-hosted relation (above) |
-| **source-push** | two uses of one name: the HOST-PEER matrix lane, where the PEER publishes latest local rows so the HOST projects both halves into one HID report (`contracts/era_host_peer_matrix_contract.md`); and the wire operation `HOST_PEER_SOURCE_PUSH`, which also carries the initiator's runtime sections in both relations (`contracts/era_wire_contract.md`) |
-| **HSRSP** | the admitted-slot response envelope `HOST_PEER_HOST_SOURCE_RSP`. Both relations return response sections on it; which sections: `contracts/era_closed_surface_contract.md` |
-| **matrix_ready** | the no-host local-matrix-ready bit on `SESSION_STATUS` and AUTHORITY. HOST-PEER matrix admission requires it (`contracts/era_authority_contract.md`'s **Matrix Ready**) |
-| **replacement storage** | one seven-domain EEPROM replacement engine in both admitted relations. The relation's initiator selects; arbitration picks direction; the apply target is the half that receives the candidate. Probe, then chunks, then durable apply (`contracts/era_host_peer_storage_contract.md`) |
-| **audit sweep** | the mandatory seven-domain verify-all probe at every serviced relation (re)establishment (`contracts/era_host_peer_storage_contract.md`) |
-| **storage news value** | the responder's forward-only 7-bit hint (`0` = no claim). It names no domain; a new nonzero value tells the initiator to run a summary (`contracts/era_host_peer_storage_contract.md`'s **Storage News Value And Relation-Open Audit**) |
-| **durable apply** | after ADMIT, one synchronous ERA NVM replacement of a validated staged image. Public EEPROM stays old until that commit; core1 keeps the relation alive from SRAM (`contracts/era_host_peer_storage_contract.md`) |
-| **responder-silence stale watch** | the responder's watch on the core1 accepted-RX counter; silence forgets the session. Period: `contracts/era_route_contract.md`'s **Stale Recovery** |
-| **promotion** | a former PEER whose session owner is now local — this half decides from its own USB session, on the last durable image it already holds |
-| **agreed restart** | both halves commit the same act at one shared-clock deadline. The mechanism knows neither user. Link-speed and EEPROM CLEAN are the two (`split/era_split_restart_agreement.h`; wire in `contracts/era_wire_contract.md`; what the cell is open for in `contracts/era_closed_surface_contract.md`) |
-| **reconciliation** | the pair meets at Low, then raises to the winner's stored level (`split/era_split_link.h`; why it is a route-layer fact in `contracts/era_route_contract.md`) |
-| **cold task boundary** | the housekeeping cadence, not matrix scan, where storage capture, CRC, and apply run |
-| **CORE1_FULL** | the only communication-core stage: core1 owns all wire IO (`contracts/era_invariants.md`) |
-| **qwin** | the no-cable standalone scan-rate benchmark window (`WIRE_QWIN`). Floor: `manuals/era_performance_gates.md` |
-| **rung** | a build variant that exists only to attribute a measurement: the all-on image with exactly one mechanism turned off, so only the difference against that sitting's all-on window counts. It is not a profile: launcher artifact of its own, outside the default sweep, never a comparison point. Four have retired (`qwin_piooff`, `qwin_wfeoff`, `qwin_gateoff`, `qwin_limit20`). `qwin_phase` is the standing exception: it turns an instrument on, because the instrument costs scan rate. Live variant identity: `manuals/era_build_options.md` |
+| **source-push** | the admitted initiator request carrier; HOST-PEER matrix publication is one use of it |
+| **HSRSP** | `HOST_PEER_HOST_SOURCE_RSP`, the admitted response-slot envelope |
+| **matrix_ready** | the no-host readiness fact required before HOST-PEER matrix admission |
+| **replacement storage** | the shared multi-domain durable replacement engine used in admitted relations |
+| **agreed restart** | a bilateral act committed at one shared-clock deadline; current users are link-speed and EEPROM CLEAN |
+| **CORE1_FULL** | the only ERA split communication-core stage |
+
+Packet names and bodies: `contracts/era_wire_contract.md`. Storage transaction
+semantics: `contracts/era_host_peer_storage_contract.md`. Build-only measurement
+vocabulary and variants: `manuals/era_build_options.md`.
