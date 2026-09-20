@@ -1,606 +1,382 @@
 # ERA Route Contract
 
 Genre: contract
-Canonical for: route ownership and priority, route kind/reason, all service
-cadences and poll period values, the standing exchange grant, storage route
-admission and exclusivity, freshness handoff, stale recovery, the due/deadline
-model, and latch discipline
+Canonical for: route priority and admission, service cadence requirements, the
+standing exchange grant, storage exclusivity, restart/deadline ordering, stale
+recovery, and scheduler hot-path boundaries
 
-Wire markers, bodies and eligibility: `era_wire_contract.md`. Storage protocol
-and news: `era_host_peer_storage_contract.md`. Authority sample and
-`matrix_ready`: `era_authority_contract.md`. Link ring cases:
-`split/era_split_link.h` **Reconciliation**.
+Wire markers, bodies, and section eligibility are owned by
+`era_wire_contract.md`. Storage protocol and durable-apply rules are owned by
+`era_host_peer_storage_contract.md`. Authority samples and `matrix_ready` are
+owned by `era_authority_contract.md`. Link-level reconciliation cases and the
+stored speed ring are owned by `split/era_split_link.h` **Reconciliation**.
+Implementation entry points are in `maps/era_source_map.md`.
 
 ## Common Route Priority
 
-1. Required attach/status bootstrap, policy, or recovery revalidation when due.
-2. Active exclusive storage route while its relation remains valid.
-3. Mode-specific normal route.
-4. No-op.
+At transaction boundaries the initiator orders work as follows:
 
-Storage is exclusive against normal matrix/heartbeat/HOST-source-poll traffic,
-not against mandatory relation recovery.
+1. required bootstrap, policy, or recovery revalidation;
+2. an admitted exclusive storage transfer while its relation is valid;
+3. the relation's normal route;
+4. no-op.
 
-**Priority applies at transaction boundaries; an exchange already begun is
-never preempted.** Core0 admits only one of the generic request ring and the
-dedicated storage request slot at a time.
-`era_split_transport_scheduler_initiator_route_available()` in
-`split/scheduler/era_split_transport_scheduler_routes.c` refuses a generic
-publication while `era_host_peer_storage_initiator_request_pending()` in
-`split/era_host_peer_storage.c` is true. Storage submit refuses while
-`general_initiator_pending` or `status_revalidation_due` is set
-(`split/era_host_peer_storage.c`).
-`era_split_transport_scheduler_refresh_route_due_flags()` in
-`split/scheduler/era_split_transport_scheduler_timing.c` and the scan-path
-initiator step in `split/era_split_transport_scheduler.c` both zero those
-generic due bits while a storage request is pending, and otherwise mask them
-to `ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS` while
-`era_host_peer_storage_route_exclusive()` in `split/era_host_peer_storage.c`
-is true. Due facts stay armed.
+An exchange already begun is never preempted. Storage exclusivity suppresses
+normal initiator traffic but never mandatory relation recovery or a responder's
+answer to an already admitted slot. During transfer exclusivity that non-storage
+answer is section-less; exclusivity must not open runtime response sections.
+Generic and storage requests must not be published at the same time, and
+suppressed due facts remain armed for later service.
 
-**A Core1 request's queue freshness begins at shared publication, not request
-construction.** Window = `ERA_SPLIT_PEER_RESPONSE_WINDOW_MS` 20 ×
-`era_split_transaction_backend_wire_scale()` (`split/era_split_transaction_backend_rp2040.c`)
-+ `ERA_SPLIT_COMMUNICATION_CORE_REQUEST_HANDOFF_MARGIN_US` 5000:
-25 / 45 / 85 ms at High / Medium / Low.
-`era_split_transport_scheduler_core1_request_queue_window_us()` in
-`split/scheduler/era_split_transport_scheduler_routes.c` stamps it. Low-level
-maximum must stay below `ERA_SPLIT_CORE1_UNRESPONSIVE_MS` 100 or the build
-fails. Queue-residence only; the selected request's own window starts after
-BEGIN.
+A Core1 request becomes fresh when it is published to shared execution, not
+when Core0 starts constructing it. Queue residence is bounded to 25 / 45 /
+85 ms at High / Medium / Low and must remain below the 100 ms Core1
+unresponsive bound. The selected transaction receives its own response window
+after BEGIN; queue time is not charged to that transaction window.
 
-**The exclusive span is the transfer phase, not the episode** — validated
-`TRANSFER` through each role's transfer-verified boundary and an abort's
-bounded cleanup. Apply is local flash. One narrower gate outlives exclusivity
-on a push initiator: `era_host_peer_storage_standing_suppressed()` in
-`split/era_host_peer_storage.c` is route-exclusive OR (initiator AND
-(`PEER_PUSH_APPLY` or `PEER_PUSH_COMPLETE`)). Composition:
-`split/era_host_peer_storage_standing_policy.h`. That gate clears the standing
-plan `enabled` bit while storage APPLY/COMPLETE control remains admitted.
-Route admission outside the standing cadence is unchanged.
+Storage exclusivity covers validated TRANSFER through transfer verification and
+bounded abort cleanup, not the whole storage episode. A push initiator may keep
+the standing grant suppressed through COMPLETE while the remote responder can
+still be inside synchronous Apply. CLEAN quarantine is stronger: once CLEAN is
+selected for agreement, storage select/publish/admit/answer/snapshot remain
+closed through COMMIT and controlled reset, while SESSION_STATUS and the
+standing exchange remain available. The reason CLEAN requires that restart is
+owned by `era_host_peer_storage_contract.md` **Why An EEPROM Clean Is An Agreed Restart**.
 
-CLEAN quarantine is stronger than transfer exclusivity.
-`era_split_restart_agreement_storage_quarantined()` in
-`split/era_split_restart_agreement.c` is true from selection before CLEAN
-PREPARED through COMMIT and controlled reset. It forbids
-select/publish/admit/answer/snapshot of storage, still admits
-`SESSION_STATUS` and the standing exchange, and clears only on controlled
-reset. Why the restart is required:
-`era_host_peer_storage_contract.md` **Why An EEPROM Clean Is An Agreed Restart**.
+Heartbeat admission and matrix admission are deliberately different. A busy
+HOST must still answer the relation's section-less liveness slot; storage may
+suppress matrix/source traffic but must not make a healthy relation refuse its
+liveness exchange.
 
-**Exclusivity suppresses the routes an initiator selects and never a
-responder's answer.** The responder answers the admitted slot under
-exclusivity with no section
-(`split/scheduler/era_split_transport_scheduler_responder.c`).
-
-Heartbeat admission is the relation fact (confirmed HOST-PEER HOST with a
-session that admits its PEER's matrix, or confirmed DUAL-HOST Right) and
-carries no exclusivity term. Matrix admission is that HOST-PEER fact AND
-`!era_host_peer_storage_route_exclusive()`. Deriving the first from the
-second makes a busy HOST refuse the section-less ACK; the standing liveness
-beat then meets that refusal on every frame and collapses the pair.
+Source anchors: `split/era_host_peer_storage.c`,
+`split/era_host_peer_storage_standing_policy.h`,
+`split/scheduler/era_split_transport_scheduler_routes.c`, and
+`split/scheduler/era_split_transport_scheduler_responder.c`.
 
 ## Route Kind And Reason
 
-Route kind is the selected wire operation. Route reason is the initiator-local
-service cause. The responder sees only the admitted wire operation and its own
-dirty state. Enums: `split/era_split_wire_router.h`.
+Route kind is the wire operation. Route reason is the initiator-local cause.
+The responder only observes the admitted wire operation and its own dirty
+state.
 
-| Reason | Wire op | Trigger | C enumerator |
-| --- | --- | --- | --- |
-| `ATTACH_STATUS_REVALIDATION` | `SESSION_STATUS` | bootstrap, policy, discovery, recovery | yes |
-| `HOST_PEER_MATRIX_SOURCE_PUSH` | `HOST_PEER_SOURCE_PUSH` | PEER matrix event or forced baseline; no cadence | yes |
-| `HOST_PEER_STORAGE_IDLE_PROOF` | storage probe | relation-open audit or responder-changed hint, including nonexclusive `BUSY`/pin retry; no periodic patrol | none (`era_identifier_map.md`) |
-| `HOST_PEER_STORAGE_ACTIVE` | chunk/apply/complete or abort cleanup | after validated `TRANSFER` | none (`era_identifier_map.md`) |
-| `RUNTIME_SECTION_PUSH` | `HOST_PEER_SOURCE_PUSH` with a runtime mask | local runtime section differs from last confirmed | yes |
-| `RUNTIME_RESPONSE_POLL` | `HOST_PEER_HEARTBEAT` | initiator opens a slot so the responder can speak | yes |
-
-`era_split_wire_router_select_owner()` in `split/era_split_wire_router.c`
-selects only `ATTACH_STATUS` then HOST-PEER PEER matrix source-push.
-**Core0 selects neither runtime reason, in either relation.** Both belong to
-core1's standing exchange, which stamps `ERA_SPLIT_ROUTE_HOST_PEER_HEARTBEAT`
-so an `rk`/`rr` pair keeps its meaning (`split/era_split_wire_router.h`).
-Storage is a dedicated cold-task lane, not an owner route.
-
-> **REFUSED:** add `HOST_PEER_STORAGE_*` as `era_split_route_reason_t` values.
-> **WHY:** that would put the dedicated storage lane through the generic owner ring.
-> **REOPENS:** storage traffic that must share the generic initiator ring.
-
-| Cadence | Value | Rule |
+| Reason | Wire operation | Required trigger |
 | --- | --- | --- |
-| `SESSION_STATUS` post-relation | none | no post-relation cadence and no in-relation edge. Edges that still raise revalidation: `era_authority_contract.md` |
-| `ERA_SPLIT_SESSION_REFRESH_PERIOD_MS` | 50 | known peer, while that relation's own lane is not live (`scheduler/era_split_transport_scheduler_timing.c`) |
-| `ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS` | 25 | peer-unknown discovery until `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` 10 consecutive misses |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` | 100 | completion-to-next-probe interval after that streak; at most ten steady no-link probes/s |
-| `ERA_SPLIT_SESSION_BOOTSTRAP_RESPONSE_WINDOW_MS` | 2 | `SESSION_STATUS` response window while the peer is unknown; known-peer uses `ERA_SPLIT_PEER_RESPONSE_WINDOW_MS` 20 |
-| core0-originated route cadence in a live relation | none | **Nothing core0 selects runs on a cadence in either live relation.** HOST-PEER's PEER keeps one core0-selected route (matrix source-push, event-driven). Section set: `era_wire_contract.md` |
-| `ERA_SPLIT_HOST_SOURCE_RESPONSE_POLL_PERIOD_MS` | 10 | HOST-PEER standing period. Does not scale with link. No runtime route deadline in the core0 set, so shortening costs core0 no wake |
-| `ERA_HOST_PEER_RGB_STATE_SNAPSHOT_PUBLISH_PERIOD_MS` | 10 | defined as the HOST-PEER standing period. Arms HOST-PEER HOST and DUAL-HOST Right responder RGB snapshot republish. Core0 deadline set includes this deadline only in HOST-PEER HOST (`scheduler/era_split_transport_scheduler_timing.c`); DUAL-HOST Right rides the authority-sample wake at the same 10 ms |
-| `ERA_SPLIT_AUTHORITY_POLL_PERIOD_MS` | 10 | `ERA_SPLIT_AUTHORITY_SOF_FRESH_MS` 10. The architecture's one poll; sample itself: `era_authority_contract.md` |
-| `ERA_SPLIT_PEER_RESPONSE_WINDOW_MS` | 20 | **not a cadence.** A non-OK standing exchange latches `stopped` and core1 originates nothing until core0 republishes the plan (`split/communication_core/era_split_communication_core_standing.c`). Deadline re-armed from the poll decision, not completion |
-| `ERA_SPLIT_DUAL_RUNTIME_POLL_MS` | 1 | **one period, run unconditionally.** No activity window, quiet rate, or hint. A local dirty section is due immediately. **This period is the responder's latency bound.** 1 / 2 / 4 ms High / Medium / Low = × `era_split_transaction_backend_wire_scale()` |
-| `ERA_SPLIT_STANDING_LIVENESS_MS` | 50 | `ERA_SPLIT_RESPONDER_SILENCE_MS` 100 / 2. Not per-relation. Fires only while `enabled` is clear |
-| `ERA_SPLIT_TIME_ANCHOR_REFRESH_MS` | 60000 | relation time-anchor refresh; the section is latest-state (`era_wire_contract.md`) |
-| `ERA_SPLIT_LINK_SCAN_DWELL_MS` | 400 | one listener window; scheduler asserts room for two backed-off probes, their slowest receive windows and maintenance margins (`split/era_split_transport_scheduler.c`) |
-| `ERA_SPLIT_LINK_SCAN_NOISE_MIN` | 2 | undecodable arrivals in one dwell before the listener steps |
-| `ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS` | 200 | raise-confirm window; asserted ≥ 2 × `ERA_SPLIT_RESPONDER_SILENCE_MS` 100 |
-| `ERA_SPLIT_LINK_UPGRADE_WAIT_MS` | 500 | bounded initial wait for a winner arm; timeout releases the storage gate without guessing or persisting a rate |
-| `ERA_SPLIT_RESTART_ARM_TIMEOUT_MS` | 60 | restart arm timeout (`split/era_split_restart_agreement.h`) |
-| `ERA_SPLIT_RESTART_COMMIT_DELAY_MS` | 120 | commit delay; scheduler asserts it sits past the arm timeout plus two HOST-PEER poll periods |
-| storage audit / retry | `ERA_HOST_PEER_STORAGE_RETRY_MS` 25 | no periodic idle-proof; probes from the seven-domain audit sweep and the news-armed summary (`era_host_peer_storage_contract.md`) |
-| trailing quiet | `ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS` 1000 | interval that gates dirty source capture lives in `era_host_peer_storage_contract.md` |
-| episode | `ERA_HOST_PEER_STORAGE_EPISODE_MS` 5000 | 5 s |
-| failure streak | `ERA_HOST_PEER_STORAGE_MAX_FAILURES` 40 | `ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS` 1000 / `ERA_HOST_PEER_STORAGE_RETRY_MS` 25; silence is 2 × `ERA_HOST_PEER_STORAGE_PEER_STALL_WORST_MS` 500 (`split/era_host_peer_storage.h`) |
-| probe backoff | shift-capped retry | `ERA_HOST_PEER_STORAGE_RETRY_MS` 25 << streak, streak cap `ERA_HOST_PEER_STORAGE_BACKOFF_MAX_SHIFT` 6, delay cap `ERA_HOST_PEER_STORAGE_BACKOFF_MAX_MS` 1000. Distinct from the quiet deadline; only this is a backoff |
+| ATTACH_STATUS revalidation | SESSION_STATUS | bootstrap, policy, discovery, recovery |
+| HOST-PEER matrix source push | HOST_PEER_SOURCE_PUSH | PEER matrix edge or forced baseline; no cadence |
+| storage idle proof | storage probe | relation-open audit, settled local capture, or responder-changed news; no periodic patrol |
+| storage active | storage chunk/apply/complete or abort cleanup | validated transfer episode |
+| runtime section push | HOST_PEER_SOURCE_PUSH with a runtime mask | local eligible section changed from last confirmed |
+| runtime response poll | HOST_PEER_HEARTBEAT | initiator opens the responder's standing response slot |
 
-**A new service reason must define its own wire surface, ownership, and
-cadence before execution opens for it.** Reusing a lane is not defining one.
+Storage remains a dedicated cold-task lane rather than a generic route reason.
+Putting storage through the generic owner ring is rejected because it would
+collapse the independent admission/exclusivity boundary; revisit that choice
+only if storage traffic must share the generic initiator ring. The two runtime
+reasons belong only to the standing exchange.
 
-**The period is not measured and its bound is the wire, not core0.** At 1 ms
-and 460800 a worst-case exchange is ~0.80 ms with 0.2 ms idle; an overrun
-re-arms a past deadline and the cadence stops rather than degrades. Every
-`_Static_assert` on a poll period is an upper bound against
-`ERA_SPLIT_RESPONDER_SILENCE_MS` 100, so a too-short period cannot fail a
-build. Sleep fractions: `era_performance_gates.md` **Fixed Baselines**. A
-device check watches for a poll rate far above the configured period
-(`era_capture_reading.md`).
+Required route timing:
 
-### LINK SPEED transition and lease repair
+| Requirement | Value |
+| --- | ---: |
+| known-peer SESSION_STATUS refresh while the relation lane is not live | 50 ms |
+| peer-unknown discovery before backoff | 25 ms |
+| peer-unknown discovery after 10 consecutive misses | 100 ms |
+| peer-unknown SESSION_STATUS response window | 2 ms |
+| known-peer response window | 20 ms |
+| HOST-PEER standing period | 10 ms, independent of link level |
+| DUAL-HOST standing period | 1 / 2 / 4 ms at High / Medium / Low |
+| authority sample period and SOF freshness | 10 ms |
+| standing liveness while cadence is disabled | 50 ms |
+| responder/Core1 silence bound | 100 ms |
+| relation time-anchor refresh | 60 s |
+| restart arm timeout | 60 ms |
+| restart commit lead | 120 ms |
 
-`split/scheduler/era_split_transport_scheduler_link.inc` is the scheduler's
-cold transition, included verbatim by the LINK host fixture. It quiesces the
-old owner, selects baud and all derived timings, then obtains the checked
-Core1 role READY. Backend rate selection itself performs no PIO restart: the
-next owner acquisition initializes the selected divider through the existing
-checked handshake. Even an equal divider requires a ready lease. New-epoch
-standing/responder publications precede LINK persistence.
+There is no post-relation SESSION_STATUS cadence while the relation's own lane
+is live, and no periodic core0 route in a live relation. Storage retry, dirty
+capture, episode, and backoff values remain owned by
+`era_host_peer_storage_contract.md`. Link scan dwell, noise threshold, upgrade
+confirmation, and stored-level rules remain owned by
+`split/era_split_link.h` **Reconciliation**.
 
-LINK_SPEED has no USB disconnect or reset, so its request skips the raw-HID
-quiet gate that protects EEPROM CLEAN. It still yields to admitted storage,
-requires time-anchor adoption and the same confirmed shared deadline. A local
-Apply receipt follows checked runtime plus persistence immediately; the
-existing liveness window remains a failure monitor, not a display delay
-(`split/era_split_keyboard.c`, `split/era_split_link.h` **VIA and USB**).
-
-`ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE` is an explicit repair input to
-`era_split_transport_scheduler_update_mode()` in
-`split/era_split_transport_scheduler.c`, not merely a reason to call a
-planner whose policy may be unchanged. The existing live-role fast path
-avoids needless teardown. A capped launch makes peer facts stale and converges
-to unavailable instead of leaving a phantom serviced relation.
-
-A timed restart window is derived from the agreement, not another flag.
-Opportunistic bank erasure, cold storage capture and new initiator storage
-episodes yield during it; already-admitted work drains before an arm. Due
-restart execution follows wire-result/disarm draining and precedes cold NVM
-work. These rules remove LINK's own variable-latency pre-transition work;
-arbitrary concurrent host writes, clock error and physical quiesce latency
-remain device timing bounds, not a promise made by host tests.
-
-**Reconciliation is owed once per meeting of the pair, not once per relation
-generation.** `era_split_transport_scheduler_update_mode()` in
-`split/era_split_transport_scheduler.c` classifies every unserviced pass with
-the same rule the EEPROM SYNC indicator uses for its peer-mirror hold: the
-initiator's bootstrap inside its fast recovery window (`local_status_pending`,
-miss streak below `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER`) is the same
-pair still recovering; anything else is a real departure. The serviced edge
-that follows a real departure is reported to the link lane as a fresh meeting
-and may reopen reconciliation; the same-pair reopen that every EEPROM SYNC
-push close forces through `SESSION_STATUS` is not, and a pair already agreed
-at its running level raises no agreed restart there. Without that rule a
-multi-domain sync interleaved one agreed restart per pushed domain, deferred
-every reopened relation's audit behind it, and put the responder's fallback
-report inside the sync window.
+A new service reason must establish its wire surface, owner, trigger/cadence,
+admission, and failure behavior before execution is opened for it.
 
 ## Runtime Execution Owner
 
-**Core0 never polls core1.** Core1 publishes; core0 wakes on the edge — a
-ready initiator result, a ready responder result, or the standing state's
-change sequence (`era_split_transport_scheduler_task()` in
-`split/era_split_transport_scheduler.c`). Result carries lane facts; standing
-state carries the response section set (see **One carrier for the response
-section set**). A request core1 consumed without a result (full result ring)
-unsticks on the next authority sample.
+Core1 executes the standing exchange on its own deadline. Core0 does not poll
+Core1; it wakes for publication edges such as a completed request, responder
+result, or changed standing state. Route authority therefore does not imply
+Core0 execution ownership.
 
-While Core0 is unavailable, Core1 may answer repeated section-bearing
-HEARTBEATs from the same immutable responder snapshot. Once one successful
-result for the exact owner/relation/snapshot/section-mask tuple is pending,
-later successful HEARTBEAT replies do not reserve another general-ring slot
-(`split/communication_core/era_split_communication_core_responder_result_policy.h`).
-SESSION and both push result kinds never coalesce.
+Repeated responder HEARTBEATs may reuse the same immutable snapshot while
+Core0 is unavailable, but at most one successful result for the same
+owner/relation/snapshot/section-mask identity may occupy the general result
+path. SESSION and push results are not coalesced.
 
-Route authority is not execution ownership. Epochs move core1 only.
-`CORE1_FULL` and the forbidden core0 executor, lease, wait-adapter and
-fallback forms live in `era_invariants.md`.
+Core1 still reads no live QMK/VIA/EEPROM/RGB/matrix/USB/HID state. Core0
+publishes immutable section bodies; Core1 only serializes admitted values.
+The lifetime/thread boundary is normative in `era_invariants.md` **Core Lifetime
+And Thread Boundary**.
 
 ### The standing exchange grant
 
-**One route kind may run on core1's own period, in every serviced relation.**
-The grant covers `RUNTIME_RESPONSE_POLL` and `RUNTIME_SECTION_PUSH` and
-nothing else. Built by `era_split_transport_scheduler_build_standing_plan()`
-in `split/era_split_transport_scheduler.c`; published by
-`era_split_transport_scheduler_publish_standing_plan()` in that file;
-executed by `era_split_communication_core_standing_service_once()` in
-`split/communication_core/era_split_communication_core_standing.c`.
+Exactly one route kind may originate from Core1 on its own period in each
+serviced relation. The grant covers only RUNTIME_RESPONSE_POLL and
+RUNTIME_SECTION_PUSH.
 
-**The period is the only per-relation term.**
+- DUAL-HOST: Left owns the grant. Its period is 1 / 2 / 4 ms as link level
+  moves High / Medium / Low.
+- HOST-PEER: PEER owns the grant at 10 ms. The grant is withheld until
+  `matrix_ready` is valid in both directions; reaching that state first causes
+  status revalidation, so cadence does not start before the fact round-trips.
+- The period is the only relation-specific term. Section eligibility remains a
+  wire contract decision.
 
-| Relation | Period | Scales with link? |
-| --- | --- | --- |
-| DUAL-HOST | `ERA_SPLIT_DUAL_RUNTIME_POLL_MS` 1 | yes: 1 / 2 / 4 ms High / Medium / Low = × `era_split_transaction_backend_wire_scale()` (`split/era_split_transport_scheduler.c`). The backend holds the baud and every number derived from it; the link unit answers no scale |
-| HOST-PEER | `ERA_SPLIT_HOST_SOURCE_RESPONSE_POLL_PERIOD_MS` 10 | no. 10 ms has room |
+A standing plan is published on semantic change, never merely because a pass
+or timer occurred. A field is populated only when the relation's eligibility
+can carry it. Restart COMMIT uses one absolute shared-clock instant; republishing
+the plan must not move that deadline.
 
-**HOST-PEER's arm requires `matrix_ready` in both directions**
-(`era_authority_contract.md` **Matrix Ready**): the PEER builds no plan until
-its own matrix is ready; the HOST answers a heartbeat only once its session
-records this PEER as `matrix_ready`. Reaching it raises a status revalidation
-that clears the enable bit until the frame round-trips.
+A plan is executable only under a current owner epoch, a nonzero relation
+generation, and a nonzero period. Clearing its enable bit stops normal cadence
+but does not stop the 50 ms liveness exchange. Storage suppression and pending
+status revalidation may clear enable without destroying the relation identity.
 
-| Plan field | Rule |
-| --- | --- |
-| owner epoch, relation generation, enable bit, period, eligible push/rsp masks, latest-state section bodies | published **on change, never on a pass or a timer** |
-| `liveness_period_ms` | published unconditionally on every granted plan (`ERA_SPLIT_STANDING_LIVENESS_MS` 50) |
-| restart phase | PREPARE/COMMIT/idle; nonzero commit deadline is an absolute instant |
-| field-follows-eligibility | filled only where this relation's push eligibility carries it. `INPUT_LAYER` is the case: HOST-PEER does not carry it |
-| publication route-due bit | DUAL-HOST Left only (`ERA_SPLIT_SCHEDULER_ROUTE_DUE_DUAL_RUNTIME_PUSH`). `era_split_transport_scheduler_scan_idle()` in `split/era_split_transport_scheduler.c` reads the route-due word. Consumed at the top of `era_split_transport_scheduler_publish_standing_plan()` in that file, before the plan is built. `era_split_transport_scheduler_refresh_route_due_flags()` in `scheduler/era_split_transport_scheduler_timing.c` is the backstop, not the consumer |
+Standing state is latest-state, not a queue. Core0 owns plan publication;
+Core1 owns received state and its change sequence. Old owner/relation identities
+are rejected, and a newly accepted identity must notify Core0 even when its
+first sparse response carries no changed section. Revocation must not erase the
+Core1-owned receive state. When owner/relation identity changes, sent shadows
+and received-section caches retire before the new identity is used, while
+cumulative exchange/section counters and the visual-delivery sequence survive;
+otherwise an owner-only restart can alias an older applied visual receipt.
 
-Core1 accepts a plan only when `owner_epoch` matches, `relation_generation !=
-0`, and `poll_period_ms != 0`. **The enable bit stops
-the cadence and does not stop liveness.** While it is clear but those
-identities hold, core1 still runs one section-less exchange after
-`ERA_SPLIT_STANDING_LIVENESS_MS` 50 of wire quiet. Rotation bumps generation;
-storage standing suppression or a pending `SESSION_STATUS` clears enable; a
-wire-role change moves the epoch.
+A failed standing exchange creates a nonzero stop generation and halts Core1
+origination. Only a matching decoded successful SESSION_STATUS recovery for the
+captured owner/relation may acknowledge that stop. Stale success, an earlier
+request, or an unrelated plan change cannot resume it. A stop raises
+revalidation; it does not by itself declare the peer stale. A stop during
+durable Apply is a relation-recovery event, not a persistence rollback. Core1
+never retries around this handshake on its own.
 
-**The result is latest-state, not a queue.** Core1 overwrites it
-(`split/communication_core/era_split_communication_core_standing.c`,
-`split/era_split_transport_scheduler.c`). It carries the initiator's last
-successfully sent `STORAGE_PENDING` as a local confirmation edge.
-
-**Each standing record has one writer.** Core0 writes the plan; Core1 writes
-received state and its change sequence under one odd/even publication guard.
-Core0 revocation clears only the plan, never the Core1-owned state. Core0
-rejects old owner/relation identities. Core1 retires both sent shadows and
-received section caches on `(owner_epoch, relation_generation)` before
-stamping a new identity; a late old completion cannot be relabeled as new.
-Cumulative counters and the visual delivery sequence survive this retirement;
-an owner-only restart must not alias Core0's last applied visual receipt.
-The first state in a new identity
-notifies even when its sparse reply has no changed section.
-
-The guarded reader returns the state's own change sequence. Recording an
-independent earlier detector read could replay the same publication. The
-cheap per-scan detector remains one aligned word, not a full snapshot read.
-
-> **REFUSED:** publish the response plan inside the responder snapshot
-> instead of threading it.
-> **WHY:** it lowers and re-raises the same table across the core boundary.
-> **REOPENS:** a snapshot that already carries the plan for another reason.
-
-A failed standing exchange increments a nonzero `stop_generation` and
-publishes `stopped`. Before enqueuing SESSION_STATUS, Core0 captures that stop
-for the request's owner/relation. Only its matching, decoded, successful result
-may acknowledge the captured token through `resume_generation`. A request
-issued before the failure, a stale result, or an ordinary RGB/pending/enable
-plan change cannot resume the stopped exchange. An unacknowledged stop keeps
-SESSION revalidation pending even when the older request otherwise succeeded:
-its stop wake may already have been consumed, so another edge cannot be assumed.
-Another failed recovery is
-another stop token and publication edge, even without an intervening success.
-The scheduler keeps a stopped *level* only for its O(1) silence-watch gate;
-it never uses that level to suppress a new recovery edge.
-Core1 never retries without this acknowledgement; failure is core0's. **A stop raises revalidation and
-does not declare the peer stale**
-(`era_split_transport_scheduler_apply_standing_state()` in
-`split/era_split_transport_scheduler.c`). A stop inside a durable Apply is a
-relation failure, not a persistence rollback.
-
-**Core1 still reads no live QMK state.** Core0 publishes the section bodies;
-core1 serializes them. HOST-PEER: PEER core1 sends the request; HOST core1
-may send only its admitted ACK/HSRSP. Peer-unknown discovery remains
-Left-initiated `SESSION_STATUS`.
+Source anchors:
+`split/era_split_transport_scheduler.c`,
+`split/communication_core/era_split_communication_core_standing.c`, and
+`split/scheduler/era_split_transport_scheduler_timing.c`.
 
 #### One carrier for the response section set
 
-**A response section rides the standing exchange's answer and nothing else.**
-A request from the initiator's core0 lane is answered with the bare control
-ACK and carries no section
-(`era_split_transport_scheduler_apply_core1_host_peer_result()` in
-`split/scheduler/era_split_transport_scheduler_routes.c`). Eligibility is
-untouched: it narrows *when* a section crosses, never *whether* the relation
-may carry it (`era_wire_contract.md`).
+A response section rides the standing exchange's answer and no other route.
+A Core0-originated request is answered with the bare control ACK and carries no
+runtime response section. Eligibility still decides whether a relation may
+carry a section; this rule decides which carrier may deliver it.
 
-The initiator's core1 caches what it received so it can report an edge rather
-than waking core0 at the poll rate. A second arrival path puts a value into
-core0's appliers without that cache, and the cache then holds the previous
-value permanently. **When an edge filter stands between a carrier and its
-consumer, the carrier must have exactly one path to that filter.**
+The initiator's Core1 receive cache is an edge filter between wire state and
+Core0. While that filter exists, a section must have exactly one delivery path
+to it. A second path that applies directly in Core0 can leave the filter holding
+an older value and turn a later legitimate value into a false duplicate. The
+filter also keeps an unchanged DUAL-HOST section from waking Core0 at the
+1 ms standing-poll rate.
 
-The responder direction is out of scope: it holds no cache of received
-values. Suppression belongs on the sending side because the sent-state
-shadow retires from the wire's own section byte.
+Therefore:
 
-> **REFUSED:** delete core1's receive-side edge filter.
-> **WHY:** an unchanged section crosses on consecutive polls — 1000/s in
-> DUAL-HOST — so the filter is what keeps core0 off the poll rate.
-> **REOPENS:** a carrier that advertises only on change at the sender, in
-> every relation.
+- do not add a second response-section arrival path unless the edge-filter
+  contract is redesigned with it;
+- do not discard a section after the sender has advanced its sent shadow,
+  because that is permanent loss rather than deferral;
+- sender-side suppression is preferred when a section is unchanged.
 
-> **REFUSED:** drop the section decode at the receiver instead of suppressing
-> at the sender.
-> **WHY:** the shadow advances on the responder's own send, so a receiver-side
-> drop is permanent loss rather than a deferral.
-> **REOPENS:** never, while the shadow retires from the wire's section byte.
-
-> **REFUSED:** keep the second arrival path and fold its value back into
-> core1's receive-side cache on every arrival, rather than deleting the path.
-> **WHY:** four mechanisms added to make a second delivery path safe, against
-> deleting the path, and it opens a new loss window.
-> **REOPENS:** a second arrival path that is required rather than incidental.
+This restriction may be revisited only if the carrier itself advertises
+on-change semantics consistently in every relation or a second path is a
+deliberate requirement with one coherent edge-filter owner.
 
 ## Replacement Storage Route
 
-Protocol and which relations admit the lane:
-`era_host_peer_storage_contract.md`.
+Storage selection and enqueue run only from the cold Core0 storage task. Scan
+hooks may consume only cached storage-active suppression state; they do not
+select, serialize, or inspect live storage.
 
-Selection and enqueue run only from the cold core0 task
-(`era_host_peer_storage_runtime_task()` in `split/era_host_peer_storage.c`,
-called from `era_split_transport_scheduler_housekeeping_body()` in
-`split/era_split_transport_scheduler.c`). Scan hooks consume only the cached
-storage-active suppression token. The responder never selects a storage
-route.
+Storage initiation is admitted only when all of the following hold:
 
-Initiator context (`era_host_peer_storage_context_peer()` in
-`split/era_host_peer_storage.c`) holds only when all of: not CLEAN
-quarantined; confirmed HOST-PEER PEER or DUAL-HOST Left with `peer_host_open`
-and local EEPROM policy requested; owner ready; this half is the wire
-initiator; peer known; both endpoints advertise bulk-page support. Submit
-also refuses while `general_initiator_pending`, `status_revalidation_due`, or
-a storage request is already pending.
+- CLEAN quarantine is not active;
+- the confirmed relation is HOST-PEER with PEER as initiator, or DUAL-HOST
+  with Left as initiator, and the peer is host-open;
+- the local EEPROM sync policy requests storage;
+- the owner/lease is ready, the peer is known, and this half is the wire
+  initiator;
+- link reconciliation has settled before relation audit or first sync begins;
+- both endpoints advertise the required bulk-page capability;
+- no generic request, required status revalidation, or storage request is
+  already pending.
 
-Unpinned `BUSY`/core0 pin handoff is nonexclusive. Validated `TRANSFER`
-clamps owner routes and the grant enable bit as a mask down to
-`ATTACH_STATUS`. **Transfer exclusivity lifts at transfer-verified.** A push
-initiator then keeps only the standing grant disabled until COMPLETE while the
-remote responder may be inside synchronous Apply. Cancel on authority,
-relation, policy, owner, or source-revision change.
+BUSY and the Core0 pin handoff are nonexclusive. Validated TRANSFER is
+exclusive; exclusivity lifts at transfer verification. A push initiator then
+keeps only the standing grant suppressed through COMPLETE if the remote
+responder may still be applying. Authority, relation, policy, owner, or source
+revision change cancels the episode.
 
-Arbitration exchanges are nonexclusive at the storage retry cadence.
-**Initiation is change-triggered, never periodic.** Three triggers: relation
-(re)establishment, this half's settled capture, a responder-changed signal.
-News carrier = HSRSP storage news section in both relations
-(`era_host_peer_storage_contract.md` **Storage News Value And Relation-Open Audit**).
-**The hint is consumed as news, never as a level.**
+Storage arbitration is change-triggered, never a periodic patrol. Its triggers
+are relation establishment/re-establishment, a newly settled local capture,
+and responder-changed news. News is consumed as an edge, never as a level.
+After an exclusive HOST-PEER transfer closes or aborts, relation recovery runs
+through SESSION_STATUS before normal traffic resumes; a MATCH that never entered
+exclusive transfer does not force that recovery. There is one storage lane
+shared by both admitted relations.
 
-Post-push identity rotation reopens via `SESSION_STATUS`. Close/abort after
-an exclusive transfer flushes the HOST-PEER matrix relation; `MATCH` does
-not. **There is one storage lane, not one per relation.**
+Protocol details and durable completion are owned by
+`era_host_peer_storage_contract.md`. Source anchors:
+`split/era_host_peer_storage.c` and
+`split/era_host_peer_storage_standing_policy.h`.
 
 ## SESSION_STATUS Discovery And Liveness
 
-`SESSION_STATUS` is the discovery/revalidation route and nothing else. The
-advisory bit it used to carry is retired (`era_identifier_map.md`). The
-listener's `rate_searched` on the answer is not an advisory: it is a fact
-about the discovery itself, consumed once on the edge that answer creates
-(`era_wire_contract.md` **SESSION_STATUS**).
+SESSION_STATUS is only discovery and revalidation. It does not carry ordinary
+live-relation application state or a spare advisory bit.
 
-`era_split_transport_scheduler_relation_lane_live()` in
-`split/scheduler/era_split_transport_scheduler_timing.c` is true for a
-HOST-PEER PEER with local `matrix_ready`, or a DUAL-HOST Left, when AUTHORITY
-is eligible in both directions. That predicate suppresses the periodic
-`SESSION_STATUS` beat and in-relation edge revalidation together.
+A serviced relation uses its own lane for liveness. When HOST-PEER PEER has
+local `matrix_ready` and AUTHORITY is eligible both ways, or DUAL-HOST Left has
+AUTHORITY eligible both ways, periodic SESSION_STATUS and in-relation edge
+revalidation are suppressed together. Accepted traffic of any admitted class
+refreshes relation liveness.
 
-| Rule | Value |
-| --- | --- |
-| no sync policy gate | discovery, role change, recovery always reachable |
-| known-relation idle liveness | the relation's own lane, never `SESSION_STATUS` |
-| peer-unknown bootstrap | `ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS` 25 → `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS` 100 after `ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_AFTER` 10 consecutive misses |
-| accepted traffic refreshes liveness regardless of class | `era_invariants.md` |
+For a peer-unknown initiator, discovery runs every 25 ms for the first 10
+consecutive misses, then every 100 ms. Its receive window is 2 ms; known-peer
+transactions use the 20 ms response window. Discovery and recovery are never
+gated by the user's sync policy.
 
-**Every half opens the wire at Low.** Boot Low is
-`era_split_transport_scheduler_start_communication_core()` in
-`split/era_split_transport_scheduler.c`. A peer-unknown responder with no
-serviced relation still steps toward a rate it hears; the peer-unknown
-initiator never moves off *running*. The listener that stepped answers the
-probe that finds it with `rate_searched`. The settled relation's initiator
-alone requests the presentation-only LINK_RECOVERED rendezvous from its own
-search or that answer, during the final commit-lead
-portion of rate confirmation, or immediately when idle. The liveness check
-still gates visibility; both halves display from the agreed instant, not
-their serviced edges. Presentation skips raw-HID quiet, not wire confirmation.
-It yields to admitted storage, then uses the existing bounded timed window;
-no report cadence or independent send is added. The talker has no other way to
-see the search, since from its probes a listener at the wrong rate and no
-listener at all look the same
-(`split/era_split_link.h` **Reconciliation**).
+Every half opens the physical link at Low. Link-level search and the rate ring
+are owned by `split/era_split_link.h` **Reconciliation**; route policy only
+requires that a serviced relation be confirmed before an agreed raise and that
+no new independent send or extra application cadence is introduced to perform
+that convergence.
 
-Discovery's talker can become the HOST-PEER responder. Making it request a
-report immediately after an unchanged rate act can skip the idle the peer's
-duplicate-request guard requires. Initiator-local ownership avoids that
-return request without a new delay, acknowledgement, wire field or weakened
-replay guard (`split/era_split_link.c`).
+## Agreed Restart And Link Convergence
 
-The listener ring, its constants, and every convergence case live in
-`split/era_split_link.h` **Reconciliation**. **The cable carries power from
-the hosted half**, so every plug is a late-peer case: threshold
-`ERA_SPLIT_LINK_SCAN_NOISE_MIN` 2. Ring High → Medium → Low → High. Dwell
-`ERA_SPLIT_LINK_SCAN_DWELL_MS` 400 is one complete observation window, not
-an early/fallback pair. Any accepted frame vetoes a step; the error threshold
-is not a count of distinct packets. Role exit retires the window even when
-no step task ran between two replans. The faster no-link sender is a deliberate
-bounded cost: its completion-to-next-probe interval is 100 ms, while both
-serviced relations keep their existing poll rates. The three route-layer terms: settled
-wire role ANDed with wire availability; whether the plan is the peer-unknown
-bootstrap; whether a relation is serviced. The step runs in
-`era_split_transport_scheduler_apply_link_step()` in
-`split/era_split_transport_scheduler.c` (backend teardown-and-rebuild). A
-silence floor recorded a working level as failed; the refusal lives in
+The restart mechanism is prepare-then-act at one absolute shared-clock
+deadline. The initiator may not interleave two acts, and an accepted request
+means only that agreement work may begin; confirmation, quiet requirements,
+and the deadline still govern execution.
+
+The arm may wait at most 60 ms. The selected COMMIT instant has 120 ms of lead
+and must remain later than the arm timeout plus two HOST-PEER standing periods.
+An act does not preempt an exchange already in progress. Once the timed window
+is active, new opportunistic bank erase, cold storage capture, and new storage
+episodes yield; already admitted work drains before the arm. Due execution
+occurs after wire-result/disarm draining and before cold NVM work.
+
+LINK_SPEED and LINK_RECOVERED keep USB connected and skip the raw-HID quiet
+gate. EEPROM CLEAN is the reset-bearing act and owns its stronger physical
+boot-replay and erase guarantees in
+`era_host_peer_storage_contract.md` **Why An EEPROM Clean Is An Agreed Restart**.
+
+A new serviced pair first meets at Low. The agreed winner is DUAL-HOST Left or
+HOST-PEER HOST; the winner's stored level is raised at the shared deadline.
+A failed raise returns the running link to Low and does not persist a guessed
+rate. Reconciliation is owed once per physical meeting of the pair, not once
+per relation-generation churn. Presentation-only LINK_RECOVERED follows the
+same agreement boundary and adds no wire class, route cadence, or reset.
+
+The act table and validators live in `split/era_split_restart_agreement.h` and
+`split/era_split_keyboard.c`. Link convergence cases live in
 `split/era_split_link.h` **Reconciliation**.
 
-**A serviced relation raises to the winner's stored level at a shared-clock
-deadline.** The relation opened means `SESSION_STATUS` confirmed both halves
-at Low. The standing exchange carries the time-anchor that puts T_commit in
-one domain. The raise is `era_split_transport_scheduler_apply_link_level()`
-in `split/era_split_transport_scheduler.c` with relation identity kept;
-`era_split_transaction_backend_wire_scale()` in
-`split/era_split_transaction_backend_rp2040.c` follows that `set_speed`. A
-failed raise reverts *running* to Low and stores nothing. First EEPROM SYNC
-waits for `era_split_link_runtime_settled()` (`split/era_host_peer_storage.c`).
-Winner = DUAL-HOST Left / HOST-PEER HOST. **Left remains the one
-arbitrary-tie answer** (`era_host_peer_storage_contract.md`'s **Arbitration**,
-`split/era_split_restart_agreement.h`).
+## Relation-Specific Ownership
 
-## HOST-PEER PEER Priority
+### HOST-PEER PEER Priority
 
-Core0 selects two things, in this order
-(`era_split_wire_router_select_owner()` in `split/era_split_wire_router.c`):
+Core0 selects, in order:
 
-1. Pending `SESSION_STATUS` bootstrap, policy-generation, or recovery
-   revalidation.
-2. `HOST_PEER_SOURCE_PUSH` when PEER matrix dirty or forced baseline exists.
+1. pending SESSION_STATUS bootstrap/policy/recovery revalidation;
+2. HOST_PEER_SOURCE_PUSH for a dirty PEER matrix or forced baseline.
 
-Active storage is not a router arm: the due-flag mask and the
-generic-vs-storage publication gate in **Common Route Priority** keep it
-ahead of matrix without selecting it here.
+The dedicated storage gate sits ahead of normal matrix work without becoming a
+generic route arm. The standing exchange runs only after queued Core0 work and
+the storage lane have no admitted transaction.
 
-**The standing exchange is not a fourth entry.** Core1 reaches it only when
-the request queue and the storage lane both did nothing; the matrix
-source-push preempts it there.
+Healthy HOST-PEER traffic suppresses duplicate periodic SESSION_STATUS, but
+must never suppress discovery, liveness, or pending revalidation.
 
-Healthy HOST-PEER traffic MUST suppress the duplicate periodic
-`SESSION_STATUS` refresh, but MUST NOT suppress discovery, liveness, or
-pending revalidation.
+### HOST-PEER HOST
 
-## HOST-PEER HOST
+The HOST selects no independent route. It responds only to an admitted PEER
+slot. Accepted source-push updates the HOST-owned peer-matrix projection;
+heartbeat/source-push traffic refreshes liveness. If no HOST-owned response
+section is due, or storage prevents an ordinary section, the HOST still returns
+the section-less ACK for the admitted liveness slot.
 
-| Rule |
-| --- |
-| Does not select independent routes; responds only to admitted PEER requests |
-| Accepted heartbeat/source-push refreshes liveness; source-push updates the HOST-owned peer matrix cache |
-| No HOST-owned section open or due → one-byte `HOST_PEER_ACK_STATUS` (`era_invariants.md`) |
-| `HOST_PEER_HOST_SOURCE_RSP` response-slot only (`era_closed_surface_contract.md`); eligibility in `era_wire_contract.md` |
-| HOST responder sees an ordinary heartbeat and cannot tell which core timed it |
-| A busy HOST answers that slot with the section-less ACK |
+### DUAL-HOST
 
-## DUAL-HOST
+Left is the initiator and standing-grant owner; Right is responder. Matrix,
+digest, and mirror execution remain closed by `era_invariants.md` and
+`era_closed_surface_contract.md`. Runtime sections ride the standing exchange
+only and add no second cadence.
 
-Ownership table: `era_authority_contract.md`. Matrix/digest/mirror stay
-closed (`era_invariants.md`). Storage: Left initiator, Right responder.
-Runtime open: Left grants both runtime reasons; Right grants nothing
-(`era_split_transport_scheduler_build_standing_plan()` in
-`split/era_split_transport_scheduler.c` returns a memset plan unless this
-half is the wire initiator).
-
-Every runtime section rides the standing exchange and adds no cadence.
-Poll is unconditional. Left marks `ERA_SPLIT_SCHEDULER_ROUTE_DUE_DUAL_RUNTIME_PUSH`
-for INPUT edge, activity change, and visual baseline
-(`era_split_transport_scheduler_note_local_layer_change()`,
-`era_split_transport_scheduler_note_local_activity_change()`,
-`era_split_transport_scheduler_note_local_visual_change()` in
-`split/era_split_transport_scheduler.c`). Right's changes mark the responder
-snapshot due.
-
-Visual wake uses the debounced local-row change in
-`era_split_transport_scheduler_transport_step()` in
-`split/era_split_transport_scheduler.c`, before its scan-idle gate.
-It must not depend on `process_record()` in `quantum/action.c`: tapping
-buffering and semantic filters do not own the physical baseline. The wake
-reads one cached change bit; baseline packing remains on the due path.
+A visual wake must derive from the physical/debounced local-row change, not
+`process_record()` semantics. Tapping buffering and semantic filters do not own
+the physical baseline. The scan path observes only a cached edge; packing the
+baseline belongs on the due path. Source anchor:
+`split/era_split_transport_scheduler.c`.
 
 ## Stale Recovery
 
-- Watch counts every accepted frame, no exemptions (`era_invariants.md`).
-- **`ERA_SPLIT_RESPONDER_SILENCE_MS` 100 is canonical here.** Both poll
-  periods asserted to half. `ERA_SPLIT_SESSION_STALE_MS` 0 selects it
-  (`era_split_transport_scheduler_relation_stale_ms()` in
-  `scheduler/era_split_transport_scheduler_timing.c`). Every "100 ms
-  responder-silence limit" elsewhere is an application of this rule.
-- Local HOST close invalidates both-hosted facts → peer-unknown bootstrap.
-- Failure sites mark dirty/due only. Cable removal → relation unknown.
+The responder-silence bound is 100 ms. Standing periods must remain comfortably
+inside that bound; a configurable session-stale override must not widen the
+Core1 responsiveness bound.
+
+Local HOST close invalidates both-hosted facts and returns discovery to
+peer-unknown bootstrap. A transport failure marks dirty/due state; cable loss
+makes the relation unknown rather than inventing a surviving peer fact.
+
+The initiator-side Core1 silence watch is armed only while this half is the
+wire initiator, holds a live Core1 initiator lease, knows the peer, has no
+standing stop report, and has a granted standing plan. Legitimate quiet or
+quiesced states disarm the watch instead of aging it.
 
 ## Due/Deadline Model
 
-The transport scheduler is event-driven plus deadline/due. Positive events
-mark dirty/due; absence and liveness are deadline decisions.
+The scheduler is event-driven plus due/deadline state. Positive events set
+dirty/due; absence and liveness are decided by deadlines. Runtime standing
+cadence is owned by Core1 and therefore creates no runtime-route deadline in
+the Core0 deadline set.
 
-| Sensor | Word | Site | File |
-| --- | --- | --- | --- |
-| responder-silence watch | accepted RX | receiving half | **Stale Recovery** |
-| initiator silence watch | completed Core1 lifecycle-loop count via `era_split_communication_core_progress_count()` | initiating half | `scheduler/era_split_transport_scheduler_timing.c`, `split/communication_core/era_split_communication_core_lifecycle_rp2040.c` |
-| in-flight expiry | pending initiator request neither consumed nor expired | housekeeping body | `split/era_split_transport_scheduler.c` |
+A blocking Core1 receive path must have an explicit wake/cancel path for role
+change, reset, admission change, quiesce, or owner-epoch change. Silence
+judgment is owner-layer policy, not a backend excuse to remain blocked.
 
-Initiator-watch arms only when: initiator role, live `CORE1` lease, known
-peer, no stop report, and a **granted** standing plan
-(`standing_plan_granted`: `relation_generation != 0`, cached at publish).
-Ungated, the watch fires every bound on a healthy powered-without-USB pair.
+The raw microsecond pre-filter may only avoid an unnecessary full deadline
+check. It must never be the authority that declares a millisecond deadline
+expired. The millisecond scheduler clock remains authoritative, because a
+coarse pre-filter can otherwise fire work early and compound the error each
+time a cadence re-arms.
 
-Bound: `ERA_SPLIT_CORE1_UNRESPONSIVE_MS` 100 ==
-`ERA_SPLIT_RESPONDER_SILENCE_MS` 100, never the
-`ERA_SPLIT_SESSION_STALE_MS` 0 override. `_Static_assert` holds 2 ×
-`ERA_SPLIT_STANDING_LIVENESS_MS` 50 inside it, at equality, and
-`ERA_SPLIT_STANDING_LIVENESS_MS` 50 + 2 ×
-`ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS` 25 at equality.
-Two-stage convergence: silence fire replans the mode; judgment
-(declare-dead, relaunch) arrives through the expiry. Judgment is
-owner-layer.
+Source anchors:
+`split/scheduler/era_split_transport_scheduler_timing.c` and
+`split/communication_core/era_split_communication_core_lifecycle_rp2040.c`.
+The raw clock is owned by `platforms/chibios/timer.c` (`TIMERAWL`) and the
+`QMK_BLOK` / `QMK_PM2040` board `chconf.h` files (`CH_CFG_ST_FREQUENCY`);
+this contract does not duplicate their configured value.
 
-Responder RX may block; role/reset/admission/quiesce MUST have an explicit
-wake or cancel. On RP2040 core1, idle wait authority is the PIO RX FIFO plus
-error/deadline/cancel/owner-epoch predicates — no ChibiOS thread wait or
-resume. PEER matrix dirty may mark `HOST_PEER_SOURCE_PUSH` due without full
-planning. **No runtime route deadline sits in the core0 deadline set.**
+### Hot-Path And Latch Boundary
 
-**The raw pre-filter is never the authority.** The deadline arm compares the
-raw hardware microsecond counter against a stamp published beside the
-millisecond deadline (`scheduler/era_split_transport_scheduler_timing.c`).
-The stamp lands early, never late, so an open pre-filter still owes
-`timer_expired32()` against `next_scheduler_deadline_ms`.
-`timer_read32()` (`platforms/chibios/timer.c`) is the millisecond authority;
-the pre-filter reads `timer_hw->timerawl`. **There is one clock.**
-`CH_CFG_ST_FREQUENCY` is 1000000 on the RP2040 board configs this image uses
-(`platforms/chibios/boards/QMK_BLOK/configs/chconf.h`,
-`platforms/chibios/boards/QMK_PM2040/configs/chconf.h`). That counter is
-`TIMER->TIMERAWL`.
+Scan-path work is bounded and O(1). It may observe cached one-word edge/due
+state and mark latches, but it must not allocate, scan broad source state,
+recompute CRC/storage/RGB/INPUT freshness, serialize a standing plan, perform
+cold storage selection, or build diagnostic snapshots. Those operations belong
+to cold/due paths.
 
-> **REFUSED:** let the raw pre-filter decide outright and drop the
-> millisecond compare.
-> **WHY:** the stamp locates the deadline's millisecond only to within one
-> millisecond, so deciding on it alone runs every cadence up to a millisecond
-> early — and compounds, because each early sample re-arms the next deadline
-> from its own early reading.
-> **REOPENS:** a core0 deadline shorter than a millisecond, which the
-> millisecond grid cannot express at all. Precision alone does not reopen it:
-> an exact stamp is worth 0.021 µs a pass, five per cent of one clock read.
+Producers from housekeeping, matrix hooks, VIA, suspend/wakeup, or USB state
+changes OR dirty/due/maintenance latches atomically. Producers never clear a
+latch and never run scheduler planning. The consumer performs atomic
+read-and-clear.
 
-> **REFUSED:** inline the gate's event-arm accessors into a header, since each
-> compiles to 12–24 bytes behind a full `bl`.
-> **WHY:** they read state declared only in
-> `communication_core/era_split_communication_core_internal.h`, so inlining
-> publishes the core's internals to the scheduler — and two of them carry a
-> `__DMB()` that stays either way, so what is bought is a call frame and what
-> is sold is the encapsulation boundary.
-> **REOPENS:** a published accessor surface the core owns deliberately, rather
-> than the scheduler reaching through the internal header.
+Consume change notification as an edge rather than a sticky level. If a
+consumer also observes the condition whose disappearance clears a level, prefer
+a monotonic producer value so a missed clear cannot hide a later edge. Do not
+arm route state from raw USB/SOF before the authority reducer commits, or from a
+policy setter before the new generation commits. Initialization seeds a full
+snapshot so the first real edge is not ambiguous.
 
-### Latch Concurrency Rules
-
-Producers run in housekeeping, matrix hooks, VIA, suspend/wakeup, and USB
-device-state notification.
-
-- Producers set latches OR-only, under `ATOMIC_BLOCK_RESTORESTATE`
-  (`era_split_transport_scheduler_mark_dirty()`,
-  `era_split_transport_scheduler_mark_route_due()`,
-  `era_split_transport_scheduler_mark_maintenance_due()` in
-  `split/era_split_transport_scheduler.c`). Never clear; never call scheduler
-  planning.
-- Consumer: atomic read-and-clear
-  (`era_split_transport_scheduler_consume_pending_dirty_flags()`,
-  `era_split_transport_scheduler_consume_maintenance_due_flags()` in that
-  file).
-- Consume as an edge, not a level. **When a level's clear is derived from
-  something the consumer also observes, prefer a value the producer can only
-  move forward.** Hint history:
-  `era_host_peer_storage_contract.md` **Storage News Value And Relation-Open Audit**.
-- Do not mark a latch from raw USB/SOF before the reducer commits, or from a
-  policy setter before the new generation commits.
-- Init seeds a full snapshot.
+Source anchors:
+`split/era_split_transport_scheduler.c` and
+`split/scheduler/era_split_transport_scheduler_timing.c`.
