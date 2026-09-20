@@ -13,8 +13,8 @@
 
 /* The weak defaults behind era_board_hooks.h, in one unit rather than one copy
    per class skeleton: two skeletons that share a header and duplicate the same
-   bodies is the under-split shape era_source_map.md's Source Editing Rules
-   name, and it is also how a hook comes to exist on one class only. Exactly
+   bodies is the under-split shape `era_invariants.md` **Source Structure**
+   names, and it is also how a hook comes to exist on one class only. Exactly
    one skeleton is ever linked, so this unit travels with whichever one the
    board selected.
 

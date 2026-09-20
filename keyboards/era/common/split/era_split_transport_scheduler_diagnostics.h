@@ -127,8 +127,8 @@ typedef struct {
      * the relation's lane. It prints as `pnews=` on `wire sess`; read it
      * against the peer's own `news=` on `wire storage`, and only for equality.
      * era_capture_reading.md is the authority on that reading -- decoding a
-     * console column is that manual's, per era_identifier_map.md's own scope
-     * note -- and there is nothing else to derive from it: since D2 the value
+     * console column is that manual's -- and there is nothing else to derive
+     * from it: since D2 the value
      * carries no domain identity at all.
      *
      * This block used to describe the retired `phint` bit -- one advisory flag

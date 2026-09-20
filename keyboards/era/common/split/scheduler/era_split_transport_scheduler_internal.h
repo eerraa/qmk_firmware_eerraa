@@ -349,9 +349,8 @@ typedef struct {
     /* The peer's storage news value as last delivered by the relation's lane
        (Slice 11.7 gave it that carrier; D2 changed what the carrier means). It
        prints as `pnews=` on `wire sess`, and era_capture_reading.md is the
-       authority on how to read it -- decoding a console column is that
-       manual's, per era_identifier_map.md's own scope note: against the peer's
-       own `news`, and only for equality.
+       authority on how to read it: compare against the peer's own `news`, and
+       only for equality.
 
        It replaced the `phint` bit, which said only that the responder had
        something. This comment then said the replacement "names the domains,

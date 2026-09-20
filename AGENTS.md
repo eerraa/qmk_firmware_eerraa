@@ -11,9 +11,8 @@ ERA 전용 QMK fork에서 모든 에이전트가 따르는 로컬 작업 규칙�
   `keyboards/era/common/docs/era_active_index.md`에서 해당 작업 행을 고른다.
   편집 전에는 **Change** 열만 읽고, **Locate**는 소유 위치를 찾을 때,
   **Verify**는 실제 검증·판정을 할 때만 읽는다.
-- `contracts/era_overview.md`, `contracts/era_invariants.md`,
-  `maps/era_walkthrough.md`는 상시 선독이 아니다. 색인의 해당 작업 행이 요구할
-  때만 읽는다.
+- `contracts/era_overview.md`와 `contracts/era_invariants.md`는 상시 선독이
+  아니다. 색인의 해당 작업 행이 요구할 때만 읽는다.
 - 일반 개발에는 중앙 `eerraa-agent-docs` 접근이 필요하지 않다. 중앙 규약은
   문서체계 변경·채택 검토 때만 조회한다.
 - 현재 소스·설정·스키마가 구현 사실을 소유하고, 제품 요구·안전·호환 경계와

@@ -6,8 +6,9 @@ than another, every selector with its default, the dependency edges and the
 layer each may be stated in, the arrangements considered and rejected, and
 what a build combination is expected to do
 
-Which source file reads an option is `era_source_map.md`'s; which board ships
-which feature set is that board's `post_rules.mk`.
+Use `era_source_map.md` for the first build owner; the current option reader is
+source-owned. Which board ships which feature set is that board's
+`post_rules.mk`.
 
 ## Where a build option is declared
 
@@ -116,7 +117,7 @@ default deliberately restores the historical VIA Matrix Test behavior.
 | `ERA_TAPPING_CONFIG_ENABLE` | `yes` | `no` on a split board | tap-hold policy unit and VIA page |
 | `ERA_MOUSEKEY_CONFIG_ENABLE` | `yes` | `MOUSEKEY_ENABLE=no` (make); a non-default mousekey mode (`quantum/mousekey.h`) | VIA channel 13. Rule-5 fact `ERA_MOUSEKEY_RUNTIME_DELTA` beside its `SRC` line — one fact with the unit that writes the runtime variables `quantum/mousekey.c` defines |
 | `TAP_DANCE_ENABLE` | `yes` | — | QMK's switch; the ERA surface is derived in `era_tapdance_rules.mk` |
-| `ERA_BACKLIGHT_EFFECT_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | PWM effect layer; ids `0..3` (`era_identifier_map.md`). Modes are Steady, Breathing, Pulse Off/On Press and their Hold variants. The Pulse one-shot is ChibiOS-VT driven; the matrix-pass task reads no clock. Pulse Speed is the ordinary 0..255 slider and the pulse width, 5 + speed ms exactly as the underglow Pulse's Effect Speed, 15 the 20 ms default; the config block's valid byte moved so a speed stored on the retired 1..10 scale is reset rather than misread |
+| `ERA_BACKLIGHT_EFFECT_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | PWM effect layer; ids `0..3` (`features/era_backlight_via.h`). Modes are Steady, Breathing, Pulse Off/On Press and their Hold variants. The Pulse one-shot is ChibiOS-VT driven; the matrix-pass task reads no clock. Pulse Speed is the ordinary 0..255 slider and the pulse width, 5 + speed ms exactly as the underglow Pulse's Effect Speed, 15 the 20 ms default; the config block's valid byte moved so a speed stored on the retired 1..10 scale is reset rather than misread |
 | `ERA_BACKLIGHT_LOCK_ENABLE` | `no` | `BACKLIGHT_ENABLE=no` | indicator-supply policy; repairs a stored disabled/zero-level block before `backlight_init()` reads it and intercepts QMK backlight keycodes so the persistent level cannot cross below 1. It composes with `ERA_BACKLIGHT_EFFECT_ENABLE`: Pulse and USB sleep may still drive transient PWM zero |
 | `ERA_RGBLIGHT_PULSE_ENABLE` | `no` | `RGBLIGHT_ENABLE=no` | underglow Pulse layer: four keypress-reactive modes appended to QMK's channel-2 effect list (43..46, `features/era_rgblight_pulse.h`) on the family Pulse policy (`features/era_pulse_policy.h`). The pulse width is the ordinary Effect Speed, `5 + speed` ms, 20 ms at the boards' `keyboard.json` default 15; a ChibiOS-VT one-shot and the 1 ms animation tick own timing, and the switch edge writes state only |
 | `ERA_RGB_INDICATOR_ENABLE` | `no` | `RGB_MATRIX_ENABLE=no` | lock-indicator slots; ids `6..12`. Takes `rgb_matrix_indicators_kb`, `rgb_matrix_indicators_advanced_kb`, `led_update_kb` and `rgb_matrix_render_policy_kb` strongly. A board states `ERA_RGB_INDICATOR_1_LED` and optionally `_2_LED` in its `config.h` under rule 3 |

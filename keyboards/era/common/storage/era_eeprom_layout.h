@@ -128,7 +128,7 @@
  * the regrouping put a signature at the end of the new MOUSE block and added
  * the reserved-zero test to era_socd.c: with those two, every moved region's
  * fallback is a clean reset rather than a misread
- * (era_source_map.md, Stored-Data Compatibility). */
+ * (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
 #define ERA_EEPROM_RESET_KEY 0x45524104UL
 
 /* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32

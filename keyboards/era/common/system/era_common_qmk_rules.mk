@@ -241,7 +241,7 @@ endif
 # era_nkro_via.c landed the next day, and nothing about the gate turns on it.
 # The gate is possible
 # at all because this file runs in the post_rules.mk phase, where VIA_ENABLE is
-# already set (era_source_map.md's Build Selectors section); in the rules.mk
+# already set (`era_build_options.md`); in the rules.mk
 # phase it would have been silently false and compiled the surface away from
 # every build.
 #

@@ -33,7 +33,7 @@ static uint16_t era_socd_config_offset(uint8_t pair) {
    was reachable. A block this firmware wrote always has them zero: defaults
    memset the struct and no setter touches them. So the test costs a stored
    config nothing and turns a misread into a clean reset
-   (era_source_map.md, Stored-Data Compatibility). */
+   (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
 static bool era_socd_config_is_valid(const era_socd_config_t *config) {
     if (!config || config->mode != ERA_SOCD_MODE_LAST_INPUT_WINS) {
         return false;

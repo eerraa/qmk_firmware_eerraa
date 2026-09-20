@@ -10,7 +10,7 @@
 #define ERA_SPLIT_SYNC_POLICY_STORAGE_SIGNATURE 0x504E5953UL
 /* The version byte has exactly one accepted value and no upgrade arm: a block
  * carrying any other value fails validity and is rewritten whole with defaults
- * (era_source_map.md, Stored-Data Compatibility). It stays a version rather
+ * (era_host_peer_storage_contract.md, Stored-Data Compatibility). It stays a version rather
  * than becoming a second signature because it is what makes that rewrite
  * happen, and because a signature change would reset the block on a
  * signature-shaped question rather than a layout-shaped one.

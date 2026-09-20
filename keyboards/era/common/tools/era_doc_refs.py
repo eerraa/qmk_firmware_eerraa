@@ -18,7 +18,7 @@ Eight checks, run by default:
   * **paths** -- a backticked or linked repository path resolves, in any
     spelling the documents legitimately use: repo-root (`quantum/keyboard.c`),
     common-layer-relative (`split/era_host_peer_storage.c`),
-    doc-root-relative (`maps/era_walkthrough.md`), or
+    doc-root-relative (`maps/era_source_map.md`), or
     a directory;
   * **citations** -- a `path:line` or `path:line-line` address resolves and the
     line is inside the file. A line address is right until the next insertion

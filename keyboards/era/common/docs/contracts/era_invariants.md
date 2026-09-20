@@ -2,8 +2,8 @@
 
 Genre: contract
 Canonical for: non-negotiable ERA cross-cutting invariants — QMK fork hygiene,
-the HID boundary, the core0/core1 lifetime and thread boundary, boot safety, and
-the tripwires that require an explicit contract change.
+the HID boundary, the core0/core1 lifetime and thread boundary, boot safety,
+source-structure boundaries, persistent identifier compatibility, and tripwires.
 
 Wire ids, section shape and eligibility: `era_wire_contract.md`. Relation and
 session authority: `era_authority_contract.md`. Route timing and standing
@@ -131,6 +131,47 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   halt. A following boot can clear runtime flags while rewriting core1 state;
   therefore boot safety cannot depend on quiesce.
 
+## Source Structure
+
+- A structural change is justified by unreachable code, an over-split unit with
+  no distinct owner or compilation reason, or an under-split unit carrying
+  multiple owners, eras, vocabularies, or duplicated logic. File length alone
+  is not a defect. Where source/link order can affect placement, inlining, or
+  core ownership, inspect the current call graph or disassembly before changing
+  the boundary.
+- Candidate-only structural scanners remain uncommitted unless each reported
+  item is a tree fact rather than a heuristic candidate. A locatability failure
+  qualifies because the missing target is mechanically decidable.
+- `split/era_host_peer_storage.c` and
+  `split/communication_core/era_split_communication_core_storage.c` remain
+  unsplit until a proposed cut avoids moving shared helpers or shared state
+  across the translation-unit boundary. Re-derive the current call graph for a
+  proposal; historical helper/count measurements are not contractual evidence.
+- The defensive `default:` on the lane switch in
+  `split/communication_core/era_split_communication_core_host_peer_lanes.c`
+  remains required while the cross-core lane field is byte data. Enum
+  exhaustiveness cannot validate an arbitrary `uint8_t` value.
+- Do not reintroduce compatibility wrappers for the deleted master-scheduler or
+  sync-lane layers. A wrapper would recreate the ambiguous ownership removed by
+  the replacement lane.
+
+## Identifier Compatibility
+
+- A numeric identifier interpreted outside one build — including wire/storage
+  protocol ids, persisted VIA definitions, and diagnostic/capture ids — MUST NOT
+  be silently recycled after retirement. Releasing one requires the owning
+  compatibility contract plus affected decoders/fixtures to change together.
+- A new VIA channel/value claim MUST be checked against every live claimant in
+  that namespace. Dispatcher order does not make an unintended overlap safe;
+  an overlap is valid only when the owning build/feature contract makes the
+  claimants mutually exclusive.
+- Mode values 5 and 6 (formerly `HOST_HOST_LEFT` / `HOST_HOST_RIGHT`) remain an
+  unresolved compatibility conflict: `split/era_split_mode_planner.h` currently
+  says 5 is available, while the retired-capture policy previously reserved
+  both. Do not allocate either in an unrelated change; an explicit owning
+  compatibility decision must reconcile the source statement and this contract
+  first.
+
 ## Stop Conditions
 
 Stop and require an explicit owning-contract change before implementing any of
@@ -143,3 +184,5 @@ these:
 | serial backend execution on core0, live QMK/EEPROM ownership on core1, or a core1 ChibiOS scheduler dependency | **Core Lifetime And Thread Boundary** |
 | a second pre-copy SRAM object, unbounded pre-copy wait, reset-cause boot fork, or quiesce replacing the halt | **Boot Safety** and `era_sram_residency_contract.md` |
 | a new split payload, direction, route, response slot, or storage surface | `era_wire_contract.md`, `era_route_contract.md`, `era_closed_surface_contract.md`, or `era_host_peer_storage_contract.md` as applicable |
+| a source split/merge or wrapper that crosses the **Source Structure** boundary | **Source Structure** |
+| reuse or allocation of an externally interpreted numeric identifier, including mode 5/6 | **Identifier Compatibility** plus the owning protocol/VIA contract |

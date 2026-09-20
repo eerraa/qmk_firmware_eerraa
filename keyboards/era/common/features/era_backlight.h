@@ -19,8 +19,9 @@
  * **The four value ids are not chosen here.** They are keyboard-channel 0..3,
  * because that is what the shipped definitions already address, and a firmware
  * that answered somewhere else would be answering a question no VIA client
- * asks. That band is otherwise board-local (`era_identifier_map.md`), and this
- * feature and a board's own 0..4 handler are mutually exclusive by selector.
+ * asks. That band is otherwise board-local; `era_identifier_map.md` only
+ * locates the competing owner sources, and this feature and a board's own 0..4
+ * handler are mutually exclusive by selector.
  */
 
 enum era_backlight_effect {

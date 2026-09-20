@@ -6,8 +6,9 @@ what its marker changes beyond placement, the non-split capability boundary
 and baseline, the storage adoption bundle and its five preconditions, and the
 adoption checklist
 
-Per-file source ownership is `era_source_map.md`'s, placement
-`era_sram_residency_contract.md`'s, option declarations `era_build_options.md`'s.
+First source-owner lookup is `era_source_map.md`; current per-file ownership
+stays in source. Placement is `era_sram_residency_contract.md`'s and option
+declarations are `era_build_options.md`'s.
 
 ## Storage Adoption
 

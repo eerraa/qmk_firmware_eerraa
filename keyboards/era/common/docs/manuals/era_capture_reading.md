@@ -5,9 +5,9 @@ Canonical for: decoding a `WIRE_DIAG` console line — every field's semantics,
 line pacing and sample skew, which counters are totals against deltas against
 rates, and the reading traps that decide whether a reading is valid at all
 
-Identifiers (mode, route, payload, status, VIA value ids, retired numbers) are
-`maps/era_identifier_map.md`. Comparison figures are
-`manuals/era_performance_gates.md`. This file is the printed field and how it
+Use `maps/era_identifier_map.md` to locate identifier owners; live numeric
+values stay in the named source/header. Comparison figures are
+`manuals/era_performance_gates.md`. This file owns the printed field and how it
 may be read.
 
 ## How A Capture Is Sampled
@@ -88,8 +88,9 @@ table of those periods lives here. `stor` and `rt` never go through the
 mirror.
 
 `mode=` is `last_mode`, not necessarily current. **Read `rel=` on `wire pc`.**
-DUAL-HOST owns an era block; `LOCAL_NO_LINK` (`era_identifier_map.md`'s
-**Modes**, value 0) owns none. `DUAL_HOST_LEFT` is 3, `DUAL_HOST_RIGHT` is 4.
+DUAL-HOST owns an era block; `LOCAL_NO_LINK` owns none. Decode the numeric mode
+from `era_split_mode_t` in `split/era_split_mode_planner.h`; this manual does
+not keep a second mode-value table.
 
 ### The live CLEAN phase line
 
@@ -176,7 +177,7 @@ selector; nine when `ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes`
 | `st` | raw `era_host_peer_storage_runtime_state_t` index in `split/era_host_peer_storage.c`. `0` IDLE, `7` HOST_READY (after push apply), `9` HOST_CLOSED (after proof/match close). Initiator idles at `0` with `dom=255`. **A responder never reads `st=0` in a confirmed relation.** |
 | `open/close/abort/restart` `proof/match/xfer` `chunk/dup/retry/timeout` | episode lifecycle (`restart` is Core1 restart around a durable apply, not a failure). **`close + abort == open` is initiator-only.** **`proof` counts `PROOF_RSP`, not relation-open sweeps.** Chunk and retry progress. |
 | `apply/complete` `stale/full=i/r` `source` `integrity/version/domain` `qfail` | durable ERA NVM replacement and pair-visible completion. Failed NVM leaves both unchanged. After NVM success there is no rollback (`era_host_peer_storage_contract.md`'s **Replacement Apply: ADMIT And Public Authority**): `apply` without later `complete` is post-durable work. Generation reject; PEER-initiator / HOST-responder result-capacity failure — responder `full` moving on a healthy push apply is a real fault (`era_host_peer_storage_contract.md`'s **Capacity And Publication**). Saturated source-supersession (`SOURCE_CHANGED` or local target-dirty abort). Exact image/schema/domain rejects. Core1 quiesce/restart failure (not rollback; after `apply` advanced, NVM is already canonical). |
-| `news/probe` `df` on `eeprom pol` | this half's news value and initiator pending-probe mask. `news=` on `csp` is a different field. `newsn` on `csp` **must read zero**. Sync-policy change log (`era_identifier_map.md`'s **USB Session**). |
+| `news/probe` `df` on `eeprom pol` | this half's news value and initiator pending-probe mask. `news=` on `csp` is a different field. `newsn` on `csp` **must read zero**. Storage news semantics: `era_host_peer_storage_contract.md` **Storage News Value And Relation-Open Audit**; requested-policy semantics: `era_authority_contract.md` **Persisted Sync Policy**. |
 
 All-pull sweep: initiator `proof=14 match=7 retry=7`, responder
 `proof=7 match=7 retry=0`. All-push: both halves `proof=0 match=7`, initiator
@@ -312,8 +313,8 @@ current scale plus 5 ms compact-TX/handoff).
 (`build_variants/cause.mk`): `role=1/2` PEER/HOST, `dom/gen` the transfer,
 `n/ov` retained count/overflow, `stale=age/limit` first responder-stale.
 Starts when a `TRANSFER` is accepted. Apply bracket lands on the applying
-half; push initiator is begin-sparse. Status ids:
-`era_identifier_map.md` (cause-timeline decode).
+half; push initiator is begin-sparse. Status ids are source-owned by `split/era_split_eeprom_sync.h`; this section
+owns the cause-timeline decode.
 
 | `ev` high nibble | Event | Low-nibble detail |
 | --- | --- | --- |
@@ -447,8 +448,8 @@ Subtract that sitting's own measurement.
 
 `ph=passes us=r,d,x,s,f,a,q,g,t,l,h,e`: twelve segments in execution order
 RAW, DEB, XPORT, SCANHK, DIFF, ACT, QTM, RGB, KTAIL, LOOP, HK, REST. Names and
-marks: `system/era_pass_phase_diagnostics.h`. What each segment runs:
-`era_walkthrough.md`'s **1. One pass of the keyboard loop**. **Divide by
+marks: `system/era_pass_phase_diagnostics.h`. Current segment bodies are
+source-owned and are not duplicated in an agent walkthrough. **Divide by
 `ph`, never read a figure raw**; take a window long enough to hold millions of
 passes.
 
@@ -605,7 +606,8 @@ generation-matched core1 results — not a core0 responder thread.
 | `pc` peer cache valid; `pseq` HOST peer-cache sequence; `ack` ACK_STATUS hz/count; `vis` visual-resync tx; `rgb` RGB-state tx; `cache` update/project/flush; `rrx/hrx/srx` relation / heartbeat / source-push request rx | `lmr` local matrix ready; `f` forced source-push token; `seq` current/host-known source-push sequence; `sp` source-push hz/tx/ack; `vis` visual-resync rx; `rgb` RGB-state rx |
 
 **There is no `hb` on the PEER line, no `hb` on `hp peer_era`, and no `wire
-chb` line** (`era_identifier_map.md`'s **Routes And Route Reasons**). Relation
+chb` line** (route ids: `split/era_split_wire_router.h`; route semantics:
+`era_route_contract.md`). Relation
 traffic is in `io` and `rt`. `vis` and `rgb` count distinct applied states,
 at apply.
 

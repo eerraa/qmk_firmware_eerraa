@@ -70,7 +70,7 @@ enum {
        the defaults rather than on Steady with a zero period. 0xB1 was the
        block whose pulse speed meant 1..10 steps of 20 ms; a block carrying it
        is reset to the defaults rather than read as a 6..15 ms pulse
-       (`era_source_map.md`, Stored-Data Compatibility). */
+       (`era_host_peer_storage_contract.md`, Stored-Data Compatibility). */
     ERA_BACKLIGHT_CONFIG_VALID = 0xB2,
 };
 

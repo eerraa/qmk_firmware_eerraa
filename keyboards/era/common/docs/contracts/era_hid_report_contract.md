@@ -7,7 +7,8 @@ policy, the refusals that keep report-array width and endpoint size tied to
 the upstream values, and the rule that any code that empties and restores
 the report buffer must follow the active format
 
-VIA value id 5: `era_identifier_map.md`. Core-file fork surface:
+VIA NKRO value-id owner: `features/era_nkro_via.h`; namespace locator:
+`era_identifier_map.md`. Core-file fork surface:
 `era_qmk_fork_ledger.md`. HOST-PEER carries matrix rows, not this report:
 `era_host_peer_matrix_contract.md`.
 
@@ -92,8 +93,9 @@ selector. `sirind/brick65/post_rules.mk` and
 `sirind/brick65/keymaps/via/BRICK65-VIA.json` remain the atmega32u4 exception
 and do not expose this FEATURE surface.
 
-The VIA allocation is canonical in `era_identifier_map.md`; the adapter's
-current value-id symbol is `features/era_nkro_via.h`. `features/era_nkro_via.c`
+The live VIA value id is source-owned by `features/era_nkro_via.h`;
+`era_identifier_map.md` locates the competing namespace owners.
+`features/era_nkro_via.c`
 owns no independent state: it writes QMK's `keymap_config.nkro` and clears the
 keyboard on both sides of a format switch so a held key cannot be stranded in
 the old report format. There is no delayed-save arm.

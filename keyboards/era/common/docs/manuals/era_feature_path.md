@@ -61,8 +61,10 @@ the fragment that would have used it, so it is silently ignored.
 
 - **A VIA value id** on the board's own table (`era_board_via_get_value` /
   `era_board_via_set_value`) or on the common feature table, plus a menu entry
-  in that board's VIA definition JSON. The ids themselves are
-  `era_identifier_map.md`'s.
+  in that board's VIA definition JSON. The live id is source-owned by that
+  adapter or board header; use `maps/era_identifier_map.md` only to locate
+  competing namespace owners and `contracts/era_invariants.md` **Identifier
+  Compatibility** before allocating or reusing one.
 - **A keycode only when VIA cannot do it.** A keycode is a second control path
   over one state, it consumes a `QK_KB_*` slot, and renumbering that enum
   invalidates every keymap already stored on a device.

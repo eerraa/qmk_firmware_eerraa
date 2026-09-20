@@ -17,7 +17,7 @@
  *  12  indicator 2 colour
  *
  * **Above the band a board keeps for itself and above the NKRO toggle, not
- * inside either** (owner decision 2026-08-18, `era_identifier_map.md`). The
+ * inside either** (`era_invariants.md` **Identifier Compatibility**). The
  * shape this feature was first drafted in extended odessey's `0..3` indicator
  * ids with a second slot at `4..6` and would have put indicator 2's brightness
  * on `5`, which is `ERA_VIA_NKRO_ENABLE_VALUE_ID` — and the common router runs

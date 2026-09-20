@@ -42,8 +42,8 @@ endif
 # split board the same off state also drops era_split_keyboard_post_init(), so
 # core1 never launches. Both are silent.
 #
-# So this combination is a real non-composition in the sense era_source_map.md's
-# Build Selectors section defines -- like ERA_TAPPING_CONFIG_ENABLE=no on a split
+# So this combination is a real non-composition in the sense
+# `era_build_options.md` defines -- like ERA_TAPPING_CONFIG_ENABLE=no on a split
 # board -- and it stops before any compile naming both selectors instead of
 # shipping an image that bricks. A board that genuinely wants its own hooks
 # copies the skeleton rather than deleting it.

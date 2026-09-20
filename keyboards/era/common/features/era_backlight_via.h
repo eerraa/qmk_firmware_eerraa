@@ -16,8 +16,8 @@
  *   3 pulse speed       range 0..255, shown for effects 2..5; 5 + speed ms
  *
  * The band 0..4 is otherwise where the tomak family and odessey keep their
- * board-local ids (`era_identifier_map.md`), and this router runs *ahead* of
- * the board hook. Nothing collides because no board has both a keyboard-channel
+ * board-local ids; `era_identifier_map.md` only locates those competing owner
+ * sources, and this router runs *ahead* of the board hook. Nothing collides because no board has both a keyboard-channel
  * handler of its own and a PWM backlight, and `ERA_BACKLIGHT_EFFECT_ENABLE` is
  * what keeps that true: a board that grew both would have to choose.
  */

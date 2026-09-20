@@ -13,7 +13,9 @@
  * channel where two owners meet: a board's own handler keeps it (the tomak
  * family's badge lighting, odessey's indicators), except where
  * `ERA_BACKLIGHT_EFFECT_ENABLE` gives 0..3 to the common backlight adapter.
- * `era_identifier_map.md` is the whole allocation; 5 collides with neither. */
+ * `era_identifier_map.md` locates the competing owner sources; the non-reuse
+ * rule is `era_invariants.md` **Identifier Compatibility**. 5 collides with
+ * neither in the current source set. */
 #define ERA_VIA_NKRO_ENABLE_VALUE_ID 5
 
 bool era_nkro_via_is_value_id(uint8_t value_id);
