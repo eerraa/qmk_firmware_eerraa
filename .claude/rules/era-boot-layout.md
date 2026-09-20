@@ -8,10 +8,6 @@ paths:
   - "platforms/bootloader.h"
 ---
 
-Boot path / pre-copy carve-out / load layout territory. Canonical read set
-(Task Read Matrix, `era_active_index.md`): `contracts/era_invariants.md`,
-`contracts/era_sram_residency_contract.md`, `manuals/era_performance_gates.md`,
-`maps/era_source_map.md`, plus the carve-out rules written at the selector
-list in `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld`. The launch step or
-`is_keyboard_master()` adds `contracts/era_authority_contract.md`. Layout changes
-run the manual's **Layout Checks** and require a fresh qwin comparison point.
+Route through `era_active_index.md` rows **boot/reset path...** and, for
+placement work, **RAM placement, the load image, or the ERA RP2040 backend**.
+The rows own which contracts, source anchors, and verification apply.

@@ -2,16 +2,15 @@
 paths:
   - "keyboards/era/common/docs/**"
   - "AGENTS.md"
+  - "CLAUDE.md"
+  - ".claude/rules/**"
+  - "keyboards/era/common/tools/era_doc_refs.py"
+  - "hooks/era_commit_check.py"
+  - "hooks/test_era_commit_check.py"
 ---
 
-Agent-document territory. Canonical rules: AGENTS.md Document Management
-Rules, its Evidence And Retirement section, and the
-`documentation reorganization` Task Read Matrix row. Before committing doc
-deletions, run the safety net:
-`python keyboards/era/common/tools/era_doc_refs.py --homeless` — a homeless
-token is a promotion candidate, not a deletion candidate. The pre-commit hook
-(`hooks/pre-commit`) runs the same script with no argument automatically,
-which is the locatability check. Because that checker derives names and targets
-from the whole non-ignored working tree, an armed document check refuses any
-unstaged or untracked non-ignored path rather than validating content different
-from the staged commit.
+Route through `era_active_index.md` row **documentation reorganization** and
+`AGENTS.md` **문서와 도구 계층**. Run
+`python keyboards/era/common/tools/era_doc_refs.py`; when document lines are
+deleted, also run it with `--homeless`. The pre-commit hook remains the commit
+boundary check.

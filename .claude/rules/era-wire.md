@@ -8,7 +8,6 @@ paths:
   - "keyboards/era/common/split/era_split_responder_projection.*"
 ---
 
-Wire payload / compact IO / responder admission territory. Canonical read set
-(Task Read Matrix, `era_active_index.md`): `contracts/era_wire_contract.md`,
-`contracts/era_route_contract.md`, `contracts/era_closed_surface_contract.md`,
-`maps/era_source_map.md`.
+Route through `era_active_index.md` row **wire payloads, compact IO, responder
+admission**. Use the runtime-section or agreed-restart rows instead when those
+are the behavior actually being changed.

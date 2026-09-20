@@ -6,10 +6,9 @@
 One purpose: a claim in these documents must be **locatable**. A pointer must
 lead somewhere, and a paragraph saying what a function does must say where that
 function lives, because a claim nobody can find is a claim nobody re-checks.
-This repository keeps no history to recover a moved target from
-(`era_active_index.md`, **What This Repository Does Not Carry**), so a pointer
-that stopped resolving cannot be repaired by reading around it -- the fact it
-led to is simply gone. Nothing else in the tree checks either half.
+A pointer that stops resolving leaves the claim without a usable source anchor,
+so it is a finding rather than something recovered from repository history.
+Nothing else in the tree checks either half.
 
 Read-only. Exit 1 on any finding. Tool-neutral: it assumes no editor and no
 agent, and is meant to be runnable by hand.
@@ -18,8 +17,8 @@ Eight checks, run by default:
 
   * **paths** -- a backticked or linked repository path resolves, in any
     spelling the documents legitimately use: repo-root (`quantum/keyboard.c`),
-    common-layer-relative (`split/era_host_peer_storage.c`, which AGENTS.md
-    mandates for ERA files), doc-root-relative (`maps/era_walkthrough.md`), or
+    common-layer-relative (`split/era_host_peer_storage.c`),
+    doc-root-relative (`maps/era_walkthrough.md`), or
     a directory;
   * **citations** -- a `path:line` or `path:line-line` address resolves and the
     line is inside the file. A line address is right until the next insertion
@@ -33,15 +32,10 @@ Eight checks, run by default:
     header is how a document states its own scope and sentence kind; the
     index owns when a document is read;
   * **index** -- every document `era_active_index.md` names exists, and every
-    agent document is reachable from it. AGENTS.md requires the two to move
-    together;
+    agent document is reachable from the entry router;
   * **claims** -- a paragraph that says what a resolvable function *does* names
-    a file it could live in. AGENTS.md's **A claim about what a function does
-    names the file it lives in** is the rule; measured 2026-08-15 the set held
-    41 such paragraphs naming no file against 38 that named one, and the two
-    worst defects a cross-document sweep found were both of this shape. The
-    unit is the paragraph, not the sentence: a path in every sentence would
-    cost more context than the check saves;
+    a file it could live in, keeping implementation claims tied to a source
+    anchor. The unit is the paragraph rather than every sentence;
   * **source comments** -- the same locatability rule over ERA comments, in
     `keyboards/era` and in the QMK core files that carry ERA prose. Comments
     only; an identifier in code is resolved by the compiler and a string
@@ -56,9 +50,8 @@ And one on request:
     a given range, it reports every identifier the removed lines carried that
     now has no home anywhere in `keyboards/era` or the entry layer. **A homeless
     token is a promotion candidate, not a deletion candidate**: move it to an
-    owning document before dropping it. Deletion is the one unrecoverable move
-    available here, and no history exists to undo one from. Commit SHAs,
-    per-build addresses and one-run measurements are expected non-findings and
+    owning document before dropping it. Commit SHAs, per-build addresses and
+    one-run measurements are expected non-findings and
     need no home; the report is evidence for that judgment, not the judgment.
 
 What this deliberately does not try to catch is the claim itself. A resolvable
@@ -748,8 +741,8 @@ def check_index(fails):
             continue
         if rel not in named:
             fails.append(f"{rel}: an agent document `era_active_index.md` "
-                         f"does not name. AGENTS.md requires the index and "
-                         f"the document set to move together")
+                         f"does not name, so it is unreachable from the "
+                         f"active entry router")
     return len(named)
 
 
@@ -776,9 +769,8 @@ def main():
     for entry in fails:
         print("FAIL: " + entry)
     if fails:
-        print(f"\n{len(fails)} finding(s). A claim nobody can locate is a claim "
-              f"nobody re-checks, and this repository keeps no history to "
-              f"recover a moved target from.")
+        print(f"\n{len(fails)} finding(s). A claim nobody can locate cannot be "
+              f"re-checked until its source anchor is repaired.")
         return 1
     print("every claim in the agent document layer is locatable")
     return 0

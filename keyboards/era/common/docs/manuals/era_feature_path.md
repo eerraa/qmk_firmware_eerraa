@@ -81,7 +81,8 @@ the fragment that would have used it, so it is silently ignored.
 
 ## 5. Keep it off the hot path
 
-`era_invariants.md` is always-on and bounds what a scan-bound path may do.
+`AGENTS.md` owns the repository-level scan-bound hot-path rule; the relevant
+Task Read Matrix row routes any additional invariant contract before editing.
 **A matrix-scan path may read cached scalars and publish bounded latches, and
 may not capture EEPROM, compute a CRC, build a snapshot, enqueue, decode or
 apply.** Work that must happen per millisecond rather than per pass hangs off
@@ -112,6 +113,6 @@ compile-time construct can.
 
 ## 7. Land it in separated commits
 
-Contract content, source implementation, diagnostics-only change, and index or
-policy update. **A commit that deletes documented content carries the reasoning
-that content held.** The whole rule set is in `AGENTS.md`'s **Commits**.
+Keep contract content, source implementation, diagnostics-only change, and
+entry-policy updates separable. The repository-level commit and deletion rules
+are in `AGENTS.md`'s **검증과 종료**.
