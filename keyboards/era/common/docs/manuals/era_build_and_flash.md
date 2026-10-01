@@ -169,7 +169,7 @@ bytes are not test records.
    the marker after boot. Change to another marker and repeat with `Fn+Esc`;
    after `RPI-RP2` appears, remove and restore power without copying a UF2.
    Require the same marker after normal boot.
-4. **One TOMAK indicator settle.** In VIA Lighting -> Badge Lighting, select the
+4. **One TOMAK indicator settle.** In VIA Lighting -> Badge, select the
    indicator marker above, release the last control, wait one second, toggle
    Caps Lock, and require the chosen indicator colour and brightness. This is
    the TOMAK keyboard-channel persistence leg; do not repeat it per field.

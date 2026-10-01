@@ -499,14 +499,17 @@ __attribute__((weak)) bool shutdown_kb(bool jump_to_bootloader) {
     return true;
 }
 
+/* ERA_LIGHTING_SLEEP_OWNED: a non-split ERA board's lighting sleep drives the
+ * backlight and RGB outputs from the kb hooks through output-only gates
+ * (keyboards/era/common/features/era_lighting_sleep.c), so the entries below
+ * leave those outputs and their configs alone. Input lifetime is retired by
+ * clear_keyboard(), not by lighting sleep. */
 void suspend_power_down_quantum(void) {
-    /* ERA also calls this entry for lighting-only frame-loss sleep. Input
-     * lifetime is retired by clear_keyboard(), not by RGB sleep policy. */
     suspend_power_down_modules();
     suspend_power_down_kb();
 #ifndef NO_SUSPEND_POWER_DOWN
 // Turn off backlight
-#    ifdef BACKLIGHT_ENABLE
+#    if defined(BACKLIGHT_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
     backlight_level_noeeprom(0);
 #    endif
 
@@ -530,7 +533,7 @@ void suspend_power_down_quantum(void) {
 #    endif
 
 // Turn off underglow
-#    if defined(RGBLIGHT_SLEEP) && defined(RGBLIGHT_ENABLE)
+#    if defined(RGBLIGHT_SLEEP) && defined(RGBLIGHT_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
 #        ifdef ERA_RGB_SLEEP_MASTER_ENABLE
     if (era_rgb_sleep_enabled()) {
         rgblight_suspend();
@@ -543,7 +546,7 @@ void suspend_power_down_quantum(void) {
 #    if defined(LED_MATRIX_ENABLE)
     led_matrix_set_suspend_state(true);
 #    endif
-#    if defined(RGB_MATRIX_ENABLE)
+#    if defined(RGB_MATRIX_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
 #        ifdef ERA_RGB_SLEEP_MASTER_ENABLE
     if (era_rgb_sleep_enabled()) {
         rgb_matrix_set_suspend_state(true);
@@ -568,7 +571,7 @@ void suspend_power_down_quantum(void) {
 
 __attribute__((weak)) void suspend_wakeup_init_quantum(void) {
 // Turn on backlight
-#ifdef BACKLIGHT_ENABLE
+#if defined(BACKLIGHT_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
     backlight_init();
 #endif
 
@@ -580,14 +583,14 @@ __attribute__((weak)) void suspend_wakeup_init_quantum(void) {
     led_wakeup();
 
 // Wake up underglow
-#if defined(RGBLIGHT_SLEEP) && defined(RGBLIGHT_ENABLE)
+#if defined(RGBLIGHT_SLEEP) && defined(RGBLIGHT_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
     rgblight_wakeup();
 #endif
 
 #if defined(LED_MATRIX_ENABLE)
     led_matrix_set_suspend_state(false);
 #endif
-#if defined(RGB_MATRIX_ENABLE)
+#if defined(RGB_MATRIX_ENABLE) && !defined(ERA_LIGHTING_SLEEP_OWNED)
     rgb_matrix_set_suspend_state(false);
 #endif
     suspend_wakeup_init_modules();

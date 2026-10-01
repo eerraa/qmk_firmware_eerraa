@@ -367,6 +367,10 @@ hsv_t   rgblight_get_hsv(void);
 void     rgblight_init(void);
 void     rgblight_suspend(void);
 void     rgblight_wakeup(void);
+/* ERA lighting sleep: darken every LED without touching rgblight_config, so a
+   save during sleep stores the user's lighting rather than an off state. */
+void rgblight_set_output_suspend_state(bool suspended);
+bool rgblight_get_output_suspend_state(void);
 uint64_t rgblight_read_qword(void);
 void     rgblight_update_qword(uint64_t qword);
 void     eeconfig_update_rgblight_current(void);

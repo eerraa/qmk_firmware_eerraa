@@ -22,7 +22,7 @@ extern "C" {
 
 namespace {
 
-constexpr uint32_t kMacroAddress = 617U;
+constexpr uint32_t kMacroAddress = DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR;
 constexpr uint32_t kMacroSize    = 16384U;
 constexpr uint32_t kMacroMarker  = kMacroAddress + kMacroSize - 1U;
 

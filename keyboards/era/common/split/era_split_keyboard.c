@@ -17,7 +17,8 @@
 #include "era_host_peer_transaction.h"
 #include "era_split_link.h"
 #include "era_split_restart_agreement.h"
-#include "era_split_rgb_sleep_policy.h"
+#include "../features/era_lighting_sleep.h"
+#include "../features/era_lighting_sleep_policy.h"
 #include "era_split_scheduler_events.h"
 #include "era_split_sync_policy.h"
 #include "era_split_tap_activity.h"
@@ -93,13 +94,12 @@ static bool era_split_keyboard_local_sleep_state(void) {
     // false and stay false: it never enumerates". That premise was false for the
     // half this pair actually produces - see the ownership block below - and the
     // repair is an owner rather than a third term here.
-    bool     explicit_suspend = usb_device_state_get_configure_state() == USB_DEVICE_STATE_SUSPEND;
-    uint16_t timeout_sec      = era_split_board_rgb_sleep_timeout_seconds();
-    return era_split_rgb_sleep_policy_local_requested(explicit_suspend,
-                                                       era_usb_session_frames_lost(),
-                                                       era_rgb_sleep_enabled(),
-                                                       timeout_sec,
-                                                       last_matrix_activity_elapsed());
+    bool explicit_suspend = usb_device_state_get_configure_state() == USB_DEVICE_STATE_SUSPEND;
+    return era_lighting_sleep_policy_requested(explicit_suspend,
+                                               era_usb_session_frames_lost(),
+                                               era_rgb_sleep_enabled(),
+                                               era_lighting_sleep_rgb_timeout_seconds(),
+                                               last_matrix_activity_elapsed());
 }
 
 static void era_split_keyboard_mark_authority_sample_due(void) {
@@ -541,66 +541,8 @@ bool era_split_keyboard_process_record(uint16_t keycode, keyrecord_t *record) {
    era_split_transport_scheduler.h's diagnostics exports take: a release-side
    caller then fails at link instead of silently pulling this back in. */
 #ifdef VIA_ENABLE
-static bool era_split_keyboard_handle_rgb_sleep_via_command(uint8_t *data) {
-    if (data == NULL || data[1] != ERA_VIA_SYSTEM_CHANNEL) {
-        return false;
-    }
-    uint8_t value_id = data[2];
-    if (value_id != ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID &&
-        value_id != ERA_VIA_SYSTEM_RGB_SLEEP_EXACT_SECONDS_VALUE_ID) {
-        return false;
-    }
-
-    uint16_t current = era_split_board_rgb_sleep_timeout_seconds();
-    if (current == 0) {
-        return false;
-    }
-
-    switch (data[0]) {
-        case id_custom_get_value:
-            if (value_id == ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID) {
-                data[3] = era_split_rgb_sleep_policy_preset_minutes(current);
-            } else {
-                era_common_via_put_u16_be(&data[3], current);
-            }
-            return true;
-        case id_custom_set_value: {
-            uint16_t requested;
-            if (value_id == ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID) {
-                uint8_t minutes = data[3];
-                if (!era_split_rgb_sleep_policy_preset_valid(minutes)) {
-                    return false;
-                }
-                requested = (uint16_t)minutes * 60U;
-            } else {
-                requested = era_common_via_get_u16_be(&data[3]);
-                if (requested == 0) {
-                    return false;
-                }
-            }
-            if (!era_split_board_set_rgb_sleep_timeout_seconds(requested)) {
-                return false;
-            }
-            current = era_split_board_rgb_sleep_timeout_seconds();
-            if (value_id == ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID) {
-                data[3] = era_split_rgb_sleep_policy_preset_minutes(current);
-            } else {
-                era_common_via_put_u16_be(&data[3], current);
-            }
-            (void)era_split_keyboard_resolve_lighting_sleep();
-            return true;
-        }
-        default:
-            return false;
-    }
-}
-
 bool era_split_keyboard_handle_via_command(uint8_t *data, uint8_t length) {
     if (era_common_via_handle_system_command(data, length)) {
-        return true;
-    }
-
-    if (era_split_keyboard_handle_rgb_sleep_via_command(data)) {
         return true;
     }
 

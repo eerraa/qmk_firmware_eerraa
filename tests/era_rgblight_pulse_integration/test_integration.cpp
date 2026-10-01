@@ -47,6 +47,7 @@ class EraRgblightPulseIntegration : public testing::Test {
         rgblight_sethsv_noeeprom(10, 200, 120);
         rgblight_set_speed_noeeprom(15);
         keymap_config.era_rgb_sleep_disabled = false;
+        rgblight_set_output_suspend_state(false);
     }
 };
 }
@@ -175,4 +176,36 @@ TEST_F(EraRgblightPulseIntegration, OverlayRefreshDoesNotRestartOrCancelAnActive
     era_rgblight_pulse_note_key_event(0, 0, false);
     tick();
     EXPECT_FALSE(pixels[0]);
+}
+
+TEST_F(EraRgblightPulseIntegration, OutputSleepDarkensEveryLedWithoutTouchingTheConfig) {
+    tick();
+    ASSERT_TRUE(pixels[1]);
+    rgblight_set_layer_state(0, true);
+    rgblight_set_output_suspend_state(true);
+    EXPECT_FALSE(pixels[0]) << "an indicator layer sleeps with the effect";
+    EXPECT_FALSE(pixels[1]);
+    EXPECT_TRUE(rgblight_is_enabled()) << "a save during sleep stores the user's lighting";
+    rgblight_sethsv_noeeprom(20, 200, 120);
+    tick();
+    EXPECT_FALSE(pixels[1]) << "a colour change while asleep stays dark";
+    rgblight_set_output_suspend_state(false);
+    tick();
+    EXPECT_TRUE(pixels[1]);
+    EXPECT_EQ(rgblight_get_hue(), 20);
+    rgblight_set_layer_state(0, false);
+}
+
+TEST_F(EraRgblightPulseIntegration, OutputSleepCancelsAPulseAndWakeRestoresTheMode) {
+    rgblight_mode_noeeprom(RGBLIGHT_MODE_ERA_PULSE_OFF_PRESS_HOLD);
+    tick();
+    era_rgblight_pulse_note_key_event(0, 0, true);
+    tick();
+    rgblight_set_output_suspend_state(true);
+    EXPECT_FALSE(pixels[0]);
+    EXPECT_FALSE(pulse_timer->armed);
+    rgblight_set_output_suspend_state(false);
+    tick();
+    EXPECT_TRUE(pixels[0]);
+    EXPECT_EQ(rgblight_get_mode(), RGBLIGHT_MODE_ERA_PULSE_OFF_PRESS_HOLD);
 }

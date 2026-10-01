@@ -122,11 +122,6 @@ static void tomak_config_apply_defaults(tomak_config_t *config) {
     config->lock_indicator_hsv.s         = 0;
     config->lock_indicator_hsv.v         = 255;
     config->full_rgb_matrix_enabled      = true;
-    config->rgb_sleep_timeout_seconds    = TOMAK_RGB_SLEEP_TIMEOUT_DEFAULT_SECONDS;
-}
-
-static uint16_t tomak_normalized_rgb_sleep_timeout_seconds(uint16_t seconds) {
-    return seconds == 0 ? TOMAK_RGB_SLEEP_TIMEOUT_DEFAULT_SECONDS : seconds;
 }
 
 static uint8_t tomak_era_lighting_flags(const tomak_config_t *config) {
@@ -143,7 +138,6 @@ static void tomak_build_era_keyboard_storage(const tomak_config_t *config, tomak
     storage->lock_indicator_sat           = config->lock_indicator_hsv.s;
     storage->lock_indicator_val           = config->lock_indicator_hsv.v;
     storage->lighting_flags               = tomak_era_lighting_flags(config);
-    storage->rgb_sleep_timeout_seconds    = tomak_normalized_rgb_sleep_timeout_seconds(config->rgb_sleep_timeout_seconds);
 }
 
 static void tomak_apply_era_keyboard_storage(const tomak_era_keyboard_config_t *storage, tomak_config_t *config) {
@@ -153,7 +147,6 @@ static void tomak_apply_era_keyboard_storage(const tomak_era_keyboard_config_t *
     config->lock_indicator_hsv.s         = storage->lock_indicator_sat;
     config->lock_indicator_hsv.v         = storage->lock_indicator_val;
     config->full_rgb_matrix_enabled      = (storage->lighting_flags & TOMAK_ERA_LIGHTING_FLAG_FULL_RGB_MATRIX) != 0;
-    config->rgb_sleep_timeout_seconds    = tomak_normalized_rgb_sleep_timeout_seconds(storage->rgb_sleep_timeout_seconds);
 }
 
 static void tomak_write_config_to_era_eeprom(const tomak_config_t *config) {
@@ -732,28 +725,6 @@ void era_split_board_post_init(void) {
 #if defined(TOMAK_SPLIT_SAFE_SINGLE_WIRE)
     tomak_disable_unused_split_wire_pins();
 #endif
-}
-
-uint16_t era_split_board_rgb_sleep_timeout_seconds(void) {
-    return tomak_normalized_rgb_sleep_timeout_seconds(g_tomak_config.rgb_sleep_timeout_seconds);
-}
-
-bool era_split_board_set_rgb_sleep_timeout_seconds(uint16_t seconds) {
-    if (seconds == 0) {
-        return false;
-    }
-    if (g_tomak_config.rgb_sleep_timeout_seconds == seconds) {
-        return true;
-    }
-
-    g_tomak_config.rgb_sleep_timeout_seconds = seconds;
-#ifdef VIA_ENABLE
-    era_state_sync_note_config_semantic_commit((uint16_t)(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET + offsetof(tomak_era_keyboard_config_t, rgb_sleep_timeout_seconds)), sizeof(seconds));
-#endif
-    era_eeprom_update_config(&seconds,
-                             ERA_EEPROM_KEYBOARD_CONFIG_OFFSET + offsetof(tomak_era_keyboard_config_t, rgb_sleep_timeout_seconds),
-                             sizeof(seconds));
-    return true;
 }
 
 /* No matrix_scan_kb overrides: the strong bodies two of the three board files

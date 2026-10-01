@@ -77,8 +77,8 @@ On a host that never sends SET_PROTOCOL the state stays
 is true, and if `keymap_config.nkro` is on every key leaves only on the
 shared endpoint. A host that opened only the boot keyboard interface then
 sees **no input at all**. Which BIOS/KVM do this is an owed measurement;
-`user/readme.txt` already tells the owner to turn NKRO off when an old BIOS
-or boot menu cannot read the keyboard.
+`user/usevia.txt` tells the owner NKRO is off by default and to turn it off
+again when an old BIOS, KVM or boot menu cannot read the keyboard.
 
 > **REFUSED:** ship NKRO on by default via `NKRO_DEFAULT_ON`.
 > **WHY:** on a host that never sends SET_PROTOCOL nothing leaves the keyboard interface, so input disappears, and the gain is a default that applies only after `eeconfig_init_quantum()` (`quantum/eeconfig.c`) — boards that already stored eeconfig stay 6KRO.

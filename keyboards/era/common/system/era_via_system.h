@@ -11,14 +11,17 @@
 #define ERA_VIA_SYSTEM_EEPROM_RESET_0_VALUE_ID 2
 #define ERA_VIA_SYSTEM_EEPROM_RESET_1_VALUE_ID 3
 #define ERA_VIA_SYSTEM_EEPROM_RESET_DONE_VALUE_ID 4
-/* RGB Sleep controls continue the shared SYSTEM value-id range after
-   sync (5..7) and link (8..9). The stock VIA definition uses the minute preset;
-   Custom VIA uses the exact-seconds uint16 value on split TOMAK boards. Value
-   12 is the common master toggle for every RGB-capable ERA board: when off,
-   idle timeout, USB suspend, and frame-loss/host-loss RGB sleep are all off. */
+/* Lighting sleep controls continue the shared SYSTEM value-id range after
+   sync (5..7) and link (8..9). Each output has a switch, a minute preset for
+   the stock VIA definition and an exact-seconds uint16 for the ERA app. A
+   switch that is off disables idle, USB-suspend and frame-loss/host-loss sleep
+   for that output (features/era_lighting_sleep.c). */
 #define ERA_VIA_SYSTEM_RGB_SLEEP_PRESET_VALUE_ID 10
 #define ERA_VIA_SYSTEM_RGB_SLEEP_EXACT_SECONDS_VALUE_ID 11
 #define ERA_VIA_SYSTEM_RGB_SLEEP_ENABLE_VALUE_ID 12
+#define ERA_VIA_SYSTEM_BACKLIGHT_SLEEP_ENABLE_VALUE_ID 13
+#define ERA_VIA_SYSTEM_BACKLIGHT_SLEEP_PRESET_VALUE_ID 14
+#define ERA_VIA_SYSTEM_BACKLIGHT_SLEEP_EXACT_SECONDS_VALUE_ID 15
 
 bool era_via_system_handle_via_command(uint8_t *data, uint8_t length);
 void era_via_system_task(void);

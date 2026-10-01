@@ -24,7 +24,7 @@ era_split_communication_core_storage_initiator_request_t request_for(uint16_t ge
     request.image_size             = ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES;
     request.response_window_ms     = ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS;
     request.domain                 = ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG;
-    request.schema                 = ERA_HOST_PEER_STORAGE_SCHEMA_V1;
+    request.schema                 = ERA_HOST_PEER_STORAGE_SCHEMA;
     request.operation              = ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ;
     return request;
 }
@@ -38,7 +38,7 @@ era_split_communication_core_storage_responder_snapshot_t snapshot_for(uint16_t 
     snapshot.transaction_generation = 4U;
     snapshot.image_size             = ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES;
     snapshot.domain                 = ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG;
-    snapshot.schema                 = ERA_HOST_PEER_STORAGE_SCHEMA_V1;
+    snapshot.schema                 = ERA_HOST_PEER_STORAGE_SCHEMA;
     snapshot.expected_operation     = ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ;
     return snapshot;
 }

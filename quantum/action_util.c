@@ -482,32 +482,49 @@ static uint8_t get_mods_for_report(void) {
     return mods;
 }
 
+__attribute__((weak)) void keyboard_report_filter(report_keyboard_t *report) {
+    (void)report;
+}
+
 void send_6kro_report(void) {
     keyboard_report->mods = get_mods_for_report();
 
+    /* Static like keyboard_report itself, so the host driver sees the same lifetime. */
+    static report_keyboard_t report;
+    memcpy(&report, keyboard_report, sizeof(report_keyboard_t));
+    keyboard_report_filter(&report);
+
 #ifdef PROTOCOL_VUSB
-    host_keyboard_send(keyboard_report);
+    host_keyboard_send(&report);
 #else
     static report_keyboard_t last_report;
 
     /* Only send the report if there are changes to propagate to the host. */
-    if (memcmp(keyboard_report, &last_report, sizeof(report_keyboard_t)) != 0) {
-        memcpy(&last_report, keyboard_report, sizeof(report_keyboard_t));
-        host_keyboard_send(keyboard_report);
+    if (memcmp(&report, &last_report, sizeof(report_keyboard_t)) != 0) {
+        memcpy(&last_report, &report, sizeof(report_keyboard_t));
+        host_keyboard_send(&report);
     }
 #endif
 }
 
 #ifdef NKRO_ENABLE
+__attribute__((weak)) void nkro_report_filter(report_nkro_t *report) {
+    (void)report;
+}
+
 void send_nkro_report(void) {
     nkro_report->mods = get_mods_for_report();
+
+    static report_nkro_t report;
+    memcpy(&report, nkro_report, sizeof(report_nkro_t));
+    nkro_report_filter(&report);
 
     static report_nkro_t last_report;
 
     /* Only send the report if there are changes to propagate to the host. */
-    if (memcmp(nkro_report, &last_report, sizeof(report_nkro_t)) != 0) {
-        memcpy(&last_report, nkro_report, sizeof(report_nkro_t));
-        host_nkro_send(nkro_report);
+    if (memcmp(&report, &last_report, sizeof(report_nkro_t)) != 0) {
+        memcpy(&last_report, &report, sizeof(report_nkro_t));
+        host_nkro_send(&report);
     }
 }
 #endif

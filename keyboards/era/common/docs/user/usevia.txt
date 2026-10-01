@@ -50,10 +50,20 @@ Term은 홀드 판정에만 쓰입니다. On Double Tap을 설정하면 두 번�
 
 ■ SOCD
 
-CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키의 조합을 지정합니다.
-두 키를 함께 누르고 있는 동안 나중에 누른 키가 우선합니다. 그 키를 떼면 먼저
-누르고 있던 키가 아직 물리적으로 눌려 있는 경우 다시 활성화됩니다. 방향 충돌을
-명확하게 처리해야 할 때 주로 사용합니다.
+CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키(좌/우, 상/하)를 지정하고,
+두 키를 함께 누르고 있을 때 PC로 보낼 키를 Mode에서 고릅니다.
+
+- Last Input: 나중에 누른 키만 보냅니다. 그 키를 떼면 아직 누르고 있는 다른
+  키가 곧바로 다시 입력됩니다(스냅 탭). 기본값입니다.
+- Neutral: 두 키 모두 보내지 않습니다.
+- First Input: 먼저 누른 키를 유지합니다.
+- Left/Up Priority, Right/Down Priority: 누른 순서와 상관없이 지정한 쪽을
+  보냅니다.
+
+키에는 일반 키나 modifier 키를 지정하십시오. 판정은 PC로 나가는 키를 기준으로
+하므로 Tap Dance나 매크로가 낸 키에도 적용됩니다. 한 쌍의 두 칸에 같은 키를
+넣거나 한 키를 두 쌍에 함께 넣으면 그 쌍은 동작하지 않습니다. 일부 게임과 대회는 SOCD 사용을 제한하므로 규정을
+확인하십시오.
 
 ■ KKUK
 
@@ -99,23 +109,24 @@ CONFIGURE -> FEATURE -> MOUSE에서 키보드의 Mouse Key 동작을 조정합�
 
 ■ ROLLOVER / NKRO
 
-CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. NKRO를 끄면 6KRO로
-동작합니다. 오래된 BIOS/KVM 등에서 입력 호환 문제가 있을 때만 끄는 것을
-권장합니다.
+CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. 기본값은 꺼짐(6KRO)이고,
+켜면 누른 키를 모두 보고합니다. 켠 뒤 오래된 BIOS/KVM이나 부팅 메뉴가
+키보드를 읽지 못하면 다시 끄십시오.
 
 ■ LIGHTING
 
 CONFIGURE -> LIGHTING에는 키보드가 실제 지원하는 조명 메뉴만 표시됩니다.
-Backlight, RGB Matrix, Underglow, INDICATOR 등의 밝기/색/속도/효과를 여기서
-조정하십시오.
+메뉴 이름은 LED가 있는 곳을 따릅니다: Per-Key RGB(키별 RGB), Underglow,
+Backlight, Badge, Riley의 RGB LEDs. 잠금 상태 표시는 Indicators에서
+설정합니다.
 
 Backlight Pulse를 지원하는 보드의 효과 이름은 다음과 같습니다.
 
 - Steady
 - Breathing
 - Pulse Off Press
-- Pulse Off Press (Hold)
 - Pulse On Press
+- Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
 Breathing을 선택하면 Breathing Period(1~10)로 숨쉬기 주기를 조절합니다.
@@ -123,8 +134,8 @@ Breathing을 선택하면 Breathing Period(1~10)로 숨쉬기 주기를 조절�
 5 + 값 ms입니다. 0은 5 ms, 255는 260 ms이고 기본값 15는 20 ms입니다.
 Hold 효과는 펄스 시간이 끝나도 해당 모드에서 눌린 키가 남아 있으면 유지됩니다.
 
-Underglow(RGBLight)를 지원하는 보드는 Effect 목록의 Twinkle 6 뒤에 같은
-Pulse 효과 네 가지가 있습니다. Effect Speed는 이 네 효과에서만 표시되며
+RGBLight 조명(Underglow, Badge, RGB LEDs)은 Effect 목록의 Twinkle 6 뒤에
+같은 Pulse 효과 네 가지가 있습니다. Effect Speed는 이 네 효과에서만 표시되며
 위와 같은 펄스 길이를 조절합니다. 일반 Breathing 1~4 등의 속도는 Effect의
 번호로 선택하고, 지원 효과에서는 Velocikey로 입력 속도에 반응하게 할 수 있습니다.
 
@@ -133,33 +144,44 @@ Pulse 효과 네 가지가 있습니다. Effect Speed는 이 네 효과에서만
 - Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
-7B75에는 Backlight와 별도로 RGB Badge 메뉴가 있습니다. Backlight의
-Indicator Brightness와 위 여섯 효과, RGB Badge의 RGB 효과/밝기/색/속도를
-각각 설정할 수 있습니다.
+7B75의 백라이트 레일은 두 잠금 표시등(기본 Caps Lock, Scroll Lock)만
+켭니다. 그래서 Indicators에서 Indicator Brightness와 위 여섯 효과(Indicator
+Effect)를, Badge에서 아크릴 배지의 RGB 효과/밝기/색/속도를 설정합니다.
 
-INDICATOR는 Caps/Scroll/Num Lock 상태 표시입니다. 색은 사용자가 정하며,
-스플릿 TOMAK의 링크·동기화 STATUS 색상표를 논스플릿 키보드에 적용하지 않습니다.
+Indicators는 Caps/Scroll/Num Lock 상태 표시입니다. 표시할 상태는
+Indicator(여러 개면 Indicator 1, 2 …)에서 고릅니다. 0번 값은 표시 LED를
+RGB 효과와 함께 쓰는 보드에서는 RGB Effect(효과가 그대로 보임), 전용 LED
+보드에서는 Off입니다. 색은 사용자가 정하며, 스플릿 TOMAK의 링크·동기화
+STATUS 색상표를 논스플릿 키보드에 적용하지 않습니다.
 
-Riley에는 RGBLight와 INDICATOR 메뉴가 있습니다. RGB1/2/3은 IND1/2/3에
-대응합니다. 각 IND 슬롯의 Mode는 다음 중 하나입니다.
+Riley에는 RGB LEDs와 Indicators 메뉴가 있습니다. RGB1/2/3은 Indicator
+1/2/3에 대응합니다. 각 Indicator는 다음 중 하나입니다.
 
 - RGB Effect
 - Caps Lock
 - Scroll Lock
 - Num Lock
 
-RGB Effect를 고른 슬롯은 일반 RGB 효과에 계속 참여합니다. Lock 모드를 고른
-슬롯은 해당 Lock이 켜졌을 때 그 슬롯의 Indicator Brightness와 Indicator Color를
-사용합니다. Indicator-Only를 켜면 Lock이 꺼진 indicator 슬롯은 어두워지고,
-RGB Effect 슬롯은 계속 RGB 효과를 표시합니다. Indicator Brightness/Color는
-IND1/2/3마다 독립적으로 설정합니다.
+RGB Effect를 고른 LED는 일반 RGB 효과에 계속 참여합니다. Lock을 고른 LED는
+해당 Lock이 켜졌을 때 그 Indicator의 Brightness와 Color를 사용합니다.
+Indicator-Only를 켜면 Lock이 꺼진 표시 LED는 어두워지고, RGB Effect LED는
+계속 RGB 효과를 표시합니다. Brightness/Color는 Indicator 1/2/3마다
+독립적으로 설정합니다.
 
 ■ SYSTEM
 
-RGB가 있는 키보드는 SYSTEM -> SLEEP에서 RGB Sleep을 켜고 끌 수 있습니다.
-기본값은 On입니다. Off로 바꾸면 자동 RGB 절전 전체가 비활성화되어 유휴 시간,
-USB 절전, 호스트 소실 어느 경우에도 RGB Sleep에 들어가지 않습니다. 시간 설정을
-지원하는 키보드에서는 RGB Sleep이 On일 때만 그 시간 메뉴가 표시됩니다.
+SYSTEM -> SLEEP에서 RGB와 백라이트의 자동 절전을 따로 설정합니다. 키보드에
+있는 조명의 항목만 표시됩니다.
+
+- RGB Sleep, Backlight Sleep: 기본값은 On입니다. Off로 바꾸면 그 조명은 유휴
+  시간, USB 절전, 호스트 소실 어느 경우에도 꺼지지 않습니다.
+- RGB Sleep Timeout, Backlight Sleep Timeout: 해당 절전이 On일 때만 보이며,
+  마지막 입력 뒤 1/3/5/10/30/60분 중 고릅니다. 기본값은 10분이고 토글을 꺼도
+  값은 보존됩니다.
+
+절전은 조명 출력만 끄고 설정은 바꾸지 않습니다. 입력이나 정상적인 호스트
+복귀로 다시 켜지지만, 사용자가 끈 조명을 자동으로 켜지는 않습니다. 백라이트가
+잠금 표시등을 겸하는 키보드는 백라이트 절전 중 표시등도 꺼집니다.
 
 SYSTEM -> BOOT의 Jump To BOOT는 켜는 즉시 부트로더로 진입합니다. 실행 후
 토글이 항상 꺼진 값으로 보이는 것이 정상입니다.
@@ -216,10 +238,20 @@ Tap set, the second tap is sent the moment it is released.
 
 ■ SOCD
 
-Assign each opposing key pair in CONFIGURE -> FEATURE -> SOCD. While both are
-held, the key pressed later takes priority. Releasing it restores the other key
-if that key is still physically held. This is mainly useful when directional
-conflicts must be unambiguous.
+Assign each opposing key pair (left/right, up/down) in CONFIGURE -> FEATURE ->
+SOCD, then choose in Mode what reaches the computer while both keys are held.
+
+- Last Input: only the key pressed later is sent. Releasing it sends the key
+  still held again at once (snap tap). This is the default.
+- Neutral: neither key is sent.
+- First Input: the key pressed first stays.
+- Left/Up Priority, Right/Down Priority: the chosen side is sent regardless of
+  press order.
+
+Use ordinary keyboard or modifier keycodes. SOCD judges the keys going to the
+computer, so it also applies to keys sent by Tap Dance or a macro. A pair with
+the same key in both slots, or a key used in both pairs, does nothing. Some games and tournaments restrict SOCD; check their
+rules.
 
 ■ KKUK
 
@@ -265,23 +297,23 @@ affect one another, so adjusting one at a time is recommended.
 
 ■ ROLLOVER / NKRO
 
-Turn NKRO on or off in CONFIGURE -> FEATURE -> NKRO. With NKRO off the keyboard
-uses 6KRO. Turning it off is mainly useful for compatibility with an old BIOS,
-KVM, or other host that does not accept NKRO.
+Turn NKRO on or off in CONFIGURE -> FEATURE -> NKRO. It is off by default
+(6KRO); turned on, every held key is reported. If an old BIOS, KVM or boot menu
+then cannot read the keyboard, turn it off again.
 
 ■ LIGHTING
 
 CONFIGURE -> LIGHTING shows only the lighting surfaces supported by the board.
-Use it for Backlight, RGB Matrix, Underglow, INDICATOR, and their available
-brightness, colour, speed, and effect controls.
+Menus are named for where the LEDs are: Per-Key RGB, Underglow, Backlight,
+Badge, and Riley's RGB LEDs. Lock indication is set in Indicators.
 
 Boards with Backlight Pulse use these effect names:
 
 - Steady
 - Breathing
 - Pulse Off Press
-- Pulse Off Press (Hold)
 - Pulse On Press
+- Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
 Breathing exposes Breathing Period (1–10); smaller values mean faster breaths.
@@ -289,8 +321,8 @@ Pulse Speed appears only for Pulse effects. Duration is 5 + value ms: 0 is
 5 ms, 255 is 260 ms, and the default 15 is 20 ms. Hold effects remain active
 after that duration while keys pressed in the current mode remain held.
 
-Boards with Underglow (RGBLight) list the same four Pulse effects after
-Twinkle 6 in the Effect dropdown. Effect Speed appears only for these four
+RGBLight lighting (Underglow, Badge, RGB LEDs) lists the same four Pulse
+effects after Twinkle 6 in the Effect dropdown. Effect Speed appears only for these four
 effects and controls the same pulse duration. For ordinary effects such as
 Breathing 1–4, choose the numbered Effect variant. Supported effects can also
 use Velocikey to react to typing speed.
@@ -300,34 +332,46 @@ use Velocikey to react to typing speed.
 - Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
-7B75 has an RGB Badge menu in addition to Backlight. Backlight exposes
-Indicator Brightness and the six effects above; RGB Badge separately exposes
-its RGB effect, brightness, colour, and speed controls.
+The 7B75 backlight rail lights only its two lock indicators (Caps Lock and
+Scroll Lock by default), so Indicators holds Indicator Brightness and the six
+effects above (Indicator Effect), and Badge holds the acrylic badge's RGB
+effect, brightness, colour, and speed.
 
-INDICATOR shows Caps/Scroll/Num Lock using the chosen colours. The split
-TOMAK link/synchronization STATUS colour meanings do not apply to non-split
-keyboards.
+Indicators shows Caps/Scroll/Num Lock using the chosen colours; Indicator
+(Indicator 1, 2, … on boards with several) chooses the lock. Value 0 is RGB
+Effect where the indicator LED also shows the RGB effect, and Off on a
+dedicated LED. The split TOMAK link/synchronization STATUS colour meanings do
+not apply to non-split keyboards.
 
-Riley has RGBLight plus INDICATOR. RGB1/2/3 map to IND1/2/3. Each IND slot Mode
-is one of:
+Riley has RGB LEDs plus Indicators. RGB1/2/3 map to Indicator 1/2/3. Each
+Indicator is one of:
 
 - RGB Effect
 - Caps Lock
 - Scroll Lock
 - Num Lock
 
-RGB Effect leaves that slot in the normal RGB animation. A Lock mode uses that
-slot's Indicator Brightness and Indicator Color while the selected Lock is on.
-With Indicator-Only enabled, an inactive lock-indicator slot goes dark while an
-RGB Effect slot continues the RGB effect. Indicator Brightness/Color are
-independent for IND1, IND2, and IND3.
+RGB Effect leaves that LED in the normal RGB animation. A Lock uses that
+Indicator's Brightness and Color while the selected Lock is on. With
+Indicator-Only enabled, an inactive lock-indicator LED goes dark while an RGB
+Effect LED continues the RGB effect. Brightness/Color are independent for
+Indicator 1, 2, and 3.
 
 ■ SYSTEM
 
-Keyboards with RGB expose RGB Sleep under SYSTEM -> SLEEP. It is on by default.
-Turning it off disables automatic RGB sleep as a whole: idle timeout, USB
-suspend, and host loss will not put RGB to sleep. On keyboards that expose a
-timeout, that timeout control is visible only while RGB Sleep is on.
+SYSTEM -> SLEEP sets automatic sleep for RGB and backlight separately. Only the
+lighting the keyboard has is listed.
+
+- RGB Sleep, Backlight Sleep: on by default. Turned off, that lighting never
+  sleeps on idle timeout, USB suspend or host loss.
+- RGB Sleep Timeout, Backlight Sleep Timeout: shown only while that sleep is
+  on. Choose 1/3/5/10/30/60 minutes of inactivity; the default is 10 minutes,
+  and turning the toggle off keeps the value.
+
+Sleep turns off only the lighting output and changes no setting. Input or a
+normal host return wakes it, but lighting the user turned off stays off. On a
+keyboard whose backlight also powers its lock indicators, backlight sleep turns
+those indicators off too.
 
 SYSTEM -> BOOT -> Jump To BOOT enters the bootloader as soon as it is switched
 on. The toggle normally reads back off after the action.

@@ -29,11 +29,9 @@ RGB_MATRIX_IDLE_GATE_ENABLE = yes
 ERA_SPLIT_RP_USB_SLEEP_SYNC = 1
 ERA_SPLIT_SERIAL_USART_SPEED = 460800
 
-# Under the VIA gate like tomak79h and tomak79s. The geometry lock that held
-# this line at `no` retired on 2026-08-13: schema 1 derives the dynamic-keymap
-# image from MATRIX_ROWS x MATRIX_COLS on both cores, so this 12x11 board
-# resolves its own sizes (keymap 1056, macro base 1353) instead of failing the
-# 12x9 asserts.
+# Under the VIA gate like tomak79h and tomak79s. The storage schema derives the
+# dynamic-keymap image from MATRIX_ROWS x MATRIX_COLS on both cores, so this
+# 12x11 board resolves its own sizes.
 ifeq ($(strip $(VIA_ENABLE)),yes)
     ERA_SPLIT_EEPROM_SYNC_ENABLE := yes
 endif

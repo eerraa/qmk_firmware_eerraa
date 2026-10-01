@@ -78,17 +78,14 @@ enum tomak_indicator_mode {
    disagreed on `reserved0`, which shifted every bitfield after it between two
    boards that persist through the same record. That cost nothing only because
    `raw` was unused and the persist is field-by-field into
-   tomak_era_keyboard_config_t. The stored record later claimed its former two
-   reserved tail bytes for the RGB sleep timeout without changing its size. */
+   tomak_era_keyboard_config_t. The RGB sleep timeout is the common lighting
+   sleep record's (features/era_lighting_sleep.c). */
 typedef struct {
     uint8_t lock_indicator_mode;
     bool    lock_indicator_overrides_rgb;
     HSV     lock_indicator_hsv;
     bool    full_rgb_matrix_enabled;
-    uint16_t rgb_sleep_timeout_seconds;
 } tomak_config_t;
-
-#define TOMAK_RGB_SLEEP_TIMEOUT_DEFAULT_SECONDS 600U
 
 extern tomak_config_t g_tomak_config;
 

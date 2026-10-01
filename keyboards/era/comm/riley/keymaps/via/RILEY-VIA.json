@@ -19,7 +19,7 @@
       "label": "Lighting",
       "content": [
         {
-          "label": "RGBLight",
+          "label": "RGB LEDs",
           "content": [
             {
               "label": "Brightness",
@@ -65,7 +65,7 @@
           ]
         },
         {
-          "label": "INDICATOR",
+          "label": "Indicators",
           "content": [
             {
               "label": "Indicator-Only",
@@ -73,7 +73,7 @@
               "content": ["id_qmk_custom_riley_indicator_only", 0, 22]
             },
             {
-              "label": "IND1 Mode",
+              "label": "Indicator 1",
               "type": "dropdown",
               "content": ["id_qmk_custom_riley_ind1_mode", 0, 13],
               "options": [
@@ -82,19 +82,19 @@
             },
             {
               "showIf": "{id_qmk_custom_riley_ind1_mode} != 0",
-              "label": "IND1 Indicator Brightness",
+              "label": "Indicator 1 Brightness",
               "type": "range",
               "options": [0, 255],
               "content": ["id_qmk_custom_riley_ind1_brightness", 0, 14]
             },
             {
               "showIf": "{id_qmk_custom_riley_ind1_mode} != 0",
-              "label": "IND1 Indicator Color",
+              "label": "Indicator 1 Color",
               "type": "color",
               "content": ["id_qmk_custom_riley_ind1_color", 0, 15]
             },
             {
-              "label": "IND2 Mode",
+              "label": "Indicator 2",
               "type": "dropdown",
               "content": ["id_qmk_custom_riley_ind2_mode", 0, 16],
               "options": [
@@ -103,19 +103,19 @@
             },
             {
               "showIf": "{id_qmk_custom_riley_ind2_mode} != 0",
-              "label": "IND2 Indicator Brightness",
+              "label": "Indicator 2 Brightness",
               "type": "range",
               "options": [0, 255],
               "content": ["id_qmk_custom_riley_ind2_brightness", 0, 17]
             },
             {
               "showIf": "{id_qmk_custom_riley_ind2_mode} != 0",
-              "label": "IND2 Indicator Color",
+              "label": "Indicator 2 Color",
               "type": "color",
               "content": ["id_qmk_custom_riley_ind2_color", 0, 18]
             },
             {
-              "label": "IND3 Mode",
+              "label": "Indicator 3",
               "type": "dropdown",
               "content": ["id_qmk_custom_riley_ind3_mode", 0, 19],
               "options": [
@@ -124,14 +124,14 @@
             },
             {
               "showIf": "{id_qmk_custom_riley_ind3_mode} != 0",
-              "label": "IND3 Indicator Brightness",
+              "label": "Indicator 3 Brightness",
               "type": "range",
               "options": [0, 255],
               "content": ["id_qmk_custom_riley_ind3_brightness", 0, 20]
             },
             {
               "showIf": "{id_qmk_custom_riley_ind3_mode} != 0",
-              "label": "IND3 Indicator Color",
+              "label": "Indicator 3 Color",
               "type": "color",
               "content": ["id_qmk_custom_riley_ind3_color", 0, 21]
             }
@@ -152,6 +152,13 @@
             },
             {
               "showIf": "{id_qmk_socd_lr_enable} == 1",
+              "label": "Left/Right Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_lr_mode", 10, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Left Priority", 4], ["Right Priority", 5]]
+            },
+            {
+              "showIf": "{id_qmk_socd_lr_enable} == 1",
               "label": "Left Key",
               "type": "keycode",
               "content": ["id_qmk_socd_left", 10, 2]
@@ -166,6 +173,13 @@
               "label": "Up/Down Enable",
               "type": "toggle",
               "content": ["id_qmk_socd_ud_enable", 11, 1]
+            },
+            {
+              "showIf": "{id_qmk_socd_ud_enable} == 1",
+              "label": "Up/Down Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_ud_mode", 11, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Up Priority", 4], ["Down Priority", 5]]
             },
             {
               "showIf": "{id_qmk_socd_ud_enable} == 1",
@@ -698,6 +712,15 @@
               "label": "RGB Sleep",
               "type": "toggle",
               "content": ["id_qmk_rgb_sleep_enable", 9, 12]
+            },
+            {
+              "label": "RGB Sleep Timeout",
+              "type": "dropdown",
+              "showIf": "{id_qmk_rgb_sleep_enable} == 1",
+              "options": [
+                ["1 min", 1], ["3 min", 3], ["5 min", 5], ["10 min", 10], ["30 min", 30], ["60 min", 60]
+              ],
+              "content": ["id_qmk_rgb_sleep_timeout", 9, 10]
             }
           ]
         },

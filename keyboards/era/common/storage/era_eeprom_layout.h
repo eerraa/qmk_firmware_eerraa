@@ -82,9 +82,15 @@
 #define ERA_EEPROM_KEYBOARD_CONFIG_OFFSET 156
 #define ERA_EEPROM_KEYBOARD_CONFIG_SIZE 8
 
+/* -- syncable: lighting sleep ---------------------------------------------- */
+/* RGB and backlight sleep timeouts and the backlight sleep switch
+ * (features/era_lighting_sleep.c). A zeroed record is the default. */
+#define ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET 164
+#define ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE 8
+
 /* -- syncable: the reserve ------------------------------------------------- */
-#define ERA_EEPROM_SYNCABLE_RESERVED_OFFSET 164
-#define ERA_EEPROM_SYNCABLE_RESERVED_SIZE 12
+#define ERA_EEPROM_SYNCABLE_RESERVED_OFFSET 172
+#define ERA_EEPROM_SYNCABLE_RESERVED_SIZE 4
 
 /* -- protected: sync-excluded ---------------------------------------------- */
 #define ERA_EEPROM_PROTECTED_CONFIG_OFFSET 176
@@ -118,7 +124,7 @@
  * guard that differs erases the whole logical EEPROM on the next boot. Move it
  * when stored bytes would mean something else and no narrower guard rejects
  * them (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
-#define ERA_EEPROM_RESET_KEY 0x45524105UL
+#define ERA_EEPROM_RESET_KEY 0x45524107UL
 
 /* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32
  * values plus one guard word, written only at storage convergence closes.
@@ -158,7 +164,8 @@ _Static_assert(ERA_EEPROM_SOCD_CONFIG_OFFSET + ERA_EEPROM_SOCD_CONFIG_SIZE == ER
 _Static_assert(ERA_EEPROM_KKUK_CONFIG_OFFSET + ERA_EEPROM_KKUK_CONFIG_SIZE == ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET, "ERA KKUK config must end where the backlight config starts.");
 _Static_assert(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET + ERA_EEPROM_BACKLIGHT_CONFIG_SIZE == ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, "ERA backlight config must end where the RGB indicator config starts.");
 _Static_assert(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET + ERA_EEPROM_RGB_INDICATOR_CONFIG_SIZE == ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, "ERA RGB indicator config must end where the keyboard config starts.");
-_Static_assert(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET + ERA_EEPROM_KEYBOARD_CONFIG_SIZE == ERA_EEPROM_SYNCABLE_RESERVED_OFFSET, "ERA keyboard config must end where the syncable reserve starts.");
+_Static_assert(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET + ERA_EEPROM_KEYBOARD_CONFIG_SIZE == ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, "ERA keyboard config must end where the lighting sleep config starts.");
+_Static_assert(ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET + ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE == ERA_EEPROM_SYNCABLE_RESERVED_OFFSET, "ERA lighting sleep config must end where the syncable reserve starts.");
 _Static_assert(ERA_EEPROM_SYNCABLE_RESERVED_OFFSET + ERA_EEPROM_SYNCABLE_RESERVED_SIZE == ERA_EEPROM_PROTECTED_CONFIG_OFFSET, "ERA syncable reserve must end where the protected range starts.");
 _Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_OFFSET + ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_EEPROM_PROTECTED_CONFIG_OFFSET, "ERA syncable EEPROM range must end where protected range starts.");
 _Static_assert(ERA_EEPROM_PROTECTED_CONFIG_OFFSET + ERA_EEPROM_PROTECTED_CONFIG_SIZE == ERA_EEPROM_CONFIG_SIZE, "ERA protected EEPROM range must end at the config block boundary.");

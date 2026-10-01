@@ -18,11 +18,10 @@
  * EEPROM CLEAN take. Claiming the block here would take over that job for no
  * gain and would have to keep `BACKLIGHT_DEFAULT_*` in step by hand.
  *
- * The suspend path is deliberately untouched. `suspend_power_down_quantum()`
- * (`quantum/quantum.c`) drops the level to zero in RAM only, so a sleeping
- * host still darkens the indicators, and `suspend_wakeup_init_quantum()` calls
- * `backlight_init()` again on the way out -- which now reads a block this unit
- * has guaranteed is on.
+ * Sleep is not this unit's. Backlight sleep darkens the rail through an output
+ * gate that leaves the stored level and enable bit alone
+ * (`features/era_lighting_sleep.c`), so the indicators go dark with it and
+ * return at the stored level.
  */
 
 #include "era_backlight_lock.h"

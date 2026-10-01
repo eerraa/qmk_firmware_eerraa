@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "keyboard_report_util.hpp"
@@ -1415,7 +1416,18 @@ TEST_F(EraBacklightTapHoldTiming, QueuedReleasedTapKeepsEventTimeAcrossWrap) {
     testing::Mock::VerifyAndClearExpectations(&driver);
 }
 
+TEST_F(EraBacklightPulse, SleepGateDarkensTheRailAndKeepsTheStoredLevel) {
+    era_backlight_set_sleep(true);
+    EXPECT_EQ(g_pwm_level, 0U);
+    EXPECT_EQ(get_backlight_level(), 7U) << "a save during sleep stores the user's level";
+    era_backlight_refresh_output();
+    EXPECT_EQ(g_pwm_level, 0U) << "a brightness refresh while asleep stays dark";
+    era_backlight_set_sleep(false);
+    EXPECT_EQ(g_pwm_level, 7U);
+}
+
 #include "test_td_lifetime.h"
+#include "test_socd_td.h"
 
 #include "test_caps_feedback.h"
 #include "test_layer_time_contract.h"

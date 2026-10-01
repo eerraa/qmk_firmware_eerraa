@@ -39,6 +39,9 @@
 #ifdef ERA_SOCD_ENABLE
 #    include "../features/era_socd.h"
 #endif
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+#    include "../features/era_lighting_sleep.h"
+#endif
 #ifdef ERA_TAPPING_CONFIG_ENABLE
 #    include "../features/era_tapping.h"
 #endif
@@ -89,6 +92,9 @@ void era_common_features_init(void) {
 #ifdef ERA_RGB_INDICATOR_ENABLE
     era_rgb_indicator_init();
 #endif
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    era_lighting_sleep_init();
+#endif
 }
 
 void era_common_features_reload_from_eeprom(void) {
@@ -118,6 +124,9 @@ void era_common_features_reload_from_eeprom(void) {
 #endif
 #ifdef ERA_RGB_INDICATOR_ENABLE
     era_rgb_indicator_reload_from_eeprom();
+#endif
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    era_lighting_sleep_reload_from_eeprom();
 #endif
 }
 
@@ -192,11 +201,7 @@ void era_common_features_switch_event(uint8_t row, uint8_t col, bool pressed) {
 #endif
 
 bool era_common_features_process_record(uint16_t keycode, keyrecord_t *record) {
-#ifdef ERA_SOCD_ENABLE
-    if (!era_socd_process_record(keycode, record)) {
-        return false;
-    }
-#endif
+    /* SOCD has no record step: it resolves on the outgoing report (era_socd.c). */
 #ifdef ERA_KKUK_ENABLE
     if (!era_kkuk_process_record(keycode, record)) {
         return false;

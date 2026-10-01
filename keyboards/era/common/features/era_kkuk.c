@@ -53,6 +53,9 @@ static uint32_t            kkuk_repeat_timer;
 static uint32_t            kkuk_delay_timer;
 static uint8_t             kkuk_key_count;
 static uint8_t             kkuk_previous_count;
+/* Matrix positions whose press was counted, so a release undoes exactly what
+   its press did even when SOCD or the keymap changed while the key was held. */
+static uint8_t kkuk_counted[(MATRIX_ROWS * MATRIX_COLS + 7) / 8];
 static uint8_t             kkuk_pulse_state;
 static uint32_t            kkuk_last_pulse_ms;
 static bool                kkuk_pulse_gap_active;
@@ -112,6 +115,7 @@ static void era_kkuk_reset_runtime(void) {
     kkuk_delay_timer      = timer_read32();
     kkuk_key_count        = 0;
     kkuk_previous_count   = 0;
+    memset(kkuk_counted, 0, sizeof(kkuk_counted));
     kkuk_last_pulse_ms    = 0;
     kkuk_pulse_gap_active = false;
 }
@@ -247,21 +251,32 @@ void era_kkuk_task(void) {
 }
 
 bool era_kkuk_process_record(uint16_t keycode, keyrecord_t *record) {
-    if (!record || !kkuk_config.enable || era_socd_is_bound_keycode(keycode)) {
+    if (!record || record->event.key.row >= MATRIX_ROWS || record->event.key.col >= MATRIX_COLS) {
         return true;
     }
 
-    if (IS_BASIC_KEYCODE(keycode)) {
-        if (record->event.pressed) {
-            if (kkuk_key_count < UINT8_MAX) {
-                kkuk_key_count++;
-            }
-        } else if (kkuk_key_count > 0) {
+    uint16_t index = (uint16_t)record->event.key.row * MATRIX_COLS + record->event.key.col;
+    uint8_t *slot  = &kkuk_counted[index >> 3];
+    uint8_t  bit   = (uint8_t)(1 << (index & 7));
+
+    if (record->event.pressed) {
+        if (!kkuk_config.enable || !IS_BASIC_KEYCODE(keycode) || era_socd_is_bound_keycode(keycode) || (*slot & bit)) {
+            return true;
+        }
+        *slot |= bit;
+        if (kkuk_key_count < UINT8_MAX) {
+            kkuk_key_count++;
+        }
+    } else {
+        if (!(*slot & bit)) {
+            return true;
+        }
+        *slot &= (uint8_t)~bit;
+        if (kkuk_key_count > 0) {
             kkuk_key_count--;
         }
-        kkuk_delay_timer = timer_read32();
     }
-
+    kkuk_delay_timer = timer_read32();
     return true;
 }
 

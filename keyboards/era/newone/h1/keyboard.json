@@ -4,6 +4,9 @@
   "maintainer": "eerraa",
   "bootloader": "rp2040",
   "diode_direction": "COL2ROW",
+  "dynamic_keymap": {
+      "layer_count": 6
+  },
   "features": {
     "bootmagic": true,
     "extrakey": true,

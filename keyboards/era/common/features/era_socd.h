@@ -14,18 +14,23 @@ enum {
     ERA_SOCD_PAIR_KEY_COUNT = 2,
 };
 
+/* The stored mode byte. H7S's kill switch uses the same values. */
 enum {
-    ERA_SOCD_MODE_LAST_INPUT_WINS = 1,
+    ERA_SOCD_MODE_LAST_INPUT = 1,
+    ERA_SOCD_MODE_NEUTRAL,
+    ERA_SOCD_MODE_FIRST_INPUT,
+    ERA_SOCD_MODE_KEY_0_PRIORITY,
+    ERA_SOCD_MODE_KEY_1_PRIORITY,
+    ERA_SOCD_MODE_MAX = ERA_SOCD_MODE_KEY_1_PRIORITY,
 };
 
-void era_socd_init(void);
-void era_socd_reload_from_eeprom(void);
-bool era_socd_process_record(uint16_t keycode, keyrecord_t *record);
-bool era_socd_is_bound_keycode(uint16_t keycode);
-void era_socd_save_pair(uint8_t pair);
-bool era_socd_set_enabled(uint8_t pair, bool enabled);
-bool era_socd_get_enabled(uint8_t pair);
-bool era_socd_set_keycode(uint8_t pair, uint8_t key_index, uint16_t keycode);
+void     era_socd_init(void);
+void     era_socd_reload_from_eeprom(void);
+bool     era_socd_is_bound_keycode(uint16_t keycode);
+void     era_socd_save_pair(uint8_t pair);
+bool     era_socd_set_enabled(uint8_t pair, bool enabled);
+bool     era_socd_get_enabled(uint8_t pair);
+bool     era_socd_set_keycode(uint8_t pair, uint8_t key_index, uint16_t keycode);
 uint16_t era_socd_get_keycode(uint8_t pair, uint8_t key_index);
-bool era_socd_set_mode(uint8_t pair, uint8_t mode);
-uint8_t era_socd_get_mode(uint8_t pair);
+bool     era_socd_set_mode(uint8_t pair, uint8_t mode);
+uint8_t  era_socd_get_mode(uint8_t pair);

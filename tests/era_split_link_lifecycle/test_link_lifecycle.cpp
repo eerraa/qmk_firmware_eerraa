@@ -610,7 +610,7 @@ TEST_F(EraSplitLinkLifecycle, LateEchoCannotReviveExpiredProposalBeforeTimeoutTa
 }
 TEST_F(EraSplitLinkLifecycle, LinkRecordDoesNotOverlapBusyMacroTransaction) {
     const uint8_t invalid_marker=1;
-    eeprom_write_block(&invalid_marker,reinterpret_cast<void *>(617U+16384U-1U),1);
+    eeprom_write_block(&invalid_marker,reinterpret_cast<void *>(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR+DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE-1U),1);
     ASSERT_TRUE(era_eeprom_driver_macro_transaction_open());
     commit_local(1); EXPECT_EQ(era_split_restart_agreement_last_result(),ERA_SPLIT_RESTART_RESULT_SUCCEEDED);
     EXPECT_EQ(replay()[0],1); EXPECT_TRUE(era_eeprom_driver_macro_transaction_open());

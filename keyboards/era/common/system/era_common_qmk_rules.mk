@@ -93,6 +93,22 @@ ifneq ($(filter yes,$(strip $(RGB_MATRIX_ENABLE)) $(strip $(RGBLIGHT_ENABLE))),)
     SRC += keyboards/era/common/features/era_rgb_sleep.c
 endif
 
+# Lighting sleep: each of RGB and backlight has a switch and an input-idle
+# timeout stored in the ERA block, the same controls on every board and class.
+# A non-split board's USB session drives both output gates, so QMK's own suspend
+# entries leave the outputs alone there (ERA_LIGHTING_SLEEP_OWNED); the split
+# class resolves RGB sleep through its relation owner.
+ifneq ($(filter yes,$(strip $(RGB_MATRIX_ENABLE)) $(strip $(RGBLIGHT_ENABLE)) $(strip $(BACKLIGHT_ENABLE))),)
+    OPT_DEFS += -DERA_LIGHTING_SLEEP_ENABLE
+    SRC += keyboards/era/common/features/era_lighting_sleep.c
+    ifeq ($(strip $(BACKLIGHT_ENABLE)), yes)
+        OPT_DEFS += -DERA_BACKLIGHT_SLEEP_ENABLE
+    endif
+    ifneq ($(strip $(SPLIT_KEYBOARD)), yes)
+        OPT_DEFS += -DERA_LIGHTING_SLEEP_OWNED
+    endif
+endif
+
 # Guarded like every other value pass-through in this layer. Unguarded, an
 # empty value emitted `-DERA_STORAGE_QUIET_DEFER_MS` with no body and failed
 # inside quantum/eeconfig.h rather than here.

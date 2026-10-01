@@ -10,10 +10,10 @@
 
 #include "era_split_eeprom_sync.h"
 
-#define ERA_HOST_PEER_STORAGE_SCHEMA_V1 1U
+#define ERA_HOST_PEER_STORAGE_SCHEMA 2U
 #define ERA_HOST_PEER_STORAGE_IMAGE_BYTES 16384U
 
-/* Schema-1 domain sizes, defined once because both cores need them. Core0
+/* Domain sizes of the current schema, defined once because both cores need them. Core0
  * builds its descriptor table from the real EEPROM layout —
  * `sizeof(rgb_config_t)`, `VIA_EEPROM_LAYOUT_OPTIONS_SIZE`, and the rest —
  * which core1 must not include, since those headers are the live QMK/VIA
@@ -30,9 +30,8 @@
  * anyone remembering it exists. Two tables that merely happened to agree
  * became one number with a compile-time proof on each side.
  *
- * The dynamic-keymap size is geometry-parameterised (owner decision
- * 2026-08-13): schema 1 is the formula, and the resolved number is the
- * board's. The identical-image rule is what makes per-board resolution
+ * The dynamic-keymap size is geometry-parameterised: the schema fixes the
+ * formula and the layer count, and the resolved number is the board's. The identical-image rule is what makes per-board resolution
  * sound — both halves of a pair always run one image, so no wire peer can
  * disagree about a size, and the PROBE/PROOF identity check refuses a
  * mismatch before any byte moves. The layer count stays a plain integer
@@ -44,7 +43,7 @@
  * The exact addresses and the portable-image membership rules stay
  * canonical in `era_host_peer_storage_contract.md`; only the sizes are
  * here, because only the sizes cross the core boundary. */
-#define ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS 4U
+#define ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS 6U
 #define ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES 176U
 #define ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES (ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS * MATRIX_ROWS * MATRIX_COLS * 2U)
 #define ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES ERA_HOST_PEER_STORAGE_IMAGE_BYTES

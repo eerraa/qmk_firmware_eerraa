@@ -19,7 +19,7 @@ bool era_split_transport_scheduler_lighting_sleep_owner_is_wire(void) { return t
 void era_split_transport_scheduler_mark_host_peer_rgb_state_due(void) {}
 bool era_usb_session_frames_lost(void) { return test_local_loss; }
 bool era_rgb_sleep_enabled(void) { return true; }
-uint16_t era_split_board_rgb_sleep_timeout_seconds(void) { return 0; }
+uint16_t era_lighting_sleep_rgb_timeout_seconds(void) { return 0; }
 
 void era_test_lighting_reset(void) {
     era_split_keyboard_lighting_sleep_valid = false;

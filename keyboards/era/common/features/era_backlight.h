@@ -61,6 +61,9 @@ void era_backlight_note_key_event(uint8_t row, uint8_t col, bool pressed);
 void era_backlight_suspend(void);
 void era_backlight_resume(void);
 void era_backlight_refresh_output(void);
+/* Lighting sleep's output gate: the rail goes dark and the stored level stays
+   the user's (features/era_lighting_sleep.c). */
+void era_backlight_set_sleep(bool sleep);
 
 uint8_t era_backlight_get_effect(void);
 void    era_backlight_set_effect(uint8_t effect);

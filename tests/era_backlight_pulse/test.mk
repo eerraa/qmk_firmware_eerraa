@@ -18,6 +18,9 @@ SRC += keyboards/era/common/split/era_split_tap_activity.c
 SRC += tests/era_backlight_pulse/test_split_activity.c
 OPT_DEFS += -DERA_SPLIT_TAP_ACTIVITY_ENABLE
 SRC += keyboards/era/common/system/era_common_features.c
+# SOCD resolves on the outgoing report, so dance outputs are resolved too.
+SRC += keyboards/era/common/features/era_socd.c
+OPT_DEFS += -DERA_SOCD_ENABLE
 
 BACKLIGHT_ENABLE = yes
 BACKLIGHT_DRIVER = custom

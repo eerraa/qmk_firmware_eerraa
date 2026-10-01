@@ -235,7 +235,7 @@ static bool era_split_communication_core_storage_response_matches_request(uint8_
 }
 
 static uint16_t era_split_communication_core_storage_domain_size(uint8_t domain) {
-    /* The shared schema-1 sizes, never literals here: core0 asserts each of
+    /* The shared schema sizes, never literals here: core0 asserts each of
      * these macros against the real EEPROM layout it can see and core1
      * cannot, so this table cannot drift from that layout without failing
      * the build on core0's side. See era_host_peer_storage.h. */
@@ -380,7 +380,7 @@ static bool era_split_communication_core_storage_initiator_request_valid(const e
     if (request == NULL || request->owner_epoch == 0 || request->relation_generation == 0 ||
         request->request_generation == 0 || request->transaction_generation == 0 ||
         request->response_window_ms != ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS ||
-        request->schema != ERA_HOST_PEER_STORAGE_SCHEMA_V1 ||
+        request->schema != ERA_HOST_PEER_STORAGE_SCHEMA ||
         request->reserved != 0 || !era_split_communication_core_storage_request_operation_valid(request->operation)) {
         return false;
     }
@@ -1397,7 +1397,7 @@ era_split_communication_core_storage_request_classification_t era_split_communic
 static bool era_split_communication_core_storage_responder_snapshot_valid(const era_split_communication_core_storage_responder_snapshot_t *snapshot) {
     if (snapshot == NULL || snapshot->owner_epoch == 0 || snapshot->relation_generation == 0 || snapshot->snapshot_generation == 0 ||
         snapshot->transaction_generation == 0 || snapshot->domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT ||
-        snapshot->schema != ERA_HOST_PEER_STORAGE_SCHEMA_V1 || snapshot->image_size != era_split_communication_core_storage_domain_size(snapshot->domain) ||
+        snapshot->schema != ERA_HOST_PEER_STORAGE_SCHEMA || snapshot->image_size != era_split_communication_core_storage_domain_size(snapshot->domain) ||
         !era_split_communication_core_storage_request_operation_valid(snapshot->expected_operation) ||
         ((snapshot->expected_operation == ERA_SPLIT_EEPROM_SYNC_OP_CHUNK_REQ ||
           snapshot->expected_operation == ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CHUNK_REQ) ?
@@ -1717,7 +1717,7 @@ bool era_split_communication_core_storage_plan_responder(const era_split_communi
             result->status          = ERA_SPLIT_EEPROM_SYNC_STATUS_UNSUPPORTED_DOMAIN;
             return true;
         }
-        if (request->schema != ERA_HOST_PEER_STORAGE_SCHEMA_V1) {
+        if (request->schema != ERA_HOST_PEER_STORAGE_SCHEMA) {
             result->source_revision = 0;
             result->image_crc32     = 0;
             result->status          = ERA_SPLIT_EEPROM_SYNC_STATUS_UNSUPPORTED_SCHEMA;
@@ -1765,7 +1765,7 @@ bool era_split_communication_core_storage_plan_responder(const era_split_communi
          * the pull-symmetric short circuit), TRANSFER otherwise. */
         result->source_revision = request->source_revision;
         result->image_crc32     = 0;
-        if (request->schema != ERA_HOST_PEER_STORAGE_SCHEMA_V1) {
+        if (request->schema != ERA_HOST_PEER_STORAGE_SCHEMA) {
             result->status = ERA_SPLIT_EEPROM_SYNC_STATUS_UNSUPPORTED_SCHEMA;
             return true;
         }

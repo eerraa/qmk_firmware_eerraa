@@ -27,6 +27,20 @@ BRICK65_BOARD = "sirind/brick65"
 SPLIT_BOARDS = ("sirind/tomak", "sirind/tomak79h", "sirind/tomak79s")
 RGB_SLEEP_ENABLE_COMMAND = ["id_qmk_rgb_sleep_enable", 9, 12]
 RGB_SLEEP_TIMEOUT_COMMAND = ["id_qmk_rgb_sleep_timeout", 9, 10]
+BACKLIGHT_SLEEP_ENABLE_COMMAND = ["id_qmk_backlight_sleep_enable", 9, 13]
+BACKLIGHT_SLEEP_TIMEOUT_COMMAND = ["id_qmk_backlight_sleep_timeout", 9, 14]
+SLEEP_PRESETS = [["1 min", 1], ["3 min", 3], ["5 min", 5], ["10 min", 10], ["30 min", 30], ["60 min", 60]]
+RGB_MATRIX_EFFECT_COMMAND = ["id_qmk_rgb_matrix_effect", 3, 2]
+# Lighting submenus are named for where the LEDs are; these engine and legacy names must not return.
+LEGACY_LIGHTING_LABELS = {
+    "INDICATOR", "RGBLight", "RGB Matrix", "RGB Badge", "Badge Lighting", "Lock Indicators", "Lock Indicator",
+}
+BUILTIN_LIGHTING_MENUS = {"qmk_rgb_matrix", "qmk_rgblight", "qmk_backlight", "qmk_backlight_rgblight"}
+# Value 0 of a lock-indicator dropdown: the LED shows the RGB effect when it is shared, or goes dark when dedicated.
+SHARED_INDICATOR_BOARDS = {
+    "comm/riley", "linx3/fave65s", "linx3/n86", "linx3/n87", "sirind/tomak", "sirind/tomak79h", "sirind/tomak79s",
+}
+DEDICATED_INDICATOR_BOARDS = {"newone/odessey60h", "newone/odessey60s", "sirind/brick65s"}
 
 INDICATOR_COMMANDS = {
     "linx3/n86": [
@@ -74,6 +88,21 @@ def walk_dicts(value: Any) -> Iterator[dict[str, Any]]:
     elif isinstance(value, list):
         for child in value:
             yield from walk_dicts(child)
+
+
+def firmware_rgb_matrix_effects(metadata: dict[str, Any]) -> list[str]:
+    """RGB Matrix mode numbers in firmware order: All Off, Solid Color, then enabled animations."""
+    animations = ROOT / "quantum" / "rgb_matrix" / "animations"
+    order: list[str] = []
+    for header in re.findall(r'#include "(\w+\.h)"', (animations / "rgb_matrix_effects.inc").read_text(encoding="utf-8")):
+        order += [name.lower() for name in re.findall(r"RGB_MATRIX_EFFECT\((\w+)\)", (animations / header).read_text(encoding="utf-8"))]
+    enabled = {name for name, on in metadata.get("rgb_matrix", {}).get("animations", {}).items() if on} | {"solid_color"}
+    return ["all_off"] + [name for name in order if name in enabled]
+
+
+def effect_key(name: str) -> str:
+    key = re.sub(r"[^a-z]", "", name.lower())
+    return key.replace("bandpinwheel", "pinwheel").replace("bandspiral", "spiral")
 
 
 def named_menu(definition: dict[str, Any], label: str) -> dict[str, Any]:
@@ -302,8 +331,8 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
     def test_riley_rgb_effect_and_three_lock_slots_match_firmware_ids(self) -> None:
         [path] = self.board_definitions["comm/riley"]
         definition = load_json(path)
-        rgb = named_submenu(definition, "Lighting", "RGBLight")
-        indicator = named_submenu(definition, "Lighting", "INDICATOR")
+        rgb = named_submenu(definition, "Lighting", "RGB LEDs")
+        indicator = named_submenu(definition, "Lighting", "Indicators")
 
         effect = next(
             node
@@ -315,15 +344,15 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
 
         expected = [
             ("Indicator-Only", ["id_qmk_custom_riley_indicator_only", 0, 22]),
-            ("IND1 Mode", ["id_qmk_custom_riley_ind1_mode", 0, 13]),
-            ("IND1 Indicator Brightness", ["id_qmk_custom_riley_ind1_brightness", 0, 14]),
-            ("IND1 Indicator Color", ["id_qmk_custom_riley_ind1_color", 0, 15]),
-            ("IND2 Mode", ["id_qmk_custom_riley_ind2_mode", 0, 16]),
-            ("IND2 Indicator Brightness", ["id_qmk_custom_riley_ind2_brightness", 0, 17]),
-            ("IND2 Indicator Color", ["id_qmk_custom_riley_ind2_color", 0, 18]),
-            ("IND3 Mode", ["id_qmk_custom_riley_ind3_mode", 0, 19]),
-            ("IND3 Indicator Brightness", ["id_qmk_custom_riley_ind3_brightness", 0, 20]),
-            ("IND3 Indicator Color", ["id_qmk_custom_riley_ind3_color", 0, 21]),
+            ("Indicator 1", ["id_qmk_custom_riley_ind1_mode", 0, 13]),
+            ("Indicator 1 Brightness", ["id_qmk_custom_riley_ind1_brightness", 0, 14]),
+            ("Indicator 1 Color", ["id_qmk_custom_riley_ind1_color", 0, 15]),
+            ("Indicator 2", ["id_qmk_custom_riley_ind2_mode", 0, 16]),
+            ("Indicator 2 Brightness", ["id_qmk_custom_riley_ind2_brightness", 0, 17]),
+            ("Indicator 2 Color", ["id_qmk_custom_riley_ind2_color", 0, 18]),
+            ("Indicator 3", ["id_qmk_custom_riley_ind3_mode", 0, 19]),
+            ("Indicator 3 Brightness", ["id_qmk_custom_riley_ind3_brightness", 0, 20]),
+            ("Indicator 3 Color", ["id_qmk_custom_riley_ind3_color", 0, 21]),
         ]
         self.assertEqual(
             [(node.get("label"), node.get("content")) for node in indicator.get("content", [])],
@@ -331,7 +360,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
         )
 
         for slot in (1, 2, 3):
-            mode = next(node for node in indicator["content"] if node.get("label") == f"IND{slot} Mode")
+            mode = next(node for node in indicator["content"] if node.get("label") == f"Indicator {slot}")
             self.assertEqual(
                 mode.get("options"),
                 [["RGB Effect", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]],
@@ -377,19 +406,54 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                     self.assertEqual(toggles, [], f"{path.as_posix()}: RGB SLEEP exposed without RGB hardware feature")
                     self.assertEqual(timeouts, [], f"{path.as_posix()}: RGB SLEEP timeout exposed without RGB hardware feature")
 
-                if board in SPLIT_BOARDS:
-                    self.assertEqual(len(timeouts), 1, path.as_posix())
-                    self.assertEqual(timeouts[0].get("showIf"), "{id_qmk_rgb_sleep_enable} == 1", path.as_posix())
+                if has_rgb and board != BRICK65_BOARD:
+                    self.assertEqual(
+                        timeouts,
+                        [
+                            {
+                                "label": "RGB Sleep Timeout",
+                                "type": "dropdown",
+                                "showIf": "{id_qmk_rgb_sleep_enable} == 1",
+                                "options": SLEEP_PRESETS,
+                                "content": RGB_SLEEP_TIMEOUT_COMMAND,
+                            }
+                        ],
+                        path.as_posix(),
+                    )
+                    self.assertEqual(sleep["content"][1], timeouts[0], path.as_posix())
                 else:
                     self.assertEqual(timeouts, [], path.as_posix())
 
         self.assertEqual(actual_toggle_boards, expected_rgb_boards)
 
-    def test_fixed_socd_and_kkuk_modes_stay_hidden_and_control_order_is_shared(self) -> None:
-        fixed_mode_commands = {
-            "id_qmk_socd_lr_mode",
-            "id_qmk_socd_ud_mode",
-            "id_qmk_kkuk_mode",
+    def test_every_backlight_board_exposes_backlight_sleep(self) -> None:
+        for board, paths in self.board_definitions.items():
+            has_backlight = bool(self.board_metadata[board].get("features", {}).get("backlight")) and board != BRICK65_BOARD
+            for path in paths:
+                definition = load_json(path)
+                toggles = [node for node in walk_dicts(definition) if node.get("content") == BACKLIGHT_SLEEP_ENABLE_COMMAND]
+                timeouts = [node for node in walk_dicts(definition) if node.get("content") == BACKLIGHT_SLEEP_TIMEOUT_COMMAND]
+                if not has_backlight:
+                    self.assertEqual(toggles + timeouts, [], path.as_posix())
+                    continue
+                toggle = {"label": "Backlight Sleep", "type": "toggle", "content": BACKLIGHT_SLEEP_ENABLE_COMMAND}
+                timeout = {
+                    "label": "Backlight Sleep Timeout",
+                    "type": "dropdown",
+                    "showIf": "{id_qmk_backlight_sleep_enable} == 1",
+                    "options": SLEEP_PRESETS,
+                    "content": BACKLIGHT_SLEEP_TIMEOUT_COMMAND,
+                }
+                self.assertEqual(toggles, [toggle], path.as_posix())
+                self.assertEqual(timeouts, [timeout], path.as_posix())
+                sleep = named_submenu(definition, "SYSTEM", "SLEEP")
+                self.assertEqual(sleep["content"][-2:], [toggle, timeout], path.as_posix())
+
+    def test_kkuk_mode_stays_hidden_socd_modes_are_offered_and_control_order_is_shared(self) -> None:
+        fixed_mode_commands = {"id_qmk_kkuk_mode"}
+        socd_modes = {
+            "lr": (10, ["Last Input", "Neutral", "First Input", "Left Priority", "Right Priority"]),
+            "ud": (11, ["Last Input", "Neutral", "First Input", "Up Priority", "Down Priority"]),
         }
         for board, paths in self.board_definitions.items():
             if board == BRICK65_BOARD:
@@ -404,6 +468,28 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                     and isinstance(node["content"][0], str)
                 }
                 self.assertTrue(fixed_mode_commands.isdisjoint(commands), path.as_posix())
+
+                socd = named_submenu(definition, "FEATURE", "SOCD")
+                self.assertEqual(
+                    [control.get("label") for control in socd.get("content", [])],
+                    [
+                        "Left/Right Enable",
+                        "Left/Right Mode",
+                        "Left Key",
+                        "Right Key",
+                        "Up/Down Enable",
+                        "Up/Down Mode",
+                        "Up Key",
+                        "Down Key",
+                    ],
+                    path.as_posix(),
+                )
+                for pair, (channel, labels) in socd_modes.items():
+                    [mode] = [c for c in socd["content"] if c.get("content", [None])[0] == f"id_qmk_socd_{pair}_mode"]
+                    self.assertEqual(mode.get("content"), [f"id_qmk_socd_{pair}_mode", channel, 4], path.as_posix())
+                    self.assertEqual(mode.get("type"), "dropdown", path.as_posix())
+                    self.assertEqual(mode.get("showIf"), f"{{id_qmk_socd_{pair}_enable}} == 1", path.as_posix())
+                    self.assertEqual(mode.get("options"), [[label, value] for value, label in enumerate(labels, 1)], path.as_posix())
 
                 kkuk = named_submenu(definition, "FEATURE", "KKUK")
                 self.assertEqual(
@@ -427,15 +513,73 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
     def test_indicator_controls_have_the_required_v3_wrapper(self) -> None:
         for board, expected_commands in INDICATOR_COMMANDS.items():
             [path] = self.board_definitions[board]
-            indicator = named_menu(load_json(path), "INDICATOR")
-            self.assertEqual(len(indicator.get("content", [])), 1, path.as_posix())
-            wrapper = indicator["content"][0]
-            self.assertEqual(wrapper.get("label"), "Lock Indicators", path.as_posix())
+            wrapper = named_submenu(load_json(path), "Lighting", "Indicators")
             self.assertNotIn("type", wrapper, path.as_posix())
             controls = wrapper.get("content")
             self.assertIsInstance(controls, list, path.as_posix())
             self.assertEqual([control.get("content") for control in controls], expected_commands, path.as_posix())
             self.assertTrue(all(isinstance(control.get("type"), str) for control in controls), path.as_posix())
+
+    def test_lighting_menus_use_the_shared_names(self) -> None:
+        indicator_label = re.compile(r"Indicator(?: \d)?")
+        for board, paths in self.board_definitions.items():
+            if board == BRICK65_BOARD:
+                continue
+            for path in paths:
+                definition = load_json(path)
+                builtin = {entry for entry in definition.get("menus", []) if isinstance(entry, str)}
+                self.assertEqual(builtin & BUILTIN_LIGHTING_MENUS, set(), path.as_posix())
+                labels = {node.get("label") for node in walk_dicts(definition)}
+                self.assertEqual(labels & LEGACY_LIGHTING_LABELS, set(), path.as_posix())
+                selectors = [
+                    node
+                    for node in walk_dicts(definition)
+                    if node.get("type") == "dropdown" and indicator_label.fullmatch(str(node.get("label")))
+                ]
+                if board in SHARED_INDICATOR_BOARDS:
+                    zero = "RGB Effect"
+                elif board in DEDICATED_INDICATOR_BOARDS:
+                    zero = "Off"
+                else:
+                    self.assertEqual(selectors, [], path.as_posix())
+                    continue
+                self.assertGreater(len(selectors), 0, path.as_posix())
+                for selector in selectors:
+                    self.assertEqual(
+                        selector.get("options"),
+                        [[zero, 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]],
+                        path.as_posix(),
+                    )
+
+    def test_rgb_matrix_effect_lists_follow_the_firmware_effect_order(self) -> None:
+        checked = 0
+        for board, paths in self.board_definitions.items():
+            metadata = self.board_metadata[board]
+            if board == BRICK65_BOARD or not metadata.get("features", {}).get("rgb_matrix"):
+                continue
+            expected = [effect_key(name) for name in firmware_rgb_matrix_effects(metadata)]
+            for path in paths:
+                effects = [node for node in walk_dicts(load_json(path)) if node.get("content") == RGB_MATRIX_EFFECT_COMMAND]
+                if board == "sirind/brick65s":
+                    # Its RGB Matrix drives only the two lock indicators; there is no effect to choose.
+                    self.assertEqual(effects, [], path.as_posix())
+                    continue
+                self.assertEqual(len(effects), 1, path.as_posix())
+                options = effects[0].get("options", [])
+                self.assertEqual([option[1] for option in options], list(range(len(options))), path.as_posix())
+                self.assertEqual([effect_key(option[0]) for option in options], expected, path.as_posix())
+                checked += 1
+        self.assertEqual(checked, 11)
+
+    def test_every_rp2040_board_exposes_six_dynamic_layers(self) -> None:
+        boards = 0
+        for path in sorted(ERA_KEYBOARDS.rglob("keyboard.json")):
+            info = load_json(path)
+            if info.get("processor") != "RP2040":
+                continue
+            boards += 1
+            self.assertEqual(info.get("dynamic_keymap", {}).get("layer_count"), 6, path.as_posix())
+        self.assertGreater(boards, 0)
 
     def test_shipped_keymaps_bind_no_diagnostic_keycode(self) -> None:
         # A capture key does nothing in a standard image, so a default keymap that

@@ -177,7 +177,7 @@ matching `_Static_assert`s in that `.c`. Addresses from
 `storage/era_storage_layout.h` and `storage/era_eeprom_layout.h`. Semantic
 logical ranges only — never NVM banks, journal, or local metadata.
 `ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
-`ERA_HOST_PEER_STORAGE_SCHEMA_V1` 1 on every row. Probe/proof refuses a
+`ERA_HOST_PEER_STORAGE_SCHEMA` 2 on every row; schema 2 raised the dynamic-keymap layer count from 4 to 6. Probe/proof refuses a
 schema or size mismatch before content moves. Both halves of a pair run one
 identical image; mixed versions are unsupported (**Stored-Data Compatibility**).
 
@@ -189,7 +189,7 @@ QMK reads the public EEPROM image.
 | Id | Domain | Address | Size | Reload |
 | ---: | --- | --- | --- | --- |
 | 0 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG` | `ERA_EEPROM_CONFIG_ADDR` 37 + `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 (`37..212`) | `ERA_EEPROM_SYNCABLE_CONFIG_SIZE` / `ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES` 176 | board keyboard-config + `era_split_keyboard_reload_features_from_eeprom()` in `split/era_split_keyboard.c` |
-| 1 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP` | `ERA_STORAGE_DYNAMIC_KEYMAP_ADDR` / `ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR` 297 | `ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS` 4 × `MATRIX_ROWS` × `MATRIX_COLS` × 2 | none |
+| 1 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP` | `ERA_STORAGE_DYNAMIC_KEYMAP_ADDR` / `ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR` 297 | `ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS` 6 × `MATRIX_ROWS` × `MATRIX_COLS` × 2 | none |
 | 2 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO` | `ERA_STORAGE_DYNAMIC_MACRO_ADDR` (immediately after keymap) | `ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES` / `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` / `DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE` 16384 | none. Marker = final byte of this domain |
 | 3 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX` | `ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR` 23 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES` 8 (`sizeof(rgb_config_t)`) | RGB Matrix |
 | 4 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG` | `ERA_STORAGE_EECONFIG_KEYMAP_ADDR` 4 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES` 2 (`sizeof(keymap_config_t)`) | `keymap_config` |
@@ -211,8 +211,8 @@ domain address and size is geometry-independent.
 
 | Board | Matrix | Keymap | Macro |
 | --- | --- | --- | --- |
-| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 864 at `297..1160` | `1161..17544` |
-| `sirind/tomak` | 12×11 | 1056 at `297..1352` | `1353..17736` |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `297..1592` | `1593..17976` |
+| `sirind/tomak` | 12×11 | 1584 at `297..1880` | `1881..18264` |
 
 ERA config block: `ERA_EEPROM_CONFIG_SIZE` 256 at `ERA_EEPROM_CONFIG_ADDR`
 37, ending at `ERA_EEPROM_CONFIG_END` 293. Interior owner map:
@@ -220,8 +220,8 @@ ERA config block: `ERA_EEPROM_CONFIG_SIZE` 256 at `ERA_EEPROM_CONFIG_ADDR`
 here). Domain 0 is the syncable half only:
 `ERA_EEPROM_SYNCABLE_CONFIG_SIZE` 176, `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0
 so the domain image is indexed by config-block offset. Candidate Apply of
-domain 0 walks `ERA_EEPROM_SYNCABLE_RESERVED_OFFSET` 164 /
-`ERA_EEPROM_SYNCABLE_RESERVED_SIZE` 12 and refuses the domain unless those
+domain 0 walks `ERA_EEPROM_SYNCABLE_RESERVED_OFFSET` 172 /
+`ERA_EEPROM_SYNCABLE_RESERVED_SIZE` 4 and refuses the domain unless those
 bytes are zero (`era_host_peer_storage_reserved_era_config_is_zero()` in
 `split/era_host_peer_storage.c`). Protected
 `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 /
@@ -229,14 +229,14 @@ bytes are zero (`era_host_peer_storage_reserved_era_config_is_zero()` in
 `213..292`) is not a domain. Local-policy 24-byte layout, version 5, and
 protected neighbors: `era_authority_contract.md` **Persisted Sync Policy**.
 Rearranging the ERA block still requires the `ERA_EEPROM_RESET_KEY` policy
-even when wire schema 1 is unchanged.
+even when the wire schema is unchanged.
 
 > **REFUSED:** growing `ERA_EEPROM_CONFIG_SIZE` past 256, or declaring `EECONFIG_KB_DATA_SIZE` / `EECONFIG_USER_DATA_SIZE` on a storage-adoption board.
 > **WHY:** the first moves `VIA_EEPROM_MAGIC_ADDR` and the keymap base; either EECONFIG extra moves `ERA_EEPROM_CONFIG_ADDR` off 37 and the whole schema with it.
 > **REOPENS:** a new schema version that relocates VIA magic, keymap, and macro together, with `ERA_EEPROM_RESET_KEY` advanced.
 
 > **REFUSED:** a dynamic encoder map, or any other reserved span, between the keymap and macro domains without a schema change.
-> **WHY:** schema 1 places the macro immediately after the keymap (`ERA_STORAGE_DYNAMIC_MACRO_ADDR`); a silent insert would shift the macro on the first board that declared encoders.
+> **WHY:** the schema places the macro immediately after the keymap (`ERA_STORAGE_DYNAMIC_MACRO_ADDR`); a silent insert would shift the macro on the first board that declared encoders.
 > **REOPENS:** a board that declares a dynamic encoder map, with the address formula and schema version changed together.
 
 > **REFUSED:** placing a live `ERA_CONFIG` field inside `ERA_EEPROM_SYNCABLE_RESERVED` without shrinking that reserve.

@@ -84,15 +84,20 @@ The common VIA units are selected under
 `manuals/era_build_options.md` **The VIA surface and its gate**. SYNC remains
 a split-only surface.
 
-Split and non-split USB suspend paths are intentionally different. A split
-build removes QMK's stock suspend loop through `NO_USB_STARTUP_CHECK` and
-`split/era_split_keyboard.c` owns the replacement. A non-split build keeps
-QMK's loop and adds the common frame-loss bridge in
-`system/era_usb_session.c`. Every RGB-capable ERA board must compile the
-matching QMK sleep capability in `keyboard.json`
-(`rgb_matrix.sleep: true` or `rgblight.sleep: true`).
+Split and non-split USB suspend paths differ in plumbing, not in what the user
+sees. A split build removes QMK's stock suspend loop through
+`NO_USB_STARTUP_CHECK` and `split/era_split_keyboard.c` owns the replacement. A
+non-split build keeps QMK's loop; `system/era_usb_session.c` hands explicit
+suspend, frame loss and idle time to `features/era_lighting_sleep.c`, which
+drives the RGB and backlight output gates, and `ERA_LIGHTING_SLEEP_OWNED` keeps
+QMK's own suspend entries off the outputs. Every RGB-capable ERA board must
+compile the matching QMK sleep capability in `keyboard.json`
+(`rgb_matrix.sleep: true` or `rgblight.sleep: true`). Its official JSON offers
+RGB Sleep and RGB Sleep Timeout, and a backlight board's offers Backlight Sleep
+and Backlight Sleep Timeout, under SYSTEM → SLEEP
+(`tests/era_firmware_version/test_definitions.py`).
 
-Automatic RGB sleep uses both explicit USB suspend and observed USB-frame loss.
+Automatic lighting sleep uses both explicit USB suspend and observed USB-frame loss.
 Frame absence is evidence only while observation is fresh; an unobserved span
 must not be reclassified as a stationary counter. `USB->SOFRD` has a
 read-with-side-effect remote-wake role, so `system/era_usb_session.c` must

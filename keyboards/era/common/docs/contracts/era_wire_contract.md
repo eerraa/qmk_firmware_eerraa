@@ -99,7 +99,7 @@ Compact storage payload is always `ERA_SPLIT_COMMUNICATION_CORE_STORAGE_COMPACT_
 byte0: control with EXT
 byte1: op
 byte2: domain
-byte3: schema (`ERA_HOST_PEER_STORAGE_SCHEMA_V1` 1)
+byte3: schema (`ERA_HOST_PEER_STORAGE_SCHEMA` 2)
 bytes 4..5: transaction generation, little-endian, must be nonzero
 ```
 

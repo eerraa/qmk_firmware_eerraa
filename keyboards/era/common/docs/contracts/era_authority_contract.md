@@ -45,12 +45,17 @@ sustained suspend can close host-open and QMK can then stop forwarding
 
 ## Lighting Sleep Ownership
 
-RGB Sleep has one persisted master in QMK keymap configuration; default/CLEAN
-means enabled. Local sleep reasons are USB suspend, frame loss, and where the
-board defines it, input-idle timeout. Split frame loss uses
-`ERA_USB_SESSION_SOF_STALE_MS` 300. TOMAK-family timeout storage remains
-1..65535 seconds; legacy zero normalizes to the 600-second default. Board-level
-surface details are owned by `manuals/era_board_adoption.md`.
+RGB and backlight sleep each have a switch and an input-idle timeout, the
+same controls on every board and class. The RGB switch is persisted in QMK
+keymap configuration; the timeouts (1..65535 seconds, zero reads as the
+600-second default) and the backlight switch are the ERA block's lighting sleep
+record (`features/era_lighting_sleep.c`). Default/CLEAN means both enabled at
+600 seconds. Local sleep reasons are USB suspend, frame loss, and the
+input-idle timeout; a switch that is off disables every reason for its output.
+Sleep is an output gate: it never rewrites the lighting configuration, so a
+save during sleep stores the user's lighting. Split frame loss uses
+`ERA_USB_SESSION_SOF_STALE_MS` 300. Board-level surface details are owned by
+`manuals/era_board_adoption.md`.
 
 | Relation role | Lighting-sleep owner |
 | --- | --- |

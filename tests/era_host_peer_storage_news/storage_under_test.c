@@ -9,7 +9,7 @@
 #define ERA_SRAM_RESIDENT_IMAGE
 #define ERA_HOST_PEER_STORAGE_V1_ENABLE
 #define EECONFIG_KB_DATA_SIZE 256
-#define DYNAMIC_KEYMAP_LAYER_COUNT 4
+#define DYNAMIC_KEYMAP_LAYER_COUNT 6
 #define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE 16384
 
 // A 64-bit host cannot satisfy RP2040 pointer/layout assertions. The supported
@@ -120,7 +120,7 @@ bool era_test_news_take_result(uint8_t field) {
         .policy_generation = g_era_host_peer_storage_runtime.policy_generation,
         .transaction_generation = g_era_host_peer_storage_runtime.transaction_generation,
         .domain = g_era_host_peer_storage_runtime.domain,
-        .schema = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema = ERA_HOST_PEER_STORAGE_SCHEMA,
     };
     switch (field) {
         case 1: ++result.owner_epoch; break;

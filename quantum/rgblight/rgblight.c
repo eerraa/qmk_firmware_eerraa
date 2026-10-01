@@ -119,6 +119,7 @@ bool              is_rgblight_initialized = false;
 static bool is_suspended;
 static bool pre_suspend_enabled;
 #endif
+static bool output_suspended;
 
 #ifdef RGBLIGHT_USE_TIMER
 animation_status_t animation_status = {};
@@ -954,7 +955,36 @@ void rgblight_wakeup(void) {
 
 #endif
 
+void rgblight_set_output_suspend_state(bool suspended) {
+    if (output_suspended == suspended) {
+        return;
+    }
+    output_suspended = suspended;
+#ifdef ERA_RGBLIGHT_PULSE_ENABLE
+    if (suspended) {
+        era_rgblight_pulse_suspend();
+    } else {
+        era_rgblight_pulse_resume();
+    }
+#endif
+    /* Waking re-renders the current effect from its stored state. */
+    if (!suspended && rgblight_config.enable) {
+        rgblight_mode_noeeprom(rgblight_config.mode);
+    } else {
+        rgblight_set();
+    }
+}
+
+bool rgblight_get_output_suspend_state(void) {
+    return output_suspended;
+}
+
 void rgblight_set(void) {
+    if (output_suspended) {
+        rgblight_driver.set_color_all(0, 0, 0);
+        rgblight_driver.flush();
+        return;
+    }
     if (!rgblight_config.enable) {
         for (uint8_t i = rgblight_ranges.effect_start_pos; i < rgblight_ranges.effect_end_pos; i++) {
             rgblight_driver.set_color(rgblight_led_index(i), 0, 0, 0);
@@ -1554,6 +1584,9 @@ void preprocess_rgblight(void) {
 }
 
 void rgblight_task(void) {
+    if (output_suspended) {
+        return;
+    }
 #ifdef RGBLIGHT_USE_TIMER
     rgblight_timer_task();
 #endif

@@ -365,24 +365,21 @@ typedef struct {
 /* Schema tripwires. The geometry-independent anchors stay pinned to their
  * literal addresses so a QMK layout change fails here instead of moving the
  * portable image silently — they resolve to the same numbers on every ERA
- * board. The geometry pins that used to sit beside them (MATRIX_ROWS == 12,
- * MATRIX_COLS == 9, and the 864/1161 literals downstream) retired on
- * 2026-08-13 when schema 1 became the formula: the keymap image derives from
- * the board's own geometry on both cores, so those pins had stopped guarding
- * anything and started refusing boards (sirind/tomak, 12x11). What binds the
- * formula's one non-geometry factor is the first assert — the schema layer
+ * board. The keymap image derives from the board's own geometry on both
+ * cores, so no matrix size is pinned here. What binds the formula's one
+ * non-geometry factor is the first assert — the schema layer
  * literal core1 reads, against DYNAMIC_KEYMAP_LAYER_COUNT, which only core0
  * can see. The macro-base relation assert at the end is what a future
  * encoder arm reserving bytes between the two domains would fail. */
 _Static_assert(DYNAMIC_KEYMAP_LAYER_COUNT == ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS, "ERA storage schema layer literal drifted from DYNAMIC_KEYMAP_LAYER_COUNT.");
-_Static_assert(TOTAL_EEPROM_BYTE_COUNT == 24576U, "ERA storage schema v1 logical EEPROM size changed.");
-_Static_assert(ERA_EEPROM_CONFIG_ADDR == 37U, "ERA storage schema v1 ERA config base changed.");
-_Static_assert(EECONFIG_SIZE == ERA_EEPROM_QMK_CONFIG_SIZE, "ERA storage schema v1 QMK eeconfig prefix changed.");
-_Static_assert((uintptr_t)EECONFIG_DEFAULT_LAYER == 3U, "ERA storage schema v1 default-layer address changed.");
-_Static_assert((uintptr_t)EECONFIG_KEYMAP == 4U, "ERA storage schema v1 keymap-config address changed.");
-_Static_assert((uintptr_t)EECONFIG_RGB_MATRIX == 23U, "ERA storage schema v1 RGB Matrix address changed.");
-_Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 296U, "ERA storage schema v1 VIA layout-options address changed.");
-_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 297U, "ERA storage schema v1 dynamic keymap address changed.");
+_Static_assert(TOTAL_EEPROM_BYTE_COUNT == 24576U, "ERA storage schema logical EEPROM size changed.");
+_Static_assert(ERA_EEPROM_CONFIG_ADDR == 37U, "ERA storage schema ERA config base changed.");
+_Static_assert(EECONFIG_SIZE == ERA_EEPROM_QMK_CONFIG_SIZE, "ERA storage schema QMK eeconfig prefix changed.");
+_Static_assert((uintptr_t)EECONFIG_DEFAULT_LAYER == 3U, "ERA storage schema default-layer address changed.");
+_Static_assert((uintptr_t)EECONFIG_KEYMAP == 4U, "ERA storage schema keymap-config address changed.");
+_Static_assert((uintptr_t)EECONFIG_RGB_MATRIX == 23U, "ERA storage schema RGB Matrix address changed.");
+_Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 296U, "ERA storage schema VIA layout-options address changed.");
+_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 297U, "ERA storage schema dynamic keymap address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR == ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema v1: the macro domain no longer sits immediately after the keymap domain.");
 /* The seven size asserts below are also the core-boundary binding. Each
  * compares a layout expression only core0 can evaluate against the shared
@@ -390,16 +387,16 @@ _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR == ERA_HOST_PEER_STORAGE
  * change fails here, and correcting the macro carries core1 with it. They
  * were bare literals until Slice 10, which made them a second copy of
  * core1's literals rather than a check on them. */
-_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_BYTES == ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema v1 dynamic keymap size changed.");
-_Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES, "ERA storage schema v1 dynamic macro size changed.");
-_Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_HOST_PEER_STORAGE_IMAGE_BYTES, "ERA storage schema v1 macro domain no longer fits the shared image.");
-_Static_assert(VIA_EEPROM_LAYOUT_OPTIONS_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES, "ERA storage schema v1 VIA layout options size changed.");
-_Static_assert(sizeof(rgb_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES, "ERA storage schema v1 RGB Matrix config size changed.");
-_Static_assert(sizeof(keymap_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES, "ERA storage schema v1 keymap config size changed.");
-_Static_assert(sizeof(uint8_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES, "ERA storage schema v1 default-layer size changed.");
-_Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES, "ERA storage schema v1 ERA config size changed.");
+_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_BYTES == ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema dynamic keymap size changed.");
+_Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES, "ERA storage schema dynamic macro size changed.");
+_Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_HOST_PEER_STORAGE_IMAGE_BYTES, "ERA storage schema macro domain no longer fits the shared image.");
+_Static_assert(VIA_EEPROM_LAYOUT_OPTIONS_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES, "ERA storage schema VIA layout options size changed.");
+_Static_assert(sizeof(rgb_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES, "ERA storage schema RGB Matrix config size changed.");
+_Static_assert(sizeof(keymap_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES, "ERA storage schema keymap config size changed.");
+_Static_assert(sizeof(uint8_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES, "ERA storage schema default-layer size changed.");
+_Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES, "ERA storage schema ERA config size changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR + ERA_HOST_PEER_STORAGE_IMAGE_BYTES <= TOTAL_EEPROM_BYTE_COUNT,
-               "ERA storage schema v1 exceeds logical EEPROM.");
+               "ERA storage schema exceeds logical EEPROM.");
 /* Later state changes are narrated at ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES.
  * ERA NVM replacement removes the slice cursor, deferred-abort latch and
  * staged-old scratch, reducing this equality to the current 140-byte state.
@@ -421,37 +418,37 @@ static const era_host_peer_storage_domain_descriptor_t g_era_host_peer_storage_d
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG] = {
         .address = ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET,
         .size    = ERA_EEPROM_SYNCABLE_CONFIG_SIZE,
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP] = {
         .address = ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR,
         .size    = ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_BYTES,
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO] = {
         .address = ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR,
         .size    = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE,
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX] = {
         .address = ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR,
         .size    = sizeof(rgb_config_t),
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG] = {
         .address = ERA_STORAGE_EECONFIG_KEYMAP_ADDR,
         .size    = sizeof(keymap_config_t),
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER] = {
         .address = ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR,
         .size    = sizeof(uint8_t),
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS] = {
         .address = ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR,
         .size    = VIA_EEPROM_LAYOUT_OPTIONS_SIZE,
-        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA_V1,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
 };
 
@@ -1854,7 +1851,7 @@ static bool era_host_peer_storage_get_target_manifest(era_split_eeprom_sync_doma
     }
 
     *entry = g_era_host_peer_storage_manifest[domain];
-    return entry->schema == ERA_HOST_PEER_STORAGE_SCHEMA_V1 &&
+    return entry->schema == ERA_HOST_PEER_STORAGE_SCHEMA &&
            entry->image_size == g_era_host_peer_storage_domains[domain].size &&
            (g_era_host_peer_storage_local.dirty_domain_mask & era_host_peer_storage_domain_mask(domain)) == 0;
 }
@@ -2369,7 +2366,7 @@ static bool era_host_peer_storage_submit_peer_request(const era_host_peer_storag
     request.image_size             = summary_episode ? 0 : descriptor->size;
     request.response_window_ms     = ERA_SPLIT_COMMUNICATION_CORE_STORAGE_RESPONSE_WINDOW_MS;
     request.domain                 = (uint8_t)domain;
-    request.schema                 = summary_episode ? ERA_HOST_PEER_STORAGE_SCHEMA_V1 : descriptor->schema;
+    request.schema                 = summary_episode ? ERA_HOST_PEER_STORAGE_SCHEMA : descriptor->schema;
 
     switch ((era_host_peer_storage_runtime_state_t)g_era_host_peer_storage_runtime.state) {
         case ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PROBE:
@@ -2507,7 +2504,7 @@ static bool era_host_peer_storage_peer_result_identity_matches(const era_split_c
            result->policy_generation == g_era_host_peer_storage_runtime.policy_generation &&
            result->transaction_generation == g_era_host_peer_storage_runtime.transaction_generation &&
            result->domain == g_era_host_peer_storage_runtime.domain &&
-           result->schema == ERA_HOST_PEER_STORAGE_SCHEMA_V1;
+           result->schema == ERA_HOST_PEER_STORAGE_SCHEMA;
 }
 
 static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_ms) {

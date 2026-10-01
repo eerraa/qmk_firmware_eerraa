@@ -8,6 +8,9 @@
 #ifdef ERA_RGB_SLEEP_MASTER_ENABLE
 #    include "../features/era_rgb_sleep.h"
 #endif
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+#    include "../features/era_lighting_sleep.h"
+#endif
 
 #ifdef VIA_ENABLE
 /* The one boundary check the ERA VIA surface has, and the reason it replaced
@@ -83,6 +86,11 @@ bool era_common_via_handle_system_command(uint8_t *data, uint8_t length) {
 
 #ifdef ERA_RGB_SLEEP_MASTER_ENABLE
     if (era_rgb_sleep_handle_via_command(data, length)) {
+        return true;
+    }
+#endif
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    if (era_lighting_sleep_handle_via_command(data, length)) {
         return true;
     }
 #endif

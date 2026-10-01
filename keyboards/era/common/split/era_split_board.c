@@ -50,15 +50,6 @@ __attribute__((weak)) void era_split_board_pre_init(void) {}
 
 __attribute__((weak)) void era_split_board_post_init(void) {}
 
-__attribute__((weak)) uint16_t era_split_board_rgb_sleep_timeout_seconds(void) {
-    return 0;
-}
-
-__attribute__((weak)) bool era_split_board_set_rgb_sleep_timeout_seconds(uint16_t seconds) {
-    (void)seconds;
-    return false;
-}
-
 /* housekeeping_task_kb is not optional on an ERA board, and the split flavour
    of that fact is the same one the non-split skeleton carries:
    `era_split_keyboard_task()` calls `era_common_features_task()` first, and

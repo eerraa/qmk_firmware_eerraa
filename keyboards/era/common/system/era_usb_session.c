@@ -64,14 +64,11 @@
 
 #include "era_usb_session.h"
 #include "era_usb_session_policy.h"
-#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
-#    include "../features/era_rgb_sleep.h"
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+#    include "../features/era_lighting_sleep.h"
 #endif
 
 #include "era_board_hooks.h" /* era_board_persistence_flush_pending(), for the suspend hook below */
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-#    include "../features/era_backlight.h"
-#endif
 #include "quantum.h"
 #include "suspend.h"
 #include "timer.h"
@@ -133,10 +130,6 @@ static bool     era_usb_session_sof_isr_owned;
    instant instead of taking its own reading — its thresholds are hundreds of
    milliseconds, so a value one pass old is the same answer. */
 static uint32_t era_usb_session_sampled_now_us;
-
-#if !defined(SPLIT_KEYBOARD)
-static bool era_usb_session_applied;
-#endif
 
 /* Zero is the never-stamped sentinel as well as a timestamp, so a real zero
    reading is stamped 1. The cost is at most 1 us per 71.6-minute wrap. */
@@ -324,83 +317,43 @@ bool era_usb_session_frames_lost(void) {
 }
 
 #if !defined(SPLIT_KEYBOARD)
-/* A non-split board keeps QMK's own suspend loop - it does not set
-   NO_USB_STARTUP_CHECK, which is the switch that deletes it and the reason the
-   split layer had to rebuild this decision from parts. So this unit adds the
-   frame-loss arm to that loop rather than replacing it, and the two agree by
-   construction: both mean sleep, and both drive the same two quantum entry
-   points, so a board's lighting cannot end up half-suspended.
+/* A non-split board keeps QMK's own suspend loop -- it does not set
+ * NO_USB_STARTUP_CHECK, which is the switch that deletes it. While that loop
+ * runs keyboard_task() does not, so the kb hooks below carry the explicit
+ * suspend edge, and the 1 ms task carries frame loss (a dead host behind a
+ * powered hub never reaches that loop) and the input-idle timeouts. Every
+ * caller hands the same facts to era_lighting_sleep_update(), whose gates are
+ * idempotent, so the lighting ends up the same whoever drove it last.
+ * ERA_LIGHTING_SLEEP_OWNED keeps QMK's own suspend entries off the outputs.
  *
- * Ordering matters in exactly one direction. While QMK's loop is running,
- * keyboard_task() does not, so this task does not run either and the loop owns
- * the decision. What this arm is for is the moment after that loop exits with
- * the bus still dead: suspend_wakeup_init_quantum() has just turned the
- * lighting back on, frames are still absent, and one pass later this puts it
- * back out.
- *
- * The two hooks below are what make that repeatable rather than a one-shot.
- * They track what actually happened to the lighting whoever drove it, so this
- * unit never has to guess whether QMK's loop moved it underneath. They are
- * defined only for a non-split build: the three sirind split boards define
- * their own, and a future non-split board that wants them will fail the link
- * rather than silently lose one of these assignments. */
+ * Defined only for a non-split build: the split boards define their own, and
+ * a future non-split board that wants them fails the link rather than
+ * silently losing one of these calls. */
 void suspend_power_down_kb(void) {
-    /* Ahead of everything suspend_power_down_quantum() is about to do, which is
-     * the only ordering this call needs and the reason it is here rather than
-     * on the wake side: that function writes `backlight_level_noeeprom(0)` and
-     * runs `rgblight_suspend()` a few statements below this hook, and both put
-     * a zero into a live config object without approving persistence. A quiet
-     * gate still holding an approved write would serialise that zero half a
-     * second later, because the housekeeping cadence keeps running while the
-     * host is asleep. Committing first is what keeps a suspend from rewriting
-     * the setting the user just made.
-     *
-     * Non-split only, like the rest of this block, and that is scoped rather
-     * than partial: the split class compiles neither of those two writers --
-     * the three boards in it are RGB Matrix, whose suspend touches a separate
-     * flag and not `rgb_matrix_config` -- so the only gate live there holds a
-     * record suspend cannot reach. A split board that ever gained a backlight
-     * or an underglow surface would need this call on that side too. */
+    /* A suspended host may cut power; commit an approved write first. */
     era_board_persistence_flush_pending();
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-    /* Cancel a Pulse before QMK zeros its live backlight config. Frame-loss
-       sleep keeps keyboard_task() running, so without this state gate the
-       one-shot callback could otherwise re-light the rail after QMK darkened
-       it. */
-    era_backlight_suspend();
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    era_lighting_sleep_update(true, era_usb_session_frames_lost(), last_matrix_activity_elapsed());
 #endif
-    era_usb_session_applied = true;
     suspend_power_down_user();
 }
 
 void suspend_wakeup_init_kb(void) {
-    era_usb_session_applied = false;
     /* Non-split only, and that is not an oversight: the frozen-age window this
        closes is created by QMK's suspend loop stopping keyboard_task(), and a
        split board deletes that loop with NO_USB_STARTUP_CHECK. There the
        sampler never stops, so there is no frozen age to restamp. */
     era_usb_session_note_resume();
-#ifdef ERA_BACKLIGHT_EFFECT_ENABLE
-    /* QMK restored the stored backlight level before reaching this kb hook. */
-    era_backlight_resume();
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    era_lighting_sleep_update(false, era_usb_session_frames_lost(), last_matrix_activity_elapsed());
 #endif
     suspend_wakeup_init_user();
 }
 
 static void era_usb_session_apply(void) {
-    bool sleep = era_usb_session_frames_lost();
-#ifdef ERA_RGB_SLEEP_MASTER_ENABLE
-    sleep = sleep && era_rgb_sleep_enabled();
+#ifdef ERA_LIGHTING_SLEEP_ENABLE
+    era_lighting_sleep_update(usb_device_state_get_configure_state() == USB_DEVICE_STATE_SUSPEND, era_usb_session_frames_lost(), last_matrix_activity_elapsed());
 #endif
-    if (sleep == era_usb_session_applied) {
-        return;
-    }
-
-    if (sleep) {
-        suspend_power_down_quantum();
-    } else {
-        suspend_wakeup_init_quantum();
-    }
 }
 #endif
 

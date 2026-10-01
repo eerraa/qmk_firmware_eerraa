@@ -172,6 +172,23 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   compatibility decision must reconcile the source statement and this contract
   first.
 
+## Official VIA Definitions
+
+- Every user-facing feature MUST be usable from stock VIA (usevia.app) with the
+  board's official `*-VIA.json` loaded as a draft definition, without the ERA
+  app. A value stock VIA cannot present well, such as an exact 1 ms term or
+  1 s timeout, may have an app-only control, but the same setting stays
+  reachable through a stock control (a preset dropdown). App-only controls are
+  additive, never the only path. H7S states the same requirement.
+- Lighting lives under a top-level `Lighting` menu whose submenus are named for
+  where the LEDs are (`Per-Key RGB`, `Underglow`, `Backlight`, `Badge`, Riley's
+  `RGB LEDs`), never for the engine. Lock indication is chosen by `Indicator` /
+  `Indicator N` dropdowns whose value 0 reads `RGB Effect` where the LED also
+  shows the effect and `Off` on a dedicated LED. RGB Matrix effect lists are
+  explicit and follow the firmware mode order, because VIA's built-in list does
+  not match the enabled effects. `tests/era_firmware_version/test_definitions.py`
+  enforces this; H7S uses the same names.
+
 ## Stop Conditions
 
 Stop and require an explicit owning-contract change before implementing any of

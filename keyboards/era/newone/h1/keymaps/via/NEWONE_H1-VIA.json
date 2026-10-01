@@ -27,6 +27,13 @@
             },
             {
               "showIf": "{id_qmk_socd_lr_enable} == 1",
+              "label": "Left/Right Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_lr_mode", 10, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Left Priority", 4], ["Right Priority", 5]]
+            },
+            {
+              "showIf": "{id_qmk_socd_lr_enable} == 1",
               "label": "Left Key",
               "type": "keycode",
               "content": ["id_qmk_socd_left", 10, 2]
@@ -41,6 +48,13 @@
               "label": "Up/Down Enable",
               "type": "toggle",
               "content": ["id_qmk_socd_ud_enable", 11, 1]
+            },
+            {
+              "showIf": "{id_qmk_socd_ud_enable} == 1",
+              "label": "Up/Down Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_ud_mode", 11, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Up Priority", 4], ["Down Priority", 5]]
             },
             {
               "showIf": "{id_qmk_socd_ud_enable} == 1",

@@ -15,12 +15,56 @@
   ],
   "keycodes": ["qmk_rgb_matrix_keycodes"],
   "menus": [
-    "qmk_rgb_matrix",
     {
-      "label": "INDICATOR",
+      "label": "Lighting",
       "content": [
         {
-          "label": "Lock Indicators",
+          "label": "Per-Key RGB",
+          "content": [
+            {
+              "showIf": "{id_qmk_rgb_matrix_effect} != 0",
+              "label": "Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_rgb_matrix_brightness", 3, 1]
+            },
+            {
+              "label": "Effect",
+              "type": "dropdown",
+              "content": ["id_qmk_rgb_matrix_effect", 3, 2],
+              "options": [
+                ["All Off", 0], ["Solid Color", 1], ["Alphas Mods", 2], ["Gradient Up/Down", 3],
+                ["Gradient Left/Right", 4], ["Breathing", 5], ["Band Sat.", 6], ["Band Val.", 7], ["Pinwheel Sat.", 8],
+                ["Pinwheel Val.", 9], ["Spiral Sat.", 10], ["Spiral Val.", 11], ["Cycle All", 12],
+                ["Cycle Left/Right", 13], ["Cycle Up/Down", 14], ["Rainbow Moving Chevron", 15], ["Cycle Out/In", 16],
+                ["Cycle Out/In Dual", 17], ["Cycle Pinwheel", 18], ["Cycle Spiral", 19], ["Dual Beacon", 20],
+                ["Rainbow Beacon", 21], ["Rainbow Pinwheels", 22], ["Flower Blooming", 23], ["Raindrops", 24],
+                ["Jellybean Raindrops", 25], ["Hue Breathing", 26], ["Hue Pendulum", 27], ["Hue Wave", 28],
+                ["Pixel Rain", 29], ["Pixel Flow", 30], ["Pixel Fractal", 31], ["Typing Heatmap", 32],
+                ["Digital Rain", 33], ["Solid Reactive Simple", 34], ["Solid Reactive", 35], ["Solid Reactive Wide", 36],
+                ["Solid Reactive Multi Wide", 37], ["Solid Reactive Cross", 38], ["Solid Reactive Multi Cross", 39],
+                ["Solid Reactive Nexus", 40], ["Solid Reactive Multi Nexus", 41], ["Splash", 42], ["Multi Splash", 43],
+                ["Solid Splash", 44], ["Solid Multi Splash", 45], ["Starlight Smooth", 46], ["Starlight", 47],
+                ["Starlight Dual Sat.", 48], ["Starlight Dual Hue.", 49], ["Riverflow", 50]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_rgb_matrix_effect} != 0",
+              "label": "Effect Speed",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_rgb_matrix_effect_speed", 3, 3]
+            },
+            {
+              "showIf": "{id_qmk_rgb_matrix_effect} != 0 && {id_qmk_rgb_matrix_effect} != 24 && {id_qmk_rgb_matrix_effect} != 25 && {id_qmk_rgb_matrix_effect} != 29 && {id_qmk_rgb_matrix_effect} != 30",
+              "label": "Color",
+              "type": "color",
+              "content": ["id_qmk_rgb_matrix_color", 3, 4]
+            }
+          ]
+        },
+        {
+          "label": "Indicators",
           "content": [
             {
               "label": "Indicator Enable",
@@ -29,11 +73,11 @@
             },
             {
               "showIf": "{id_qmk_custom_ind_enable} == 1",
-              "label": "Indicator 1 Select",
+              "label": "Indicator 1",
               "type": "dropdown",
               "content": ["id_qmk_custom_ind_1_select", 0, 7],
               "options": [
-                ["Off", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
+                ["RGB Effect", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
               ]
             },
             {
@@ -51,11 +95,11 @@
             },
             {
               "showIf": "{id_qmk_custom_ind_enable} == 1",
-              "label": "Indicator 2 Select",
+              "label": "Indicator 2",
               "type": "dropdown",
               "content": ["id_qmk_custom_ind_2_select", 0, 10],
               "options": [
-                ["Off", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
+                ["RGB Effect", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
               ]
             },
             {
@@ -88,6 +132,13 @@
             },
             {
               "showIf": "{id_qmk_socd_lr_enable} == 1",
+              "label": "Left/Right Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_lr_mode", 10, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Left Priority", 4], ["Right Priority", 5]]
+            },
+            {
+              "showIf": "{id_qmk_socd_lr_enable} == 1",
               "label": "Left Key",
               "type": "keycode",
               "content": ["id_qmk_socd_left", 10, 2]
@@ -102,6 +153,13 @@
               "label": "Up/Down Enable",
               "type": "toggle",
               "content": ["id_qmk_socd_ud_enable", 11, 1]
+            },
+            {
+              "showIf": "{id_qmk_socd_ud_enable} == 1",
+              "label": "Up/Down Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_socd_ud_mode", 11, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Up Priority", 4], ["Down Priority", 5]]
             },
             {
               "showIf": "{id_qmk_socd_ud_enable} == 1",
@@ -634,6 +692,15 @@
               "label": "RGB Sleep",
               "type": "toggle",
               "content": ["id_qmk_rgb_sleep_enable", 9, 12]
+            },
+            {
+              "label": "RGB Sleep Timeout",
+              "type": "dropdown",
+              "showIf": "{id_qmk_rgb_sleep_enable} == 1",
+              "options": [
+                ["1 min", 1], ["3 min", 3], ["5 min", 5], ["10 min", 10], ["30 min", 30], ["60 min", 60]
+              ],
+              "content": ["id_qmk_rgb_sleep_timeout", 9, 10]
             }
           ]
         },

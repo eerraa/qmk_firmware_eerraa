@@ -166,15 +166,11 @@ void era_board_housekeeping_tick(void) {
    an SWD reset, a watchdog and a power cut keep the exposure the quiet interval
    has always had, which is the trade a deferral is.
 
-   *A suspend* is worse than losing it, because the host going away is not a
-   persist approval and yet it rewrites the very objects a pending flush would
-   serialise: `suspend_power_down_quantum()` calls `backlight_level_noeeprom(0)`
-   and `rgblight_suspend()`, and both write the live config object -- level and
-   `enable` to zero. The housekeeping cadence keeps running while suspended, so
-   a gate armed 400 ms before the host slept would fire 100 ms after it and
-   store the darkness as the user's setting. The suspend caller is
-   `suspend_power_down_kb()` in `system/era_usb_session.c`, which
-   `suspend_power_down_quantum()` runs *before* either of those writes.
+   *A suspend* commits too: a suspended host may cut power. Lighting sleep
+   writes no live config object -- ERA's output gates leave level and `enable`
+   alone (`features/era_lighting_sleep.c`) -- so what this caller protects is
+   the approved write itself. It is `suspend_power_down_kb()` in
+   `system/era_usb_session.c`.
 
    **Nothing is written for a gate that holds nothing**, which is what makes
    both callers safe rather than merely early. `eeconfig_force_flush_rgb_matrix()`

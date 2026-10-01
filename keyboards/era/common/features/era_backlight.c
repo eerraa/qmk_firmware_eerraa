@@ -278,12 +278,10 @@ void era_backlight_suspend(void) {
     era_backlight_pulse_suspend(&backlight_pulse_state);
     backlight_apply_due = false;
 #if defined(BACKLIGHT_BREATHING)
-    /* QMK's generic suspend writes backlight level zero but does not stop the
-       ChibiOS breathing virtual timer. Cancel it here before the generic path
-       darkens the PWM rail, otherwise its ISR can enable the channel again
-       while the host is asleep. `breathing_disable()` briefly restores the
-       live level; `suspend_power_down_quantum()` writes zero immediately after
-       this kb hook returns. */
+    /* Stop the ChibiOS breathing virtual timer before the rail goes dark,
+       otherwise its ISR can enable the channel again while asleep.
+       `breathing_disable()` briefly restores the live level; the caller writes
+       zero right after. */
     if (is_breathing()) {
         breathing_disable();
     }
@@ -294,11 +292,19 @@ void era_backlight_resume(void) {
     chVTReset(&backlight_pulse_vt);
     backlight_pulse_timer_due = false;
     era_backlight_pulse_resume(&backlight_pulse_state);
-    /* QMK has already restored its stored brightness before the kb wake hook.
-       Apply immediately so Pulse On modes do not flash their normally-dark
+    /* Apply immediately so Pulse On modes do not flash their normally-dark
        rail for a whole keyboard pass. */
     era_backlight_apply();
     backlight_apply_due = false;
+}
+
+void era_backlight_set_sleep(bool sleep) {
+    if (sleep) {
+        era_backlight_suspend();
+        era_backlight_apply();
+    } else {
+        era_backlight_resume();
+    }
 }
 
 void era_backlight_refresh_output(void) {
