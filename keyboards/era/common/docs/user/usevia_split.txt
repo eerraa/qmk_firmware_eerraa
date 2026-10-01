@@ -12,6 +12,9 @@ Split Official VIA Guide
 
 ■ 공식 VIA 시작
 
+이 릴리스와 같은 메이커·보드 ZIP에 동봉된 JSON을 사용하십시오.
+이전 USB 식별자 0x4552용 JSON은 새 메이커 식별자와 맞지 않습니다.
+
 1. https://usevia.app 에 접속합니다.
 2. SETTINGS에서 Show Design tab을 켭니다.
 3. DESIGN -> Load Draft Definition에서 현재 USB에 연결할 유닛의 VIA JSON을
@@ -185,6 +188,9 @@ English
 ----------------------------------------------------------------------
 
 ■ Starting Official VIA
+
+Use the JSON bundled with this release for the same maker and board.
+An older JSON for USB vendor ID 0x4552 does not match the new maker identity.
 
 1. Open https://usevia.app.
 2. Enable Show Design tab in SETTINGS.

@@ -128,7 +128,7 @@ ERA_VECTOR_DEFAULT(SysTick_Handler);     /* slot 15 */
  * TRUE and at least one RP_PWM_USE_PWMn is TRUE, so that is what is mirrored
  * here; the two together is what the strong definition below must not collide
  * with. Every ERA board with QMK `backlight` on hardware PWM is in that case --
- * divine, era65, linx3/n8x, sirind/klein_hs and sirind/klein_sd -- and this
+ * DIVINE, ERA65, N8X, KLEIN_HS and KLEIN_SD -- and this
  * file claimed the slot unconditionally until 2026-08-11, which is what made
  * the copy-to-RAM bundle a duplicate-symbol link failure on all five. */
 #if (HAL_USE_PWM == TRUE) &&                                                   \
@@ -186,7 +186,7 @@ ERA_VECTOR_DEFAULT(Vector68); /* IRQ 10 PIO1_IRQ_1    */
  * matrix engine.
  *
  * That last emitter is why the branch below currently reaches no ERA board.
- * divine, era65, linx3/n8x and sirind/klein_hs were the case until 2026-08-16:
+ * DIVINE, ERA65, N8X and KLEIN_HS were the case until 2026-08-16:
  * QMK `backlight` on hardware PWM, no addressable LED anywhere, no DMA driver,
  * and both slots therefore resolving into the flash carve-out -- the .vectors
  * gate caught all four on their first copy-to-RAM link, which is what that gate

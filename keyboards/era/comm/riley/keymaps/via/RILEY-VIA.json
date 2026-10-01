@@ -1,7 +1,7 @@
 {
   "name": "Riley",
-  "vendorId": "0x4552",
-  "productId": "0x0024",
+  "vendorId": "0x4500",
+  "productId": "0x0004",
   "matrix": { "rows": 5, "cols": 14 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

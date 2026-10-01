@@ -161,6 +161,20 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   protocol ids, persisted VIA definitions, and diagnostic/capture ids — MUST NOT
   be silently recycled after retirement. Releasing one requires the owning
   compatibility contract plus affected decoders/fixtures to change together.
+- A USB identity (VID, PID) is such an identifier: host drivers, browser
+  WebHID grants, the official VIA registry and the ERA app all match on it.
+  Each maker owns one VID; the VID block, the PID sequence and the split-half
+  PIDs are allocated by `the-via-eerraa/docs/adr/0004-firmware-distribution.md`.
+  The formerly shared ERA VID `0x4552` and every PID issued under it are
+  retired and are never assigned again, not even to the product that held
+  them. A board several makers sell is built once per maker, and those images
+  differ only in USB identity and manufacturer string: no firmware logic may
+  depend on the VID or PID value. The live values are each target's
+  `keyboard.json` `usb` block and a split board's
+  `ERA_SPLIT_USB_IDENTITY_PID_LEFT` / `ERA_SPLIT_USB_IDENTITY_PID_RIGHT`;
+  `tests/era_firmware_version/test_definitions.py` pins them and refuses a
+  repeat. The `0x4552…` words such as `ERA_EEPROM_RESET_KEY` are ASCII storage
+  magic, not USB identities.
 - A new VIA channel/value claim MUST be checked against every live claimant in
   that namespace. Dispatcher order does not make an unintended overlap safe;
   an overlap is valid only when the owning build/feature contract makes the
@@ -188,6 +202,13 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   explicit and follow the firmware mode order, because VIA's built-in list does
   not match the enabled effects. `tests/era_firmware_version/test_definitions.py`
   enforces this; H7S uses the same names.
+- An official JSON's `vendorId`/`productId` equal the USB identity its target
+  enumerates with (on a split board, the L JSON the left half's and the R JSON
+  the right half's), because stock VIA pairs a draft definition with the
+  device by that pair.
+  Each maker target of a shared board body ships its own copy, identical to
+  the other makers' except for those two fields.
+  `tests/era_firmware_version/test_definitions.py` enforces both.
 
 ## Stop Conditions
 

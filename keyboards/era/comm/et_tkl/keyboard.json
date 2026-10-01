@@ -1,5 +1,5 @@
 {
-  "manufacturer": "eerraa",
+  "manufacturer": "ERA",
   "keyboard_name": "eT_TKL",
   "maintainer": "eerraa",
   "backlight": {
@@ -56,8 +56,8 @@
   "processor": "RP2040",
   "usb": {
     "device_version": "1.0.0",
-    "pid": "0x0021",
-    "vid": "0x4552"
+    "pid": "0x0003",
+    "vid": "0x4500"
   },
   "community_layouts": [
     "tkl_ansi_tsangan",

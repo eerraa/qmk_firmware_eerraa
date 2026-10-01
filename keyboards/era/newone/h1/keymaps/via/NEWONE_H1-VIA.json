@@ -1,7 +1,7 @@
 {
   "name": "NEWONE_H1",
-  "vendorId": "0x4552",
-  "productId": "0x0027",
+  "vendorId": "0x4503",
+  "productId": "0x0002",
   "matrix": { "rows": 6, "cols": 17 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

@@ -1,7 +1,7 @@
 {
   "name": "7B75",
-  "vendorId": "0x4552",
-  "productId": "0x0016",
+  "vendorId": "0x4500",
+  "productId": "0x0002",
   "matrix": { "rows": 6, "cols": 16 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

@@ -67,6 +67,12 @@ Cross-build non-reuse and the unresolved mode 5/6 question are owned by
 | --- | --- | --- |
 | link level, Apply and read-only link presentation | `split/era_split_via_link.h`; `split/era_split_link.c` — `era_split_link_pending_level()` | `split/era_split_link.h` **Reconciliation**; `contracts/era_route_contract.md` **Agreed Restart And Link Convergence** |
 
+## USB Identity
+
+| Responsibility | First source file / symbol | Contract / check |
+| --- | --- | --- |
+| a target's VID, PID and manufacturer string | the target's `keyboard.json` (`usb`, `manufacturer`); a split half's PID: `ERA_SPLIT_USB_IDENTITY_PID_LEFT` / `ERA_SPLIT_USB_IDENTITY_PID_RIGHT` in the board `config.h`, applied by `split/era_split_usb_identity.c` | `contracts/era_invariants.md` **Identifier Compatibility**; maker VID block and PID allocation: `the-via-eerraa/docs/adr/0004-firmware-distribution.md`; `tests/era_firmware_version/test_definitions.py` |
+
 ## USB Session
 
 | Responsibility | First source file / symbol | Contract / check |

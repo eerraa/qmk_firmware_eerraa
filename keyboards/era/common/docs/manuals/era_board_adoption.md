@@ -128,16 +128,32 @@ than inventing a second quiet-save mechanism.
 
 A new board provides:
 
-- `keyboard.json` for QMK-owned matrix, pins, layouts and lighting capability;
+- `keyboard.json` for QMK-owned matrix, pins, layouts and lighting capability,
+  and for the maker's USB identity and `manufacturer` string; a split board
+  also names each half's PID in `config.h`. Allocation follows
+  `contracts/era_invariants.md` **Identifier Compatibility**;
 - `config.h` only for board facts, following `era_build_options.md` rules 2-4;
 - `post_rules.mk` with that board's explicit shipped feature choices above the
   ERA includes that read them; EEPROM-sync boards take **Storage Adoption**;
 - both `default` and `via` keymaps for every RP2040 ERA board;
-- an owner-authored `*-VIA.json` beside the VIA keymap. It is product content,
+- an owner-authored `*-VIA.json` beside the VIA keymap, or for a maker target
+  of a shared board body beside its `keyboard.json`. It is product content,
   not compiled firmware; keep the local Draft Definition usevia.app-compatible
   and put app-only controls in the app-owned definition instead;
 - a board `.c`/`.h` only for product-specific behavior or names that the
   common class and weak-hook surfaces do not own.
+
+A board that several makers sell keeps one body in `keyboards/era/shared/<board>/`:
+`info.json` in place of `keyboard.json`, `config.h`, `post_rules.mk`, the board
+header and both keymaps. Each maker is a child folder holding only a
+`keyboard.json` with `manufacturer` and `usb` and that maker's copy of the
+official JSON, and builds as `era/shared/<board>/<maker>`. QMK merges the parent
+`info.json` over the child and the parent wins a conflicting key, so the two
+never share one. Nothing QMK applies downward (`info.json`, `config.h`,
+`rules.mk`, `post_rules.mk`, `<folder>.c` or `.h`) may sit in a maker folder
+such as `sirind/`: it would reach every board below it, the ATmega32U4
+`sirind/brick65` included. `tests/era_firmware_version/test_definitions.py`
+checks both.
 
 The local Draft Definition is paired with the app-owned
 `the-via-eerraa/era-definitions/custom/v3` source; the `FEATURE_COVERAGE`

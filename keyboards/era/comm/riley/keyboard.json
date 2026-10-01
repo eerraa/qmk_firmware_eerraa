@@ -1,5 +1,5 @@
 {
-    "manufacturer": "eerraa",
+    "manufacturer": "ERA",
     "keyboard_name": "Riley",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
@@ -47,8 +47,8 @@
     "url": "",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0024",
-        "vid": "0x4552"
+        "pid": "0x0004",
+        "vid": "0x4500"
     },
     "ws2812": {
         "driver": "vendor",

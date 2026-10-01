@@ -1,7 +1,7 @@
 {
   "name": "Odessey60",
-  "vendorId": "0x4552",
-  "productId": "0x0032",
+  "vendorId": "0x4503",
+  "productId": "0x0003",
   "matrix": { "rows": 5, "cols": 15 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

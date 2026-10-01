@@ -25,6 +25,50 @@ VERSION_SUBMENU = {
 }
 BRICK65_BOARD = "sirind/brick65"
 SPLIT_BOARDS = ("sirind/tomak", "sirind/tomak79h", "sirind/tomak79s")
+# One USB VID per maker from the ERA maker block; the policy is the-via-eerraa
+# docs/adr/0004-firmware-distribution.md. The pairs below are the allocation as
+# decided: a number is never renumbered or reused, so a change here is a
+# compatibility decision, not a fix-up. A split target lists its product number n;
+# its halves report 0xA000 + n and 0xB000 + n.
+MAKER_VIDS = {
+    "ERA": 0x4500, "SR Industry": 0x4501, "LINWORKS": 0x4502, "NEWONE": 0x4503, "KEYNETIX": 0x4504, "CLASSIC.D": 0x4505,
+}
+USB_IDENTITIES = {
+    "comm/era65": ("ERA", 0x0001),
+    "comm/7b75": ("ERA", 0x0002),
+    "comm/et_tkl": ("ERA", 0x0003),
+    "comm/riley": ("ERA", 0x0004),
+    "sirind/divine": ("SR Industry", 0x0001),
+    "sirind/klein_hs": ("SR Industry", 0x0002),
+    "sirind/klein_sd": ("SR Industry", 0x0003),
+    "sirind/tomak": ("SR Industry", 0x0004),
+    "shared/n8x/sirind": ("SR Industry", 0x0005),
+    "shared/n86/sirind": ("SR Industry", 0x0006),
+    "shared/n87/sirind": ("SR Industry", 0x0007),
+    "sirind/brick65s": ("SR Industry", 0x0008),
+    "sirind/tomak79s": ("SR Industry", 0x0009),
+    "sirind/tomak79h": ("SR Industry", 0x000A),
+    "sirind/chickpad": ("SR Industry", 0x000B),
+    "shared/n8x/linworks": ("LINWORKS", 0x0001),
+    "shared/n86/linworks": ("LINWORKS", 0x0002),
+    "shared/n87/linworks": ("LINWORKS", 0x0003),
+    "linworks/fave65s": ("LINWORKS", 0x0004),
+    "newone/a1": ("NEWONE", 0x0001),
+    "newone/h1": ("NEWONE", 0x0002),
+    "newone/odessey60s": ("NEWONE", 0x0003),
+    "newone/odessey60h": ("NEWONE", 0x0004),
+    "shared/n8x/keynetix": ("KEYNETIX", 0x0001),
+    "shared/n86/keynetix": ("KEYNETIX", 0x0002),
+    "shared/n87/keynetix": ("KEYNETIX", 0x0003),
+    "classicd/classicd_core": ("CLASSIC.D", 0x0001),
+    "classicd/classicd_coreless": ("CLASSIC.D", 0x0002),
+    "classicd/classicd_a1": ("CLASSIC.D", 0x0003),
+    "classicd/classicd_a1_ug": ("CLASSIC.D", 0x0004),
+}
+# The ATmega32U4 Brick65 is not an ERA-built board and keeps its own identity.
+BRICK65_IDENTITY = ("SR industry", 0x5943, 0x0005)
+# Retired by the move to maker VIDs; the ERA app still recognises it on old firmware.
+LEGACY_ERA_VID = 0x4552
 RGB_SLEEP_ENABLE_COMMAND = ["id_qmk_rgb_sleep_enable", 9, 12]
 RGB_SLEEP_TIMEOUT_COMMAND = ["id_qmk_rgb_sleep_timeout", 9, 10]
 BACKLIGHT_SLEEP_ENABLE_COMMAND = ["id_qmk_backlight_sleep_enable", 9, 13]
@@ -38,12 +82,12 @@ LEGACY_LIGHTING_LABELS = {
 BUILTIN_LIGHTING_MENUS = {"qmk_rgb_matrix", "qmk_rgblight", "qmk_backlight", "qmk_backlight_rgblight"}
 # Value 0 of a lock-indicator dropdown: the LED shows the RGB effect when it is shared, or goes dark when dedicated.
 SHARED_INDICATOR_BOARDS = {
-    "comm/riley", "linx3/fave65s", "linx3/n86", "linx3/n87", "sirind/tomak", "sirind/tomak79h", "sirind/tomak79s",
+    "comm/riley", "linworks/fave65s", "shared/n86", "shared/n87", "sirind/tomak", "sirind/tomak79h", "sirind/tomak79s",
 }
 DEDICATED_INDICATOR_BOARDS = {"newone/odessey60h", "newone/odessey60s", "sirind/brick65s"}
 
 INDICATOR_COMMANDS = {
-    "linx3/n86": [
+    "shared/n86": [
         ["id_qmk_custom_ind_enable", 0, 6],
         ["id_qmk_custom_ind_1_select", 0, 7],
         ["id_qmk_custom_ind_1_brightness", 0, 8],
@@ -52,7 +96,7 @@ INDICATOR_COMMANDS = {
         ["id_qmk_custom_ind_2_brightness", 0, 11],
         ["id_qmk_custom_ind_2_color", 0, 12],
     ],
-    "linx3/n87": [
+    "shared/n87": [
         ["id_qmk_custom_ind_enable", 0, 6],
         ["id_qmk_custom_ind_1_select", 0, 7],
         ["id_qmk_custom_ind_1_brightness", 0, 8],
@@ -78,6 +122,38 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AssertionError(f"{path}: top-level JSON value is not an object")
     return value
+
+
+def deep_update(target: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    for key, value in update.items():
+        target[key] = deep_update(target.get(key, {}), value) if isinstance(value, dict) else value
+    return target
+
+
+def board_metadata(keyboard_json: Path) -> dict[str, Any]:
+    """What QMK builds: every parent info.json merged over the keyboard.json, as lib/python/qmk/info.py does."""
+    merged: dict[str, Any] = {}
+    chain = [keyboard_json]
+    for parent in keyboard_json.parent.parents:
+        if parent == ERA_KEYBOARDS.parent:
+            break
+        chain.append(parent / "info.json")
+    for path in chain:
+        if path.is_file():
+            deep_update(merged, load_json(path))
+    return merged
+
+
+def stock_definitions(board_dir: Path) -> list[Path]:
+    """A target's official VIA JSONs sit beside its VIA keymap, or, for a maker target of a
+    shared board body (whose keymaps are the body's), beside that target's keyboard.json."""
+    return sorted([*(board_dir / "keymaps" / "via").glob("*-VIA.json"), *board_dir.glob("*-VIA.json")])
+
+
+def board_family(board: str) -> str:
+    """Every maker target of a shared board body answers to that body: shared/n86/<maker> -> shared/n86."""
+    parts = board.split("/")
+    return "/".join(parts[:2]) if parts[0] == "shared" else board
 
 
 def walk_dicts(value: Any) -> Iterator[dict[str, Any]]:
@@ -136,18 +212,18 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
         for keyboard_json in cls.board_jsons:
             board_dir = keyboard_json.parent
             board = board_dir.relative_to(ERA_KEYBOARDS).as_posix()
-            cls.board_metadata[board] = load_json(keyboard_json)
-            cls.board_definitions[board] = sorted((board_dir / "keymaps" / "via").glob("*-VIA.json"))
+            cls.board_metadata[board] = board_metadata(keyboard_json)
+            cls.board_definitions[board] = stock_definitions(board_dir)
 
     def test_inventory_count_and_brick65_exclusion(self) -> None:
-        self.assertEqual(len(self.board_jsons), 25)
-        self.assertEqual(len(self.board_definitions), 25)
-        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 28)
+        self.assertEqual(len(self.board_jsons), 31)
+        self.assertEqual(len(self.board_definitions), 31)
+        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 34)
 
         rp2040_boards = [board for board, metadata in self.board_metadata.items() if metadata.get("processor") == "RP2040"]
-        self.assertEqual(len(rp2040_boards), 24)
+        self.assertEqual(len(rp2040_boards), 30)
         self.assertEqual(set(self.board_metadata) - set(rp2040_boards), {BRICK65_BOARD})
-        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 27)
+        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 33)
 
         for board, paths in self.board_definitions.items():
             split = bool(self.board_metadata[board].get("split", {}).get("enabled"))
@@ -171,41 +247,42 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual(matching_controls, [VERSION_CONTROL], path.as_posix())
                 checked += 1
 
-        self.assertEqual(checked, 27)
+        self.assertEqual(checked, 33)
 
     def test_layout_option_inventory_and_choice_tags(self) -> None:
         # A valid VIA definition can silently lose every optional layout label.
         # Keep the physical-layout inventory independent of the JSON being checked.
         expected = {
+            "classicd/classicd_a1": [2, 2, 2, 2, 2],
+            "classicd/classicd_a1_ug": [2, 2, 2, 2, 2],
+            "classicd/classicd_core": [2, 2, 2, 2, 2],
+            "classicd/classicd_coreless": [2, 2, 2, 2, 2],
             "comm/7b75": [2, 2, 2, 2],
-            "comm/classicd_a1": [2, 2, 2, 2, 2],
-            "comm/classicd_a1_ug": [2, 2, 2, 2, 2],
-            "comm/classicd_core": [2, 2, 2, 2, 2],
-            "comm/classicd_coreless": [2, 2, 2, 2, 2],
+            "comm/era65": [2, 2, 4],
             "comm/et_tkl": [2, 2, 2, 2],
             "comm/riley": [2, 2, 2, 2, 2],
-            "divine": [2, 2],
-            "era65": [2, 2, 4],
-            "linx3/fave65s": [2, 2, 2, 2],
-            "linx3/n86": [2, 2],
-            "linx3/n87": [2, 2],
-            "linx3/n8x": [2, 2, 2, 2, 2],
+            "linworks/fave65s": [2, 2, 2, 2],
             "newone/a1": [2, 2, 2, 2, 2],
             "newone/h1": [2, 2],
             "newone/odessey60h": [2, 2, 3],
             "newone/odessey60s": [2, 2, 2, 2, 3],
             "sirind/brick65": [2, 2],
             "sirind/brick65s": [2],
+            "shared/n86": [2, 2],
+            "shared/n87": [2, 2],
+            "shared/n8x": [2, 2, 2, 2, 2],
             "sirind/chickpad": [],
+            "sirind/divine": [2, 2],
             "sirind/klein_hs": [2, 3],
             "sirind/klein_sd": [2, 3],
             "sirind/tomak": [2, 2, 2],
             "sirind/tomak79h": [2],
             "sirind/tomak79s": [2, 2, 2],
         }
-        self.assertEqual(set(expected), set(self.board_definitions))
-        for board, counts in expected.items():
-            for path in self.board_definitions[board]:
+        self.assertEqual(set(expected), {board_family(board) for board in self.board_definitions})
+        for board, paths in self.board_definitions.items():
+            counts = expected[board_family(board)]
+            for path in paths:
                 with self.subTest(path=path.as_posix()):
                     layout = load_json(path)["layouts"]
                     labels = layout.get("labels", [])
@@ -511,14 +588,20 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 )
 
     def test_indicator_controls_have_the_required_v3_wrapper(self) -> None:
-        for board, expected_commands in INDICATOR_COMMANDS.items():
-            [path] = self.board_definitions[board]
+        checked = set()
+        for board, paths in self.board_definitions.items():
+            expected_commands = INDICATOR_COMMANDS.get(board_family(board))
+            if expected_commands is None:
+                continue
+            checked.add(board_family(board))
+            [path] = paths
             wrapper = named_submenu(load_json(path), "Lighting", "Indicators")
             self.assertNotIn("type", wrapper, path.as_posix())
             controls = wrapper.get("content")
             self.assertIsInstance(controls, list, path.as_posix())
             self.assertEqual([control.get("content") for control in controls], expected_commands, path.as_posix())
             self.assertTrue(all(isinstance(control.get("type"), str) for control in controls), path.as_posix())
+        self.assertEqual(checked, set(INDICATOR_COMMANDS))
 
     def test_lighting_menus_use_the_shared_names(self) -> None:
         indicator_label = re.compile(r"Indicator(?: \d)?")
@@ -536,9 +619,9 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                     for node in walk_dicts(definition)
                     if node.get("type") == "dropdown" and indicator_label.fullmatch(str(node.get("label")))
                 ]
-                if board in SHARED_INDICATOR_BOARDS:
+                if board_family(board) in SHARED_INDICATOR_BOARDS:
                     zero = "RGB Effect"
-                elif board in DEDICATED_INDICATOR_BOARDS:
+                elif board_family(board) in DEDICATED_INDICATOR_BOARDS:
                     zero = "Off"
                 else:
                     self.assertEqual(selectors, [], path.as_posix())
@@ -569,12 +652,124 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual([option[1] for option in options], list(range(len(options))), path.as_posix())
                 self.assertEqual([effect_key(option[0]) for option in options], expected, path.as_posix())
                 checked += 1
-        self.assertEqual(checked, 11)
+        self.assertEqual(checked, 15)
+
+    def test_shared_board_bodies_leave_only_the_identity_to_each_maker_target(self) -> None:
+        # QMK merges a parent info.json over the keyboard.json below it and the parent
+        # wins a conflicting key, so the two must not share one.
+        bodies = sorted(path.parent for path in (ERA_KEYBOARDS / "shared").glob("*/info.json"))
+        self.assertGreater(len(bodies), 0)
+        for body in bodies:
+            self.assertFalse((body / "keyboard.json").exists(), body.as_posix())
+            self.assertTrue({"manufacturer", "usb"}.isdisjoint(load_json(body / "info.json")), body.as_posix())
+            makers = sorted(path.parent for path in body.glob("*/keyboard.json"))
+            self.assertGreater(len(makers), 0, body.as_posix())
+            for maker in makers:
+                self.assertEqual(set(load_json(maker / "keyboard.json")), {"manufacturer", "usb"}, maker.as_posix())
+                entries = sorted(maker.iterdir())
+                self.assertTrue(all(entry.is_file() for entry in entries), maker.as_posix())
+                self.assertEqual(
+                    [entry.name for entry in entries if entry.name != "keyboard.json"],
+                    [path.name for path in stock_definitions(maker)],
+                    maker.as_posix(),
+                )
+
+    def test_no_build_file_reaches_more_than_one_board(self) -> None:
+        # QMK applies every parent folder's info.json, config.h, rules.mk, post_rules.mk and
+        # <folder>.c/.h to each board below it. Only a shared board body may hold them;
+        # anything at a maker folder would also reach that maker's other boards, brick65 included.
+        for keyboard_json in self.board_jsons:
+            for folder in keyboard_json.parent.parents:
+                if folder == ERA_KEYBOARDS.parent:
+                    break
+                if folder.parent == ERA_KEYBOARDS / "shared":
+                    continue
+                inherited = {
+                    "info.json", "keyboard.json", "config.h", "post_config.h", "rules.mk", "post_rules.mk",
+                    f"{folder.name}.c", f"{folder.name}.h",
+                }
+                with self.subTest(folder=folder.relative_to(ROOT).as_posix()):
+                    self.assertEqual({name for name in inherited if (folder / name).exists()}, set())
+
+    def split_half_pids(self, board: str) -> tuple[int, int]:
+        config = (ERA_KEYBOARDS / board / "config.h").read_text(encoding="utf-8")
+        return tuple(
+            int(re.search(rf"^#define ERA_SPLIT_USB_IDENTITY_PID_{side}\s+(0x[0-9A-Fa-f]+)\s*$", config, re.M).group(1), 16)
+            for side in ("LEFT", "RIGHT")
+        )
+
+    def device_identities(self, board: str) -> list[tuple[int, int]]:
+        """What the image enumerates as: one pair, or the left then the right half of a split."""
+        usb = self.board_metadata[board]["usb"]
+        vid = int(usb["vid"], 16)
+        if board in SPLIT_BOARDS:
+            return [(vid, pid) for pid in self.split_half_pids(board)]
+        return [(vid, int(usb["pid"], 16))]
+
+    def test_every_target_reports_its_makers_allocated_usb_identity(self) -> None:
+        self.assertEqual(set(USB_IDENTITIES), set(self.board_metadata) - {BRICK65_BOARD})
+        split = {board for board, metadata in self.board_metadata.items() if metadata.get("split", {}).get("enabled")}
+        self.assertEqual(split, set(SPLIT_BOARDS))
+        for board, (maker, number) in USB_IDENTITIES.items():
+            metadata = self.board_metadata[board]
+            with self.subTest(board=board):
+                self.assertEqual(metadata.get("manufacturer"), maker)
+                self.assertEqual(int(metadata["usb"]["vid"], 16), MAKER_VIDS[maker])
+                self.assertEqual(int(metadata["usb"]["pid"], 16), number)
+                if board in SPLIT_BOARDS:
+                    self.assertEqual(self.split_half_pids(board), (0xA000 + number, 0xB000 + number))
+        brick65 = self.board_metadata[BRICK65_BOARD]
+        self.assertEqual(
+            (brick65["manufacturer"], int(brick65["usb"]["vid"], 16), int(brick65["usb"]["pid"], 16)), BRICK65_IDENTITY
+        )
+
+    def test_no_usb_identity_repeats_or_returns_to_the_legacy_vid(self) -> None:
+        seen: dict[tuple[int, int], str] = {}
+        for board in self.board_metadata:
+            usb = self.board_metadata[board]["usb"]
+            # A split board never enumerates its product number, but the number is spent all the same.
+            product = (int(usb["vid"], 16), int(usb["pid"], 16))
+            for identity in sorted(set(self.device_identities(board)) | {product}):
+                with self.subTest(board=board, identity=f"{identity[0]:04X}:{identity[1]:04X}"):
+                    self.assertNotIn(identity, seen)
+                    self.assertNotEqual(identity[0], LEGACY_ERA_VID)
+                seen[identity] = board
+
+    def test_every_official_definition_carries_its_targets_usb_identity(self) -> None:
+        # Stock VIA matches a draft definition to the connected device by this pair.
+        for board, paths in self.board_definitions.items():
+            identities = self.device_identities(board)
+            if board in SPLIT_BOARDS:
+                self.assertEqual([path.name.rsplit("-", 2)[-2] for path in paths], ["L", "R"], board)
+            self.assertEqual(len(paths), len(identities), board)
+            for path, (vid, pid) in zip(paths, identities):
+                definition = load_json(path)
+                with self.subTest(path=path.relative_to(ROOT).as_posix()):
+                    self.assertEqual((int(definition["vendorId"], 16), int(definition["productId"], 16)), (vid, pid))
+
+    def test_maker_copies_of_a_shared_board_differ_only_in_usb_identity(self) -> None:
+        families: dict[str, list[str]] = {}
+        for board in self.board_definitions:
+            if board_family(board) != board:
+                families.setdefault(board_family(board), []).append(board)
+        self.assertEqual(sorted(families), ["shared/n86", "shared/n87", "shared/n8x"])
+        for family, boards in families.items():
+            self.assertEqual(sorted(board.rsplit("/", 1)[1] for board in boards), ["keynetix", "linworks", "sirind"], family)
+            names = {tuple(path.name for path in self.board_definitions[board]) for board in boards}
+            self.assertEqual(len(names), 1, family)
+            bodies = []
+            for board in boards:
+                [path] = self.board_definitions[board]
+                definition = load_json(path)
+                del definition["vendorId"], definition["productId"]
+                bodies.append(definition)
+            with self.subTest(family=family):
+                self.assertTrue(all(body == bodies[0] for body in bodies))
 
     def test_every_rp2040_board_exposes_six_dynamic_layers(self) -> None:
         boards = 0
         for path in sorted(ERA_KEYBOARDS.rglob("keyboard.json")):
-            info = load_json(path)
+            info = board_metadata(path)
             if info.get("processor") != "RP2040":
                 continue
             boards += 1

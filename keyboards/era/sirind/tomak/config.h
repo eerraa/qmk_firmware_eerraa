@@ -22,8 +22,8 @@
 #define USB_PRODUCT_STRING_OVERRIDE_ENABLE
 #define USB_SERIAL_NUMBER_STRING_OVERRIDE_ENABLE
 #define ERA_SPLIT_USB_IDENTITY_PRODUCT_BASE "TOMAK"
-#define ERA_SPLIT_USB_IDENTITY_PID_LEFT 0xA001
-#define ERA_SPLIT_USB_IDENTITY_PID_RIGHT 0xB001
+#define ERA_SPLIT_USB_IDENTITY_PID_LEFT 0xA004
+#define ERA_SPLIT_USB_IDENTITY_PID_RIGHT 0xB004
 
 /* The first LED of the badge range this board's lock indicator paints, and the
    range the badge-only mask narrows the render domain to. Board geometry --

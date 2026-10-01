@@ -1,5 +1,5 @@
 {
-    "manufacturer": "SIRIND",
+    "manufacturer": "SR Industry",
     "keyboard_name": "Tomak79S",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
@@ -199,8 +199,8 @@
     "url": "",
     "usb": {
         "device_version": "1.1.0",
-        "pid": "0x0013",
-        "vid": "0x4552"
+        "pid": "0x0009",
+        "vid": "0x4501"
     },
     "ws2812": {
         "driver": "vendor",

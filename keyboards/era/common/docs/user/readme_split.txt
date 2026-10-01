@@ -8,6 +8,12 @@ Split Firmware Guide
 
 ■ 펌웨어 업데이트
 
+V260916R1 및 그 이전 배포본에서 V260929R1로 처음 업데이트하면 저장 형식
+변경으로 키맵·매크로·설정이 초기화됩니다. 먼저 SAVE + LOAD로 백업하고,
+백업 파일에 포함되지 않는 설정과 탭댄스는 따로 기록하십시오.
+이 릴리스부터 메이커별 USB 식별자를 사용합니다. 메이커와 보드 이름이 모두
+일치하는 ZIP을 사용하고, 업데이트 후 브라우저에서 기기 연결을 다시 허용하십시오.
+
 분리형 키보드는 왼쪽과 오른쪽 유닛에 반드시 같은 .uf2 파일을 플래시하십시오.
 서로 다른 펌웨어 버전으로 남겨 둔 조합은 지원하지 않습니다.
 
@@ -33,7 +39,7 @@ Bootmagic으로 진입한 유닛은 저장된 키맵과 모든 설정이 공장 
 두십시오.
 
 사용 중인 보드 이름과 일치하는 UF2를 사용하십시오. 업데이트 뒤 SYSTEM ->
-VERSION에서 버전을 확인할 수 있습니다.
+VERSION에서 각 유닛의 버전을 확인하십시오.
 
 ■ 키보드 설정
 
@@ -52,6 +58,13 @@ English
 ----------------------------------------------------------------------
 
 ■ Firmware Update
+
+The first upgrade from V260916R1 or an earlier release to V260929R1 resets
+keymaps, macros and settings because the stored format changed. Back up with
+SAVE + LOAD first, and separately record settings and Tap Dance actions that
+the backup file does not include.
+This release uses maker-specific USB identities. Choose the ZIP matching both
+the maker and board, then authorize the keyboard again in the browser.
 
 On a split keyboard, flash the exact same .uf2 file to both the left and right
 units. A pair left on different firmware versions is not supported.
@@ -78,7 +91,7 @@ and its release notes say so. Back up the keymap with VIA SAVE + LOAD before
 updating or running EEPROM CLEAN.
 
 Use the UF2 matching the board name. After updating, check the version under
-SYSTEM -> VERSION.
+SYSTEM -> VERSION on each unit.
 
 ■ Keyboard Configuration
 

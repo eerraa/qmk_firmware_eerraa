@@ -54,6 +54,8 @@ CASES = (
      "stored format differs"),
     ("QMK keycode renumbered", "quantum/keycodes.h",
      lambda text: text.replace("KC_NO = 0x0000,", "KC_NO = 0x0001,", 1), "stored format differs"),
+    ("shared board body geometry changed", "keyboards/era/shared/n86/info.json",
+     lambda text: text.replace('"layer_count": 6', '"layer_count": 8', 1), "stored format differs"),
     ("board keycode enum reordered", "keyboards/era/sirind/common/tomak_common.h",
      lambda text: text.replace("    TD0 = QK_KB_0,", "    TD0 = QK_KB_1,", 1), "stored format differs"),
     ("VIA magic key moved without a record", storage.VIA_MAGIC,

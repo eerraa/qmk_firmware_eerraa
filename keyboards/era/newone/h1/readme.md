@@ -26,6 +26,6 @@ Enter the bootloader in 3 ways:
 
 What this firmware adds over stock QMK — TAPDANCE in VIA, SOCD,
 KKUK, DEBOUNCE, TAPPING, NKRO and EEPROM CLEAN — is written
-for keyboard owners in [the one-piece guide](../../../common/docs/user/readme.txt), with the keycodes
+for keyboard owners in [the one-piece guide](../../common/docs/user/readme.txt), with the keycodes
 its TAPDANCE fields accept in
-[via_keycodes.txt](../../../common/docs/user/via_keycodes.txt).
+[via_keycodes.txt](../../common/docs/user/via_keycodes.txt).

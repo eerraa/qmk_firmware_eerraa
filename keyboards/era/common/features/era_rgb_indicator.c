@@ -295,7 +295,7 @@ void era_rgb_indicator_set_color(uint8_t slot, const uint8_t *hue_sat) {
 /* Strong definitions of QMK's own weak hooks, which `era_board_hooks.h` keeps
    out of the class-skeleton contract and leaves to whoever paints. A board that
    turns this selector on therefore may not define them itself, and the two that
-   used to — `linx3/fave65s` and `sirind/brick65s` — have no `.c` at all now.
+   used to — `linworks/fave65s` and `sirind/brick65s` — have no `.c` at all now.
    The mutual exclusion is the same one `ERA_BACKLIGHT_EFFECT_ENABLE` already
    carries against a board's keyboard-channel handler, and it is what the
    selector's declaration says. */

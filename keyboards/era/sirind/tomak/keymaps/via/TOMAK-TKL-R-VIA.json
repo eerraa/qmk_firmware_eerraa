@@ -1,7 +1,7 @@
 {
   "name": "Tomak_R",
-  "productId": "0xB001",
-  "vendorId": "0x4552",
+  "productId": "0xB004",
+  "vendorId": "0x4501",
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },
     { "name": "TD1", "title": "Tap Dance 1", "shortName": "TD1" },

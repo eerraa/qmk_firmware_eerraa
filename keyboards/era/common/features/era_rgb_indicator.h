@@ -14,10 +14,10 @@
  * want it is *which LED index* each slot paints and how many slots there are,
  * and that is board geometry — `config.h`'s, under `era_build_options.md`'s
  * rule 3. The behaviour is one behaviour: four boards across two vendors
- * (`linx3/fave65s`, `linx3/n86`, `linx3/n87`, `sirind/brick65s`) had it as
- * hard-coded colours in two board `.c` files and as nothing at all in the other
- * two, which is the split `era_board_adoption.md`'s lighting-surface rule sends
- * to a common feature unit.
+ * (`linworks/fave65s`, `shared/n86`, `shared/n87`, `sirind/brick65s`) had it
+ * as hard-coded colours in two board `.c` files and as nothing at all in the
+ * other two, which is the split `era_board_adoption.md`'s lighting-surface rule
+ * sends to a common feature unit.
  *
  * **It is not the tomak or odessey indicator.** Those two are family content
  * and stay where they are: tomak paints a *badge range* on a split pair and

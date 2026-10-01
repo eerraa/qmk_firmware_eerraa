@@ -269,7 +269,9 @@ def fingerprint(tree: Tree) -> tuple[dict[str, str], dict[str, str], list[str]]:
         groups[f"validity {rel}"] = rows
 
     for rel in tree.files("keyboards/era"):
-        if rel.endswith("/keyboard.json"):
+        # QMK merges every parent info.json into the keyboard.json below it, so
+        # a board body that several makers build keeps its geometry there.
+        if rel.endswith(("/keyboard.json", "/info.json")):
             groups[f"board {rel}"] = [json.dumps(board_facts(json.loads(need(rel))), sort_keys=True)]
         elif rel.endswith("/config.h") and not rel.startswith("keyboards/era/common/"):
             groups[f"board {rel}"] = sorted(defines(need(rel), BOARD_DEFINES))

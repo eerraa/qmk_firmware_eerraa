@@ -40,8 +40,8 @@
     },
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0032",
-        "vid": "0x4552"
+        "pid": "0x0003",
+        "vid": "0x4503"
     },
     "ws2812": {
         "driver": "vendor",

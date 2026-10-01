@@ -357,6 +357,14 @@ transaction id, capability bit, or `BUSY` status is added.
 handled envelope is 32 bytes and reports RAM revisions only; the GET path does
 not read EEPROM, CRC, or NVM.
 
+QMK VIA protocol 13 (QMK release 2026-05-31) gives `id_get_keyboard_value`
+`0x06` to `id_keycodes_version`, which official VIA reads from protocol-13
+boards before remapping. `via_command_kb` runs before the QMK core, so this
+envelope would shadow it. Keep `0x000C` until the envelope moves to a new
+selector together with the app
+(`the-via-eerraa/docs/adr/0001-state-sync-protocol.md`); a QMK merge that
+brings protocol 13 must not land before that. Shipped firmware keeps `0x06`.
+
 ### Envelope v1
 
 `id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x06`) +

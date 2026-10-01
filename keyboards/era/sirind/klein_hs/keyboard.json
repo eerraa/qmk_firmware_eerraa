@@ -1,5 +1,5 @@
 {
-    "manufacturer": "SIRIND",
+    "manufacturer": "SR Industry",
     "keyboard_name": "Klein_HS",
     "maintainer": "eerraa",
     "backlight": {
@@ -30,8 +30,8 @@
     "processor": "RP2040",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0004",
-        "vid": "0x4552"
+        "pid": "0x0002",
+        "vid": "0x4501"
     },
     "layouts": {
         "LAYOUT": {

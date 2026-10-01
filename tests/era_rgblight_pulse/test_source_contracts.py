@@ -14,22 +14,23 @@ ROOT = Path(__file__).resolve().parents[2]
 
 RGBLIGHT_BOARDS = {
     "comm/7b75": "7B75-VIA.json",
-    "comm/classicd_a1_ug": "CLASSICD_A1_UG-VIA.json",
-    "comm/classicd_core": "CLASSICD_CORE-VIA.json",
-    "comm/classicd_coreless": "CLASSICD_CORELESS-VIA.json",
+    "classicd/classicd_a1_ug": "CLASSICD_A1_UG-VIA.json",
+    "classicd/classicd_core": "CLASSICD_CORE-VIA.json",
+    "classicd/classicd_coreless": "CLASSICD_CORELESS-VIA.json",
     "comm/riley": "RILEY-VIA.json",
     "newone/odessey60h": "ODESSEY60H-VIA.json",
     "newone/odessey60s": "ODESSEY60S-VIA.json",
 }
+# A shared board body (shared/<board>) is checked through every maker target's copy.
 BACKLIGHT_BOARDS = {
-    "era65": "ERA65-VIA.json",
-    "linx3/n8x": "N8X-VIA.json",
+    "comm/era65": "ERA65-VIA.json",
+    "shared/n8x": "N8X-VIA.json",
     "newone/a1": "NEWONE_A1-VIA.json",
     "comm/et_tkl": "ET_TKL-VIA.json",
-    "comm/classicd_a1": "CLASSICD_A1-VIA.json",
-    "comm/classicd_a1_ug": "CLASSICD_A1_UG-VIA.json",
-    "comm/classicd_core": "CLASSICD_CORE-VIA.json",
-    "comm/classicd_coreless": "CLASSICD_CORELESS-VIA.json",
+    "classicd/classicd_a1": "CLASSICD_A1-VIA.json",
+    "classicd/classicd_a1_ug": "CLASSICD_A1_UG-VIA.json",
+    "classicd/classicd_core": "CLASSICD_CORE-VIA.json",
+    "classicd/classicd_coreless": "CLASSICD_CORELESS-VIA.json",
     "comm/7b75": "7B75-VIA.json",
 }
 SYMBOLS = ("ERA_PULSE_OFF_PRESS", "ERA_PULSE_ON_PRESS", "ERA_PULSE_OFF_PRESS_HOLD", "ERA_PULSE_ON_PRESS_HOLD")
@@ -42,6 +43,12 @@ PULSE_SPEED_COMMAND = ["id_custom_blink_speed", 0, 3]
 
 def read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
+
+
+def definitions(board: str, name: str) -> list[dict]:
+    paths = sorted((ROOT / "keyboards/era" / board).rglob(name))
+    assert paths, f"{board}: no {name}"
+    return [json.loads(path.read_text(encoding="utf-8")) for path in paths]
 
 
 def control(node, command):
@@ -115,14 +122,16 @@ for board, definition in RGBLIGHT_BOARDS.items():
     rgblight = json.loads(read(f"keyboards/era/{board}/keyboard.json"))["rgblight"]
     assert {name for name, on in rgblight["animations"].items() if on} == UPSTREAM_ANIMATIONS, f"{board}: the 42 upstream modes precede Pulse"
     assert rgblight["default"]["speed"] == 15, f"{board}: 5 + 15 = 20 ms default pulse"
-    effect = control(json.loads(read(f"keyboards/era/{board}/keymaps/via/{definition}")), EFFECT_COMMAND)
-    assert effect, board
-    pairs = [(option, index) if isinstance(option, str) else (option[0], option[1]) for index, option in enumerate(effect["options"])]
-    assert pairs[-4:] == list(zip(LABELS, range(FIRST_PULSE_MODE, FIRST_PULSE_MODE + 4))), f"{board}: {pairs[-4:]}"
+    for via in definitions(board, definition):
+        effect = control(via, EFFECT_COMMAND)
+        assert effect, board
+        pairs = [(option, index) if isinstance(option, str) else (option[0], option[1]) for index, option in enumerate(effect["options"])]
+        assert pairs[-4:] == list(zip(LABELS, range(FIRST_PULSE_MODE, FIRST_PULSE_MODE + 4))), f"{board}: {pairs[-4:]}"
 
 # The nine backlight-effect boards: Pulse Speed is the full slider.
 for board, definition in BACKLIGHT_BOARDS.items():
-    speed = control(json.loads(read(f"keyboards/era/{board}/keymaps/via/{definition}")), PULSE_SPEED_COMMAND)
-    assert speed and speed["options"] == [0, 255], f"{board}: {speed and speed.get('options')}"
+    for via in definitions(board, definition):
+        speed = control(via, PULSE_SPEED_COMMAND)
+        assert speed and speed["options"] == [0, 255], f"{board}: {speed and speed.get('options')}"
 
 print("PASS: one 5 + speed ms width on a 0..255 slider for both families; underglow seams, wiring and make refusal; seven RGBLIGHT boards at 43..46 with default 15; nine backlight boards on the full slider")

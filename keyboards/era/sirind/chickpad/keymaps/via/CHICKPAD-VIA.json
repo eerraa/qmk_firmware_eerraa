@@ -1,7 +1,7 @@
 {
   "name": "CHICKPAD",
-  "vendorId": "0x4552",
-  "productId": "0x0015",
+  "vendorId": "0x4501",
+  "productId": "0x000B",
   "matrix": { "rows": 3, "cols": 5 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

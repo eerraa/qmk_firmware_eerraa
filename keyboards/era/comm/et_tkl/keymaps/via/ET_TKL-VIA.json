@@ -1,7 +1,7 @@
 {
   "name": "eT_TKL",
-  "vendorId": "0x4552",
-  "productId": "0x0021",
+  "vendorId": "0x4500",
+  "productId": "0x0003",
   "matrix": { "rows": 6, "cols": 17 },
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },

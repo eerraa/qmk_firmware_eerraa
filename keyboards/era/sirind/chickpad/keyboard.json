@@ -1,5 +1,5 @@
 {
-    "manufacturer": "SIRIND",
+    "manufacturer": "SR Industry",
     "keyboard_name": "ChickPad",
     "maintainer": "eerraa",
     "bootloader": "rp2040",
@@ -92,8 +92,8 @@
     },
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0015",
-        "vid": "0x4552"
+        "pid": "0x000B",
+        "vid": "0x4501"
     },
     "ws2812": {
         "driver": "vendor",
