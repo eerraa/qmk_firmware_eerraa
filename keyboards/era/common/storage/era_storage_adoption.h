@@ -47,10 +47,10 @@
  *    *keymap* config.h sets it, because a keymap's config.h is force-included
  *    after this file.
  * 4. VIA_EEPROM_MAGIC_ADDR == ERA_EEPROM_CONFIG_END, which is what puts the
- *    VIA layout options at 296 and the dynamic keymap at 297. Supplied below,
+ *    VIA layout options at 320 and the dynamic keymap at 321. Supplied below,
  *    together with the non-VIA build's equivalent. Checked by the
- *    VIA_EEPROM_LAYOUT_OPTIONS_ADDR == 296U and
- *    ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 297U asserts in that block --
+ *    VIA_EEPROM_LAYOUT_OPTIONS_ADDR == 320U and
+ *    ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 321U asserts in that block --
  *    the two addresses the equality produces, rather than the equality itself.
  * 5. The board's own keyboard config struct must fit
  *    ERA_EEPROM_KEYBOARD_CONFIG_SIZE (8 bytes). This file cannot see that

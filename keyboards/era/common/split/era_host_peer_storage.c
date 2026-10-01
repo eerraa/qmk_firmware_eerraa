@@ -378,8 +378,8 @@ _Static_assert(EECONFIG_SIZE == ERA_EEPROM_QMK_CONFIG_SIZE, "ERA storage schema 
 _Static_assert((uintptr_t)EECONFIG_DEFAULT_LAYER == 3U, "ERA storage schema default-layer address changed.");
 _Static_assert((uintptr_t)EECONFIG_KEYMAP == 4U, "ERA storage schema keymap-config address changed.");
 _Static_assert((uintptr_t)EECONFIG_RGB_MATRIX == 23U, "ERA storage schema RGB Matrix address changed.");
-_Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 296U, "ERA storage schema VIA layout-options address changed.");
-_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 297U, "ERA storage schema dynamic keymap address changed.");
+_Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 320U, "ERA storage schema VIA layout-options address changed.");
+_Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 321U, "ERA storage schema dynamic keymap address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR == ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema v1: the macro domain no longer sits immediately after the keymap domain.");
 /* The seven size asserts below are also the core-boundary binding. Each
  * compares a layout expression only core0 can evaluate against the shared

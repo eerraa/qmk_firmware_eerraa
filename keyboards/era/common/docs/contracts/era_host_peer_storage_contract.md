@@ -167,6 +167,74 @@ record's diff is the review evidence of that decision.
 > **WHY:** the product does not promise stored-data compatibility; a compatibility-only reader creates a second interpretation of persistent bytes, while weakening a stale-layout guard risks silently misreading them.
 > **REOPENS:** an explicit requirement to preserve a named older layout, with a versioned reader and tests for both migration and rejection.
 
+### Tap Dance independent timing
+
+Schema 3 allocates `ERA_EEPROM_TAP_DANCE_TIMING_OFFSET` 172, size 24, within
+ERA_CONFIG. The packed record contains eight uint16 LE hold thresholds,
+one flag byte (bit n enables hold-on-other-key for TDn), version 1, a zero
+uint16 reserved field and signature `0x4D544454`. Invalid timing records default
+to zero thresholds and flags. Zero follows the existing slot term; 1..65535 ms
+is an independent hold threshold. The original 88-byte action/term record stays
+at offset 0. The larger block requires a full reset; no old-layout reader exists.
+Both halves must run the matching schema-3 image.
+
+Channel 0 values 88..95 encode hold time as BE16, with response byte 2 `0xD3`;
+96..103 encode the boolean interruption policy, with response byte 1 `0xD3`.
+Mode replies retain byte 1 `0xD2` and advertise advanced timing in byte 2
+`0xD3`. GET/SET/SAVE, official VIA range/dropdown controls, State Sync CONFIG
+publication, and ERA_CONFIG replacement/reload cover both records.
+
+Modes 1/2 capture both timing values and the interruption flag at the first
+press. Released dances use the consecutive-press term, measured from the
+preceding press; held dances use the resolved hold threshold. A first hold
+that has already resolved cannot start a second-press gesture on release.
+With hold-on-other enabled, a pressed first hold in mode 1 or second hold in
+modes 1/2 resolves before the other key's layer lookup, only when that hold has
+an assigned action (including explicit silence). Mode 2's first press always
+remains the physical base key. Default flag 0 retains interruption-as-tap;
+mode 0 retains all legacy decisions and ignores advanced timing.
+
+### Tap Dance input modes
+
+Keyboard channel 0 values 80..87 add one mode byte per TD0..TD7 through
+existing Custom Value GET/SET/SAVE. GET/SET echo appends support marker `0xD2`;
+official V3 definitions expose the same values as dropdowns. Existing action
+and term IDs retain their encoding. Invalid modes and conflicting on-press
+Hold actions are refused before mutation. CONFIG revision changes only after
+the runtime exposes a different setting.
+
+Tap Dance retains the 88-byte version-1 record, slot addresses, signature and
+all action/term offsets. Reserved byte 1 tags the input-mode extension with
+`0xD2`; bytes 0 and 2 hold two bits per TD0..TD3 and TD4..TD7 respectively,
+lowest slot first. Values 0/1/2 mean legacy, after-decision and on-press.
+All-zero reserved bytes remain valid mode 0 of the same format. An unknown
+tag, nonzero untagged bits, mode 3, or on-press with a non-transparent first
+hold is invalid. The mode bits themselves keep the same record format.
+Defaults clear the reserved bytes. SAVE persists modes with the existing
+actions; SET alone does not promise durability. Older firmware ignores these
+mode bits and therefore cannot reproduce the new explicit-silence semantics.
+
+Mode 0 keeps the existing Tap Dance rules, including empty-action fallback.
+In modes 1/2, On Tap is the base key. `KC_TRNS` in an additional action means
+inherit; `KC_NO` means explicitly send nothing. Hold inherits the base key;
+Double Tap inherits two base taps; Tap+Hold inherits a base tap followed by
+Hold (or the base key). Each completed pair starts a fresh gesture.
+
+Mode 1 waits only while a different gesture is possible. Without any additional
+action it behaves as a normal physical base key. Mode 2 immediately emits and
+releases the first base key, including a long first hold. Only the second press
+waits: short release chooses Double Tap or one more base tap; expiration while
+held chooses Tap+Hold or the base key until release. The initial base input
+cannot be suppressed by a later action. Mode 2 requires Hold = `KC_TRNS`;
+conflicting mode/action SETs are refused without mutation. Other-key interruption
+chooses the base tap path. The existing strict `elapsed > term` boundary and
+current per-slot term policy remain. Actions and mode are captured on the first
+press so a settings edit cannot change the gesture's output or release owner.
+
+The mode bytes belong to the existing ERA_CONFIG portable domain. Saving and
+domain reload use the same storage owner as the actions. Both TOMAK halves
+must run the same image; the app cannot claim peer durability from a local SET.
+
 ## Current Storage Inventory
 
 Seven portable domains. Table `g_era_host_peer_storage_domains` in
@@ -177,7 +245,9 @@ matching `_Static_assert`s in that `.c`. Addresses from
 `storage/era_storage_layout.h` and `storage/era_eeprom_layout.h`. Semantic
 logical ranges only — never NVM banks, journal, or local metadata.
 `ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
-`ERA_HOST_PEER_STORAGE_SCHEMA` 2 on every row; schema 2 raised the dynamic-keymap layer count from 4 to 6. Probe/proof refuses a
+`ERA_HOST_PEER_STORAGE_SCHEMA` 3 on every row. The six-layer keymap is unchanged;
+schema 3 adds 24 bytes of Tap Dance timing, relocates the protected block and
+VIA/keymap/macro bases together, and advances the full-reset key to `0x45524108`. Probe/proof refuses a
 schema or size mismatch before content moves. Both halves of a pair run one
 identical image; mixed versions are unsupported (**Stored-Data Compatibility**).
 
@@ -188,19 +258,19 @@ QMK reads the public EEPROM image.
 
 | Id | Domain | Address | Size | Reload |
 | ---: | --- | --- | --- | --- |
-| 0 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG` | `ERA_EEPROM_CONFIG_ADDR` 37 + `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 (`37..212`) | `ERA_EEPROM_SYNCABLE_CONFIG_SIZE` / `ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES` 176 | board keyboard-config + `era_split_keyboard_reload_features_from_eeprom()` in `split/era_split_keyboard.c` |
-| 1 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP` | `ERA_STORAGE_DYNAMIC_KEYMAP_ADDR` / `ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR` 297 | `ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS` 6 × `MATRIX_ROWS` × `MATRIX_COLS` × 2 | none |
+| 0 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG` | `ERA_EEPROM_CONFIG_ADDR` 37 + `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0 (`37..236`) | `ERA_EEPROM_SYNCABLE_CONFIG_SIZE` / `ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES` 200 | board keyboard-config + `era_split_keyboard_reload_features_from_eeprom()` in `split/era_split_keyboard.c` |
+| 1 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP` | `ERA_STORAGE_DYNAMIC_KEYMAP_ADDR` / `ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR` 321 | `ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS` 6 × `MATRIX_ROWS` × `MATRIX_COLS` × 2 | none |
 | 2 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO` | `ERA_STORAGE_DYNAMIC_MACRO_ADDR` (immediately after keymap) | `ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES` / `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` / `DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE` 16384 | none. Marker = final byte of this domain |
 | 3 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX` | `ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR` 23 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES` 8 (`sizeof(rgb_config_t)`) | RGB Matrix |
 | 4 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG` | `ERA_STORAGE_EECONFIG_KEYMAP_ADDR` 4 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES` 2 (`sizeof(keymap_config_t)`) | `keymap_config` |
 | 5 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER` | `ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR` 3 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES` 1 | default-layer apply |
-| 6 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS` | `ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR` 296 | `ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES` 1 (`VIA_EEPROM_LAYOUT_OPTIONS_SIZE`) | VIA layout-options apply |
+| 6 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS` | `ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR` 320 | `ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES` 1 (`VIA_EEPROM_LAYOUT_OPTIONS_SIZE`) | VIA layout-options apply |
 
 QMK prefix `ERA_EEPROM_QMK_CONFIG_SIZE` 37. Portable seats in it are domains
 3–5; the rest of that prefix is not a domain. `VIA_EEPROM_MAGIC_ADDR` is
-`ERA_EEPROM_CONFIG_END` 293 (three bytes `293..295`). Layout options follow
-at 296 because `VIA_EEPROM_LAYOUT_OPTIONS_SIZE` is 1 and
-`VIA_EEPROM_CUSTOM_CONFIG_SIZE` is 0. Keymap at 297 is that sum, asserted in
+`ERA_EEPROM_CONFIG_END` 317 (three bytes `317..319`). Layout options follow
+at 320 because `VIA_EEPROM_LAYOUT_OPTIONS_SIZE` is 1 and
+`VIA_EEPROM_CUSTOM_CONFIG_SIZE` is 0. Keymap at 321 is that sum, asserted in
 `split/era_host_peer_storage.c`.
 
 Keymap bytes = `ERA_STORAGE_DYNAMIC_KEYMAP_BYTES`. Macro starts at
@@ -211,27 +281,27 @@ domain address and size is geometry-independent.
 
 | Board | Matrix | Keymap | Macro |
 | --- | --- | --- | --- |
-| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `297..1592` | `1593..17976` |
-| `sirind/tomak` | 12×11 | 1584 at `297..1880` | `1881..18264` |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` |
+| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` |
 
-ERA config block: `ERA_EEPROM_CONFIG_SIZE` 256 at `ERA_EEPROM_CONFIG_ADDR`
-37, ending at `ERA_EEPROM_CONFIG_END` 293. Interior owner map:
+ERA config block: `ERA_EEPROM_CONFIG_SIZE` 280 at `ERA_EEPROM_CONFIG_ADDR`
+37, ending at `ERA_EEPROM_CONFIG_END` 317. Interior owner map:
 `storage/era_eeprom_layout.h` (abutting `_Static_assert`s, not restated
 here). Domain 0 is the syncable half only:
-`ERA_EEPROM_SYNCABLE_CONFIG_SIZE` 176, `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0
+`ERA_EEPROM_SYNCABLE_CONFIG_SIZE` 200, `ERA_EEPROM_SYNCABLE_CONFIG_OFFSET` 0
 so the domain image is indexed by config-block offset. Candidate Apply of
-domain 0 walks `ERA_EEPROM_SYNCABLE_RESERVED_OFFSET` 172 /
+domain 0 walks `ERA_EEPROM_SYNCABLE_RESERVED_OFFSET` 196 /
 `ERA_EEPROM_SYNCABLE_RESERVED_SIZE` 4 and refuses the domain unless those
 bytes are zero (`era_host_peer_storage_reserved_era_config_is_zero()` in
 `split/era_host_peer_storage.c`). Protected
-`ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 /
-`ERA_EEPROM_PROTECTED_CONFIG_SIZE` 80 (`176..255` of the block, logical
-`213..292`) is not a domain. Local-policy 24-byte layout, version 5, and
+`ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 /
+`ERA_EEPROM_PROTECTED_CONFIG_SIZE` 80 (`200..279` of the block, logical
+`237..316`) is not a domain. Local-policy 24-byte layout, version 5, and
 protected neighbors: `era_authority_contract.md` **Persisted Sync Policy**.
 Rearranging the ERA block still requires the `ERA_EEPROM_RESET_KEY` policy
 even when the wire schema is unchanged.
 
-> **REFUSED:** growing `ERA_EEPROM_CONFIG_SIZE` past 256, or declaring `EECONFIG_KB_DATA_SIZE` / `EECONFIG_USER_DATA_SIZE` on a storage-adoption board.
+> **REFUSED:** growing `ERA_EEPROM_CONFIG_SIZE` past 280, or declaring `EECONFIG_KB_DATA_SIZE` / `EECONFIG_USER_DATA_SIZE` on a storage-adoption board.
 > **WHY:** the first moves `VIA_EEPROM_MAGIC_ADDR` and the keymap base; either EECONFIG extra moves `ERA_EEPROM_CONFIG_ADDR` off 37 and the whole schema with it.
 > **REOPENS:** a new schema version that relocates VIA magic, keymap, and macro together, with `ERA_EEPROM_RESET_KEY` advanced.
 
@@ -240,10 +310,10 @@ even when the wire schema is unchanged.
 > **REOPENS:** a board that declares a dynamic encoder map, with the address formula and schema version changed together.
 
 > **REFUSED:** placing a live `ERA_CONFIG` field inside `ERA_EEPROM_SYNCABLE_RESERVED` without shrinking that reserve.
-> **WHY:** the reserved-zero walk refuses the whole domain unless those twelve bytes are zero, so a claim left inside fails every Apply that carries it.
+> **WHY:** the reserved-zero walk refuses the whole domain unless those four bytes are zero, so a claim left inside fails every Apply that carries it.
 > **REOPENS:** the reserve offset and size shrink in `storage/era_eeprom_layout.h` and the walk follows.
 
-> **REFUSED:** extending domain 0 through the protected range `176..255`.
+> **REFUSED:** extending domain 0 through the protected range `200..279`.
 > **WHY:** those bytes are half-local (sync policy, link level, reset guard, recency baseline) and must be allowed to differ; putting them on the wire would clone arbitration metadata and the link rate.
 > **REOPENS:** a design that makes those records identical on both halves without an agreed restart.
 
@@ -254,11 +324,11 @@ Not portable payload, and not in `g_era_host_peer_storage_domains`:
 | Span | Content | Home |
 | --- | --- | --- |
 | rest of the QMK prefix inside `ERA_EEPROM_QMK_CONFIG_SIZE` 37 | magic, debug, and the eeconfig fields that are not domains 3–5 | QMK eeconfig; `storage/era_storage_layout.h` names only the three portable seats |
-| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
-| `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 220 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`220..251`) | **Recency Layer** |
-| `ERA_EEPROM_LINK_CONFIG_OFFSET` 200 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
-| `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 204 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
-| `VIA_EEPROM_MAGIC_ADDR` 293, three bytes | VIA magic | QMK VIA |
+| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
+| `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`244..275`) | **Recency Layer** |
+| `ERA_EEPROM_LINK_CONFIG_OFFSET` 224 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
+| `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 228 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
+| `VIA_EEPROM_MAGIC_ADDR` 317, three bytes | VIA magic | QMK VIA |
 | after macro to `EEPROM_SIZE` 24576 | unused logical | — |
 | ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |
 | runtime transaction generations, route state, diagnostics | not EEPROM | `split/era_host_peer_storage.c` |
@@ -466,7 +536,7 @@ They never cross as portable domain bytes.
 An invalid baseline remains conservative across boot: every domain reads as
 changed until the relation proves it, so a standalone or unilateral CLEAN is a
 real local divergence. Confirmed convergence is one result-bearing replacement
-over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 176 +
+over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 200 +
 `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10 through
 `ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 252 exclusive (`186..251`) via
 `era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`

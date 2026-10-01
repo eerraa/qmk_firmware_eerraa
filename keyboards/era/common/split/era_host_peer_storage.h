@@ -10,7 +10,7 @@
 
 #include "era_split_eeprom_sync.h"
 
-#define ERA_HOST_PEER_STORAGE_SCHEMA 2U
+#define ERA_HOST_PEER_STORAGE_SCHEMA 3U
 #define ERA_HOST_PEER_STORAGE_IMAGE_BYTES 16384U
 
 /* Domain sizes of the current schema, defined once because both cores need them. Core0
@@ -44,7 +44,7 @@
  * canonical in `era_host_peer_storage_contract.md`; only the sizes are
  * here, because only the sizes cross the core boundary. */
 #define ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS 6U
-#define ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES 176U
+#define ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES 200U
 #define ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES (ERA_HOST_PEER_STORAGE_SCHEMA_DYNAMIC_KEYMAP_LAYERS * MATRIX_ROWS * MATRIX_COLS * 2U)
 #define ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_MACRO_BYTES ERA_HOST_PEER_STORAGE_IMAGE_BYTES
 #define ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATRIX_BYTES 8U

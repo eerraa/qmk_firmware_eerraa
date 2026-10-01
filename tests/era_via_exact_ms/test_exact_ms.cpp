@@ -29,7 +29,7 @@ void set_time(uint32_t time);
 bool via_command_kb(uint8_t *data, uint8_t length);
 }
 
-static constexpr uint16_t kEraProtectedConfigStart = 176;
+static constexpr uint16_t kEraProtectedConfigStart = 200;
 static constexpr uint16_t kEraConfigAddr            = 37;
 static constexpr uint16_t kEeconfigDefaultLayerAddr = 3;
 static constexpr uint16_t kEeconfigKeymapAddr       = 4;
@@ -649,3 +649,5 @@ TEST(EraExactMs, LegacyTapDanceWireTermRoundTrip) {
     ASSERT_TRUE(era_tapdance_handle_via_command(report, 32));
     EXPECT_EQ(report[3], 14);
 }
+
+#include "test_td_modes.h"

@@ -324,12 +324,21 @@ static inline void process_tap_dance_action_on_dance_finished(tap_dance_action_t
     }
 }
 
+__attribute__((weak)) uint16_t tap_dance_get_decision_term(const tap_dance_state_t *state) {
+    keyrecord_t record = {.event = {.key = state->key, .type = state->type, .pressed = state->pressed}};
+    return tap_dance_get_tapping_term(TD(state->index), &record);
+}
+
+__attribute__((weak)) bool tap_dance_hold_on_interrupt(const tap_dance_state_t *state) {
+    (void)state;
+    return false;
+}
+
 static bool tap_dance_expired(const tap_dance_state_t *state, uint32_t now) {
     const uint32_t elapsed = now - state->last_tap_time;
-    keyrecord_t record = {.event = {.key = state->key, .type = state->type, .pressed = state->pressed}};
     /* A replayed older event cannot advance a newer dance. The supported
      * uint16_t term is far shorter than the unambiguous 32-bit half-range. */
-    return elapsed < 0x80000000UL && elapsed > tap_dance_get_tapping_term(TD(state->index), &record);
+    return elapsed < 0x80000000UL && elapsed > tap_dance_get_decision_term(state);
 }
 
 bool preprocess_tap_dance(uint16_t keycode, keyrecord_t *record) {
@@ -356,7 +365,7 @@ bool preprocess_tap_dance(uint16_t keycode, keyrecord_t *record) {
     if (state == NULL) {
         return false;
     }
-    state->interrupted          = true;
+    state->interrupted          = !tap_dance_hold_on_interrupt(state);
     state->interrupting_keycode = keycode;
     process_tap_dance_action_on_dance_finished(action, state);
 

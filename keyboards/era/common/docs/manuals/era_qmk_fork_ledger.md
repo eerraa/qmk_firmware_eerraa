@@ -70,6 +70,15 @@ supplies the remote-wake status hook consumed by ERA's RP2040 USB sleep path.
 Re-derive this boundary with `git submodule status` and the branches recorded
 in `.gitmodules`, not with the five-directory fork check.
 
+## Tap Dance Decision Hooks
+
+Tap Dance decision hooks `tap_dance_get_decision_term()` and
+`tap_dance_hold_on_interrupt()` let ERA use captured per-slot hold thresholds
+and decide an assigned hold before the interrupting key's source-layer lookup.
+The weak core defaults keep the ordinary tapping term and tap-on-interrupt;
+ERA's overrides leave legacy mode unchanged. Host evidence lives in
+`tests/era_backlight_pulse/test_td_modes.h` and `tests/era_via_exact_ms/test_td_modes.h`.
+
 ## QMK CLI Surface Outside The Five Directories
 
 The five-root checker does not cover `lib/python`. One departure lives there:
@@ -77,6 +86,7 @@ The five-root checker does not cover `lib/python`. One departure lives there:
 build has not defined it, so `storage/era_via_magic.h` pins the VIA EEPROM
 magic; other keyboards keep QMK's behavior. Re-derive this surface with
 `git diff c93ef27143 -- lib/python`.
+
 
 ## Rebase Rule
 

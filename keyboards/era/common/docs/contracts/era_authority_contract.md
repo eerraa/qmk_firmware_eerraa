@@ -89,20 +89,20 @@ payload, or execution by itself. First anchor: `split/era_split_sync_policy.c`.
 The split link level is not a sync-policy bit. The pair must run one link level,
 while sync-policy bits are independent owner preferences; combining them would
 give a pair-critical value two incompatible authorities. Link config starts at
-`ERA_EEPROM_LINK_CONFIG_OFFSET` 200, occupies 4 bytes, and is sync-excluded.
+`ERA_EEPROM_LINK_CONFIG_OFFSET` 224, occupies 4 bytes, and is sync-excluded.
 
 The protected configuration region is
-`ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 through 255
+`ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 through 279
 (`ERA_EEPROM_PROTECTED_CONFIG_SIZE` 80). Nothing in it crosses as replacement
 storage.
 
 | Offset | Size | Content |
 | ---: | ---: | --- |
-| 176 | 24 | local sync-policy block |
-| 200 | 4 | link config |
-| 204 | 16 | reset guard |
-| 220 | 32 | storage-recency baseline |
-| 252 | 4 | protected reserve |
+| 200 | 24 | local sync-policy block |
+| 224 | 4 | link config |
+| 228 | 16 | reset guard |
+| 244 | 32 | storage-recency baseline |
+| 276 | 4 | protected reserve |
 
 The local sync-policy block is a storage compatibility contract:
 

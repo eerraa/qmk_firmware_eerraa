@@ -3,9 +3,9 @@
 
 #pragma once
 
-/* The ERA EEPROM config block, 256 bytes, in two halves.
+/* The ERA EEPROM config block, 280 bytes, in two halves.
  *
- * **256 is a hard ceiling and not a budget.** ERA_EEPROM_CONFIG_END anchors
+ * **280 is a hard ceiling and not a budget.** ERA_EEPROM_CONFIG_END anchors
  * both VIA_EEPROM_MAGIC_ADDR and DYNAMIC_KEYMAP_EEPROM_ADDR
  * (era_storage_adoption.h). Rearranging inside it costs a user their ERA
  * settings; growing past it moves the VIA magic and the dynamic keymap with it,
@@ -33,7 +33,7 @@
  * growth room and is walked by nothing; the reason it cannot be is written at
  * that claim below. */
 
-#define ERA_EEPROM_CONFIG_SIZE 256
+#define ERA_EEPROM_CONFIG_SIZE 280
 /* ERA storage adoption freezes stock QMK's no-KB/no-user eeconfig prefix at
  * 37 bytes. Keep this header assembler-safe because era_storage_adoption.h is
  * force-included as CONFIG_H in every translation unit, including .S files.
@@ -45,7 +45,7 @@
 #define ERA_EEPROM_CONFIG_END (ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_CONFIG_SIZE)
 
 #define ERA_EEPROM_SYNCABLE_CONFIG_OFFSET 0
-#define ERA_EEPROM_SYNCABLE_CONFIG_SIZE 176
+#define ERA_EEPROM_SYNCABLE_CONFIG_SIZE 200
 
 /* -- syncable: input behaviour -------------------------------------------- */
 #define ERA_EEPROM_TAP_DANCE_CONFIG_OFFSET 0
@@ -88,15 +88,19 @@
 #define ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET 164
 #define ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE 8
 
+/* Independent Tap Dance hold thresholds and interruption policy. */
+#define ERA_EEPROM_TAP_DANCE_TIMING_OFFSET 172
+#define ERA_EEPROM_TAP_DANCE_TIMING_SIZE 24
+
 /* -- syncable: the reserve ------------------------------------------------- */
-#define ERA_EEPROM_SYNCABLE_RESERVED_OFFSET 172
+#define ERA_EEPROM_SYNCABLE_RESERVED_OFFSET 196
 #define ERA_EEPROM_SYNCABLE_RESERVED_SIZE 4
 
 /* -- protected: sync-excluded ---------------------------------------------- */
-#define ERA_EEPROM_PROTECTED_CONFIG_OFFSET 176
+#define ERA_EEPROM_PROTECTED_CONFIG_OFFSET 200
 #define ERA_EEPROM_PROTECTED_CONFIG_SIZE 80
 
-#define ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET 176
+#define ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET 200
 #define ERA_EEPROM_LOCAL_POLICY_CONFIG_SIZE 24
 
 /* The split link's runtime-selected rate. Sync-excluded on purpose and not for
@@ -112,19 +116,19 @@
  * initialiser having to run. That is why the region was allocated a session
  * before its reader existed and owed no second key bump when the reader
  * arrived. The reader and the writer are split/era_split_link.c. */
-#define ERA_EEPROM_LINK_CONFIG_OFFSET 200
+#define ERA_EEPROM_LINK_CONFIG_OFFSET 224
 #define ERA_EEPROM_LINK_CONFIG_SIZE 4
 #define ERA_SPLIT_LINK_LEVEL_HIGH 0
 #define ERA_SPLIT_LINK_LEVEL_MEDIUM 1
 #define ERA_SPLIT_LINK_LEVEL_LOW 2
 
-#define ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET 204
+#define ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET 228
 #define ERA_EEPROM_RESET_GUARD_CONFIG_SIZE 16
 /* Full-reset key of every ERA board (storage/era_reset_guard.h): a stored
  * guard that differs erases the whole logical EEPROM on the next boot. Move it
  * when stored bytes would mean something else and no narrower guard rejects
  * them (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
-#define ERA_EEPROM_RESET_KEY 0x45524107UL
+#define ERA_EEPROM_RESET_KEY 0x45524108UL
 
 /* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32
  * values plus one guard word, written only at storage convergence closes.
@@ -133,19 +137,19 @@
  * contract's own entry for the former future-metadata reserved hole. The
  * range stays sync-excluded and zero after a strict reset, which reads as an
  * invalid guard and degrades every domain conservatively. */
-#define ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET 220
+#define ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET 244
 #define ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE 32
 
 /* Growth room, and **not** a tripwire -- stated because the syncable reserve
  * beside it is one and the asymmetry otherwise reads as an omission. The
  * zero-walk that arms the other reserve is the ERA_CONFIG domain's own
- * prevalidation: it indexes the staged 176-byte domain image before an apply,
+ * prevalidation: it indexes the staged 200-byte domain image before an apply,
  * and this range is outside that image because it is outside the domain. There
  * is nothing here to prevalidate -- protected bytes never travel, so no peer
  * can present them and no apply can write them -- so a walk would have to read
  * local EEPROM at a moment that has nothing to do with it. A claim taken from
  * here shrinks this range the same way. */
-#define ERA_EEPROM_PROTECTED_RESERVED_OFFSET 252
+#define ERA_EEPROM_PROTECTED_RESERVED_OFFSET 276
 #define ERA_EEPROM_PROTECTED_RESERVED_SIZE 4
 
 #ifndef __ASSEMBLER__
@@ -165,7 +169,8 @@ _Static_assert(ERA_EEPROM_KKUK_CONFIG_OFFSET + ERA_EEPROM_KKUK_CONFIG_SIZE == ER
 _Static_assert(ERA_EEPROM_BACKLIGHT_CONFIG_OFFSET + ERA_EEPROM_BACKLIGHT_CONFIG_SIZE == ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET, "ERA backlight config must end where the RGB indicator config starts.");
 _Static_assert(ERA_EEPROM_RGB_INDICATOR_CONFIG_OFFSET + ERA_EEPROM_RGB_INDICATOR_CONFIG_SIZE == ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, "ERA RGB indicator config must end where the keyboard config starts.");
 _Static_assert(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET + ERA_EEPROM_KEYBOARD_CONFIG_SIZE == ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, "ERA keyboard config must end where the lighting sleep config starts.");
-_Static_assert(ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET + ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE == ERA_EEPROM_SYNCABLE_RESERVED_OFFSET, "ERA lighting sleep config must end where the syncable reserve starts.");
+_Static_assert(ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET + ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE == ERA_EEPROM_TAP_DANCE_TIMING_OFFSET, "ERA lighting sleep config must end where Tap Dance timing starts.");
+_Static_assert(ERA_EEPROM_TAP_DANCE_TIMING_OFFSET + ERA_EEPROM_TAP_DANCE_TIMING_SIZE == ERA_EEPROM_SYNCABLE_RESERVED_OFFSET, "Tap Dance timing must end at the syncable reserve.");
 _Static_assert(ERA_EEPROM_SYNCABLE_RESERVED_OFFSET + ERA_EEPROM_SYNCABLE_RESERVED_SIZE == ERA_EEPROM_PROTECTED_CONFIG_OFFSET, "ERA syncable reserve must end where the protected range starts.");
 _Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_OFFSET + ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_EEPROM_PROTECTED_CONFIG_OFFSET, "ERA syncable EEPROM range must end where protected range starts.");
 _Static_assert(ERA_EEPROM_PROTECTED_CONFIG_OFFSET + ERA_EEPROM_PROTECTED_CONFIG_SIZE == ERA_EEPROM_CONFIG_SIZE, "ERA protected EEPROM range must end at the config block boundary.");

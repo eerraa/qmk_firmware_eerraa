@@ -25,11 +25,18 @@ typedef struct {
 } era_tapdance_user_data_t;
 
 #    define ERA_TAP_DANCE_ACTION(slot) \
-        {.fn = {era_tapdance_on_each_tap, era_tapdance_on_dance_finished, era_tapdance_on_reset, NULL}, .user_data = &era_tapdance_user_data[(slot)]}
+        {.fn = {era_tapdance_on_each_tap, era_tapdance_on_dance_finished, era_tapdance_on_reset, era_tapdance_on_each_release}, .user_data = &era_tapdance_user_data[(slot)]}
 
 extern era_tapdance_user_data_t era_tapdance_user_data[ERA_TAP_DANCE_SLOT_COUNT];
 
 void     era_tapdance_init(void);
+bool     era_tapdance_set_mode(uint8_t slot, uint8_t mode);
+uint8_t  era_tapdance_get_mode(uint8_t slot);
+uint16_t era_tapdance_get_hold_term(uint8_t slot);
+bool era_tapdance_set_hold_term(uint8_t slot, uint16_t term);
+bool era_tapdance_get_hold_other(uint8_t slot);
+bool era_tapdance_set_hold_other(uint8_t slot, uint8_t enabled);
+void     era_tapdance_on_each_release(tap_dance_state_t *state, void *user_data);
 void     era_tapdance_reload_from_eeprom(void);
 void     era_tapdance_save_config(void);
 bool     era_tapdance_set_action(uint8_t slot_index, uint8_t action_index, uint16_t keycode);

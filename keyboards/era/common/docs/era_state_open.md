@@ -20,3 +20,14 @@ None.
 | SOCD modes | With a key tester on a real board: each mode while both keys of a pair are held, a Tap Dance output against the opposing physical key, 6KRO and NKRO, and a pair split across the halves of a single-host split. |
 | Maker USB identity | On one non-split board and on a split pair with each half as HOST: the image enumerates with its maker VID/PID and manufacturer string, the official JSON from the same build loads in usevia.app Design and connects, the ERA app recognises the new identity and still the legacy one on an older image, and settings stored by the older image survive the update. |
 | Lighting sleep | On an RGBLight, an RGB Matrix, a backlight-effect and a plain-backlight board (7B75, N86, CLASSICD_A1, DIVINE cover them): each output sleeps on its own timeout, on USB suspend and on host loss, stays on with its switch off, wakes on input, and a VIA save during sleep keeps the user's lighting; lock indicators on a backlight rail go dark with backlight sleep. |
+
+## 3. Diagnostic build acceptance still open
+
+TOMAK `wire` links but fails the SRAM residency gate in the configured WSL
+build: 29,708 bytes free against the 32,768-byte floor. The same source passes
+the TOMAK and 7B75 `standard` build gates. Diagnostic variants are not accepted
+by those standard-image results.
+
+Next entry: authorisation to resume after the automation refusal under
+`manuals/era_build_and_flash.md`, then account for the resident data/code
+growth and re-run the affected variant gates without lowering the floor.

@@ -131,6 +131,8 @@ uint16_t tap_dance_remap_keycode(uint16_t keycode);
 uint16_t tap_dance_owned_keycode(const keyrecord_t *record);
 bool tap_dance_owns_press(const keyrecord_t *record);
 uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record);
+uint16_t tap_dance_get_decision_term(const tap_dance_state_t *state);
+bool tap_dance_hold_on_interrupt(const tap_dance_state_t *state);
 
 /* To be used internally */
 

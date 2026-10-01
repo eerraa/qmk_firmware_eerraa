@@ -34,7 +34,7 @@ namespace {
 
 /* Mirrors the hard ERA EEPROM config-block ceiling; C++ cannot include the
    C-only layout header because it intentionally uses _Static_assert. */
-std::array<uint8_t, 256> g_era_config{};
+std::array<uint8_t, 280> g_era_config{};
 uint8_t  g_pwm_level;
 bool     g_breathing;
 uint8_t  g_breathing_period;
@@ -1431,3 +1431,5 @@ TEST_F(EraBacklightPulse, SleepGateDarkensTheRailAndKeepsTheStoredLevel) {
 
 #include "test_caps_feedback.h"
 #include "test_layer_time_contract.h"
+
+#include "test_td_modes.h"
