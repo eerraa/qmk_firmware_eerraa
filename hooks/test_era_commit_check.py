@@ -64,6 +64,11 @@ def test_wiring():
         "staged document checker receives index mode",
         'str(DOC_REFS), "--index"' in commit_check_text,
     )
+    check(
+        "commit check loads storage-key checker from staged index",
+        '["git", "show", f":{STORAGE_KEY_REL}"]' in commit_check_text
+        and 'str(STORAGE_KEY), "--index"' in commit_check_text,
+    )
     settings = json.loads(
         (REPO / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
@@ -227,6 +232,15 @@ def test_end_to_end():
             "    print('expected --index')\n"
             "    raise SystemExit(2)\n"
             "print('temporary doc refs ok')\n",
+            encoding="utf-8",
+        )
+        (doc_tool.parent / "era_storage_key.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "if sys.argv[1:] != ['--index']:\n"
+            "    print('expected --index')\n"
+            "    raise SystemExit(2)\n"
+            "print('temporary storage key ok')\n",
             encoding="utf-8",
         )
         _git(root, "config", "core.hooksPath", "hooks")

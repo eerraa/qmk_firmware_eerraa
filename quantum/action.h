@@ -47,6 +47,16 @@ typedef struct {
 /* Key event container for recording */
 typedef struct keyrecord_t {
     keyevent_t event;
+#ifdef ERA_TAP_DANCE_ENABLE
+    /* Input lifetime captured at ingress; event.time already owns the
+     * original 32-bit timestamp through the LT/MT waiting record. */
+    uint32_t tap_dance_epoch;
+    uint16_t tap_dance_keycode;
+    bool tap_dance_epoch_valid;
+    /* A dance's own quantum keycode, named by tap_dance_keycode: its output,
+     * never an input of any dance. */
+    bool tap_dance_injected;
+#endif
 #ifndef NO_ACTION_TAPPING
     tap_t tap;
 #endif
@@ -112,6 +122,7 @@ void process_record(keyrecord_t *record);
 void process_record_handler(keyrecord_t *record);
 void post_process_record_quantum(keyrecord_t *record);
 void process_action(keyrecord_t *record, action_t action);
+void register_mouse(uint8_t mouse_keycode, bool pressed);
 void register_code(uint8_t code);
 void unregister_code(uint8_t code);
 void tap_code(uint8_t code);

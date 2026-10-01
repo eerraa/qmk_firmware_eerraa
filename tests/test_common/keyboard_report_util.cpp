@@ -31,15 +31,13 @@ namespace {
 
 std::vector<uint8_t> get_keys(const report_keyboard_t& report) {
     std::vector<uint8_t> result;
-#if defined(NKRO_ENABLE)
-#    error NKRO support not implemented yet
-#else
+    // This overload accepts the 6KRO report type even in an NKRO-capable
+    // build. NKRO uses the distinct report_nkro_t and send_nkro_mock path.
     for (size_t i = 0; i < KEYBOARD_REPORT_KEYS; i++) {
         if (report.keys[i]) {
             result.emplace_back(report.keys[i]);
         }
     }
-#endif
     std::sort(result.begin(), result.end());
     return result;
 }

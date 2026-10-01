@@ -52,7 +52,9 @@ typedef struct {
 
 typedef struct {
     uint16_t active_keycode;
+    action_t active_qmk_action;
     bool     active_is_tap;
+    uint8_t  first_tap_mods;
 } era_tapdance_runtime_t;
 
 typedef struct {
@@ -64,7 +66,7 @@ typedef struct {
 
 static era_tapdance_storage_t    tapdance_storage;
 static era_tapdance_slot_state_t tapdance_state[ERA_TAP_DANCE_SLOT_COUNT];
-static era_tapdance_runtime_t    tapdance_runtime[ERA_TAP_DANCE_SLOT_COUNT];
+static era_tapdance_runtime_t    tapdance_runtime[TAP_DANCE_MAX_SIMULTANEOUS];
 era_tapdance_user_data_t era_tapdance_user_data[ERA_TAP_DANCE_SLOT_COUNT] = {
     {.slot_index = 0},
     {.slot_index = 1},
@@ -78,6 +80,11 @@ era_tapdance_user_data_t era_tapdance_user_data[ERA_TAP_DANCE_SLOT_COUNT] = {
 
 static bool era_tapdance_keycode_is_valid(uint16_t keycode);
 static void era_tapdance_load_entry(uint8_t slot_index, era_tapdance_entry_t *entry);
+#ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+/* split/era_split_tap_activity.h; declared rather than included, as the
+ * core's split seams are. */
+void era_split_tap_activity_dance_hold(bool held, keypos_t key, uint32_t press_event_time);
+#endif
 
 _Static_assert(sizeof(era_tapdance_slot_storage_t) == 10, "ERA Tap Dance slot storage size changed.");
 _Static_assert(sizeof(era_tapdance_storage_t) == ERA_EEPROM_TAP_DANCE_CONFIG_SIZE, "ERA Tap Dance storage size changed.");
@@ -126,6 +133,9 @@ void era_tapdance_save_config(void) {
 }
 
 void era_tapdance_init(void) {
+    /* Retire outputs while their executed actions are still available. The
+     * core retains release tombstones and invalidates older queued TD input. */
+    tap_dance_cancel_all();
     memset(tapdance_runtime, 0, sizeof(tapdance_runtime));
     if (era_eeprom_read_config(&tapdance_storage, ERA_EEPROM_TAP_DANCE_CONFIG_OFFSET, sizeof(tapdance_storage)) != sizeof(tapdance_storage) || !era_tapdance_storage_is_valid()) {
         era_tapdance_apply_defaults();
@@ -163,15 +173,15 @@ uint16_t tap_dance_remap_keycode(uint16_t keycode) {
     return keycode;
 }
 
-/* **When a dance is decided.** Vial's release-time rule, verbatim from the
- * vial-qmk tree: a slot with On Tap and On Hold and nothing else
- * has nothing left to wait for once the key is up, so it is decided on the
- * first release; a slot with On Double Tap is decided on the second release.
- * Every other layout -- On Tap alone included, exactly as in Vial -- keeps
- * QMK's timeout, so Term decides it. The hook is the weak
- * tap_dance_finish_on_release() in quantum/process_keycode/process_tap_dance.c
- * (era_qmk_fork_ledger.md); the policy is this unit's. Term decides a hold on
- * every layout: the hold deadline is not touched here. */
+/* **When a dance is decided.** A release decides a dance as soon as no later
+ * press could change the outcome: without On Double Tap and On Tap-Hold the
+ * first release is a single tap, and with On Double Tap the second release is
+ * a double tap. Vial waits for Term in both cases; deciding at the release
+ * removes only that delay. Every other layout keeps QMK's timeout. The hook is
+ * the weak tap_dance_finish_on_release() in
+ * quantum/process_keycode/process_tap_dance.c (era_qmk_fork_ledger.md); the
+ * policy is this unit's. Term decides a hold on every layout: the hold
+ * deadline is not touched here. */
 bool tap_dance_finish_on_release(const tap_dance_action_t *action, const tap_dance_state_t *state) {
     if (!action || !state) {
         return false;
@@ -182,8 +192,7 @@ bool tap_dance_finish_on_release(const tap_dance_action_t *action, const tap_dan
     }
     era_tapdance_entry_t entry = {0};
     era_tapdance_load_entry(user->slot_index, &entry);
-    return (state->count == 1 && era_tapdance_keycode_is_valid(entry.on_tap) && era_tapdance_keycode_is_valid(entry.on_hold) &&
-            !era_tapdance_keycode_is_valid(entry.on_double_tap) && !era_tapdance_keycode_is_valid(entry.on_tap_hold)) ||
+    return (state->count == 1 && !era_tapdance_keycode_is_valid(entry.on_double_tap) && !era_tapdance_keycode_is_valid(entry.on_tap_hold)) ||
            (state->count == 2 && era_tapdance_keycode_is_valid(entry.on_double_tap));
 }
 
@@ -250,38 +259,38 @@ uint16_t era_tapdance_get_slot_term_ms(uint8_t slot_index) {
     return tapdance_state[slot_index].term_ms;
 }
 
-static void era_tapdance_register_keycode(uint16_t keycode, bool is_tap) {
-    if (!era_tapdance_keycode_is_valid(keycode)) {
-        return;
-    }
-
+/* One edge of an executed action. The record carries the dance's own position
+ * as a tick event: position-keyed QMK state such as retro tapping sees this
+ * input, never whatever sits at (0,0), and no dance takes it for an input. A
+ * keycode without a QMK action runs through the quantum handlers. */
+static void era_tapdance_run_action(const tap_dance_state_t *state, uint16_t keycode, action_t action, bool pressed, bool is_tap) {
     keyrecord_t record = {0};
-    record.event.pressed = true;
-    record.event.time    = timer_read();
+    record.event.key     = state->key;
+    record.event.pressed = pressed;
+    record.event.time    = timer_read32();
 #ifndef NO_ACTION_TAPPING
     record.tap.count = is_tap ? 1 : 0;
 #endif
 #if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
     record.keycode = keycode;
 #endif
-    process_action(&record, action_for_keycode(keycode));
+    if (action.code == ACTION_NO) {
+        tap_dance_run_quantum_keycode(&record, keycode);
+    } else {
+        process_action(&record, action);
+    }
 }
 
-static void era_tapdance_unregister_keycode(uint16_t keycode, bool is_tap) {
-    if (!era_tapdance_keycode_is_valid(keycode)) {
-        return;
+static void era_tapdance_register_keycode(const tap_dance_state_t *state, uint16_t keycode, bool is_tap) {
+    if (era_tapdance_keycode_is_valid(keycode)) {
+        era_tapdance_run_action(state, keycode, action_for_keycode(keycode), true, is_tap);
     }
+}
 
-    keyrecord_t record = {0};
-    record.event.pressed = false;
-    record.event.time    = timer_read();
-#ifndef NO_ACTION_TAPPING
-    record.tap.count = is_tap ? 1 : 0;
-#endif
-#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
-    record.keycode = keycode;
-#endif
-    process_action(&record, action_for_keycode(keycode));
+static void era_tapdance_unregister_keycode(const tap_dance_state_t *state, uint16_t keycode, bool is_tap) {
+    if (era_tapdance_keycode_is_valid(keycode)) {
+        era_tapdance_run_action(state, keycode, action_for_keycode(keycode), false, is_tap);
+    }
 }
 
 /* **How wide a synthesized tap is.** QMK's own rule, applied to every tap this
@@ -299,18 +308,26 @@ static uint16_t era_tapdance_tap_width_ms(uint16_t keycode) {
     return keycode == KC_CAPS_LOCK ? TAP_HOLD_CAPS_DELAY : TAP_CODE_DELAY;
 }
 
-static void era_tapdance_tap_keycode(uint16_t keycode, bool is_tap) {
-    era_tapdance_register_keycode(keycode, is_tap);
+static void era_tapdance_tap_keycode(const tap_dance_state_t *state, uint16_t keycode, bool is_tap) {
+    era_tapdance_register_keycode(state, keycode, is_tap);
     tap_code_wait(keycode, era_tapdance_tap_width_ms(keycode));
-    era_tapdance_unregister_keycode(keycode, is_tap);
+    era_tapdance_unregister_keycode(state, keycode, is_tap);
 }
 
-static void era_tapdance_set_runtime(uint8_t slot_index, uint16_t keycode, bool is_tap) {
-    if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
+static void era_tapdance_set_runtime(const tap_dance_state_t *state, uint16_t keycode, bool is_tap) {
+    if (state->runtime_index >= TAP_DANCE_MAX_SIMULTANEOUS) {
         return;
     }
-    tapdance_runtime[slot_index].active_keycode = keycode;
-    tapdance_runtime[slot_index].active_is_tap  = is_tap;
+    tapdance_runtime[state->runtime_index].active_keycode = keycode;
+    tapdance_runtime[state->runtime_index].active_qmk_action = action_for_keycode(keycode);
+    tapdance_runtime[state->runtime_index].active_is_tap  = is_tap;
+#ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+    /* A peer-half press during this LT/MT hold cancels its retro tap, as it
+     * does for an LT/MT the tapping engine holds. */
+    if (!is_tap && is_tap_action(tapdance_runtime[state->runtime_index].active_qmk_action)) {
+        era_split_tap_activity_dance_hold(true, state->key, state->last_tap_time);
+    }
+#endif
 }
 
 static void era_tapdance_load_entry(uint8_t slot_index, era_tapdance_entry_t *entry) {
@@ -345,16 +362,20 @@ void era_tapdance_on_each_tap(tap_dance_state_t *state, void *user_data) {
     if (!user || user->slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
         return;
     }
+    if (state->count == 1 && state->runtime_index < TAP_DANCE_MAX_SIMULTANEOUS) {
+        /* A Double Hold's embedded tap stands for this first press. */
+        tapdance_runtime[state->runtime_index].first_tap_mods = state->weak_mods;
+    }
     era_tapdance_load_entry(user->slot_index, &entry);
     if (!era_tapdance_keycode_is_valid(entry.on_tap)) {
         return;
     }
     if (state->count == 3) {
-        era_tapdance_tap_keycode(entry.on_tap, true);
-        era_tapdance_tap_keycode(entry.on_tap, true);
-        era_tapdance_tap_keycode(entry.on_tap, true);
+        era_tapdance_tap_keycode(state, entry.on_tap, true);
+        era_tapdance_tap_keycode(state, entry.on_tap, true);
+        era_tapdance_tap_keycode(state, entry.on_tap, true);
     } else if (state->count > 3) {
-        era_tapdance_tap_keycode(entry.on_tap, true);
+        era_tapdance_tap_keycode(state, entry.on_tap, true);
     }
 }
 
@@ -368,57 +389,67 @@ void era_tapdance_on_dance_finished(tap_dance_state_t *state, void *user_data) {
     uint8_t slot_index = user->slot_index;
     era_tapdance_load_entry(slot_index, &entry);
 
-    tapdance_runtime[slot_index].active_keycode = KC_NO;
-    tapdance_runtime[slot_index].active_is_tap  = false;
+    if (state->runtime_index >= TAP_DANCE_MAX_SIMULTANEOUS) {
+        return;
+    }
+    tapdance_runtime[state->runtime_index].active_keycode = KC_NO;
+    tapdance_runtime[state->runtime_index].active_is_tap  = false;
 
     switch (era_tapdance_step(state)) {
         case ERA_TD_SINGLE_TAP:
             if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                era_tapdance_register_keycode(entry.on_tap, true);
-                era_tapdance_set_runtime(slot_index, entry.on_tap, true);
+                era_tapdance_register_keycode(state, entry.on_tap, true);
+                era_tapdance_set_runtime(state, entry.on_tap, true);
             }
             break;
         case ERA_TD_SINGLE_HOLD:
             if (era_tapdance_keycode_is_valid(entry.on_hold)) {
-                era_tapdance_register_keycode(entry.on_hold, false);
-                era_tapdance_set_runtime(slot_index, entry.on_hold, false);
+                era_tapdance_register_keycode(state, entry.on_hold, false);
+                era_tapdance_set_runtime(state, entry.on_hold, false);
             } else if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                era_tapdance_register_keycode(entry.on_tap, false);
-                era_tapdance_set_runtime(slot_index, entry.on_tap, false);
+                era_tapdance_register_keycode(state, entry.on_tap, false);
+                era_tapdance_set_runtime(state, entry.on_tap, false);
             }
             break;
         case ERA_TD_DOUBLE_TAP:
             if (era_tapdance_keycode_is_valid(entry.on_double_tap)) {
-                era_tapdance_register_keycode(entry.on_double_tap, true);
-                era_tapdance_set_runtime(slot_index, entry.on_double_tap, true);
+                era_tapdance_register_keycode(state, entry.on_double_tap, true);
+                era_tapdance_set_runtime(state, entry.on_double_tap, true);
             } else if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                era_tapdance_tap_keycode(entry.on_tap, true);
-                era_tapdance_register_keycode(entry.on_tap, true);
-                era_tapdance_set_runtime(slot_index, entry.on_tap, true);
+                era_tapdance_tap_keycode(state, entry.on_tap, true);
+                era_tapdance_register_keycode(state, entry.on_tap, true);
+                era_tapdance_set_runtime(state, entry.on_tap, true);
             }
             break;
         case ERA_TD_DOUBLE_HOLD:
             if (era_tapdance_keycode_is_valid(entry.on_tap_hold)) {
-                era_tapdance_register_keycode(entry.on_tap_hold, false);
-                era_tapdance_set_runtime(slot_index, entry.on_tap_hold, false);
+                era_tapdance_register_keycode(state, entry.on_tap_hold, false);
+                era_tapdance_set_runtime(state, entry.on_tap_hold, false);
             } else {
                 if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                    era_tapdance_tap_keycode(entry.on_tap, true);
+                    /* The embedded tap stands for the first press and, like
+                     * any tap, carries the modifiers held at either press.
+                     * The hold that follows keeps only live owners. */
+                    const uint8_t mods = tapdance_runtime[state->runtime_index].first_tap_mods | state->weak_mods;
+                    add_weak_mods(mods);
+                    era_tapdance_tap_keycode(state, entry.on_tap, true);
+                    del_weak_mods(mods);
+                    send_keyboard_report();
                 }
                 if (era_tapdance_keycode_is_valid(entry.on_hold)) {
-                    era_tapdance_register_keycode(entry.on_hold, false);
-                    era_tapdance_set_runtime(slot_index, entry.on_hold, false);
+                    era_tapdance_register_keycode(state, entry.on_hold, false);
+                    era_tapdance_set_runtime(state, entry.on_hold, false);
                 } else if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                    era_tapdance_register_keycode(entry.on_tap, false);
-                    era_tapdance_set_runtime(slot_index, entry.on_tap, false);
+                    era_tapdance_register_keycode(state, entry.on_tap, false);
+                    era_tapdance_set_runtime(state, entry.on_tap, false);
                 }
             }
             break;
         case ERA_TD_DOUBLE_SINGLE_TAP:
             if (era_tapdance_keycode_is_valid(entry.on_tap)) {
-                era_tapdance_tap_keycode(entry.on_tap, true);
-                era_tapdance_register_keycode(entry.on_tap, true);
-                era_tapdance_set_runtime(slot_index, entry.on_tap, true);
+                era_tapdance_tap_keycode(state, entry.on_tap, true);
+                era_tapdance_register_keycode(state, entry.on_tap, true);
+                era_tapdance_set_runtime(state, entry.on_tap, true);
             }
             break;
         default:
@@ -427,13 +458,15 @@ void era_tapdance_on_dance_finished(tap_dance_state_t *state, void *user_data) {
 }
 
 void era_tapdance_on_reset(tap_dance_state_t *state, void *user_data) {
-    (void)state;
     era_tapdance_user_data_t *user = user_data;
     if (!user || user->slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
         return;
     }
 
-    era_tapdance_runtime_t *runtime = &tapdance_runtime[user->slot_index];
+    if (state->runtime_index >= TAP_DANCE_MAX_SIMULTANEOUS) {
+        return;
+    }
+    era_tapdance_runtime_t *runtime = &tapdance_runtime[state->runtime_index];
     if (era_tapdance_keycode_is_valid(runtime->active_keycode)) {
         /* A tap the decision registered is released here, one synthesized
            width later (era_tapdance_tap_width_ms); a hold is released as the
@@ -441,7 +474,16 @@ void era_tapdance_on_reset(tap_dance_state_t *state, void *user_data) {
         if (runtime->active_is_tap) {
             tap_code_wait(runtime->active_keycode, era_tapdance_tap_width_ms(runtime->active_keycode));
         }
-        era_tapdance_unregister_keycode(runtime->active_keycode, runtime->active_is_tap);
+        {
+            /* Every action receives its own up. Resource contributions, not
+             * an identical-action suppression, preserve the other owners. */
+            era_tapdance_run_action(state, runtime->active_keycode, runtime->active_qmk_action, false, runtime->active_is_tap);
+#ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
+            if (!runtime->active_is_tap) {
+                era_split_tap_activity_dance_hold(false, state->key, 0);
+            }
+#endif
+        }
     }
     runtime->active_keycode = KC_NO;
     runtime->active_is_tap  = false;

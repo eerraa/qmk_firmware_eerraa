@@ -245,6 +245,19 @@ void soft_reset_keyboard(void) {
 
 /* Convert record into usable keycode via the contained event. */
 uint16_t get_record_keycode(keyrecord_t *record, bool update_layer_cache) {
+#ifdef ERA_TAP_DANCE_ENABLE
+    if (record->tap_dance_injected) {
+        return record->tap_dance_keycode;
+    }
+#endif
+#ifdef TAP_DANCE_ENABLE
+    /* A cached source layer does not freeze VIA's entry on that layer.
+     * Route a held dance's up by input ownership, before reading live maps. */
+    const uint16_t owned = tap_dance_owned_keycode(record);
+    if (owned != KC_NO) {
+        return owned;
+    }
+#endif
 #if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
     if (record->keycode) {
         return record->keycode;
@@ -279,7 +292,14 @@ uint16_t get_event_keycode(keyevent_t event, bool update_layer_cache) {
 
 /* Get keycode, and then process pre tapping functionality */
 bool pre_process_record_quantum(keyrecord_t *record) {
-    return pre_process_record_modules(get_record_keycode(record, true), record) && pre_process_record_kb(get_record_keycode(record, true), record) &&
+    uint16_t keycode = get_record_keycode(record, true);
+#ifdef ERA_TAP_DANCE_ENABLE
+    /* Preserve the ingress TD identity even if VIA changes the mapping while
+     * this record is waiting behind an LT/MT decision. */
+    uint16_t candidate = tap_dance_remap_keycode(keycode);
+    record->tap_dance_keycode = IS_QK_TAP_DANCE(candidate) ? candidate : KC_NO;
+#endif
+    return pre_process_record_modules(keycode, record) && pre_process_record_kb(get_record_keycode(record, true), record) &&
 #ifdef COMBO_ENABLE
            process_combo(get_record_keycode(record, true), record) &&
 #endif
@@ -480,6 +500,8 @@ __attribute__((weak)) bool shutdown_kb(bool jump_to_bootloader) {
 }
 
 void suspend_power_down_quantum(void) {
+    /* ERA also calls this entry for lighting-only frame-loss sleep. Input
+     * lifetime is retired by clear_keyboard(), not by RGB sleep policy. */
     suspend_power_down_modules();
     suspend_power_down_kb();
 #ifndef NO_SUSPEND_POWER_DOWN

@@ -292,15 +292,16 @@ LIGHTING 메뉴나 키맵에 이미 배치된 조명 키를 사용하세요.
 TAPDANCE에서 피하는 것이 좋은 입력
 ----------------------------------------------------------------------
 
-다음은 VIA에서 인식되지 않거나, 인식되어도 TAPDANCE 동작으로 쓰기
-어려울 수 있습니다.
+다음은 VIA에서 인식되지 않을 수 있는 입력입니다.
 
 - SFT_T(), CTL_T(), ALT_T(), GUI_T() 같은 짧은 Mod-Tap alias
 - MS_DOWN, MS_BTN1, MS_WHLU 같은 최신 QMK 마우스 키 이름
 - RGB_TOG, RM_TOGG, UG_TOGG 같은 RGB/조명 keycode 직접 입력
 - 사용자 정의 keycode 이름
-- TD(0), TD(1)처럼 TAPDANCE 안에서 다시 TAPDANCE를 호출하는 구성
-- 매크로, 콤보, 복잡한 커스텀 기능 keycode
+
+VIA가 저장한 조명·매크로·사용자 정의 keycode는 TAPDANCE 동작에서도 키맵에
+배치했을 때처럼 실행됩니다. 다만 TD(0), TD(1)처럼 TAPDANCE 안에서 다시
+TAPDANCE를 호출하는 구성은 동작하지 않습니다.
 
 TAPDANCE를 처음 설정할 때는 KC_ESC, KC_SPC, KC_CAPS, MO(1)처럼
 단순한 keycode로 먼저 확인한 뒤 필요한 기능을 추가하는 것을 권장합니다.

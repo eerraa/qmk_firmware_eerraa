@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 from typing import Any, Iterator
@@ -435,6 +436,17 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             self.assertIsInstance(controls, list, path.as_posix())
             self.assertEqual([control.get("content") for control in controls], expected_commands, path.as_posix())
             self.assertTrue(all(isinstance(control.get("type"), str) for control in controls), path.as_posix())
+
+    def test_shipped_keymaps_bind_no_diagnostic_keycode(self) -> None:
+        # A capture key does nothing in a standard image, so a default keymap that
+        # binds one ships a dead key. Captures bind it temporarily in VIA instead.
+        diagnostic = re.compile(r"\bWIRE_(?:DIAG|DIAG_2|QWIN)\b")
+        for keymap in sorted(ERA_KEYBOARDS.glob("**/keymaps/*/keymap.c")):
+            text = keymap.read_text(encoding="utf-8")
+            text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+            text = re.sub(r"//[^\n]*", "", text)
+            with self.subTest(keymap=keymap.relative_to(ROOT).as_posix()):
+                self.assertIsNone(diagnostic.search(text))
 
 
 if __name__ == "__main__":

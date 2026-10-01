@@ -24,8 +24,8 @@
 #    else
 #        define IS_TAPPING_RECORD(r) (KEYEQ(tapping_key.event.key, (r->event.key)) && tapping_key.keycode == r->keycode)
 #    endif
-#    define WITHIN_TAPPING_TERM(e) (TIMER_DIFF_16(e.time, tapping_key.event.time) < GET_TAPPING_TERM(get_record_keycode(&tapping_key, false), &tapping_key))
-#    define WITHIN_QUICK_TAP_TERM(e) (TIMER_DIFF_16(e.time, tapping_key.event.time) < GET_QUICK_TAP_TERM(get_record_keycode(&tapping_key, false), &tapping_key))
+#    define WITHIN_TAPPING_TERM(e) (TIMER_DIFF_32(e.time, tapping_key.event.time) < GET_TAPPING_TERM(get_record_keycode(&tapping_key, false), &tapping_key))
+#    define WITHIN_QUICK_TAP_TERM(e) (TIMER_DIFF_32(e.time, tapping_key.event.time) < GET_QUICK_TAP_TERM(get_record_keycode(&tapping_key, false), &tapping_key))
 
 #    ifdef DYNAMIC_TAPPING_TERM_ENABLE
 uint16_t g_tapping_term = TAPPING_TERM;
@@ -156,10 +156,10 @@ __attribute__((weak)) bool get_hold_on_other_key_press(uint16_t keycode, keyreco
 
 #    if defined(FLOW_TAP_TERM)
 static uint16_t flow_tap_prev_keycode = KC_NO;
-static uint16_t flow_tap_prev_time    = 0;
+static uint32_t flow_tap_prev_time    = 0;
 static bool     flow_tap_expired      = true;
 
-static bool flow_tap_key_if_within_term(keyrecord_t *record, uint16_t prev_time);
+static bool flow_tap_key_if_within_term(keyrecord_t *record, uint32_t prev_time);
 #    endif // defined(FLOW_TAP_TERM)
 
 static keyrecord_t tapping_key                         = {};
@@ -174,8 +174,8 @@ static uint8_t     waiting_buffer_tail                 = 0;
  * action_tapping_process() pass, and the in-flight judgment below, consulted
  * for ticks as well so a peer press settles a hold without any local event.
  * Declared here rather than included (the era_split_peer_layer precedent). */
-void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t event_time);
-bool era_split_tap_activity_judge_hold(bool own_release, uint16_t own_release_event_time);
+void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint32_t event_time);
+bool era_split_tap_activity_judge_hold(bool own_release, uint32_t own_release_event_time);
 #    endif // ERA_SPLIT_TAP_ACTIVITY_ENABLE
 
 static bool process_tapping(keyrecord_t *record);
@@ -246,7 +246,7 @@ void action_tapping_process(keyrecord_t record) {
         ac_dprintf("\n");
     } else {
 #    ifdef FLOW_TAP_TERM
-        if (!flow_tap_expired && TIMER_DIFF_16(record.event.time, flow_tap_prev_time) >= INT16_MAX / 2) {
+        if (!flow_tap_expired && TIMER_DIFF_32(record.event.time, flow_tap_prev_time) >= INT16_MAX / 2) {
             flow_tap_expired = true;
         }
 #    endif // FLOW_TAP_TERM
@@ -281,7 +281,7 @@ void action_tapping_process(keyrecord_t record) {
  *     to RETRO_SHIFT if RETRO_SHIFT is set
  * for possibly retro shifted keys.
  */
-#        define MAYBE_RETRO_SHIFTING(ev, keyp) (get_auto_shifted_key(tapping_keycode, keyp) && TAP_GET_RETRO_TAPPING(keyp) && ((RETRO_SHIFT + 0) == 0 || TIMER_DIFF_16((ev).time, tapping_key.event.time) < (RETRO_SHIFT + 0)))
+#        define MAYBE_RETRO_SHIFTING(ev, keyp) (get_auto_shifted_key(tapping_keycode, keyp) && TAP_GET_RETRO_TAPPING(keyp) && ((RETRO_SHIFT + 0) == 0 || TIMER_DIFF_32((ev).time, tapping_key.event.time) < (RETRO_SHIFT + 0)))
 #        define TAP_IS_LT IS_QK_LAYER_TAP(tapping_keycode)
 #        define TAP_IS_MT IS_QK_MOD_TAP(tapping_keycode)
 #        define TAP_IS_RETRO IS_RETRO(tapping_keycode)
@@ -406,13 +406,13 @@ bool process_tapping(keyrecord_t *keyp) {
 #    if defined(FLOW_TAP_TERM)
                     // Now that tapping_key has settled as tapped, check whether
                     // Flow Tap applies to following yet-unsettled keys.
-                    uint16_t prev_time = tapping_key.event.time;
+                    uint32_t prev_time = tapping_key.event.time;
                     for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE) {
                         keyrecord_t *record = &waiting_buffer[waiting_buffer_tail];
                         if (!record->event.pressed) {
                             break;
                         }
-                        const int16_t next_time = record->event.time;
+                        const uint32_t next_time = record->event.time;
                         if (!is_tap_record(record)) {
                             process_record(record);
                         } else if (!flow_tap_key_if_within_term(record, prev_time)) {
@@ -1209,8 +1209,8 @@ void flow_tap_update_last_event(keyrecord_t *record) {
     flow_tap_expired      = false;
 }
 
-static bool flow_tap_key_if_within_term(keyrecord_t *record, uint16_t prev_time) {
-    const uint16_t idle_time = TIMER_DIFF_16(record->event.time, prev_time);
+static bool flow_tap_key_if_within_term(keyrecord_t *record, uint32_t prev_time) {
+    const uint32_t idle_time = TIMER_DIFF_32(record->event.time, prev_time);
     if (flow_tap_expired || idle_time >= 500) {
         return false;
     }
@@ -1238,7 +1238,7 @@ static bool flow_tap_key_if_within_term(keyrecord_t *record, uint16_t prev_time)
 // if the key is within the flow tap term.
 bool within_flow_tap_term(uint16_t keycode, keyrecord_t *record) {
     uint16_t term = get_flow_tap_term(keycode, record, flow_tap_prev_keycode);
-    return !flow_tap_expired && TIMER_DIFF_16(record->event.time, flow_tap_prev_time) <= term;
+    return !flow_tap_expired && TIMER_DIFF_32(record->event.time, flow_tap_prev_time) <= term;
 }
 
 // By default, enable Flow Tap for the keys in the main alphas area and Space.

@@ -48,8 +48,9 @@ CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번�
 - Tap+Hold: 한 번 탭한 뒤 이어서 길게 눌렀을 때의 keycode
 - Term: 어느 동작인지 판단하기까지 기다리는 시간(ms)
 
-On Tap과 On Hold만 설정한 슬롯은 키를 떼는 순간 탭이 입력되고, Term은 홀드
-판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는 순간 입력됩니다.
+On Double Tap과 Tap+Hold를 비워 둔 슬롯은 키를 떼는 순간 탭이 입력되고,
+Term은 홀드 판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는
+순간 입력됩니다.
 
 ■ SOCD
 
@@ -63,7 +64,8 @@ CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키의 조합을 지�
 CONFIGURE -> FEATURE -> KKUK에서 사용합니다. 일반 키 두 개 이상을 계속 누르면
 눌린 키 묶음을 Delay/Repeat 설정에 따라 주기적으로 뗐다가 다시 누릅니다.
 예를 들어 A, S, D를 계속 누르면 일반적인 "asdddd..." 자동 반복 대신 보통
-"asdasdasd..."처럼 입력됩니다. SOCD에 지정한 키는 반복 대상에서 제외됩니다.
+"asdasdasd..."처럼 입력됩니다. 문자열 매크로나 매트릭스 ghosting 방지 기능이
+아니며 SOCD에 지정한 키는 반복 대상에서 제외됩니다.
 
 ■ DEBOUNCE
 
@@ -162,7 +164,8 @@ Jump To BOOT는 켜는 즉시 현재 유닛의 부트로더로 진입합니다. 
 
 CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 10초 안에 모두 켜면 CLEAN이
 실행됩니다. 연결된 양쪽 유닛은 함께 초기화와 재시작을 수행하며, 떨어져 있는
-유닛은 각각 로컬 CLEAN을 수행합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
+유닛은 각각 로컬 CLEAN을 수행합니다. 10초 안에 완료하지 않으면 이미 켠 토글은
+자동으로 해제됩니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
 
 
 ----------------------------------------------------------------------
@@ -207,9 +210,9 @@ that TD key is actually placed somewhere you can press it.
 - Tap+Hold: keycode for a tap followed by a hold
 - Term: how long the keyboard waits before deciding the action, in milliseconds
 
-A slot with only On Tap and On Hold sends the tap the moment the key is
-released, and Term then decides only the hold. With On Double Tap set, the
-second tap is sent the moment it is released.
+A slot with On Double Tap and Tap+Hold left empty sends the tap the moment
+the key is released, and Term then decides only the hold. With On Double
+Tap set, the second tap is sent the moment it is released.
 
 ■ SOCD
 
@@ -223,8 +226,8 @@ conflicts must be unambiguous.
 Use CONFIGURE -> FEATURE -> KKUK. While two or more ordinary keys remain held,
 KKUK periodically releases the held group and presses it again according to
 Delay/Repeat. For example, holding A, S, and D usually produces "asdasdasd..."
-instead of the ordinary "asdddd..." auto-repeat. Keys assigned to SOCD are
-excluded.
+instead of the ordinary "asdddd..." auto-repeat. This is neither a string macro
+nor matrix ghosting prevention. Keys assigned to SOCD are excluded.
 
 ■ DEBOUNCE
 
@@ -325,5 +328,6 @@ and normally reads back off after the action.
 
 Turn on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM within
 10 seconds to run CLEAN. Connected units erase and restart together; separated
-units perform local CLEAN independently. Back up the keymap with VIA SAVE + LOAD
-before running CLEAN.
+units perform local CLEAN independently. If the ten-second window is missed,
+any toggles already switched on clear themselves. Back up the keymap with
+VIA SAVE + LOAD before running CLEAN.

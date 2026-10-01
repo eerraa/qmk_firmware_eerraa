@@ -5,7 +5,6 @@
 
 #include "quantum.h"
 #include "eeprom.h"
-#include "nvm_eeconfig.h"
 #include "usb_device_state.h"
 #ifdef VIA_ENABLE
 #    include "via.h"
@@ -13,6 +12,7 @@
 #endif
 #include <string.h>
 #include "../../common/storage/era_eeprom_storage.h"
+#include "../../common/storage/era_reset_guard.h"
 #include "../../common/system/era_common_features.h"
 #include "../../common/system/era_common_via.h"
 #include "../../common/split/era_split_sync_policy.h"
@@ -55,19 +55,12 @@ static led_t     tomak_usb_led_state;
    reached from above it. */
 void tomak_invalidate_indicator_render(void);
 
-typedef struct __attribute__((packed)) {
-    uint32_t reset_key32;
-    uint32_t reset_key_inverse32;
-    uint8_t  reserved_zero[8];
-} tomak_era_reset_guard_t;
-
 /* No sizeof(tomak_config_t) assert, and this family has not carried one since
    the type took its present shape: the pin existed to keep the union's `raw`
    uint32_t view a valid whole-struct view, and that view went with the union
    on 2026-08-11. This type is in-RAM only. The size that matters is the
    persisted record's, and tomak_era_keyboard_config.h still asserts that one
    against ERA_EEPROM_KEYBOARD_CONFIG_SIZE. */
-_Static_assert(sizeof(tomak_era_reset_guard_t) == ERA_EEPROM_RESET_GUARD_CONFIG_SIZE, "ERA reset guard size changed.");
 
 /* The badge LED range is board geometry -- a 9-LED badge on 79H and 79S, a
    3-LED one on tomak -- so it is a board fact under ERA build-selector rule 3
@@ -199,36 +192,12 @@ static void tomak_reload_config_from_era_eeprom(void) {
 }
 #endif
 
-/* --- The ERA reset guard ------------------------------------------------- */
+/* --- ERA block defaults after an erase ------------------------------------ */
 
-static bool tomak_reset_guard_reserved_is_zero(const tomak_era_reset_guard_t *guard) {
-    for (uint8_t i = 0; i < sizeof(guard->reserved_zero); i++) {
-        if (guard->reserved_zero[i] != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool tomak_era_reset_guard_is_valid(void) {
-    tomak_era_reset_guard_t guard;
-    if (era_eeprom_read_config(&guard, ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET, sizeof(guard)) != sizeof(guard)) {
-        return false;
-    }
-
-    return guard.reset_key32 == (uint32_t)ERA_EEPROM_RESET_KEY &&
-           guard.reset_key_inverse32 == (uint32_t)~(uint32_t)ERA_EEPROM_RESET_KEY &&
-           tomak_reset_guard_reserved_is_zero(&guard);
-}
-
-static void tomak_write_era_reset_guard(void) {
-    tomak_era_reset_guard_t guard = {
-        .reset_key32         = (uint32_t)ERA_EEPROM_RESET_KEY,
-        .reset_key_inverse32 = (uint32_t)~(uint32_t)ERA_EEPROM_RESET_KEY,
-    };
-    era_eeprom_update_config(&guard, ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET, sizeof(guard));
-}
-
+/* Reached only from eeconfig_init_kb(), after QMK has erased the whole logical
+   EEPROM; the zero fill keeps the block's reserved ranges zero even if a
+   future erase leaves other bytes behind. The reset guard is written last by
+   eeconfig_init_kb() itself (storage/era_reset_guard.c). */
 static void tomak_era_eeprom_strict_reset(void) {
     uint8_t zeros[ERA_EEPROM_CONFIG_SIZE] = {0};
     era_eeprom_update_config(zeros, 0, sizeof(zeros));
@@ -236,28 +205,6 @@ static void tomak_era_eeprom_strict_reset(void) {
     tomak_config_apply_defaults(&g_tomak_config);
     tomak_write_config_to_era_eeprom(&g_tomak_config);
     era_split_sync_policy_reset_to_defaults();
-    tomak_write_era_reset_guard();
-}
-
-static bool tomak_era_eeprom_ensure_ready(void) {
-    if (tomak_era_reset_guard_is_valid()) {
-        return false;
-    }
-
-    /* A pending eeconfig_init_quantum() erases the whole logical EEPROM and
-     * then runs this same strict reset through eeconfig_init_kb(), so a reset
-     * written here is destroyed a few init steps later. Defer to it.
-     *
-     * The predicate is nvm_eeconfig_is_enabled() and not eeconfig_is_enabled():
-     * the latter also requires via_eeprom_is_valid(), which via_init() sets
-     * true before quantum_init() reads it, so it can be false here and true
-     * there - and then no strict reset would run at all. */
-    if (!nvm_eeconfig_is_enabled()) {
-        return false;
-    }
-
-    tomak_era_eeprom_strict_reset();
-    return true;
 }
 
 static void tomak_init_era_owned_modules(void) {
@@ -840,12 +787,11 @@ void eeconfig_init_kb(void) {
     tomak_era_eeprom_strict_reset();
     tomak_init_era_owned_modules();
     eeconfig_init_user();
+    era_reset_guard_write();
 }
 
 void matrix_init_kb(void) {
-    if (tomak_era_eeprom_ensure_ready()) {
-        tomak_init_era_owned_modules();
-    }
+    era_reset_guard_check();
     tomak_read_config_from_era_eeprom(&g_tomak_config);
     tomak_host_led_state = host_keyboard_led_state();
     tomak_usb_led_state  = (led_t)usb_device_state_get_leds();
@@ -854,7 +800,7 @@ void matrix_init_kb(void) {
 
 #ifdef VIA_ENABLE
 void via_init_kb(void) {
-    tomak_era_eeprom_ensure_ready();
+    era_reset_guard_check();
     tomak_read_config_from_era_eeprom(&g_tomak_config);
     tomak_init_era_owned_modules();
 }

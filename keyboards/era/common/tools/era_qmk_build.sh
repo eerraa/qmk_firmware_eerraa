@@ -17,8 +17,6 @@ VARIANT defaults to standard for every target. The common make layer owns the
 accepted names and refuses a variant whose prerequisites the target lacks.
 
 Options:
-  --build-date YYYY-MM-DD-HH:MM:SS
-             override QMK_BUILDDATE through the repository-local QMK wrapper
   --artifact-dir DIR
              artifact destination (default: REPOSITORY/.era-artifacts)
   --show-options
@@ -36,7 +34,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../../.." && pwd)"
 target=""
 variant=""
-build_date=""
 show_options="no"
 artifact_dir="$repo_root/.era-artifacts"
 
@@ -51,11 +48,6 @@ fi
 
 while (($# > 0)); do
     case "$1" in
-        --build-date)
-            (($# >= 2)) || fail "--build-date requires a value"
-            build_date=$2
-            shift 2
-            ;;
         --artifact-dir)
             (($# >= 2)) || fail "--artifact-dir requires a value"
             artifact_dir=$2
@@ -87,10 +79,6 @@ keymap=${target##*:}
 variant=${variant:-standard}
 [[ $variant =~ ^[a-z][a-z0-9_]*$ ]] || fail "invalid variant spelling: $variant"
 variant_args=(-e "ERA_BUILD_VARIANT=$variant" -e ERA_BUILD_IDENTITY_REPORT=yes)
-
-if [[ -n "$build_date" && ! $build_date =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-    fail "invalid build date: $build_date"
-fi
 
 # A successful host adapter sync is the entry condition. This prevents the
 # internal launcher from silently becoming a second, stale-tree build route.
@@ -135,11 +123,6 @@ if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then
 fi
 edit_tree_check="matched by era-sync"
 
-date_suffix=""
-if [[ -n "$build_date" ]]; then
-    date_suffix="_$(printf '%s' "$build_date" | tr -d ':-')"
-fi
-
 target_stem="${keyboard//\//_}_${keymap//\//_}"
 build_log_tmp="$(mktemp "$artifact_dir/.${target_stem}_${variant}_${short_head}.build.XXXXXX.log")"
 gate_log_tmp=""
@@ -155,14 +138,8 @@ qmk_args+=("${variant_args[@]}")
 if [[ $show_options == yes ]]; then
     qmk_args+=(-e ERA_SHOW_OPTIONS=yes)
 fi
-if [[ -n "$build_date" ]]; then
-    qmk_args+=(-e "QMK_BIN=$script_dir/era_qmk_fixed_builddate_wrapper.sh")
-fi
 
 qmk_command=(qmk "${qmk_args[@]}")
-if [[ -n "$build_date" ]]; then
-    qmk_command=(env "ERA_TEST_QMK_BUILDDATE=$build_date" "${qmk_command[@]}")
-fi
 
 printf 'ERA build:'
 printf ' %q' "${qmk_command[@]}"
@@ -230,7 +207,7 @@ fi
 firmware_sha256="$(sha256sum "${build_base}.${firmware_format}" | awk '{print $1}')"
 elf_sha256="$(sha256sum "${build_base}.elf" | awk '{print $1}')"
 artifact_id=${firmware_sha256:0:16}
-stem="${target_stem}_${resolved_variant}_${short_head}${dirty_suffix}${date_suffix}_${artifact_id}"
+stem="${target_stem}_${resolved_variant}_${short_head}${dirty_suffix}_${artifact_id}"
 firmware="$artifact_dir/${stem}.${firmware_format}"
 elf="$artifact_dir/${stem}.elf"
 build_log="$artifact_dir/${stem}.build.log"
@@ -271,7 +248,7 @@ make_version="$(make --version | sed -n '1p')"
     printf 'worktree_dirty=%s\n' "$dirty"
     printf 'edit_tree_check=%s\n' "$edit_tree_check"
     printf 'build_environment=WSL local filesystem\n'
-    printf 'build_date=%s\n' "${build_date:-automatic}"
+    printf 'build_date=%s\n' "$(sed -n 's/^#define QMK_BUILDDATE "\(.*\)"$/\1/p' "$repo_root/keyboards/era/common/storage/era_via_magic.h")"
     printf 'qmk_cli_version=%s\n' "$qmk_cli_version"
     if [[ -n "$qmk_firmware_version" ]]; then
         printf 'qmk_firmware_version=%s\n' "$qmk_firmware_version"

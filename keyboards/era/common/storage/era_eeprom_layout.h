@@ -114,22 +114,11 @@
 
 #define ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET 204
 #define ERA_EEPROM_RESET_GUARD_CONFIG_SIZE 16
-/* Bumped 0x45524102 -> 0x45524103 at Slice 9.5: the local-policy flags byte
- * and the VIA sync value ids renumbered with the DUAL-HOST parent removal,
- * and the key change is the whole migration.
- *
- * Bumped 0x45524103 -> 0x45524104 with the 2026-08-18 regrouping: every region
- * except tap dance moved, so a block written by an older image means something
- * different at every offset above 87.
- *
- * **The guard this key drives is the tomak family's** (sirind/common/tomak_common.c)
- * and no other board implements one, so on a non-split board the bump is inert
- * and each feature's own validity check is what catches the move. That is why
- * the regrouping put a signature at the end of the new MOUSE block and added
- * the reserved-zero test to era_socd.c: with those two, every moved region's
- * fallback is a clean reset rather than a misread
- * (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
-#define ERA_EEPROM_RESET_KEY 0x45524104UL
+/* Full-reset key of every ERA board (storage/era_reset_guard.h): a stored
+ * guard that differs erases the whole logical EEPROM on the next boot. Move it
+ * when stored bytes would mean something else and no narrower guard rejects
+ * them (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
+#define ERA_EEPROM_RESET_KEY 0x45524105UL
 
 /* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32
  * values plus one guard word, written only at storage convergence closes.

@@ -578,9 +578,9 @@ void switch_events(uint8_t row, uint8_t col, bool pressed) {
  * internal QMK state machine.
  */
 static inline void generate_tick_event(void) {
-    static uint16_t last_tick = 0;
-    const uint16_t  now       = timer_read();
-    if (TIMER_DIFF_16(now, last_tick) != 0) {
+    static uint32_t last_tick = 0;
+    const uint32_t  now       = timer_read32();
+    if (TIMER_DIFF_32(now, last_tick) != 0) {
         action_exec(MAKE_TICK_EVENT);
         last_tick = now;
     }

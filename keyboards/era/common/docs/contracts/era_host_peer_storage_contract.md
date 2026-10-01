@@ -91,9 +91,9 @@ Program and erase go through `era_nvm_flash_program_verified()` /
 never a successful cache equality. Healthy device acceptance requires both
 failure counters zero.
 
-`ERA_NVM_FORMAT_VERSION` 1 is distinct from `ERA_EEPROM_RESET_KEY`
-`0x45524104`. A physical format change and a logical owner-map change are
-separate compatibility decisions.
+`ERA_NVM_FORMAT_VERSION` 1 is distinct from `ERA_EEPROM_RESET_KEY`. A physical
+format change and a logical owner-map change are separate compatibility
+decisions.
 
 Origins (`era_nvm_origin_t` in `storage/era_nvm.h`): `LOCAL_QMK`,
 `REMOTE_APPLY`, `MACRO_TRANSACTION`, `CLEAN_PREPARE`, `FORMAT`,
@@ -133,6 +133,35 @@ unreachable. A default-only version change is not a layout change. A normal
 UF2 flash does not erase ERA NVM, so same-format data may remain mounted;
 physical-format rejection and logical owner-map/reset-key invalidation are
 separate decisions.
+
+Two keys pinned in source decide when stored data is wiped; a release that
+changes no stored format keeps both, so an ordinary update keeps every setting.
+
+- `ERA_EEPROM_RESET_KEY` (`storage/era_eeprom_layout.h`) is the full-reset key
+  of every ERA board, with H7S's name and meaning. The boot reset guard
+  (`storage/era_reset_guard.h`) runs before `quantum_init()`; a mismatch
+  clears only the eeconfig magic, so the whole logical EEPROM is erased through
+  the EEPROM CLEAN path, and the guard is written after the defaults, so a
+  reset cut short runs again. Each half of a split pair resets on its own
+  first boot, before storage sync. Move the key when stored bytes would mean
+  something else and no narrower guard rejects them.
+- `QMK_BUILDDATE` (`storage/era_via_magic.h`) seeds VIA's EEPROM magic, whose
+  mismatch resets only VIA's region (keymaps, macros, layout options). It is
+  pinned for every ERA target and equal to H7S's. Leave it alone: the
+  full-reset key also covers keymap geometry.
+
+The ATmega exception (`sirind/brick65`) links no ERA storage and resets only
+through QMK's eeconfig and VIA magic.
+
+`tools/era_storage_key.py`, run by the commit hook on the staged index,
+fingerprints the sources that define stored bytes against
+`tools/era_storage_key.json`. A changed fingerprint fails until a key moves or
+the record is rewritten with the reason the stored bytes stay valid; the
+record's diff is the review evidence of that decision.
+
+> **REFUSED:** leaving `QMK_BUILDDATE` to the build clock, or making the full-reset guard a per-board option.
+> **WHY:** every image built on a new day erased keymaps and macros on its first boot, so an ordinary update could not be told from a format change; a board without the guard silently ignores a raised key.
+> **REOPENS:** a VIA magic source other than the date that is still pinned in source.
 
 > **REFUSED:** keep an older-layout reader or converter only for backward storage compatibility.
 > **WHY:** the product does not promise stored-data compatibility; a compatibility-only reader creates a second interpretation of persistent bytes, while weakening a stale-layout guard risks silently misreading them.
@@ -228,7 +257,7 @@ Not portable payload, and not in `g_era_host_peer_storage_domains`:
 | `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 176 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
 | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 220 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`220..251`) | **Recency Layer** |
 | `ERA_EEPROM_LINK_CONFIG_OFFSET` 200 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
-| `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 204 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; tomak family strict reset |
+| `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 204 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
 | `VIA_EEPROM_MAGIC_ADDR` 293, three bytes | VIA magic | QMK VIA |
 | after macro to `EEPROM_SIZE` 24576 | unused logical | — |
 | ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |

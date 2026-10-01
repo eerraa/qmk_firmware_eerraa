@@ -21,7 +21,27 @@
 #include "action.h"
 #include "quantum_keycodes.h"
 
+#ifdef ERA_TAP_DANCE_ENABLE
+/* VIA may map the same configuration slot to every physical switch. Keep a
+ * direct seat per matrix position and the existing bounded non-matrix pool. */
+#    define TAP_DANCE_MATRIX_STATES (MATRIX_ROWS * MATRIX_COLS)
+#endif
+#ifndef TAP_DANCE_MAX_SIMULTANEOUS
+#    ifdef ERA_TAP_DANCE_ENABLE
+#        define TAP_DANCE_MAX_SIMULTANEOUS (TAP_DANCE_MATRIX_STATES + 8)
+#    else
+#        define TAP_DANCE_MAX_SIMULTANEOUS 3
+#    endif
+#endif
+
 typedef struct {
+    keypos_t key;
+    keyevent_type_t type;
+    uint32_t last_tap_time;
+#ifdef ERA_TAP_DANCE_ENABLE
+    uint32_t input_epoch;
+#endif
+    uint8_t runtime_index;
     uint16_t interrupting_keycode;
     uint8_t  count;
     uint8_t  weak_mods;
@@ -32,6 +52,7 @@ typedef struct {
     bool    finished : 1;
     bool    interrupted : 1;
     bool    in_use : 1;
+    bool    cancelled : 1;
     uint8_t index;
 } tap_dance_state_t;
 
@@ -98,9 +119,17 @@ typedef struct {
 #define TAP_DANCE_KEYCODE(state) TD(((tap_dance_action_t *)state) - tap_dance_actions)
 
 void reset_tap_dance(tap_dance_state_t *state);
+void tap_dance_cancel_all(void);
+#ifdef ERA_TAP_DANCE_ENABLE
+uint32_t tap_dance_input_epoch(void);
+bool tap_dance_discard_retired_record(keyrecord_t *record);
+void tap_dance_run_quantum_keycode(keyrecord_t *record, uint16_t keycode);
+#endif
 
 tap_dance_state_t *tap_dance_get_state(uint8_t tap_dance_idx);
 uint16_t tap_dance_remap_keycode(uint16_t keycode);
+uint16_t tap_dance_owned_keycode(const keyrecord_t *record);
+bool tap_dance_owns_press(const keyrecord_t *record);
 uint16_t tap_dance_get_tapping_term(uint16_t keycode, keyrecord_t *record);
 
 /* To be used internally */

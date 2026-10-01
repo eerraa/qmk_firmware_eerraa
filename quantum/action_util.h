@@ -49,7 +49,31 @@ extern report_nkro_t *nkro_report;
 
 void send_keyboard_report(void);
 
+/* ERA TD only: upstream TD callbacks keep QMK's global layer/modifier state. */
+#ifdef ERA_TAP_DANCE_ENABLE
+#    define TAP_DANCE_OWNED_ACTIONS
+/* A bounded TD contribution is separate from ordinary QMK bit state. */
+uint8_t tap_dance_action_set_owner(uint8_t owner);
+uint8_t tap_dance_action_get_owner(void);
+void tap_dance_clear_owner_mods(uint8_t owner);
+void tap_dance_clear_owner_layers(uint8_t owner);
+void tap_dance_clear_owner_keys(uint8_t owner);
+void tap_dance_clear_key_ownership(void);
+/* Mouse codes and the single-usage extra reports: return whether the output
+ * may change, i.e. no other input still holds what this edge would drop. */
+#    define TD_USAGE_SYSTEM 0
+#    define TD_USAGE_CONSUMER 1
+bool tap_dance_mouse_update(uint8_t code, bool pressed);
+bool tap_dance_usage_update(uint8_t page, uint16_t usage, uint16_t current, bool pressed);
+void tap_dance_clear_owner_hid(uint8_t owner);
+void tap_dance_clear_hid_ownership(void);
+#endif
+
 /* key */
+#ifdef TAP_DANCE_OWNED_ACTIONS
+void add_key(uint8_t key);
+void del_key(uint8_t key);
+#else
 inline void add_key(uint8_t key) {
     add_key_to_report(key);
 }
@@ -57,7 +81,9 @@ inline void add_key(uint8_t key) {
 inline void del_key(uint8_t key) {
     del_key_from_report(key);
 }
+#endif
 
+/* Report-only clearing is also used by KKUK's empty/restore pulse. */
 inline void clear_keys(void) {
     clear_keys_from_report();
 }

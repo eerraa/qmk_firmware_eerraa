@@ -5,7 +5,6 @@ paths:
   - "keyboards/era/common/system/era_build_variant_rules.mk"
   - "keyboards/era/common/tools/era_core1_stack_walk.py"
   - "keyboards/era/common/tools/era_qmk_build.sh"
-  - "keyboards/era/common/tools/era_qmk_fixed_builddate_wrapper.sh"
   - "keyboards/era/common/tools/era_residency_gate.sh"
 ---
 

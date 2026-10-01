@@ -209,8 +209,11 @@ void era_kkuk_task(void) {
 
     if (!kkuk_mode_active) {
         if (kkuk_key_count >= 2 && timer_elapsed32(kkuk_delay_timer) >= delay_ms) {
-            kkuk_mode_active  = true;
-            kkuk_repeat_timer = timer_read32() + ERA_KKUK_TIME_UNIT_MS;
+            kkuk_mode_active = true;
+            /* Now, not a future stamp: elapsed-since-future wraps to a huge
+               value and fired the first pulse the moment KKUK armed. The first
+               pulse waits one repeat interval. */
+            kkuk_repeat_timer = timer_read32();
         }
     } else if (kkuk_key_count == 0) {
         kkuk_mode_active      = false;

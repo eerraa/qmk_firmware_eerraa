@@ -20,7 +20,7 @@ LAUNCHER=keyboards/era/common/tools/era_qmk_build.sh
 
 usage() {
     cat <<'EOF'
-Usage: era-build [--build-date YYYY-MM-DD-HH:MM:SS] [--show-options] TARGET [VARIANT ...]
+Usage: era-build [--show-options] TARGET [VARIANT ...]
 
 Examples:
   era-build era/sirind/tomak:via
@@ -33,15 +33,9 @@ selected board/keymap does not satisfy.
 EOF
 }
 
-build_date=""
 show_options="no"
 while (($# > 0)); do
     case "$1" in
-        --build-date)
-            (($# >= 2)) || { echo "era-build: --build-date requires a value" >&2; exit 2; }
-            build_date=$2
-            shift 2
-            ;;
         --show-options)
             show_options="yes"
             shift
@@ -66,10 +60,6 @@ shift
 variants=("$@")
 if [[ ! $target =~ ^era/[A-Za-z0-9_/-]+:[A-Za-z0-9_-]+$ ]]; then
     echo "era-build: invalid target (expected keyboard:keymap): $target" >&2
-    exit 2
-fi
-if [[ -n "$build_date" && ! $build_date =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-    echo "era-build: invalid build date: $build_date" >&2
     exit 2
 fi
 
@@ -97,7 +87,6 @@ for variant in "${variants[@]}"; do
     labels+=("$variant")
     printf '\n=== %s %s ===\n' "$target" "$variant"
     launcher_args=("$LAUNCHER" "$target" "$variant")
-    [ -n "$build_date" ] && launcher_args+=(--build-date "$build_date")
     [ "$show_options" = yes ] && launcher_args+=(--show-options)
     ERA_BUILD_TREE_SYNCED=yes bash "${launcher_args[@]}" | tee "$runlog"
     manifest=$(sed -n 's/^Manifest: //p' "$runlog" | tail -1)

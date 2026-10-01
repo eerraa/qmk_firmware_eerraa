@@ -32,7 +32,7 @@ void era_split_tap_activity_note_speculative(uint8_t event);
 // stamps the last press on the shared clock (reconstructed from the record's
 // own event time, so a buffered event carries its true instant), and notes
 // tap-hold settles against the open window's key.
-void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint16_t event_time, uint16_t keycode, uint8_t tap_count);
+void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint32_t event_time, uint16_t keycode, uint8_t tap_count);
 
 // The judgment window, derived at the action-tapping seam. `in_flight` is the
 // engine's own fact -- a pressed, unsettled tapping key -- and the unit arms a
@@ -40,7 +40,7 @@ void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint16_t eve
 // (era_tapping's bridge; all default off, so fresh defaults never open one).
 // A hold settle with retro armed moves the window to a retro-pending phase
 // that survives the engine going idle and closes on the key's release.
-void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t event_time);
+void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint32_t event_time);
 
 // The cross-half judgment, consulted from the in-flight region of
 // process_tapping on every event and tick. True means the in-flight tap-hold
@@ -50,7 +50,17 @@ void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t
 // case the peer press must not postdate the release instant -- the
 // retroactively-exact ordering the timestamps exist for. A peer press inside
 // a retro-armed window cancels the pending retro tap as a side effect.
-bool era_split_tap_activity_judge_hold(bool own_release, uint16_t own_release_event_time);
+bool era_split_tap_activity_judge_hold(bool own_release, uint32_t own_release_event_time);
+
+// A Tap Dance hold whose executed action is a Layer-Tap or Mod-Tap never
+// reaches the tapping engine, so the dance opens the retro-pending window
+// itself when the hold is registered (`held`, stamped at the dance's own
+// press) and closes it after its own up. A peer press inside it cancels the
+// hold's retro tap exactly as it does an engine key's. An engine key in
+// flight keeps its window (its press already cleared the dance's retro
+// priming locally); a retro-pending window yields to the newer hold, as it
+// yields to a new engine key.
+void era_split_tap_activity_dance_hold(bool held, keypos_t key, uint32_t press_event_time);
 
 // The peer's activity value, from core0's two apply paths -- the standing state
 // and the responder result, both DUAL-HOST only, since the section is

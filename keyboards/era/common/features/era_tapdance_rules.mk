@@ -26,4 +26,10 @@ ifeq ($(strip $(TAP_DANCE_ENABLE)), yes)
     # header #define changes nothing -- checked before the move, because that is
     # exactly where this substitution goes wrong silently.
     OPT_DEFS += -DERA_TAP_DANCE_ENABLE
+    # A dance action runs a quantum keycode through the quantum handlers from
+    # inside the dance's own callback, a whole key dispatch deeper than a key.
+    # The deepest such chain overflowed QMK's 2 KB RP2040 default; the core0
+    # reservation and its measurement are era_performance_gates.md's Fixed
+    # Baselines. The core0 scratch bank (SRAM4) holds it.
+    USE_PROCESS_STACKSIZE ?= 0xA00
 endif

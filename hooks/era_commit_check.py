@@ -20,6 +20,8 @@ LEDGER_REL = "keyboards/era/common/docs/manuals/era_qmk_fork_ledger.md"
 LEDGER = REPO / LEDGER_REL
 DOC_REFS_REL = "keyboards/era/common/tools/era_doc_refs.py"
 DOC_REFS = REPO / DOC_REFS_REL
+STORAGE_KEY_REL = "keyboards/era/common/tools/era_storage_key.py"
+STORAGE_KEY = REPO / STORAGE_KEY_REL
 STAGED_PYTHON_RUNNER = (
     "import sys\n"
     "path = sys.argv[1]\n"
@@ -36,6 +38,7 @@ REF_SOURCE_SUFFIX = (".c", ".h", ".mk")
 REF_CORE_DIRS = ("quantum/", "platforms/", "tmk_core/", "drivers/",
                  "builddefs/")
 FORK_DIRS = REF_CORE_DIRS
+STORAGE_LAYER = ("keyboards/era/", "quantum/", "lib/python/qmk/cli/generate/")
 
 
 def git(*args):
@@ -230,6 +233,36 @@ def check_doc_layer(problems, notes):
         )
 
 
+def check_storage_layer(problems, notes):
+    staged = subprocess.run(
+        ["git", "show", f":{STORAGE_KEY_REL}"], cwd=str(REPO),
+        capture_output=True,
+    )
+    if staged.returncode != 0:
+        problems.append(
+            "the staged index does not contain `era_storage_key.py`; a "
+            "stored-format change has no staged checker to validate it."
+        )
+        return
+    proc = subprocess.run(
+        [sys.executable, "-c", STAGED_PYTHON_RUNNER, str(STORAGE_KEY), "--index"],
+        cwd=str(REPO), input=staged.stdout, capture_output=True,
+    )
+    output = ((proc.stdout or b"") + (proc.stderr or b"")).decode(
+        "utf-8", errors="replace"
+    ).strip()
+    if proc.returncode == 0:
+        notes.append(output)
+    else:
+        problems.append(
+            "era_storage_key.py fails on the staged index this commit produces:\n"
+            + output
+            + "\nDecide the reset in this commit: move a storage key, or record "
+            "why the stored bytes stay valid with "
+            "`python keyboards/era/common/tools/era_storage_key.py --record \"reason\"`."
+        )
+
+
 def main():
     changed = name_only("diff", "--cached", "--name-only")
     if not changed:
@@ -242,6 +275,8 @@ def main():
         check_fork_ledger(problems, notes)
     if doc_armed:
         check_doc_layer(problems, notes)
+    if any(path.startswith(STORAGE_LAYER) for path in changed):
+        check_storage_layer(problems, notes)
     for note in notes:
         print("note: " + note)
     if problems:

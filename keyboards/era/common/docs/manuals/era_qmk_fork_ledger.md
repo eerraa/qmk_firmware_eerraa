@@ -25,14 +25,14 @@ required seam or behavior actually remains in a QMK-owned file.
 | `platforms/bootloader.h`, `platforms/chibios/bootloaders/rp2040.c` | Non-blocking RP2040 double-tap classification/close path, including the pre-copy arm needed by SRAM-resident boot. | `RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING`; pre-copy arm has its own gate. |
 | `platforms/chibios/drivers/serial_protocol.h`, `platforms/chibios/drivers/serial_usart.c`, `platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` | Adds an upstream-shaped receive-timeout transport seam. ERA split itself uses custom transport. | No ERA selector; not linked by the ERA split transport. |
 | `platforms/chibios/timer.c` | Millisecond cache for `timer_read32()` without changing QMK value/epoch semantics. | `ERA_TIMER_MS_CACHE`. |
-| `quantum/action_layer.c` | Composes the peer DUAL-HOST layer contribution at lookup without mutating local `layer_state`. | `ERA_SPLIT_PEER_LAYER_MERGE_ENABLE`. |
-| `quantum/action_tapping.c` | Tap-hold decision seams and their diagnostic sinks for ERA split policy. | `SPECULATIVE_HOLD`, `ERA_SPECULATIVE_LAYER_ENABLE`, `ERA_SPLIT_TAP_ACTIVITY_ENABLE`. |
+| `quantum/action_layer.c` | Composes the peer DUAL-HOST layer contribution at lookup without mutating local `layer_state`; keeps momentary TD layer contributions out of ordinary layer state, so an unrelated release or a tri-layer update cannot drop or adopt them, while explicit replacement retires them. | Peer lookup: `ERA_SPLIT_PEER_LAYER_MERGE_ENABLE`. TD contributions: `TAP_DANCE_OWNED_ACTIONS`. |
+| `quantum/action_tapping.c` | Tap-hold decision seams and their diagnostic sinks for ERA split policy; full-width event deltas preserve exact uint16 terms even across a skipped 16-bit wrap. | `SPECULATIVE_HOLD`, `ERA_SPECULATIVE_LAYER_ENABLE`, `ERA_SPLIT_TAP_ACTIVITY_ENABLE`. |
 | `quantum/keycode_config.h` | Reserves the persisted inverted RGB Sleep master bit while preserving QMK's record width/default semantics. | Consumed under `ERA_RGB_SLEEP_MASTER_ENABLE`. |
 | `quantum/eeconfig.h` | Quiet/deferred eeconfig helper so accepted continuous VIA saves can coalesce before physical NVM persistence. | `ERA_STORAGE_QUIET_DEFER_MS`. |
-| `quantum/keyboard.[ch]` | Physical-switch event fanout plus pass-phase diagnostics used by ERA features. | Weak hooks are inert by default; diagnostics use `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`. |
+| `quantum/keyboard.[ch]` | Physical-switch event fanout plus pass-phase diagnostics used by ERA features; 32-bit event timestamps and tick production preserve the original event time in queued tap-hold input. | Weak hooks are inert by default; diagnostics use `ERA_PASS_PHASE_DIAGNOSTICS_ENABLE`. |
 | `quantum/matrix.[ch]` | Raw/count diagnostic seams and the accepted debounce/post-scan separation. | Diagnostic gates named in source; structural split is ungated. `quantum/matrix_common.c` remains pristine. |
 | `quantum/mousekey.[ch]` | Runtime-adjustable mousekey deltas plus value-preserving declarations/inert-task guard. | Runtime deltas under `ERA_MOUSEKEY_RUNTIME_DELTA`. |
-| `quantum/process_keycode/process_tap_dance.[ch]`, `quantum/quantum.c` | Weak tap-dance policy seams, remap integration, synthesized-tap timing route, and ERA RGB Sleep suspend-entry gate. | Weak upstream defaults; RGB entry gate under `ERA_RGB_SLEEP_MASTER_ENABLE`. |
+| `quantum/process_keycode/process_tap_dance.[ch]`, `quantum/quantum.c` | TD state per physical input with captured release routing; queued-record identity and cancellation epochs, so a queued or late release never reaches a changed keymap; a dance's own records carry its position and run a quantum keycode as its output, never as another dance's input. Weak policy/timing seams and the RGB Sleep suspend-entry gate. Left to QMK: an input clear from inside the waiting buffer also retires a later queued TD press, and kill switch drops only the ordinary bit of a TD-shared usage. | `ERA_TAP_DANCE_ENABLE`: matrix-position seats, bounded pool, queued-record epochs. `TAP_DANCE_OWNED_ACTIONS`: output scopes. Policy hooks have inert defaults; RGB gate: `ERA_RGB_SLEEP_MASTER_ENABLE`. |
 | `quantum/rgb_matrix/animations/digital_rain_anim.h` | Uses lib8tion RNG so the ERA image does not acquire newlib allocator state through this animation. | Ungated in this animation; QMK RGB Matrix already links lib8tion. |
 | `quantum/rgb_matrix/rgb_matrix.[ch]` | Deferred persistence plus render-policy/idle/pass-phase hooks required by ERA presentation scheduling. | Storage/render/diagnostic gates remain source-owned. |
 | `quantum/rgblight/rgblight.[ch]`, `quantum/rgblight/rgblight_modes.h` | Deferred RGBLight save, allocator-free RNG, and the ERA Pulse mode/dispatch/suspend integration. | Persistence/RNG/Pulse gates remain source-owned. |
@@ -43,7 +43,8 @@ required seam or behavior actually remains in a QMK-owned file.
 | `tmk_core/protocol/chibios/usb_report_handling.c` | Zero-fills unsupported GET_REPORT storage and bounds idle-report pacing. | Zero-fill unconditional; pacing follows `ERA_TIMER_MS_CACHE`. |
 | `tmk_core/protocol/chibios/usb_main.c` | Routes keyboard reports through the ERA report-interval hold/post accounting and reports USB session edges. | `ERA_HID_REPORT_INTERVAL_ENABLE`. |
 | `tmk_core/protocol/host.[ch]` | Weak keyboard-delay seam through which synthesized tap width reaches the transport. | Ungated weak default keeps upstream wait behavior. |
-| `quantum/action.[ch]` | Routes synthesized keyboard-class tap width through the host delay seam. | Ungated; weak host default preserves behavior outside ERA. |
+| `quantum/action.[ch]` | Keeps synthesized tap width on `tap_code_wait()` and the `host_keyboard_delay()` seam; carries TD ingress identity and cancellation epoch through LT/MT records; passes an owned TD release as `ACTION_NO`, so a remapped entry cannot release another input's output; keeps QMK's forced re-press of a held usage as a report-only up; a retro tap adds only the tap-time modifiers that are up. | Tap width has an ungated weak default. Queued TD data: `ERA_TAP_DANCE_ENABLE`. Owned-release routing: `TAP_DANCE_ENABLE`. Output ownership: `TAP_DANCE_OWNED_ACTIONS`. |
+| `quantum/action_util.[ch]` | Separates TD modifier, HID-usage and mouse-code contributions from ordinary QMK bit state; a shared usage stays down until its last contribution is released. Report-only empty/restore stays distinct from input cancellation. | `TAP_DANCE_OWNED_ACTIONS`, ERA TD builds only; ordinary keys, report formats and transport keep QMK semantics. |
 | `tmk_core/protocol/usb_descriptor.[ch]` | Weak device/product/serial descriptor override hooks used by ERA split USB identity. | The three USB descriptor override gates. |
 
 `drivers/sensors/cirque_pinnacle.c` contains identifiers named
@@ -68,6 +69,14 @@ The five-root checker does not cover submodule pins. `lib/chibios` and
 supplies the remote-wake status hook consumed by ERA's RP2040 USB sleep path.
 Re-derive this boundary with `git submodule status` and the branches recorded
 in `.gitmodules`, not with the five-directory fork check.
+
+## QMK CLI Surface Outside The Five Directories
+
+The five-root checker does not cover `lib/python`. One departure lives there:
+`lib/python/qmk/cli/generate/version_h.py` emits `QMK_BUILDDATE` only when the
+build has not defined it, so `storage/era_via_magic.h` pins the VIA EEPROM
+magic; other keyboards keep QMK's behavior. Re-derive this surface with
+`git diff c93ef27143 -- lib/python`.
 
 ## Rebase Rule
 

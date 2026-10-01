@@ -6,6 +6,11 @@ include keyboards/era/era_build_identity_options.mk
 ifndef ERA_BUILD_VARIANT_RULES_INCLUDED
 ERA_BUILD_VARIANT_RULES_INCLUDED := yes
 
+# Every ERA target reaches this file, the ATmega exception included, and the
+# automated build refuses one that does not, so this is where the pinned VIA
+# EEPROM magic joins every image (storage/era_via_magic.h).
+CONFIG_H += keyboards/era/common/storage/era_via_magic.h
+
 ERA_BUILD_VARIANTS := standard wire qwin cause stale qwin_phase
 
 ifneq ($(strip $(ERA_TOMAK79H_BUILD_PROFILE)),)

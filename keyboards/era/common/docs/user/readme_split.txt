@@ -24,9 +24,13 @@ Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
 - 플래시할 유닛의 가장 왼쪽 위 물리 키를 누른 채 USB 연결(Bootmagic)
 - 해당 유닛의 Reset 버튼을 빠르게 두 번 누르거나 RST/GND를 짧게 접촉
 
-일반 UF2 업데이트는 키보드의 저장 영역을 지우는 절차가 아닙니다. 다만
-설정 형식이 바뀐 기능은 기본값으로 돌아갈 수 있습니다. 중요한 키맵은 업데이트나
-EEPROM CLEAN 전에 별도로 백업해 두는 것을 권장합니다.
+Bootmagic으로 진입한 유닛은 저장된 키맵과 모든 설정이 공장 초기값으로
+돌아갑니다.
+
+일반 업데이트는 키맵·매크로·VIA 설정을 그대로 유지합니다. 저장 형식이 바뀐
+릴리스만 첫 부팅에서 설정을 공장 초기값으로 되돌리며, 그 사실을 릴리스 안내에
+적습니다. 업데이트나 EEPROM CLEAN 전에 VIA SAVE + LOAD로 키맵을 백업해
+두십시오.
 
 사용 중인 보드 이름과 일치하는 UF2를 사용하십시오. 업데이트 뒤 SYSTEM ->
 VERSION에서 버전을 확인할 수 있습니다.
@@ -65,9 +69,13 @@ Use any of these methods to enter the bootloader:
 - Hold that unit's physical top-left key while connecting USB (Bootmagic)
 - Double-tap that unit's Reset, or briefly short its RST/GND
 
-A normal UF2 update is not a keyboard storage erase. Features whose stored
-format changed may return to defaults. Back up an important keymap before an
-update or EEPROM CLEAN.
+A unit entered through Bootmagic also resets its stored keymap and every
+setting to factory defaults.
+
+A normal update keeps the keymap, macros and VIA settings. Only a release that
+changes the stored format resets settings to factory defaults on first boot,
+and its release notes say so. Back up the keymap with VIA SAVE + LOAD before
+updating or running EEPROM CLEAN.
 
 Use the UF2 matching the board name. After updating, check the version under
 SYSTEM -> VERSION.

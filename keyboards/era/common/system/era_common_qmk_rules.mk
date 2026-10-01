@@ -43,6 +43,7 @@ ERA_COMMON_QMK_RULES_INCLUDED := yes
 LIB8TION_ENABLE = yes
 
 SRC += keyboards/era/common/storage/era_eeprom_config_io.c
+SRC += keyboards/era/common/storage/era_reset_guard.c
 SRC += keyboards/era/common/system/era_common_features.c
 
 # The class skeleton and the weak hook set behind it. The selector is declared

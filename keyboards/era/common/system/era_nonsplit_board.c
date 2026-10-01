@@ -4,6 +4,7 @@
 #include "quantum.h"
 #include "era_nonsplit_board.h"
 #include "era_common_features.h"
+#include "../storage/era_reset_guard.h"
 #ifdef VIA_ENABLE
 #    include "era_common_via.h"
 #endif
@@ -46,6 +47,7 @@ void housekeeping_task_kb(void) {
 }
 
 void matrix_init_kb(void) {
+    era_reset_guard_check();
     era_board_config_load();
     era_common_features_init();
     matrix_init_user();
@@ -55,6 +57,7 @@ void eeconfig_init_kb(void) {
     era_board_config_reset();
     era_common_features_init();
     eeconfig_init_user();
+    era_reset_guard_write();
 }
 
 #if defined(ERA_BACKLIGHT_EFFECT_ENABLE) || defined(ERA_RGBLIGHT_PULSE_ENABLE)
@@ -79,6 +82,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
 
 #ifdef VIA_ENABLE
 void via_init_kb(void) {
+    era_reset_guard_check();
     era_board_config_load();
     era_common_features_init();
 }

@@ -64,6 +64,14 @@ selection rules, while `common/tools/era_qmk_build.sh` binds the resolved tuple
 to the linked ELF and manifest. A make-only variant pass is not launcher
 evidence.
 
+A Tap Dance ownership or Caps feedback change also runs `python3` on
+`tests/era_backlight_pulse/td_ownership_selftest.py` and
+`tests/era_backlight_pulse/caps_feedback_selftest.py` after `era-sync`. Each
+control recompiles one isolated source mutation with the native build's flags
+against unchanged objects and counts only when it compiles and its named
+runtime assertion then fails. They prove host behaviour, not GPIO timing, board
+geometry or an `era-build` gate.
+
 ### Scheduler admission/liveness device gate
 
 | | |
@@ -219,15 +227,10 @@ says so. The tiers classify a change by **what its binary did**.
 check, and let the check decide. A T1 or T2 pass outranks any device reading
 of the same question and is never waived for cost.
 
-**T1's identity holds within one build day.** `via_eeprom_set_valid()`
-(`quantum/via.c`) derives the VIA EEPROM magic from `QMK_BUILDDATE`'s year,
-month and day nibbles, so the same source rebuilt on another day differs in
-exactly three bytes — the day nibbles where that magic is written and
-compared — and in nothing else. Compare across a day boundary by pinning
-`--build-date` to the earlier day, or by reading a `uf2_sha256` mismatch made
-of exactly those three bytes (a T1 pass, not a T3). The first boot of an
-image built on a new day finds the stored magic stale and resets VIA's
-region.
+**T1's identity does not depend on the build day.** `QMK_BUILDDATE`, the
+source of the VIA EEPROM magic, is pinned in `storage/era_via_magic.h`, so
+the same source rebuilt on another day produces the same `uf2_sha256`. A
+mismatch is a real difference to explain.
 
 - **When a change moves a mechanism an active document names, that text is
   updated in the same commit.**
@@ -313,6 +316,7 @@ its own gate.
 | ERA RP2040 row-settle | family default `ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY` 256 cycles; release `ERA_RP2040_MATRIX_PIO_ROW_RELEASE_CYCLES` 64 cycles. `era_rp2040_matrix_pio` encodes that pair as 323 slot cycles | Owner-selected H1 A policy: the previously failing H1 operated normally with this pair. This is evidence for that device, not a measured margin for every board. Earlier TOMAK tests rejected settle `32` and `64` for false local input. Lowering the family default or overriding a board requires electrical settle-margin evidence | matrix / typing; PIO host test |
 | Split USART | `ERA_SPLIT_SERIAL_USART_SPEED` 460800 baud. `split/era_split_via_link.c` `#error`s any other High | `576000` and `748800` produced source-push ACK gaps under high-rate typing; stay rejected until separate signal-margin work proves otherwise | wire / typing |
 | Performance floor | 18 kHz on each half, cable or no cable | This standing usability floor moves only with its own controlled real-device gate | qwin |
+| Core0 process stack | `USE_PROCESS_STACKSIZE` 0xA00 (2560 B), set in `features/era_tapdance_rules.mk`; SRAM4 keeps 224 B free. Deepest core0 chain on TOMAK `via standard`: a Tap Dance action running `QK_BOOT` whose shutdown flushes pending config to ERA NVM, about 2096 B with the exception frame, above QMK's 2048 B default | Static reading only; no device ground | `common/tools/era_core1_stack_walk.py <elf> <root>` per segment, summed across the dance callback (an indirect call the walker does not follow). `eeprom_update_block`'s variable-length buffer is not modelled, so the true figure is higher |
 | PIO sampler frame rate | designed about 48375 Hz (20.672 µs frame = 8 slots × 323 cycles at 125 MHz); this is sampler arithmetic, not a measured Core0 scan rate | `ovr=0 rearm=0 fd1=0` on every window; any of them non-zero is a finding | qwin / PIO; `era_rp2040_matrix_pio` |
 | Render chunk | `c + LEDs × e` with `led_process_limit` 4 on TOMAK79H (`keyboard.json`); **c ≈ 8–11 µs** a chunk; **e ≈ 2.97 µs** an LED on a non-reactive effect; **e ≈ 14.9 µs** on the heaviest reactive effect (five-fold in `e`, `c` unchanged) | the fixed term is the per-chunk policy update, effect dispatch and `rgb_matrix_indicators_advanced()` call in `quantum/rgb_matrix/rgb_matrix.c`, so it does not shrink when the chunk does. Worst chunk `c + L·e` falls linearly in `L` while the frame's fixed cost `ceil(n/L)·c` rises as `1/L`. Between the shipping four and a hypothetical three the marginal price of a microsecond of worst case rises **six-fold** | RGB / chunk |
 | RGB frame rate | 62.34 fps with the idle gate, against 62.50 without it | the 0.26 % is the gate sampling a millisecond clock at a period one pass longer than a millisecond, and is the whole of the mechanism's behavioural residue. **It does not reach animation speed**: effect phase is computed from `g_rgb_timer` | RGB |

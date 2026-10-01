@@ -506,9 +506,15 @@ void era_split_keyboard_suspend_wakeup_init(void) {
    of the cadence machinery 11.5 retired and fresh defaults still move
    nothing. */
 bool era_split_keyboard_process_record(uint16_t keycode, keyrecord_t *record) {
-    era_split_tap_activity_note_record(record->event.pressed, record->event.key, record->event.time, keycode, record->tap.count);
-    if (record->event.pressed && era_split_keyboard_try_remote_wakeup()) {
-        return false;
+#ifdef ERA_TAP_DANCE_ENABLE
+    /* A dance's own quantum keycode is its output, not local input activity. */
+    if (!record->tap_dance_injected)
+#endif
+    {
+        era_split_tap_activity_note_record(record->event.pressed, record->event.key, record->event.time, keycode, record->tap.count);
+        if (record->event.pressed && era_split_keyboard_try_remote_wakeup()) {
+            return false;
+        }
     }
 
     if (!era_common_features_process_record(keycode, record)) {

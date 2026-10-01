@@ -23,7 +23,7 @@ layout, or function behavior; inspect the named source for implementation facts.
 | standing relation exchange | `split/communication_core/era_split_communication_core_standing.c` | `contracts/era_route_contract.md` **The standing exchange grant** |
 | replacement storage protocol / arbitration / Apply | `split/era_host_peer_storage.c` — `era_host_peer_storage_task()` | `contracts/era_host_peer_storage_contract.md` |
 | physical ERA NVM and custom EEPROM durability | `storage/era_nvm.c` — `era_nvm_replace()` | `contracts/era_host_peer_storage_contract.md`; `tests/era_nvm/`; `tests/era_nvm_qmk_driver/` |
-| logical EEPROM ownership and reset/layout compatibility | `storage/era_eeprom_layout.h` — `ERA_EEPROM_RESET_KEY` | `contracts/era_host_peer_storage_contract.md` **Stored-Data Compatibility** |
+| logical EEPROM ownership and reset/layout compatibility | `storage/era_eeprom_layout.h` — `ERA_EEPROM_RESET_KEY`; `storage/era_reset_guard.c`; `storage/era_via_magic.h` — `QMK_BUILDDATE`; `tools/era_storage_key.py` | `contracts/era_host_peer_storage_contract.md` **Stored-Data Compatibility** |
 | HOST-PEER matrix cache / projection | `system/era_rp2040_matrix_core.c` — `era_matrix_engine_accept_peer_snapshot()` | `contracts/era_host_peer_matrix_contract.md`; `contracts/era_route_contract.md` |
 | board-neutral VIA keyboard-channel routing | `system/era_common_via.c` — `era_common_via_handle_keyboard_channel_command()` | `maps/era_identifier_map.md`; `manuals/era_board_adoption.md` |
 | ERA feature lifecycle | `system/era_common_features.c` — `era_common_features_task()` | `manuals/era_feature_path.md`; feature-specific tests named there |

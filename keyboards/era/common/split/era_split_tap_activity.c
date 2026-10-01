@@ -61,11 +61,10 @@ static struct {
     era_split_tap_activity_diagnostics_t counters;
 } g_era_split_tap_activity;
 
-// The event's own instant on the shared clock. Reconstructed from the 16-bit
-// event time rather than stamped at processing, so an event the tapping queue
-// held for part of a term still carries the instant it happened.
-static uint32_t era_split_tap_activity_sync_ms_of_event(uint16_t event_time) {
-    uint16_t held_ms = (uint16_t)(timer_read() - event_time);
+// Map the original 32-bit local event instant to the shared clock.
+// Processing delays, including a whole 16-bit wrap, do not restamp the event.
+static uint32_t era_split_tap_activity_sync_ms_of_event(uint32_t event_time) {
+    uint32_t held_ms = timer_read32() - event_time;
     return sync_timer_read32() - held_ms;
 }
 
@@ -145,7 +144,7 @@ void era_split_tap_activity_note_speculative(uint8_t event) {
     }
 }
 
-void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint16_t event_time, uint16_t keycode, uint8_t tap_count) {
+void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint32_t event_time, uint16_t keycode, uint8_t tap_count) {
     if (pressed) {
         g_era_split_tap_activity.press_count++;
         g_era_split_tap_activity.last_press_ms = era_split_tap_activity_sync_ms_of_event(event_time);
@@ -181,7 +180,7 @@ void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint16_t eve
     era_split_tap_activity_publish_if_changed();
 }
 
-void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t event_time) {
+void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint32_t event_time) {
     if (in_flight) {
         if (g_era_split_tap_activity.window_open && KEYEQ(key, g_era_split_tap_activity.window_key) &&
             g_era_split_tap_activity.phase == ERA_SPLIT_TAP_ACTIVITY_PHASE_ENGINE) {
@@ -229,7 +228,7 @@ void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint16_t
     era_split_tap_activity_publish_if_changed();
 }
 
-bool era_split_tap_activity_judge_hold(bool own_release, uint16_t own_release_event_time) {
+bool era_split_tap_activity_judge_hold(bool own_release, uint32_t own_release_event_time) {
     if (!g_era_split_tap_activity.window_open ||
         g_era_split_tap_activity.phase != ERA_SPLIT_TAP_ACTIVITY_PHASE_ENGINE ||
         !era_split_tap_activity_peer_press_in_window()) {
@@ -276,6 +275,32 @@ bool era_split_tap_activity_judge_hold(bool own_release, uint16_t own_release_ev
         era_split_tap_activity_cancel_retro();
     }
     return settle;
+}
+
+void era_split_tap_activity_dance_hold(bool held, keypos_t key, uint32_t press_event_time) {
+    if (held) {
+        if (!era_tapping_get_retro_tapping() ||
+            (g_era_split_tap_activity.window_open && g_era_split_tap_activity.phase == ERA_SPLIT_TAP_ACTIVITY_PHASE_ENGINE)) {
+            return;
+        }
+        g_era_split_tap_activity.window_open            = true;
+        g_era_split_tap_activity.phase                  = ERA_SPLIT_TAP_ACTIVITY_PHASE_RETRO_PENDING;
+        g_era_split_tap_activity.window_key             = key;
+        g_era_split_tap_activity.window_open_ms         = era_split_tap_activity_sync_ms_of_event(press_event_time);
+        g_era_split_tap_activity.window_options         = ERA_SPLIT_TAP_ACTIVITY_OPTION_RETRO;
+        g_era_split_tap_activity.retro_cancelled        = false;
+        g_era_split_tap_activity.snapshot_press_count   = g_era_split_tap_activity.peer.press_count;
+        g_era_split_tap_activity.snapshot_release_count = g_era_split_tap_activity.peer.release_count;
+        g_era_split_tap_activity.counters.window_open_count++;
+    } else {
+        if (!g_era_split_tap_activity.window_open ||
+            g_era_split_tap_activity.phase != ERA_SPLIT_TAP_ACTIVITY_PHASE_RETRO_PENDING ||
+            !KEYEQ(key, g_era_split_tap_activity.window_key)) {
+            return;
+        }
+        era_split_tap_activity_close_window();
+    }
+    era_split_tap_activity_publish_if_changed();
 }
 
 void era_split_tap_activity_apply_peer(const era_split_wire_activity_section_t *activity) {

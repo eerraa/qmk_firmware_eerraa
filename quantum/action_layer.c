@@ -1,11 +1,13 @@
 #include <limits.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "keyboard.h"
 #include "action.h"
 #include "encoder.h"
 #include "util.h"
 #include "action_layer.h"
+#include "action_util.h"
 #if defined(ERA_SPLIT_PEER_LAYER_MERGE_ENABLE)
 /* Declared, not included. keyboards/era/common/split is not on QMK core's
    include path, and widening it to reach one accessor would couple the whole
@@ -107,6 +109,35 @@ void default_layer_xor(layer_state_t state) {
 /** \brief Keymap Layer State
  */
 layer_state_t layer_state = 0;
+static void layer_state_set_regular(layer_state_t state);
+#ifdef TAP_DANCE_OWNED_ACTIONS
+#    include "process_keycode/process_tap_dance.h"
+static layer_state_t td_layer_owners[TAP_DANCE_MAX_SIMULTANEOUS];
+static layer_state_t td_layer_union;
+static uint8_t td_layer_counts[sizeof(layer_state_t) * 8];
+static layer_state_t regular_layer_state;
+#    define LAYER_OPERATION_STATE regular_layer_state
+static void tap_dance_replace_layers(uint8_t owner, layer_state_t layers) {
+    const layer_state_t changed = td_layer_owners[owner] ^ layers;
+    for (uint8_t i = 0; i < sizeof(layer_state_t) * 8; ++i) {
+        const layer_state_t bit = (layer_state_t)1 << i;
+        if (!(changed & bit)) continue;
+        if (layers & bit) {
+            ++td_layer_counts[i];
+            td_layer_union |= bit;
+        } else if (--td_layer_counts[i] == 0) {
+            td_layer_union &= ~bit;
+        }
+    }
+    td_layer_owners[owner] = layers;
+    layer_state_set_regular(regular_layer_state);
+}
+void tap_dance_clear_owner_layers(uint8_t owner) {
+    if (owner < TAP_DANCE_MAX_SIMULTANEOUS && td_layer_owners[owner]) tap_dance_replace_layers(owner, 0);
+}
+#else
+#    define LAYER_OPERATION_STATE layer_state
+#endif
 
 /** \brief Layer state set user
  *
@@ -137,7 +168,11 @@ __attribute__((weak)) layer_state_t layer_state_set_modules(layer_state_t state)
  *
  * Sets the layer to match the specified state (a bitmask)
  */
-void layer_state_set(layer_state_t state) {
+static void layer_state_set_regular(layer_state_t state) {
+#ifdef TAP_DANCE_OWNED_ACTIONS
+    regular_layer_state = state;
+    state |= td_layer_union;
+#endif
     state = layer_state_set_modules(state);
     state = layer_state_set_kb(state);
     ac_dprintf("layer_state: ");
@@ -151,6 +186,18 @@ void layer_state_set(layer_state_t state) {
 #    elif defined(SEMI_STRICT_LAYER_RELEASE)
     clear_keyboard_but_mods_and_keys(); // Don't reset held keys
 #    endif
+}
+
+/* Explicit replacement (including TO/clear) supersedes held layer outputs.
+ * Their late releases must not undo a new ordinary layer contribution.
+ * Modifier and HID-usage ownership are unaffected. */
+void layer_state_set(layer_state_t state) {
+#ifdef TAP_DANCE_OWNED_ACTIONS
+    memset(td_layer_owners, 0, sizeof(td_layer_owners));
+    memset(td_layer_counts, 0, sizeof(td_layer_counts));
+    td_layer_union = 0;
+#endif
+    layer_state_set_regular(state);
 }
 
 /** \brief Layer clear
@@ -193,7 +240,14 @@ void layer_move(uint8_t layer) {
  * Turns on given layer
  */
 void layer_on(uint8_t layer) {
-    layer_state_set(layer_state | ((layer_state_t)1 << layer));
+#ifdef TAP_DANCE_OWNED_ACTIONS
+    const uint8_t owner = tap_dance_action_get_owner();
+    if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
+        tap_dance_replace_layers(owner, td_layer_owners[owner] | ((layer_state_t)1 << layer));
+        return;
+    }
+#endif
+    layer_state_set_regular(LAYER_OPERATION_STATE | ((layer_state_t)1 << layer));
 }
 
 /** \brief Layer off
@@ -201,7 +255,14 @@ void layer_on(uint8_t layer) {
  * Turns off given layer
  */
 void layer_off(uint8_t layer) {
-    layer_state_set(layer_state & ~((layer_state_t)1 << layer));
+#ifdef TAP_DANCE_OWNED_ACTIONS
+    const uint8_t owner = tap_dance_action_get_owner();
+    if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
+        tap_dance_replace_layers(owner, td_layer_owners[owner] & ~((layer_state_t)1 << layer));
+        return;
+    }
+#endif
+    layer_state_set_regular(LAYER_OPERATION_STATE & ~((layer_state_t)1 << layer));
 }
 
 /** \brief Layer invert
@@ -209,7 +270,7 @@ void layer_off(uint8_t layer) {
  * Toggle the given layer (set it if it's unset, or unset it if it's set)
  */
 void layer_invert(uint8_t layer) {
-    layer_state_set(layer_state ^ ((layer_state_t)1 << layer));
+    layer_state_set_regular(LAYER_OPERATION_STATE ^ ((layer_state_t)1 << layer));
 }
 
 /** \brief Layer or
@@ -217,21 +278,21 @@ void layer_invert(uint8_t layer) {
  * Turns on layers based on matching bits between specified layer and existing layer state
  */
 void layer_or(layer_state_t state) {
-    layer_state_set(layer_state | state);
+    layer_state_set_regular(LAYER_OPERATION_STATE | state);
 }
 /** \brief Layer and
  *
  * Turns on layers based on matching enabled bits between specified layer and existing layer state
  */
 void layer_and(layer_state_t state) {
-    layer_state_set(layer_state & state);
+    layer_state_set_regular(LAYER_OPERATION_STATE & state);
 }
 /** \brief Layer xor
  *
  * Turns on layers based on non-matching bits between specified layer and existing layer state
  */
 void layer_xor(layer_state_t state) {
-    layer_state_set(layer_state ^ state);
+    layer_state_set_regular(LAYER_OPERATION_STATE ^ state);
 }
 
 /** \brief Layer debug printing
@@ -395,6 +456,13 @@ layer_state_t update_tri_layer_state(layer_state_t state, uint8_t layer1, uint8_
 }
 
 void update_tri_layer(uint8_t layer1, uint8_t layer2, uint8_t layer3) {
+#ifdef TAP_DANCE_OWNED_ACTIONS
+    /* Read the composition, but write only the helper's adjust bit. */
+    const layer_state_t mask = (layer_state_t)1 << layer3;
+    const layer_state_t adjusted = update_tri_layer_state(layer_state, layer1, layer2, layer3);
+    layer_state_set_regular((regular_layer_state & ~mask) | (adjusted & mask));
+#else
     layer_state_set(update_tri_layer_state(layer_state, layer1, layer2, layer3));
+#endif
 }
 #endif

@@ -37,7 +37,7 @@ typedef enum keyevent_type_t { TICK_EVENT = 0, KEY_EVENT = 1, ENCODER_CW_EVENT =
 /* key event */
 typedef struct {
     keypos_t        key;
-    uint16_t        time;
+    uint32_t        time;
     keyevent_type_t type;
     bool            pressed;
 } keyevent_t;
@@ -74,7 +74,7 @@ static inline bool IS_DIPSWITCHEVENT(const keyevent_t event) {
 #define MAKE_KEYPOS(row_num, col_num) ((keypos_t){.row = (row_num), .col = (col_num)})
 
 /* Common keyevent_t object factory */
-#define MAKE_EVENT(row_num, col_num, press, event_type) ((keyevent_t){.key = MAKE_KEYPOS((row_num), (col_num)), .pressed = (press), .time = timer_read(), .type = (event_type)})
+#define MAKE_EVENT(row_num, col_num, press, event_type) ((keyevent_t){.key = MAKE_KEYPOS((row_num), (col_num)), .pressed = (press), .time = timer_read32(), .type = (event_type)})
 
 /**
  * @brief Constructs a key event for a pressed or released key.

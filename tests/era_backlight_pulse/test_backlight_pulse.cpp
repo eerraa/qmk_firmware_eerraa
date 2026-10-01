@@ -19,11 +19,14 @@ extern "C" {
 #include "keyboards/era/common/features/era_backlight.h"
 #include "keyboards/era/common/features/era_backlight_lock.h"
 #include "keyboards/era/common/features/era_tapdance.h"
+#include "keyboards/era/common/features/era_tapping.h"
 #include "keyboards/era/common/system/era_common_features.h"
 #include "timer.h"
 
 extern backlight_config_t backlight_config;
 void set_time(uint32_t time);
+void era_test_split_peer_press(uint32_t press_ms);
+void era_test_split_reset(void);
 }
 
 namespace {
@@ -100,7 +103,15 @@ class EraBacklightTapHoldTiming : public TestFixture {
    protected:
     void SetUp() override {
         reset_backlight_harness();
+        /* Each case owns its keymap. A source layer cached by an earlier case
+           would make retro tapping look up a layer this case never mapped. */
+        for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
+            for (uint8_t col = 0; col < MATRIX_COLS; ++col) {
+                update_source_layers_cache((keypos_t){.col = col, .row = row}, 0);
+            }
+        }
         era_tapdance_init();
+        era_tapping_init();
         ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_CAPS));
         ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
         ASSERT_TRUE(era_tapdance_set_action(0, 2, KC_NO));
@@ -622,7 +633,7 @@ TEST_F(EraBacklightTapHoldTiming, DoubleTapSlotKeepsTermForOneTapAndDecidesOnThe
     testing::Mock::VerifyAndClearExpectations(&driver);
 }
 
-TEST_F(EraBacklightTapHoldTiming, TapOnlySlotKeepsQmkTimeoutExactlyAsVialDoes) {
+TEST_F(EraBacklightTapHoldTiming, TapOnlySlotIsDecidedAtItsRelease) {
     TestDriver driver;
     auto       key = KeymapKey(0, 1, 0, TD(0));
     set_keymap({key});
@@ -631,14 +642,17 @@ TEST_F(EraBacklightTapHoldTiming, TapOnlySlotKeepsQmkTimeoutExactlyAsVialDoes) {
     EXPECT_NO_REPORT(driver);
     key.press();
     run_one_scan_loop();
-    key.release();
-    run_one_scan_loop();
-    idle_for(TAPPING_TERM - 2);
     testing::Mock::VerifyAndClearExpectations(&driver);
 
+    /* No later press can change a tap-only outcome, so Term is not waited for. */
     EXPECT_REPORT(driver, (KC_CAPS));
     EXPECT_EMPTY_REPORT(driver);
-    idle_for(2);
+    key.release();
+    run_one_scan_loop();
+    testing::Mock::VerifyAndClearExpectations(&driver);
+
+    EXPECT_NO_REPORT(driver);
+    idle_for(TAPPING_TERM + 1);
     testing::Mock::VerifyAndClearExpectations(&driver);
 }
 
@@ -845,3 +859,563 @@ TEST_F(EraBacklightTapHoldTiming, CapsTripleFallbackUsesSynchronousQmkTapInterva
     EXPECT_EQ(timer_read32() - before, 3U * TAP_HOLD_CAPS_DELAY);
     testing::Mock::VerifyAndClearExpectations(&driver);
 }
+
+
+TEST_F(EraBacklightTapHoldTiming, TwoFinishedHoldsReleaseOnlyTheirOwnOutputs) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    for (bool first_owner_first : {false, true}) {
+        SCOPED_TRACE(first_owner_first);
+        auto a = KeymapKey(0, 1, 0, TD(0));
+        auto b = KeymapKey(0, 2, 0, TD(1));
+        auto b_on_a = KeymapKey(1, 2, 0, TD(1));
+        set_keymap({a, b, b_on_a});
+        ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
+        ASSERT_TRUE(era_tapdance_set_action(1, 0, KC_X));
+        ASSERT_TRUE(era_tapdance_set_action(1, 1, MO(2)));
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, 10));
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(1, 20));
+        a.press(); run_one_scan_loop(); idle_for(11);
+        EXPECT_EQ(layer_state, 1U << 1);
+        b.press(); run_one_scan_loop(); idle_for(21);
+        EXPECT_EQ(layer_state, (1U << 1) | (1U << 2));
+        if (first_owner_first) {
+            a.release(); run_one_scan_loop();
+            EXPECT_EQ(layer_state, 1U << 2);
+            b.release(); run_one_scan_loop();
+        } else {
+            b.release(); run_one_scan_loop();
+            EXPECT_EQ(layer_state, 1U << 1);
+            a.release(); run_one_scan_loop();
+        }
+        EXPECT_EQ(layer_state, 0U);
+    }
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, SameSlotPhysicalOwnersKeepTheirExecutedOutputs) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto a = KeymapKey(0, 1, 0, TD(0));
+    auto b = KeymapKey(0, 2, 0, TD(0));
+    auto b_on_a = KeymapKey(1, 2, 0, TD(0));
+    set_keymap({a, b, b_on_a});
+    a.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 1);
+    // A owns MO(1); changing the shared settings is not permission to replace A's up.
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(2)));
+    ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, 37));
+    b.press(); run_one_scan_loop(); idle_for(38);
+    EXPECT_EQ(layer_state, (1U << 1) | (1U << 2));
+    b.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 1U << 1);
+    a.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, ReconfiguredPhysicalMappingStillReleasesOriginalDance) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto a = KeymapKey(0, 1, 0, TD(0));
+    set_keymap({a});
+    a.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 1);
+    // Simulate VIA replacing the entry on its cached source layer while held.
+    set_keymap({KeymapKey(0, 1, 0, KC_X)});
+    a.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    // Keep a pre-fix failure from contaminating the next test's core state.
+    if (auto *state = tap_dance_get_state(0)) reset_tap_dance(state);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, ReconfiguredHeldDanceDoesNotReleaseAnotherInputsOutput) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    const uint16_t outputs[] = {KC_X, KC_LSFT, MO(2)};
+    for (uint16_t shared : outputs) {
+        auto td    = KeymapKey(0, 1, 0, TD(0));
+        auto other = KeymapKey(0, 2, 0, shared);
+        set_keymap({td, other, KeymapKey(1, 2, 0, shared)});
+        ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
+        td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+        other.press(); run_one_scan_loop();
+        // VIA replaces the held entry with the output another input still holds.
+        set_keymap({KeymapKey(0, 1, 0, shared), other, KeymapKey(1, 1, 0, shared), KeymapKey(1, 2, 0, shared)});
+        td.release(); run_one_scan_loop();
+        const bool x_down = std::find(std::begin(keyboard_report->keys), std::end(keyboard_report->keys), KC_X) != std::end(keyboard_report->keys);
+        EXPECT_EQ(x_down, shared == KC_X);
+        EXPECT_EQ(get_mods(), static_cast<uint8_t>(shared == KC_LSFT ? MOD_BIT(KC_LSFT) : 0));
+        EXPECT_EQ(keyboard_report->mods, get_mods());
+        EXPECT_EQ(layer_state, shared == MO(2) ? 1U << 2 : 0U);
+        other.release(); run_one_scan_loop();
+        EXPECT_EQ(layer_state, 0U);
+        EXPECT_EQ(get_mods(), 0U);
+    }
+}
+
+static bool hid_output_down(uint16_t code) {
+    if (IS_MOUSE_KEYCODE(code)) {
+        const report_mouse_t report = mousekey_get_report();
+        return code == MS_BTN1 ? (report.buttons & 1) != 0 : report.y != 0;
+    }
+    if (IS_CONSUMER_KEYCODE(code)) return host_last_consumer_usage() == KEYCODE2CONSUMER(code);
+    return host_last_system_usage() == KEYCODE2SYSTEM(code);
+}
+
+TEST_F(EraBacklightTapHoldTiming, TdHidUsageFollowsLastOwner) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(driver, send_mouse_mock(testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(driver, send_extra_mock(testing::_)).Times(testing::AnyNumber());
+    const uint16_t outputs[] = {MS_BTN1, MS_UP, KC_AUDIO_VOL_UP, KC_SYSTEM_SLEEP};
+    for (uint16_t shared : outputs) for (bool td_release_first : {false, true}) {
+        auto td    = KeymapKey(0, 1, 0, TD(0));
+        auto other = KeymapKey(0, 2, 0, shared);
+        set_keymap({td, other});
+        ASSERT_TRUE(era_tapdance_set_action(0, 1, shared));
+        td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+        other.press(); run_one_scan_loop();
+        EXPECT_TRUE(hid_output_down(shared));
+        (td_release_first ? td : other).release(); run_one_scan_loop();
+        EXPECT_TRUE(hid_output_down(shared)) << "released by the first owner";
+        (td_release_first ? other : td).release(); run_one_scan_loop();
+        EXPECT_FALSE(hid_output_down(shared));
+    }
+}
+
+TEST_F(EraBacklightTapHoldTiming, TdExtraUsageUpClearsOnlyItsOwnUsage) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(driver, send_extra_mock(testing::_)).Times(testing::AnyNumber());
+    const uint16_t down = KEYCODE2CONSUMER(KC_AUDIO_VOL_DOWN);
+    for (bool td_first : {false, true}) {
+        auto td    = KeymapKey(0, 1, 0, TD(0));
+        auto other = KeymapKey(0, 2, 0, td_first ? KC_AUDIO_VOL_DOWN : KC_AUDIO_VOL_UP);
+        set_keymap({td, other});
+        ASSERT_TRUE(era_tapdance_set_action(0, 1, td_first ? KC_AUDIO_VOL_UP : KC_AUDIO_VOL_DOWN));
+        if (td_first) { td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1); other.press(); run_one_scan_loop(); }
+        else { other.press(); run_one_scan_loop(); td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1); }
+        ASSERT_EQ(host_last_consumer_usage(), down);
+        // The earlier input's up must not clear the later input's usage.
+        (td_first ? td : other).release(); run_one_scan_loop();
+        EXPECT_EQ(host_last_consumer_usage(), down);
+        (td_first ? other : td).release(); run_one_scan_loop();
+        EXPECT_EQ(host_last_consumer_usage(), 0U);
+    }
+    // Ordinary keys alone keep QMK's single-slot release.
+    auto up = KeymapKey(0, 1, 0, KC_AUDIO_VOL_UP);
+    auto dn = KeymapKey(0, 2, 0, KC_AUDIO_VOL_DOWN);
+    set_keymap({up, dn});
+    up.press(); run_one_scan_loop(); dn.press(); run_one_scan_loop();
+    up.release(); run_one_scan_loop();
+    EXPECT_EQ(host_last_consumer_usage(), 0U);
+    dn.release(); run_one_scan_loop();
+}
+
+TEST_F(EraBacklightTapHoldTiming, TdOnOneShotLayerStillDecidesHold) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    auto td = KeymapKey(0, 1, 0, TD(0));
+    set_keymap({td, KeymapKey(1, 1, 0, TD(0))});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_A));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(2)));
+    set_oneshot_layer(1, ONESHOT_START);
+    clear_oneshot_layer_state(ONESHOT_PRESSED);
+    ASSERT_EQ(layer_state, 1U << 1);
+    // The press consumes the one-shot layer; the dance still decides Tap or Hold.
+    td.press(); run_one_scan_loop();
+    EXPECT_FALSE(is_oneshot_layer_active());
+    idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 2);
+    EXPECT_EQ(std::find(std::begin(keyboard_report->keys), std::end(keyboard_report->keys), KC_A), std::end(keyboard_report->keys));
+    td.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+}
+
+TEST_F(EraBacklightTapHoldTiming, TdTapOnHeldUsageSendsItsOwnPress) {
+    TestDriver driver;
+    unsigned gaps = 0;
+    bool     count_gaps = false;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).WillRepeatedly([&](report_keyboard_t &report) {
+        if (count_gaps && std::find(std::begin(report.keys), std::end(report.keys), KC_A) == std::end(report.keys)) ++gaps;
+    });
+    auto td = KeymapKey(0, 1, 0, TD(0));
+    auto a  = KeymapKey(0, 2, 0, KC_A);
+    set_keymap({td, a});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_A));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
+    a.press(); run_one_scan_loop();
+    count_gaps = true;
+    td.press(); run_one_scan_loop(); td.release(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(gaps, 1U) << "a tap on a held usage is one host press";
+    count_gaps = false;
+    a.release(); run_one_scan_loop();
+    // The same holds for an ordinary LT tap while a TD hold owns the usage.
+    auto lt = KeymapKey(0, 2, 0, LT(1, KC_A));
+    set_keymap({td, lt});
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_A));
+    td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    gaps = 0; count_gaps = true;
+    lt.press(); run_one_scan_loop(); lt.release(); run_one_scan_loop();
+    EXPECT_EQ(gaps, 1U);
+    count_gaps = false;
+    td.release(); run_one_scan_loop();
+    EXPECT_EQ(std::find(std::begin(keyboard_report->keys), std::end(keyboard_report->keys), KC_A), std::end(keyboard_report->keys));
+}
+
+TEST_F(EraBacklightTapHoldTiming, OneShotLayerTappedByADanceIsConsumedByItsHold) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    auto td = KeymapKey(0, 1, 0, TD(0));
+    set_keymap({td, KeymapKey(1, 1, 0, TD(0))});
+    // Double Hold falls back to Tap (OSL) followed by Hold (A).
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, OSL(1)));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_A));
+    ASSERT_TRUE(era_tapdance_set_action(0, 2, KC_B));
+    ASSERT_TRUE(era_tapdance_set_action(0, 3, KC_NO));
+    td.press(); run_one_scan_loop(); td.release(); run_one_scan_loop(); idle_for(20);
+    td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_TRUE(is_key_pressed(KC_A));
+    EXPECT_FALSE(is_oneshot_layer_active());
+    EXPECT_EQ(layer_state, 0U);
+    td.release(); run_one_scan_loop(); idle_for(20);
+    EXPECT_EQ(layer_state, 0U);
+}
+
+TEST_F(EraBacklightTapHoldTiming, EachKeystrokeOfADanceHeldUsageReachesTheHost) {
+    TestDriver driver;
+    unsigned downs = 0;
+    bool     had_a = false;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).WillRepeatedly([&](report_keyboard_t &report) {
+        const bool has = std::find(std::begin(report.keys), std::end(report.keys), KC_A) != std::end(report.keys);
+        if (has && !had_a) ++downs;
+        had_a = has;
+    });
+    // Rolling: the TD tap A is interrupted by an ordinary A while both are down.
+    auto td = KeymapKey(0, 1, 0, TD(0));
+    auto a  = KeymapKey(0, 2, 0, KC_A);
+    set_keymap({td, a});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_A));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
+    td.press(); run_one_scan_loop(); a.press(); run_one_scan_loop();
+    td.release(); run_one_scan_loop();
+    EXPECT_TRUE(is_key_pressed(KC_A));
+    a.release(); run_one_scan_loop(); idle_for(50);
+    EXPECT_EQ(downs, 2U);
+    // tap_code (macros, send_string, retro tap) while a TD hold owns A.
+    set_keymap({td});
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_A));
+    td.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    downs = 0;
+    tap_code(KC_A);
+    EXPECT_EQ(downs, 1U);
+    EXPECT_TRUE(is_key_pressed(KC_A));
+    td.release(); run_one_scan_loop();
+    EXPECT_FALSE(is_key_pressed(KC_A));
+}
+
+TEST_F(EraBacklightTapHoldTiming, QueuedRecordResolvingToAnOrdinaryKeyIsNotRetired) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    auto lt = KeymapKey(0, 1, 0, LT(2, KC_Z));
+    auto k  = KeymapKey(0, 2, 0, TD(0));
+    set_keymap({lt, k, KeymapKey(2, 2, 0, KC_C)});
+    // The unchanged TD entry was read on layer 0; the LT hold resolves it to C.
+    lt.press(); run_one_scan_loop(); idle_for(10);
+    k.press(); run_one_scan_loop();
+    clear_keyboard();
+    idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 2);
+    EXPECT_TRUE(is_key_pressed(KC_C));
+    k.release(); run_one_scan_loop(); lt.release(); run_one_scan_loop();
+    EXPECT_FALSE(is_key_pressed(KC_C));
+    EXPECT_EQ(tap_dance_get_state(0), nullptr);
+}
+
+TEST_F(EraBacklightTapHoldTiming, DanceRetiredAcrossTwoBoundariesLeavesNoSeat) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    auto lt = KeymapKey(0, 1, 0, LT(2, KC_B));
+    auto td = KeymapKey(0, 2, 0, TD(0));
+    set_keymap({lt, td});
+    lt.press(); run_one_scan_loop();
+    td.press(); run_one_scan_loop();    // queued before the first boundary
+    clear_keyboard();
+    td.release(); run_one_scan_loop();  // queued between the boundaries
+    clear_keyboard();
+    lt.release(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(tap_dance_get_state(0), nullptr);
+    EXPECT_EQ(layer_state, 0U);
+}
+
+TEST_F(EraBacklightTapHoldTiming, ADanceTapReplaysTheModifiersHeldAtItsPress) {
+    TestDriver driver;
+    uint8_t c_mods = 0xFF;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).WillRepeatedly([&](report_keyboard_t &report) {
+        if (std::find(std::begin(report.keys), std::end(report.keys), KC_C) != std::end(report.keys)) c_mods = report.mods;
+    });
+    // Ctrl comes from a TD hold and is released before the tapped dance decides.
+    for (bool rolloff : {false, true}) {
+        c_mods  = 0xFF;
+        auto t0 = KeymapKey(0, 1, 0, TD(0));
+        auto t1 = KeymapKey(0, 2, 0, TD(1));
+        set_keymap({t0, t1});
+        ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_ESC));
+        ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_LCTL));
+        ASSERT_TRUE(era_tapdance_set_action(1, 0, KC_C));
+        ASSERT_TRUE(era_tapdance_set_action(1, 1, rolloff ? KC_X : KC_NO));
+        ASSERT_TRUE(era_tapdance_set_action(1, 2, rolloff ? KC_NO : KC_Z));
+        ASSERT_TRUE(era_tapdance_set_action(1, 3, KC_NO));
+        t0.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+        t1.press(); run_one_scan_loop();
+        if (rolloff) { t0.release(); run_one_scan_loop(); t1.release(); run_one_scan_loop(); }
+        else { t1.release(); run_one_scan_loop(); t0.release(); run_one_scan_loop(); }
+        idle_for(TAPPING_TERM + 1);
+        EXPECT_EQ(c_mods, MOD_BIT(KC_LCTL)) << (rolloff ? "rolloff" : "double pending");
+        EXPECT_EQ(get_mods() | get_weak_mods(), 0U);
+    }
+}
+
+TEST_F(EraBacklightTapHoldTiming, APressSupersedesATombstoneWhoseUpWasLost) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    auto mt = KeymapKey(0, 1, 0, MT(MOD_LCTL, KC_X));
+    auto p  = KeymapKey(0, 2, 0, TD(0));
+    auto f3 = KeymapKey(0, 3, 0, KC_B), f4 = KeymapKey(0, 4, 0, KC_C), f5 = KeymapKey(0, 5, 0, KC_D), f6 = KeymapKey(0, 6, 0, KC_E);
+    auto lt = KeymapKey(0, 8, 0, LT(1, KC_Y));
+    set_keymap({mt, p, f3, f4, f5, f6, lt, KeymapKey(1, 1, 0, KC_TRNS), KeymapKey(1, 2, 0, KC_LSFT), KeymapKey(1, 3, 0, KC_TRNS),
+                KeymapKey(1, 4, 0, KC_TRNS), KeymapKey(1, 5, 0, KC_TRNS), KeymapKey(1, 6, 0, KC_TRNS), KeymapKey(1, 8, 0, KC_TRNS)});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_A));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(1)));
+    p.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    ASSERT_EQ(layer_state, 1U << 1);
+    // The TD up waits behind an undecided MT; fast typing overflows the buffer.
+    mt.press(); run_one_scan_loop(); idle_for(5);
+    p.release(); run_one_scan_loop(); idle_for(5);
+    for (auto *k : {&f3, &f4, &f5}) { k->press(); run_one_scan_loop(); idle_for(3); }
+    for (auto *k : {&f3, &f4, &f5}) { k->release(); run_one_scan_loop(); idle_for(3); }
+    f6.press(); run_one_scan_loop(); idle_for(3);
+    f6.release(); run_one_scan_loop(); mt.release(); run_one_scan_loop(); idle_for(TAPPING_TERM * 2);
+    // The same position, queued behind an LT hold across a clear, resolves to LSFT.
+    lt.press(); run_one_scan_loop(); idle_for(5);
+    p.press(); run_one_scan_loop(); idle_for(5);
+    clear_keyboard();
+    idle_for(TAPPING_TERM + 5);
+    EXPECT_EQ(get_mods(), MOD_BIT(KC_LSFT));
+    p.release(); run_one_scan_loop(); idle_for(5);
+    lt.release(); run_one_scan_loop(); idle_for(TAPPING_TERM * 2);
+    EXPECT_EQ(get_mods(), 0U);
+    EXPECT_EQ(keyboard_report->mods, 0U);
+    EXPECT_EQ(tap_dance_get_state(0), nullptr);
+    layer_clear();
+}
+
+TEST_F(EraBacklightTapHoldTiming, QueuedDanceUsesOriginalPressInsteadOfDispatchTime) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto lt = KeymapKey(0, 1, 0, LT(2, KC_Z));
+    auto td = KeymapKey(0, 2, 0, TD(0));
+    auto td_on_lt = KeymapKey(2, 2, 0, TD(0));
+    set_keymap({lt, td, td_on_lt});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_NO));
+    ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, 50));
+    lt.press(); run_one_scan_loop(); idle_for(10);
+    td.press(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    // This is the real action_tapping waiting buffer, not a TD-only model.
+    idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, (1U << 1) | (1U << 2));
+    td.release(); run_one_scan_loop();
+    lt.release(); run_one_scan_loop();
+    if (auto *state = tap_dance_get_state(0)) reset_tap_dance(state);
+    EXPECT_EQ(layer_state, 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, SameMomentaryDanceOutputWaitsForItsLastOwner) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto a = KeymapKey(0, 1, 0, TD(0));
+    auto b = KeymapKey(0, 2, 0, TD(0));
+    auto b_on_a = KeymapKey(1, 2, 0, TD(0));
+    set_keymap({a, b, b_on_a});
+    a.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    b.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 1);
+    a.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 1U << 1);
+    b.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+
+TEST_F(EraBacklightTapHoldTiming, LayerAndCtrlOwnersReleaseInEitherOrder) {
+    TestDriver driver;
+    for (bool layer_first : {false, true}) {
+        SCOPED_TRACE(layer_first);
+        auto a = KeymapKey(0, 1, 0, TD(0));
+        auto b = KeymapKey(0, 2, 0, TD(1));
+        auto b_layer = KeymapKey(1, 2, 0, TD(1));
+        set_keymap({a, b, b_layer});
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, 200));
+        ASSERT_TRUE(era_tapdance_set_action(1, 0, KC_X));
+        ASSERT_TRUE(era_tapdance_set_action(1, 1, KC_LCTL));
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(1, 400));
+        EXPECT_NO_REPORT(driver);
+        a.press(); run_one_scan_loop(); idle_for(201);
+        EXPECT_EQ(layer_state, 1U << 1);
+        testing::Mock::VerifyAndClearExpectations(&driver);
+        EXPECT_REPORT(driver, (KC_LCTL));
+        b.press(); run_one_scan_loop(); idle_for(401);
+        EXPECT_EQ(get_mods(), MOD_BIT(KC_LCTL));
+        EXPECT_EQ(layer_state, 1U << 1);
+        testing::Mock::VerifyAndClearExpectations(&driver);
+        if (layer_first) {
+            EXPECT_NO_REPORT(driver);
+            a.release(); run_one_scan_loop();
+            EXPECT_EQ(layer_state, 0U);
+            EXPECT_EQ(get_mods(), MOD_BIT(KC_LCTL));
+            testing::Mock::VerifyAndClearExpectations(&driver);
+            EXPECT_EMPTY_REPORT(driver);
+            b.release(); run_one_scan_loop();
+        } else {
+            EXPECT_EMPTY_REPORT(driver);
+            b.release(); run_one_scan_loop();
+            EXPECT_EQ(layer_state, 1U << 1);
+            EXPECT_EQ(get_mods(), 0U);
+            testing::Mock::VerifyAndClearExpectations(&driver);
+            EXPECT_NO_REPORT(driver);
+            a.release(); run_one_scan_loop();
+        }
+        EXPECT_EQ(layer_state, 0U);
+        EXPECT_EQ(get_mods(), 0U);
+        testing::Mock::VerifyAndClearExpectations(&driver);
+    }
+}
+
+TEST_F(EraBacklightTapHoldTiming, ActionSettingChangesDoNotReplaceAnExecutedHold) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto key = KeymapKey(0, 1, 0, TD(0));
+    set_keymap({key});
+    key.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    EXPECT_EQ(layer_state, 1U << 1);
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, MO(2)));
+    key.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, DistinctSlotsSharingALayerKeepTheRemainingHold) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    auto a = KeymapKey(0, 1, 0, TD(0));
+    auto b = KeymapKey(0, 2, 0, TD(1));
+    auto b_layer = KeymapKey(1, 2, 0, TD(1));
+    set_keymap({a, b, b_layer});
+    ASSERT_TRUE(era_tapdance_set_action(1, 0, KC_X));
+    ASSERT_TRUE(era_tapdance_set_action(1, 1, MO(1)));
+    ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(1, 37));
+    a.press(); run_one_scan_loop(); idle_for(TAPPING_TERM + 1);
+    b.press(); run_one_scan_loop(); idle_for(38);
+    EXPECT_EQ(layer_state, 1U << 1);
+    a.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 1U << 1);
+    b.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+
+TEST_F(EraBacklightTapHoldTiming, ReleasePastTermDoesNotBecomeATapAfterScanGap) {
+    TestDriver driver;
+    auto key = KeymapKey(0, 1, 0, TD(0));
+    set_keymap({key});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_X));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_LCTL));
+    for (uint16_t term : {1U, 200U, 65535U}) {
+        SCOPED_TRACE(term);
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, term));
+        set_time(UINT32_MAX - 20U);
+        const uint32_t start = timer_read32();
+        EXPECT_NO_REPORT(driver);
+        key.press(); run_one_scan_loop();
+        testing::Mock::VerifyAndClearExpectations(&driver);
+        // No intervening scan: this release is the first chance to service TD.
+        set_time(start + term + 1U);
+        EXPECT_REPORT(driver, (KC_LCTL));
+        EXPECT_EMPTY_REPORT(driver);
+        key.release(); run_one_scan_loop();
+        EXPECT_EQ(get_mods(), 0U);
+        testing::Mock::VerifyAndClearExpectations(&driver);
+    }
+}
+
+TEST_F(EraBacklightTapHoldTiming, AllEightPhysicalOwnersCanRemainHeld) {
+    TestDriver driver;
+    EXPECT_NO_REPORT(driver);
+    set_keymap({});
+    for (uint8_t layer = 0; layer <= 8; ++layer) {
+        for (uint8_t slot = 0; slot < 8; ++slot) {
+            add_key(KeymapKey(layer, slot + 1, 0, TD(slot)));
+        }
+    }
+    for (uint8_t slot = 0; slot < 8; ++slot) {
+        ASSERT_TRUE(era_tapdance_set_action(slot, 0, KC_X));
+        ASSERT_TRUE(era_tapdance_set_action(slot, 1, MO(slot + 1)));
+        ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(slot, slot + 1));
+    }
+    for (bool reverse : {false, true}) {
+        uint32_t expected = 0;
+        for (uint8_t slot = 0; slot < 8; ++slot) {
+            KeymapKey key(0, slot + 1, 0, TD(slot));
+            key.press(); run_one_scan_loop(); idle_for(slot + 2);
+            expected |= 1U << (slot + 1);
+            EXPECT_EQ(layer_state, expected);
+        }
+        for (uint8_t i = 0; i < 8; ++i) {
+            const uint8_t slot = reverse ? 7 - i : i;
+            KeymapKey key(0, slot + 1, 0, TD(slot));
+            key.release(); run_one_scan_loop();
+            expected &= ~(1U << (slot + 1));
+            EXPECT_EQ(layer_state, expected);
+        }
+    }
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+TEST_F(EraBacklightTapHoldTiming, QueuedReleasedTapKeepsEventTimeAcrossWrap) {
+    TestDriver driver;
+    auto lt = KeymapKey(0, 1, 0, LT(2, KC_Z));
+    auto td = KeymapKey(0, 2, 0, TD(0));
+    auto td_layer = KeymapKey(2, 2, 0, TD(0));
+    set_keymap({lt, td, td_layer});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_X));
+    ASSERT_TRUE(era_tapdance_set_action(0, 1, KC_LCTL));
+    ASSERT_TRUE(era_tapdance_set_slot_term_ms_exact(0, 50));
+    set_time(UINT32_MAX - 30U);
+    EXPECT_NO_REPORT(driver);
+    lt.press(); run_one_scan_loop(); idle_for(10);
+    td.press(); run_one_scan_loop(); idle_for(10);
+    td.release(); run_one_scan_loop();
+    testing::Mock::VerifyAndClearExpectations(&driver);
+    // The queued press and release have both aged beyond Term at dispatch,
+    // but their original separation still describes a tap, not a hold.
+    EXPECT_REPORT(driver, (KC_X));
+    EXPECT_EMPTY_REPORT(driver);
+    idle_for(TAPPING_TERM + 1);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+    EXPECT_NO_REPORT(driver);
+    lt.release(); run_one_scan_loop();
+    EXPECT_EQ(layer_state, 0U);
+    EXPECT_EQ(get_mods(), 0U);
+    testing::Mock::VerifyAndClearExpectations(&driver);
+}
+
+#include "test_td_lifetime.h"
+
+#include "test_caps_feedback.h"
+#include "test_layer_time_contract.h"
