@@ -375,3 +375,113 @@ TEST_F(Socd, KkukCountSurvivesASocdChangeWhileAKeyIsHeld) {
     run_one_scan_loop();
     era_kkuk_set_enabled(false);
 }
+
+
+// Ordinary B/C drive KKUK; SOCD's A/D winner must remain continuously down
+// in every outgoing report, including the pulse that releases B/C.
+TEST_F(Socd, KkukPreservesSocdAcrossAllModesAndBothReportFormats) {
+    TestDriver driver;
+    record(driver);
+    std::vector<report_nkro_t> nkro;
+    EXPECT_CALL(driver, send_nkro_mock(_)).Times(AnyNumber()).WillRepeatedly(Invoke([&](report_nkro_t &report) { nkro.push_back(report); }));
+    const auto old_protocol = usb_device_state_get_protocol();
+    const bool old_nkro = keymap_config.nkro;
+    usb_device_state_set_protocol(USB_PROTOCOL_REPORT);
+    auto a = KeymapKey(0, 0, 0, KC_A);
+    auto d = KeymapKey(0, 1, 0, KC_D);
+    auto b = KeymapKey(0, 2, 0, KC_B);
+    auto c = KeymapKey(0, 3, 0, KC_C);
+    set_keymap({a, d, b, c});
+    for (bool bitmap : {false, true}) {
+        keymap_config.nkro = bitmap;
+        for (uint8_t mode = ERA_SOCD_MODE_LAST_INPUT; mode <= ERA_SOCD_MODE_MAX; mode++) {
+            SCOPED_TRACE(testing::Message() << "nkro=" << bitmap << " mode=" << unsigned(mode));
+            set_pair(ERA_SOCD_PAIR_LR, KC_A, KC_D, mode);
+            set_pair(ERA_SOCD_PAIR_UD, KC_F, KC_RIGHT, ERA_SOCD_MODE_LAST_INPUT);
+            era_kkuk_set_delay_ticks(5);
+            era_kkuk_set_repeat_ticks(5);
+            era_kkuk_set_enabled(true);
+            register_code(KC_F);
+            a.press(); run_one_scan_loop();
+            d.press(); run_one_scan_loop();
+            b.press(); run_one_scan_loop();
+            c.press(); run_one_scan_loop();
+            const size_t before = bitmap ? nkro.size() : sent.size();
+            idle_for(120);
+            const size_t after = bitmap ? nkro.size() : sent.size();
+            EXPECT_GT(after, before);
+            const uint8_t winner = mode == ERA_SOCD_MODE_NEUTRAL ? KC_NO :
+                mode == ERA_SOCD_MODE_FIRST_INPUT || mode == ERA_SOCD_MODE_KEY_0_PRIORITY ? KC_A : KC_D;
+            bool saw_release = false, saw_restore = false;
+            for (size_t i = before; i < after; i++) {
+                auto has = [&](uint8_t key) { return bitmap ? has_key(nkro[i], key) : has_key(sent[i], key); };
+                EXPECT_TRUE(has(KC_F));
+                EXPECT_EQ(has(KC_A), winner == KC_A);
+                EXPECT_EQ(has(KC_D), winner == KC_D);
+                saw_release |= !has(KC_B) && !has(KC_C);
+                saw_restore |= has(KC_B) && has(KC_C);
+            }
+            EXPECT_TRUE(saw_release);
+            EXPECT_TRUE(saw_restore);
+            era_kkuk_set_enabled(false);
+            unregister_code(KC_F);
+            a.release(); d.release(); b.release(); c.release(); run_one_scan_loop();
+        }
+    }
+    keymap_config.nkro = old_nkro;
+    usb_device_state_set_protocol(old_protocol);
+}
+
+TEST_F(Socd, KkukDoesNotProtectDisabledOrAmbiguousPairs) {
+    TestDriver driver;
+    record(driver);
+    auto a = KeymapKey(0, 0, 0, KC_A);
+    auto b = KeymapKey(0, 1, 0, KC_B);
+    auto c = KeymapKey(0, 2, 0, KC_C);
+    set_keymap({a, b, c});
+    for (bool overlap : {false, true}) {
+        set_pair(ERA_SOCD_PAIR_LR, KC_A, KC_D, ERA_SOCD_MODE_LAST_INPUT);
+        if (overlap) set_pair(ERA_SOCD_PAIR_UD, KC_A, KC_S, ERA_SOCD_MODE_LAST_INPUT);
+        else ASSERT_TRUE(era_socd_set_enabled(ERA_SOCD_PAIR_LR, false));
+        era_kkuk_set_delay_ticks(5); era_kkuk_set_repeat_ticks(5); era_kkuk_set_enabled(true);
+        a.press(); b.press(); c.press(); run_one_scan_loop();
+        const size_t before = sent.size();
+        idle_for(120);
+        EXPECT_TRUE(std::any_of(sent.begin() + before, sent.end(), [](const report_keyboard_t &report) {
+            return !has_key(report, KC_A) && !has_key(report, KC_B) && !has_key(report, KC_C);
+        }));
+        era_kkuk_set_enabled(false);
+        a.release(); b.release(); c.release(); run_one_scan_loop();
+    }
+}
+
+// A synthetic report usage (as from TD/macro) and its real release between
+// pulse ticks must not be replaced with the earlier snapshot on restore.
+TEST_F(Socd, KkukRestoresTheCurrentReportAfterAProtectedUsageIsReleased) {
+    TestDriver driver;
+    record(driver);
+    auto b = KeymapKey(0, 0, 0, KC_B);
+    auto c = KeymapKey(0, 1, 0, KC_C);
+    set_keymap({b, c});
+    set_pair(ERA_SOCD_PAIR_LR, KC_A, KC_D, ERA_SOCD_MODE_LAST_INPUT);
+    era_kkuk_set_delay_ticks(5); era_kkuk_set_repeat_ticks(5); era_kkuk_set_enabled(true);
+    register_code(KC_A);
+    register_code(KC_LCTL);
+    b.press(); c.press(); run_one_scan_loop();
+    bool pulsed = false;
+    for (unsigned ms = 0; ms < 150; ms++) {
+        run_one_scan_loop();
+        if (!has_key(last(), KC_B) && !has_key(last(), KC_C)) { pulsed = true; break; }
+    }
+    EXPECT_TRUE(pulsed);
+    EXPECT_TRUE(has_key(last(), KC_A));
+    EXPECT_EQ(last().mods, MOD_BIT(KC_LCTL));
+    unregister_code(KC_A);
+    era_kkuk_task();
+    EXPECT_FALSE(has_key(last(), KC_A));
+    EXPECT_TRUE(has_key(last(), KC_B) && has_key(last(), KC_C));
+    EXPECT_EQ(last().mods, MOD_BIT(KC_LCTL));
+    era_kkuk_set_enabled(false);
+    unregister_code(KC_LCTL);
+    b.release(); c.release(); run_one_scan_loop();
+}

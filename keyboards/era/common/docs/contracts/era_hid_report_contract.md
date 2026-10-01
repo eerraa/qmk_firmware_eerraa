@@ -108,10 +108,14 @@ its legacy value-id handling for cached older VIA definitions.
 
 ## KKUK pulse
 
-`era_kkuk_start_empty_pulse()` in `features/era_kkuk.c` sends an empty
-report with every held key released; the next task tick's
-`era_kkuk_finish_restore_pulse()` in that file calls
-`send_keyboard_report()` (`quantum/action_util.c`) to restore. The snapshot
+`era_kkuk_start_empty_pulse()` in `features/era_kkuk.c` releases held
+ordinary keys except the usages of active, non-overlapping SOCD pairs.
+Those usages retain their raw held state in the pulse, so SOCD chooses the
+same winner without inventing a release/re-press. Disabled or invalid pairs
+have no exemption. Modifiers are never cleared. The next task tick's
+`era_kkuk_finish_restore_pulse()` calls `send_keyboard_report()`
+(`quantum/action_util.c`) with the current report, not an old snapshot;
+a physical release between the two ticks therefore stays released. The snapshot
 must be the report `clear_keys()` will empty, and that is not always 6KRO:
 `clear_keys_from_report()` in `tmk_core/protocol/report.c` writes
 `nkro_report->bits` while NKRO is negotiated, else `keyboard_report->keys`.

@@ -39,7 +39,7 @@ required seam or behavior actually remains in a QMK-owned file.
 | `quantum/split_common/split_util.[ch]` | Exposes physical-side sampling separately from QMK boot-master policy. | Present where `SPLIT_HAND_PIN` exists; weak QMK ownership remains default. |
 | `quantum/sync_timer.[ch]` | Weak time-source decision so ERA split can use committed wire role instead of hardcoded keyboard mastery. | Weak default preserves upstream behavior outside ERA split. |
 | `quantum/via.c` | Participates in accepted deferred RGB save and storage-cause instrumentation. | `ERA_STORAGE_QUIET_DEFER_MS` and the storage timeline diagnostic gate. |
-| `tmk_core/protocol/chibios/usb_driver.c` | Stops IN retry/flush after USB leaves ACTIVE and exposes completed keyboard-report timing to ERA. | Disconnect/suspend guard is unconditional; report hook has its ERA gate. |
+| `tmk_core/protocol/chibios/usb_driver.c` | Stops IN retry/flush after USB leaves ACTIVE and exposes completed keyboard-report timing through `era_hid_report_interval_endpoint_completed_i()`. | Disconnect/suspend guard is unconditional; report hook has its ERA gate. |
 | `tmk_core/protocol/chibios/usb_report_handling.c` | Zero-fills unsupported GET_REPORT storage and bounds idle-report pacing. | Zero-fill unconditional; pacing follows `ERA_TIMER_MS_CACHE`. |
 | `tmk_core/protocol/chibios/usb_main.c` | Routes keyboard reports through the ERA report-interval hold/post accounting and reports USB session edges. | `ERA_HID_REPORT_INTERVAL_ENABLE`. |
 | `tmk_core/protocol/host.[ch]` | Weak keyboard-delay seam through which synthesized tap width reaches the transport. | Ungated weak default keeps upstream wait behavior. |

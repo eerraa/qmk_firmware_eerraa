@@ -172,6 +172,29 @@ static void era_kkuk_start_empty_pulse(void) {
 #endif
 
     clear_keys();
+#ifdef ERA_SOCD_ENABLE
+    /* Only the four configured usages can be protected. Preserve their raw
+       held state before SOCD chooses the winner; no matrix/keyspace scan and
+       no synthetic release/re-press may change that ordering. */
+    for (uint8_t pair = 0; pair < ERA_SOCD_PAIR_COUNT; pair++) {
+        for (uint8_t key_index = 0; key_index < ERA_SOCD_PAIR_KEY_COUNT; key_index++) {
+            uint16_t keycode = era_socd_get_keycode(pair, key_index);
+            if (!IS_BASIC_KEYCODE(keycode) || !era_socd_is_bound_keycode(keycode)) {
+                continue;
+            }
+            for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; i++) {
+                if (saved_keys[i] == keycode) {
+                    keyboard_report->keys[i] = saved_keys[i];
+                }
+            }
+#    ifdef NKRO_ENABLE
+            if ((keycode >> 3) < NKRO_REPORT_BITS) {
+                nkro_report->bits[keycode >> 3] |= saved_bits[keycode >> 3] & (1U << (keycode & 7));
+            }
+#    endif
+        }
+    }
+#endif
     send_keyboard_report();
 
     /* Keep QMK's internal report current; only the host restore is deferred. */
