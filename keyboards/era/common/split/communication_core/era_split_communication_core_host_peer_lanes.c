@@ -291,7 +291,7 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
     if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
         const era_split_input_request_t *input = &request->semantic.source_push.input;
         if (!era_split_input_source_tx_allowed(input, request->owner_epoch, request->relation_generation, timer_hw->timerawl) ||
-            era_split_communication_core_standing_stop_generation(request->owner_epoch, request->relation_generation)) {
+            era_split_communication_core_standing_input_blocked(request->owner_epoch, request->relation_generation)) {
             result.failure = ERA_SPLIT_TRANSACTION_FAILURE_QUEUE_EXPIRED;
             goto publish;
         }

@@ -10,6 +10,7 @@
 #include "../communication_core/era_split_communication_core_owner.h"
 #include "../communication_core/era_split_communication_core_responder.h"
 #include "../era_host_peer_matrix_link.h"
+#include "../era_split_input.h"
 #include "../era_split_restart_agreement.h"
 #include "../era_split_sync_policy.h"
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
@@ -306,6 +307,10 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
     if (!storage_exclusive) {
         era_split_transport_scheduler_snapshot_response_plan(&snapshot);
     }
+    /* Publish input admission before advertising it to Core1. At boot and
+     * owner recovery, the next matrix scan may not have opened this gate yet;
+     * advertising first can reject a valid first FENCE and force revalidation. */
+    era_split_input_receiver_gate(snapshot.host_matrix_admitted, snapshot.owner_epoch, snapshot.relation_generation);
     if (!era_split_communication_core_publish_responder_snapshot(&snapshot)) {
         /* A differing snapshot failed to store -- a core1 claim collision or
            an undrained result. The published value is stale, which is exactly

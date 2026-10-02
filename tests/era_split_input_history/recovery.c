@@ -10,6 +10,7 @@ static unsigned test_core;
 #include "keyboards/era/common/split/communication_core/era_split_communication_core_responder.c"
 #include "keyboards/era/common/split/communication_core/era_split_communication_core_responder_service.c"
 #include "keyboards/era/common/split/communication_core/era_split_communication_core_standing.c"
+#include "keyboards/era/common/split/communication_core/era_split_communication_core_host_peer_lanes.c"
 /* MATRIX_ENGINE */
 
 era_split_communication_core_state_t g_era_split_communication_core;
@@ -17,6 +18,7 @@ static timer_hw_t raw_timer;
 timer_hw_t *timer_hw = &raw_timer;
 static era_split_wire_frame_t incoming, answer;
 static unsigned sends, standing_requests;
+static era_split_communication_core_initiator_result_t input_result;
 static uint8_t last_request_length, last_response_length;
 static uint16_t host_owner = 7, host_relation = 9;
 static bool drop_answer;
@@ -34,6 +36,10 @@ void era_split_input_action_end(void);
 static bool era_split_transaction_engine_response_kind_matches(era_split_wire_payload_kind_t, era_split_wire_payload_kind_t, era_split_wire_payload_kind_t);
 
 void era_split_communication_core_init(void) {}
+bool era_split_communication_core_result_push(const era_split_communication_core_queue_record_t *record) {
+    input_result = record->data.initiator_result;
+    return true;
+}
 era_split_communication_core_backend_access_t era_split_communication_core_owner_backend_access(uint16_t owner) {
     (void)owner; return ERA_SPLIT_COMMUNICATION_CORE_BACKEND_ACCESS_OK;
 }
@@ -73,7 +79,8 @@ era_split_transaction_engine_result_t era_split_transaction_engine_transact_comp
     era_split_wire_direction_t d, const uint8_t *p, uint8_t n, uint8_t seq,
     era_split_wire_payload_kind_t expected, era_split_wire_payload_kind_t alternate,
     uint16_t window, uint16_t owner, era_split_wire_frame_t *response, bool *sent, era_split_transaction_failure_t *failure) {
-    (void)d; (void)seq; (void)window; (void)owner; (void)sent; (void)failure;
+    (void)d; (void)seq; (void)window; (void)owner; (void)failure;
+    if (sent) *sent = true;
     ++standing_requests; last_request_length = n;
     assert(exchange(p, n)); last_response_length = answer.payload_len;
     if (drop_answer) return ERA_SPLIT_TRANSACTION_RESULT_MISS;
@@ -177,6 +184,65 @@ static void scenario(unsigned mode, bool sections) {
     assert(input() && matrix_previous[6] == 0);
 }
 
+static void startup_after_standing_stop(void) {
+    host_owner = 7; host_relation = 9; room = 66;
+    memset(&g_era_split_communication_core_standing_private, 0, sizeof(g_era_split_communication_core_standing_private));
+    memset(&g_era_split_communication_core_standing_state, 0, sizeof(g_era_split_communication_core_standing_state));
+    test_core = 0; era_split_communication_core_clear_standing();
+    clear_owners();
+    /* A standing slot can fail before the first source gate, or while storage
+     * has closed it. A successful SESSION retains this owner/relation. */
+    era_split_input_source_gate(false, 7, 9);
+    publish(true, false);
+    drop_answer = true; standing(); drop_answer = false;
+    uint16_t stop = era_split_communication_core_standing_stop_generation(7, 9);
+    assert(stop);
+    test_core = 0; era_split_input_source_gate(true, 7, 9);
+    era_split_wire_session_status_t facts = {.accepted_no_host = true, .matrix_ready = true, .usb_epoch = 1};
+    era_split_input_source_facts(&facts);
+    era_split_communication_core_queue_record_t record = {
+        .kind = ERA_SPLIT_COMMUNICATION_CORE_QUEUE_RECORD_INITIATOR_REQUEST,
+        .data.initiator_request = {.owner_epoch = 7, .relation_generation = 9, .request_generation = 1,
+            .lane = ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH,
+            .expected_kind = ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE_RSP, .response_window_ms = 20,
+            .not_after_us = clock_us + 100000},
+    };
+    assert(era_split_input_source_prepare(&record.data.initiator_request.semantic.source_push.input, clock_us));
+    assert(era_split_input_source_control_active());
+    unsigned before = standing_requests;
+    test_core = 1; era_split_communication_core_process_initiator(&record);
+    assert(standing_requests == before && !input_result.request_sent);
+    assert(input_result.failure == ERA_SPLIT_TRANSACTION_FAILURE_QUEUE_EXPIRED);
+    test_core = 0;
+    assert(!era_split_communication_core_resume_standing(7, 9, 0));
+    assert(era_split_communication_core_resume_standing(8, 9, stop)); // unrelated identity owes nothing
+    publish(true, true); // new payload content cannot acknowledge the stop
+    test_core = 1; era_split_communication_core_process_initiator(&record);
+    assert(standing_requests == before);
+    test_core = 0; assert(era_split_communication_core_resume_standing(7, 9, stop));
+    test_core = 1;
+    assert(!era_split_communication_core_standing_service_once(7)); // A/B still excludes standing traffic
+    era_split_communication_core_process_initiator(&record);
+    assert(standing_requests == before + 1 && input_result.request_sent);
+    assert(input_result.result == ERA_SPLIT_TRANSACTION_RESULT_OK);
+    test_core = 0; era_split_input_source_complete(&input_result.input, true, input_result.input_status);
+    assert(source.phase == SOURCE_BIND);
+    assert(era_split_input_source_prepare(&record.data.initiator_request.semantic.source_push.input, clock_us));
+    record.data.initiator_request.expected_kind = ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP;
+    test_core = 1; era_split_communication_core_process_initiator(&record);
+    assert(standing_requests == before + 2 && input_result.result == ERA_SPLIT_TRANSACTION_RESULT_OK);
+    test_core = 0; era_split_input_source_complete(&input_result.input, true, input_result.input_status);
+    assert(source.phase == SOURCE_BASELINE && !era_split_input_source_control_active());
+    standing(); // the ordinary standing publication retires the visible stop
+    assert(!g_era_split_communication_core_standing_state.stopped);
+    assert(!era_split_communication_core_standing_input_blocked(7, 9));
+    /* The next failure owes a new SESSION even when its predecessor was ACKed. */
+    drop_answer = true; standing(); drop_answer = false;
+    assert(era_split_communication_core_standing_input_blocked(7, 9));
+    test_core = 0; assert(!era_split_communication_core_resume_standing(7, 9, stop));
+    puts("PASS first input after exact SESSION recovery: no A/B deadlock, no intervening standing frame, stale/foreign ACKs refused");
+}
+
 int main(void) {
     for (unsigned mode = 0; mode < 5; ++mode) for (unsigned sections = 0; sections < 2; ++sections) scenario(mode, sections);
     era_split_input_receiver_gate(false, 0, 0); publish(false, false);
@@ -190,6 +256,7 @@ int main(void) {
         ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP, ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP));
     assert(!era_split_transaction_engine_response_kind_matches(ERA_SPLIT_WIRE_PAYLOAD_HP_STANDING_RSP,
         ERA_SPLIT_WIRE_PAYLOAD_INVALID, ERA_SPLIT_WIRE_PAYLOAD_INPUT_RSP));
+    startup_after_standing_stop();
     puts("PASS standing-to-action recovery: idle held, active, FRESH, lost answer, sections, closure quota, final release; HP idle/DH stay bare");
     return 0;
 }

@@ -237,6 +237,9 @@ void era_split_communication_core_clear_standing(void);
 /* Capture before SESSION enqueue, acknowledge only its validated matching
    result. Zero means that request was not issued to recover a standing stop. */
 uint16_t era_split_communication_core_standing_stop_generation(uint16_t owner_epoch, uint16_t relation_generation);
+/* Core1's input admission: a matching SESSION acknowledgement releases the
+ * stop without requiring a standing exchange between FENCE and BIND. */
+bool era_split_communication_core_standing_input_blocked(uint16_t owner_epoch, uint16_t relation_generation);
 /* False means revalidation remains owed; an older SESSION result must not
    consume an already-observed stop's only wake and leave the lane stranded. */
 bool era_split_communication_core_resume_standing(uint16_t owner_epoch, uint16_t relation_generation, uint16_t stop_generation);

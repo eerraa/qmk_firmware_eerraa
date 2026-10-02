@@ -16,7 +16,7 @@ static bool wrong_identity;
 static era_split_communication_core_initiator_result_t published_result;
 era_split_communication_core_backend_access_t era_split_communication_core_owner_backend_access(uint16_t owner) { (void)owner; return ERA_SPLIT_COMMUNICATION_CORE_BACKEND_ACCESS_OK; }
 bool era_split_communication_core_standing_service_once(uint16_t owner) { (void)owner; ++standing_calls; raw_timer.timerawl+=standing_advance; ++prepare_calls; return true; }
-uint16_t era_split_communication_core_standing_stop_generation(uint16_t owner,uint16_t relation) { (void)owner;(void)relation;return stop; }
+bool era_split_communication_core_standing_input_blocked(uint16_t owner,uint16_t relation) { (void)owner;(void)relation;return stop != 0; }
 bool era_split_transaction_engine_prepare_control(bool ext,uint8_t *control,uint8_t *seq) { ++prepare_calls; *seq=prepare_calls; *control=(ext?0x40:0)|(*seq&7); raw_timer.timerawl+=encode_advance; return true; }
 void era_split_transaction_engine_commit_received_frame(const era_split_wire_frame_t *frame) {(void)frame;}
 bool era_split_communication_core_result_push(const era_split_communication_core_queue_record_t *r) {published_result=r->data.initiator_result;return true;}

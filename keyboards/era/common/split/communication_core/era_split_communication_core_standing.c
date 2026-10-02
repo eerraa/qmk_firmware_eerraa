@@ -271,6 +271,31 @@ uint16_t era_split_communication_core_standing_stop_generation(uint16_t owner_ep
     return state.stop_generation;
 }
 
+bool era_split_communication_core_standing_input_blocked(uint16_t owner_epoch, uint16_t relation_generation) {
+    /* Core1 is this state's sole writer. Ordinary input needs only scalar
+     * reads, not a copy of the received RGB/authority/visual snapshot. */
+    if (!g_era_split_communication_core_standing_state.stopped ||
+        g_era_split_communication_core_standing_state.owner_epoch != owner_epoch ||
+        g_era_split_communication_core_standing_state.relation_generation != relation_generation) {
+        return false;
+    }
+    /* FENCE/BIND holds the standing cadence closed. Waiting for that cadence
+     * to publish stopped=0 would also prevent FENCE from starting. The exact
+     * SESSION acknowledgement is sufficient; ordinary plan changes are not. */
+    for (uint8_t retry = 0; retry < ERA_SPLIT_COMMUNICATION_CORE_STANDING_READ_RETRIES; retry++) {
+        uint32_t first = g_era_split_communication_core_standing_plan_seq;
+        if ((first & 1U) != 0) continue;
+        __DMB();
+        bool acknowledged = g_era_split_communication_core_standing_plan.owner_epoch == owner_epoch &&
+                            g_era_split_communication_core_standing_plan.relation_generation == relation_generation &&
+                            g_era_split_communication_core_standing_plan.resume_generation ==
+                                g_era_split_communication_core_standing_state.stop_generation;
+        __DMB();
+        if (first == g_era_split_communication_core_standing_plan_seq) return !acknowledged;
+    }
+    return true;
+}
+
 bool era_split_communication_core_resume_standing(uint16_t owner_epoch, uint16_t relation_generation, uint16_t stop_generation) {
     if (get_core_num() != 0) {
         return false;

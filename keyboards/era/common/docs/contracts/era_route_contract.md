@@ -160,6 +160,13 @@ revalidation; it does not by itself declare the peer stale. A stop during
 durable Apply is a relation-recovery event, not a persistence rollback. Core1
 never retries around this handshake on its own.
 
+The matching SESSION acknowledgement also releases input admission when
+FENCE/BIND holds standing traffic closed. Input recovery must not require a
+standing exchange that is itself waiting for FENCE/BIND to finish. A responder
+must install its input gate before publishing a snapshot that advertises matrix
+admission; the next matrix scan is not a prerequisite for accepting the first
+FENCE.
+
 Source anchors:
 `split/era_split_transport_scheduler.c`,
 `split/communication_core/era_split_communication_core_standing.c`, and
