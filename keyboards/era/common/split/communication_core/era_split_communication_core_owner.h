@@ -41,6 +41,9 @@ typedef struct {
 } era_split_communication_core_owner_diagnostics_t;
 
 bool era_split_communication_core_owner_transfer_role(era_split_communication_core_backend_owner_t next_owner, era_split_transaction_backend_role_t next_role);
+/* Admit an initiator request only under an already assigned, non-revoked
+   CORE1 initiator lease. May repair missing readiness in that same role;
+   never grants ownership from NONE or changes the assigned role. */
 bool era_split_communication_core_owner_ensure_core1(void);
 
 /* True when the live owner lease is already a coherent CORE1 lease for `role`

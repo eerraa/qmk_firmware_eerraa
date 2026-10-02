@@ -10,12 +10,10 @@
 /* SPLIT_TRANSPORT = custom's whole live surface, and it is these two names:
    split_util.c calls whichever one is_keyboard_master() selects -
    transport_master_init() from split_pre_init(), transport_slave_init() from
-   split_post_init(). On ERA that selection is deliberately inert. Nothing
-   samples the reducer between keyboard_pre_init_kb and the launch step, so
-   is_keyboard_master() answers false throughout keyboard_init() whatever USB
-   is doing, transport_slave_init() runs on both halves every boot, and the
-   boot path is identical with or without a cable. Both names reach the same
-   planner init, and neither opens the wire - the launch stays the one named
+   split_post_init(). Both names reach the same policy-only planner init.
+   Bootmagic scans can also initialize the planner and sample USB authority
+   before split_post_init(), so neither callback is a required launch event.
+   No planner init opens the wire - the launch stays the one named
    step, era_split_transport_scheduler_start_communication_core()
    (era_invariants.md).
 

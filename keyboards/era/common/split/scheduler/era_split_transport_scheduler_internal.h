@@ -282,7 +282,9 @@ typedef struct {
     /* False until era_split_transport_scheduler_start_communication_core() runs
        at keyboard post-init. While it is false the scheduler computes policy
        and opens no wire, which is what keeps the core1 launch a named boot step
-       instead of a side effect of the first mode plan. */
+       instead of a side effect of the first mode plan. This records entry to
+       post-init, not hardware READY: a failed transfer is retried by dirty
+       role policy, never by an unassigned request. */
     bool     communication_core_started;
     bool     host_peer_responder_visual_snapshot_published;
     bool     host_peer_responder_rgb_state_published;

@@ -1605,17 +1605,15 @@ void era_split_transport_scheduler_init(void) {
  * era_sram_residency_contract.md (no core1 launch before the ERA NVM mount and
  * the hardware-id read) holds with a margin instead of by accident.
  *
- * The ensure_core1() calls that remain on the scan and lane paths are re-arms
- * of an already-launched core, not second boot launches: no matrix scan and no
- * housekeeping pass runs inside keyboard_init(), so this is the first of them
- * to execute on any boot.
+ * Bootmagic runs matrix scans inside keyboard_init(). The scan and queue
+ * ensure_core1() calls may only repair an already assigned initiator lease;
+ * they cannot acquire one from NONE. The role transfer below is therefore
+ * the first place that can open the wire, after Low has reached the backend.
  *
- * Returns whether the wire came up. Nothing at the call site acts on it, and
- * that is now an answer rather than a gap. The snapshot invalidation below is
- * the whole of the failure handling; a give-up state at the caller would need
- * a rule for when to resume, and no observed failure has asked for one. What
- * the launch-robustness work bounded is inside the handshake itself, in
- * era_split_communication_core_launch_sequence(). */
+ * The first call reports the role-transfer result; later calls are no-ops.
+ * Failure marks WIRE_ROLE dirty so scheduler policy retries the assignment.
+ * Request admission cannot substitute for that missing lease. The lifecycle
+ * handshake and its per-boot failure cap bound those attempts. */
 bool era_split_transport_scheduler_start_communication_core(void) {
     if (g_era_split_transport_scheduler.communication_core_started) {
         return true;

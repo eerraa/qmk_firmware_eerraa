@@ -362,22 +362,34 @@ static bool era_split_communication_core_owner_lease_is_live_core1_role(era_spli
            revoke_word == 0;
 }
 
+/* Keep repair's register/stack demand off the ordinary live-lease admission. */
+static bool __attribute__((noinline)) era_split_communication_core_owner_repair_core1_role(era_split_transaction_backend_role_t role) {
+    /* Request admission can repair an assigned role, but cannot grant one.
+       In particular, Bootmagic scans run before the post-init role transfer,
+       and a queued request must not acquire an initiator lease from NONE or
+       replace a responder/revoked lease. Only the scheduler's explicit role
+       transition may open that boundary. Keep this off the live-lease path. */
+    uint32_t lease_word = g_era_split_communication_core_owner.lease_word;
+    uint32_t role_word  = g_era_split_communication_core_owner.role_word;
+    if (era_split_communication_core_owner_word_owner(lease_word) != ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1 ||
+        era_split_communication_core_owner_word_epoch(lease_word) != era_split_communication_core_owner_word_epoch(role_word) ||
+        era_split_communication_core_owner_word_role(role_word) != role ||
+        g_era_split_communication_core_owner.revoke_word != 0) {
+        return false;
+    }
+    return era_split_communication_core_owner_transfer_role(ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1, role);
+}
+
 static bool era_split_communication_core_owner_ensure_core1_role(era_split_transaction_backend_role_t role) {
     era_split_communication_core_owner_init();
     __DMB();
     if (era_split_communication_core_owner_lease_is_live_core1_role(role)) {
-        /* R7 fix review finding (2026-08-06): a live serviced lease observed
-           here is the same "core1 in service" fact the full-transfer path
-           reports, and it must clear the give-up streak too — a ready that
-           arrived after its 30 ms wait already counted a service timeout is
-           recovered through this fast path, and without the clear those
-           marginal counts would accumulate across the boot toward a false
-           cap. The call is one byte read when the streak is already zero. */
+        /* A late READY after a service timeout is still proof of service.
+           Clear the failure streak without rebuilding the live lease. */
         era_split_communication_core_note_core1_serviced();
         return true;
     }
-
-    return era_split_communication_core_owner_transfer_role(ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1, role);
+    return era_split_communication_core_owner_repair_core1_role(role);
 }
 
 bool era_split_communication_core_owner_ensure_core1(void) {
