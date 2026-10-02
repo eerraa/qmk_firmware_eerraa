@@ -399,6 +399,11 @@ producer generation captured before the exchange, so late hints cannot apply
 to a new lifetime. FLOW_END idempotently closes live input; BASELINE_READY
 resumes an unaccepted pending RESET without changing its identity, or permits
 a new epoch after terminal recovery.
+BASELINE_READY is a capacity hint, not an input-incarnation grant. An enabled
+but closed receiver with room lets a waiting source attempt RESET, rejects it
+with typed MISMATCH, and requires FENCE/BIND before accepting the baseline.
+This rare receiver-only lifetime recovery costs one rejected RESET exchange;
+ordinary capacity recovery does not reinstall A/B. A disabled gate stays shut.
 
 Before an input TX, Core1 services one due standing slot at the frame boundary,
 then constructs input control sequence and rechecks born deadline, owner,

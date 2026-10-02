@@ -66,6 +66,10 @@ nonwrapping epoch. Abandoned unconfirmed baselines may leave epoch gaps; a
 terminal/live receiver accepts a strictly newer RESET, while a BIND-bound
 receiver requires its bound epoch. Incarnation changes and epoch reuse require
 FENCE-A/BIND-B. These boundaries never reuse a live packet/version holder.
+If only the receiver incarnation closes, typed MISMATCH cancels the source's
+old generation and restarts A/B before a baseline can install. A source
+already waiting for FLOW must also reach this recovery once capacity returns;
+unchanged peer USB facts cannot leave it permanently waiting.
 
 Recovery converges to fresh latest and the last release when changes stop and
 the clock, consumer, finite handlers and link progress. It need not preserve

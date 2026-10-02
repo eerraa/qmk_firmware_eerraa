@@ -202,8 +202,53 @@ static void strict_schema_and_pressure(void) {
     assert(!era_split_input_claim(previous,previous,66,false,clock_us));
     era_split_input_receiver_gate(false,7,9); r=delta(1,0); assert(deliver(&r,1)==ERA_INPUT_RESET_REQUIRED); // closed/DH gate
 }
+static void receiver_lifetime_recovery(void) {
+    for (unsigned waiting=0; waiting<2; ++waiting) {
+        open(); const unsigned states[]={1}; snapshots(states,1);
+        era_split_input_request_t old=prepare();
+        if (waiting) {
+            clock_us=old.born_deadline_us;
+            assert(!era_split_input_source_due(clock_us));
+        }
+        /* A receiver-only lease/relationship renewal leaves the remote
+         * source gate and USB facts unchanged. Delayed old input observes it. */
+        era_split_input_receiver_gate(false,7,9);
+        era_split_input_receiver_gate(true,7,9);
+        uint8_t status=deliver(&old,1);
+        assert(status==ERA_INPUT_MISMATCH && !claim(66));
+        if (!waiting) era_split_input_source_complete(&old,true,status);
+        else {
+            era_split_input_receiver_end();
+            era_split_input_receiver_capacity(false);
+            assert(era_split_input_receiver_flow(clock_us)==ERA_INPUT_FLOW_RESET);
+            era_split_input_receiver_capacity(true);
+            status=era_split_input_receiver_flow(clock_us);
+            assert(status==ERA_INPUT_BASELINE_READY);
+            era_split_input_source_flow(status,era_split_input_source_generation());
+            era_split_input_request_t probe=prepare();
+            assert(probe.op==ERA_INPUT_RESET);
+            status=deliver(&probe,2);
+            assert(status==ERA_INPUT_MISMATCH && !claim(66));
+            era_split_input_source_complete(&probe,true,status);
+        }
+        assert(!era_split_input_source_tx_allowed(&old,7,9,clock_us));
+        /* Core1 can sample the replacement generation before Core0 raises
+         * the A/B barrier. Its late FLOW cannot end that control install. */
+        era_split_input_source_flow(ERA_INPUT_FLOW_RESET,era_split_input_source_generation());
+        era_split_input_request_t r=prepare(); assert(r.op==ERA_INPUT_FENCE);
+        deliver(&r,3); era_split_input_source_complete(&r,true,0);
+        era_split_input_source_flow(ERA_INPUT_FLOW_RESET,era_split_input_source_generation());
+        r=prepare(); assert(r.op==ERA_INPUT_BIND);
+        deliver(&r,4); era_split_input_source_complete(&r,true,0);
+        r=prepare(); assert(r.op==ERA_INPUT_RESET && r.epoch==1);
+        assert(deliver(&r,5)==ERA_INPUT_ACCEPTED);
+        era_split_input_source_complete(&r,true,ERA_INPUT_ACCEPTED);
+        assert(claim(66) && previous[0]==1); era_split_input_finish();
+        assert(source.phase==SOURCE_LIVE && !era_split_input_source_due(clock_us));
+    }
+}
 int main(void) {
-    order_and_receipt(); capacity_and_pin(); full_group_and_reset_race(); deadlines_and_recovery(); wait_and_wrap(); strict_schema_and_pressure();
+    order_and_receipt(); capacity_and_pin(); full_group_and_reset_race(); deadlines_and_recovery(); wait_and_wrap(); strict_schema_and_pressure(); receiver_lifetime_recovery();
     printf("PASS production input owners: history=%zu packet=%zu source=%zu receiver=%zu request=%zu\n",sizeof(input_snapshot_t),sizeof(input_packet_t),sizeof(source),sizeof(receiver),sizeof(era_split_input_request_t));
     return 0;
 }
