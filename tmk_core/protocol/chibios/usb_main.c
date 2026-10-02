@@ -507,18 +507,23 @@ void send_nkro(report_nkro_t *report) {
  * These reports never inherit the keyboard interval. Normal BUSY neither
  * drops an accepted queue prefix nor pretends an unaccepted report was sent. */
 static struct {
-    bool pending;
     uint8_t endpoint, size;
     uint8_t bytes[32];
 } auxiliary_reports[4]; /* mouse, system, consumer, programmable buttons */
+static uint8_t auxiliary_pending; /* task-owned; one bit per producer */
+
+bool era_usb_auxiliary_reports_pending(void) {
+    return auxiliary_pending != 0 || auxiliary_session_reset;
+}
 
 static void auxiliary_apply_edge(void) {
+    if (!auxiliary_session_reset) return;
     osalSysLock();
     bool reset = auxiliary_session_reset;
     auxiliary_session_reset = false;
     osalSysUnlock();
     if (reset) {
-        memset(auxiliary_reports, 0, sizeof(auxiliary_reports));
+        auxiliary_pending = 0;
     }
 }
 static void auxiliary_report(uint8_t slot, usb_endpoint_in_lut_t endpoint, const void *data, uint8_t size) {
@@ -527,13 +532,17 @@ static void auxiliary_report(uint8_t slot, usb_endpoint_in_lut_t endpoint, const
     auxiliary_reports[slot].endpoint = endpoint;
     auxiliary_reports[slot].size = size;
     memcpy(auxiliary_reports[slot].bytes, data, size);
-    auxiliary_reports[slot].pending = !send_report(endpoint, auxiliary_reports[slot].bytes, size);
+    uint8_t bit = 1U << slot;
+    if (send_report(endpoint, auxiliary_reports[slot].bytes, size)) auxiliary_pending &= (uint8_t)~bit;
+    else auxiliary_pending |= bit;
 }
 void era_usb_auxiliary_reports_task(void) {
     auxiliary_apply_edge();
+    if (!auxiliary_pending) return;
     for (uint8_t i = 0; i < 4; ++i) {
-        if (auxiliary_reports[i].pending && send_report(auxiliary_reports[i].endpoint, auxiliary_reports[i].bytes, auxiliary_reports[i].size))
-            auxiliary_reports[i].pending = false;
+        uint8_t bit = 1U << i;
+        if ((auxiliary_pending & bit) && send_report(auxiliary_reports[i].endpoint, auxiliary_reports[i].bytes, auxiliary_reports[i].size))
+            auxiliary_pending &= (uint8_t)~bit;
     }
 }
 #endif

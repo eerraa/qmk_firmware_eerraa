@@ -31,6 +31,7 @@ static uint8_t era_hid_format = UINT8_MAX;
 static volatile uint32_t era_hid_protocol_events;
 static uint32_t era_hid_protocol_seen;
 extern keymap_config_t keymap_config;
+bool era_usb_auxiliary_reports_pending(void);
 void era_usb_auxiliary_reports_task(void);
 
 static inline uint32_t era_hid_report_interval_now(void) {
@@ -191,6 +192,12 @@ bool era_hid_report_interval_select_format(uint8_t format) {
     return true;
 }
 void era_hid_report_interval_service(void) {
+    /* Idle needs only scalar state: no USB lock, clock or endpoint walk.
+     * Keep the format comparison for QMK/VIA/storage NKRO changes that do
+     * not arrive through the USB ISR. An ISR after this test stays pending
+     * for the next pass; endpoint admission still checks the live lifetime. */
+    if (!era_hid_reopen && !era_hid_report_interval_active() && !era_usb_auxiliary_reports_pending() &&
+        era_hid_format == era_hid_report_interval_current_format()) return;
     era_hid_report_interval_ensure_ready();
     bool active;
     osalSysLock();

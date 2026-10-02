@@ -135,8 +135,8 @@ void era_common_features_task(void) {
        board file because it is a fact about USB, not about a keyboard, and
        every ERA board reaches this function once per pass. */
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
-    /* Keyboard reports held for a synthesized tap's width leave here once it
-       has passed: one branch per pass while nothing is held. */
+    /* Service held reports and session/format edges. Idle returns after
+       scalar checks, before USB locks, clock reads or endpoint iteration. */
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
