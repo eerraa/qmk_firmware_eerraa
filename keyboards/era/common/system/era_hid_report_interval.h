@@ -42,8 +42,8 @@
  * and the backlog drains. A transport reset drops backlog and intervals with
  * the queues they were queued behind; suspend keeps the backlog so a tap
  * queued while asleep is delivered on resume with its width. A full backlog
- * folds the newest report into its tail, so the host converges to the latest
- * state and the tail's width survives. Every hold, post and task step is
+ * preserves its prefix and merges subsequent reports into a latest suffix.
+ * The suffix moves only after the prefix and its last width drain. Every hold, post and task step is
  * O(1) per report; the hot-path question is era_hid_report_interval_active().
  */
 
@@ -57,11 +57,10 @@ enum {
 #ifndef ERA_HID_REPORT_INTERVAL_REPORT_BYTES
 #    define ERA_HID_REPORT_INTERVAL_REPORT_BYTES 32
 #endif
-/* Reports held behind one interval before the newest folds into the tail.
- * Sixteen is more keyboard events than 80 ms of typing produces; a macro burst
- * beyond it converges to its last state. */
+/* The finite mixed profile in era_hid_report_contract.md is production-counted.
+ * This is a prefix capacity, not a bound on every firmware report burst. */
 #ifndef ERA_HID_REPORT_INTERVAL_BACKLOG
-#    define ERA_HID_REPORT_INTERVAL_BACKLOG 16
+#    define ERA_HID_REPORT_INTERVAL_BACKLOG 25
 #endif
 /* A requested width is capped so a misconfigured delay cannot park input. */
 #ifndef ERA_HID_REPORT_INTERVAL_REQUEST_MAX_MS
@@ -74,7 +73,7 @@ enum {
 #endif
 
 typedef struct {
-    uint32_t coalesced;   /* reports folded into a full backlog's tail */
+    uint32_t coalesced;   /* reports merged into the overflow suffix */
     uint32_t valve_trips; /* anchors abandoned because no completion arrived within the limit */
     uint8_t  backlog;     /* reports held right now */
     bool     gate_closed; /* keyboard-class reports are being held */
@@ -82,9 +81,8 @@ typedef struct {
 
 void era_hid_report_interval_init(uint32_t ticks_per_ms);
 
-/* A keyboard-class report is about to be posted to `lane`. True means the unit
- * took a copy and the caller must not post it; false means post it now and,
- * on success, call era_hid_report_interval_note_keyboard_posted(). */
+/* Every valid keyboard-class void output is taken here, directly posted or
+ * copied to prefix/suffix. False means invalid arguments, never normal BUSY. */
 bool era_hid_report_interval_hold(uint8_t lane, const void *data, uint8_t size);
 /* Every successful post to a tracked lane, keyboard-class or not. */
 void era_hid_report_interval_note_posted(uint8_t lane);
@@ -97,8 +95,14 @@ void era_hid_report_interval_request(uint16_t ms, uint32_t now);
 /* The transport lost its queues. keep_backlog: true on suspend, false on reset
  * or unconfigure. Any context; the next task applies it. */
 void era_hid_report_interval_note_session_edge(bool keep_backlog);
+/* Platform checks under the USB lock immediately before endpoint admission. */
+bool era_hid_report_interval_session_current(void);
 /* Whether task() has anything to do. This is the per-pass hot-path test. */
 bool era_hid_report_interval_active(void);
+bool era_hid_report_interval_pressured(void);
+uint32_t era_hid_report_interval_pressure_serial(void);
+/* Format ends keyboard obligations only; shared mouse/EXTRA queues survive. */
+void era_hid_report_interval_format_edge(void);
 void era_hid_report_interval_task(uint32_t now);
 void era_hid_report_interval_get_diagnostics(era_hid_report_interval_diagnostics_t *out);
 

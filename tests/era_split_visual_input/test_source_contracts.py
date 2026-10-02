@@ -31,8 +31,19 @@ enum { ERA_SPLIT_MODE_LOCAL_NO_LINK, ERA_SPLIT_MODE_HOST_PEER_HOST,
        ERA_SPLIT_MODE_HOST_PEER_PEER, ERA_SPLIT_MODE_DUAL_HOST_LEFT,
        ERA_SPLIT_MODE_DUAL_HOST_RIGHT };
 #define ERA_SPLIT_SCHEDULER_ROUTE_DUE_DUAL_RUNTIME_PUSH 8
-static struct { int mode; bool rgb_sync_requested_cached; uint8_t route_due_flags; }
+static struct { int mode; bool rgb_sync_requested_cached; uint8_t route_due_flags; uint16_t core1_initiator_relation_generation; }
     g_era_split_transport_scheduler;
+#define MATRIX_ROWS_PER_HAND 6
+#define ERA_SPLIT_SCHEDULER_ROUTE_DUE_HOST_PEER_SOURCE_PUSH 16
+typedef uint16_t matrix_row_t;
+static uint16_t era_split_communication_core_owner_epoch(void) { return 7; }
+static bool era_split_input_source_gate(bool open, uint16_t owner, uint16_t relation) {(void)open;(void)owner;(void)relation;return false;}
+static bool era_matrix_engine_copy_local_rows(matrix_row_t *rows) {(void)rows;return false;}
+static void era_split_input_source_snapshot(const matrix_row_t *rows,uint32_t clock) {(void)rows;(void)clock;}
+static uint32_t era_split_input_clock(void) {return 0;}
+static void era_split_input_receiver_gate(bool open,uint16_t owner,uint16_t relation) {(void)open;(void)owner;(void)relation;}
+static bool era_split_scheduler_session_host_peer_host_matrix_admitted(void) {return true;}
+static bool era_matrix_engine_source_push_due(void) {return false;}
 static bool changed;
 static unsigned slow_calls, marks, responder_calls;
 static void era_split_transport_scheduler_ensure_initialized(void) {}

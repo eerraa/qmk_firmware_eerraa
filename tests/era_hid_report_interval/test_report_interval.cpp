@@ -145,26 +145,28 @@ TEST_F(EraHidReportInterval, HeldReportsKeepOrderAndCarryTheirOwnWidths) {
     EXPECT_FALSE(era_hid_report_interval_active());
 }
 
-TEST_F(EraHidReportInterval, AFullBacklogFoldsTheNewestReportIntoItsTail) {
-    ASSERT_TRUE(send(KB, 0x39));
-    era_hid_report_interval_request(80, 0); // in flight: the gate is closed until the completion arrives
-    for (uint8_t tag = 1; tag <= ERA_HID_REPORT_INTERVAL_BACKLOG; tag++) {
-        EXPECT_FALSE(send(KB, tag));
-    }
-    era_hid_report_interval_request(80, 1); // the tail's own width
-    EXPECT_FALSE(send(KB, 0x40));         // one more than fits: the tail becomes this state
-    auto d = diag();
-    EXPECT_EQ(d.backlog, ERA_HID_REPORT_INTERVAL_BACKLOG);
-    EXPECT_EQ(d.coalesced, 1U);
-
-    era_hid_report_interval_note_completed(KB, 5);
-    era_hid_report_interval_task(85);
-    ASSERT_EQ(era_test_post_count, 1U + ERA_HID_REPORT_INTERVAL_BACKLOG);
-    for (uint8_t tag = 1; tag < ERA_HID_REPORT_INTERVAL_BACKLOG; tag++) {
-        EXPECT_EQ(posted_tag(tag), tag);
-    }
-    EXPECT_EQ(posted_tag(ERA_HID_REPORT_INTERVAL_BACKLOG), 0x40U);
-    EXPECT_TRUE(diag().gate_closed); // the folded tail kept the width it carried
+TEST_F(EraHidReportInterval, FullPrefixAndItsLastWidthSurviveSuffixReplacement) {
+    ASSERT_TRUE(send(KB, 0x39)); era_hid_report_interval_request(80, 0);
+    for (uint8_t tag=1; tag<=ERA_HID_REPORT_INTERVAL_BACKLOG; ++tag) EXPECT_FALSE(send(KB,tag));
+    era_hid_report_interval_request(80,1); // last prefix ticket
+    EXPECT_FALSE(send(KB,0x40)); era_hid_report_interval_request(200,1); // suffix ticket
+    EXPECT_FALSE(send(KB,0x41)); // replaced suffix loses its own width
+    EXPECT_EQ(diag().coalesced,2U);
+    EXPECT_TRUE(era_hid_report_interval_pressured());
+    auto pressure=era_hid_report_interval_pressure_serial();
+    era_hid_report_interval_note_completed(KB,5); era_hid_report_interval_task(85);
+    ASSERT_EQ(era_test_post_count,1U+ERA_HID_REPORT_INTERVAL_BACKLOG);
+    for (uint8_t tag=1;tag<=ERA_HID_REPORT_INTERVAL_BACKLOG;++tag) EXPECT_EQ(posted_tag(tag),tag);
+    EXPECT_TRUE(diag().gate_closed);
+    // Space in the prefix cannot admit ahead of the pending suffix.
+    EXPECT_FALSE(send(KB,0x42)); EXPECT_EQ(era_hid_report_interval_pressure_serial(),pressure);
+    for (unsigned i=0;i<ERA_HID_REPORT_INTERVAL_BACKLOG;++i) era_hid_report_interval_note_completed(KB,86);
+    era_hid_report_interval_task(165); EXPECT_EQ(era_test_post_count,1U+ERA_HID_REPORT_INTERVAL_BACKLOG);
+    era_hid_report_interval_task(166);
+    ASSERT_EQ(era_test_post_count,2U+ERA_HID_REPORT_INTERVAL_BACKLOG);
+    EXPECT_EQ(posted_tag(1U+ERA_HID_REPORT_INTERVAL_BACKLOG),0x42U);
+    EXPECT_FALSE(era_hid_report_interval_active()); EXPECT_FALSE(era_hid_report_interval_pressured());
+    EXPECT_EQ(era_hid_report_interval_pressure_serial(),pressure); // edge survives materialization
 }
 
 TEST_F(EraHidReportInterval, OtherReportsOnTheSharedLaneCountForCompletionOrder) {
@@ -213,13 +215,13 @@ TEST_F(EraHidReportInterval, SuspendKeepsTheBacklogAndMeasuresTheWidthFromResume
     EXPECT_FALSE(send(KB, 0));
     era_test_active = false;
     era_hid_report_interval_note_session_edge(true);
-    era_hid_report_interval_task(10); // the pending completion will never come: width from now
+    // Production glue defers the task until USB becomes active again.
     EXPECT_EQ(diag().backlog, 1U);
-    era_hid_report_interval_task(90); // open, but the transport is asleep
-    EXPECT_EQ(era_test_post_count, 1U);
-    EXPECT_EQ(era_test_refused, 1U);
     era_test_active = true;
     era_hid_report_interval_task(91);
+    era_hid_report_interval_task(170);
+    EXPECT_EQ(era_test_post_count, 1U);
+    era_hid_report_interval_task(171);
     ASSERT_EQ(era_test_post_count, 2U);
     EXPECT_EQ(posted_tag(1), 0U);
 }
@@ -279,4 +281,25 @@ TEST_F(EraHidReportInterval, WrapOfTheClockDoesNotBreakTheWidth) {
     EXPECT_EQ(era_test_post_count, 1U);
     era_hid_report_interval_task(start + 80); // past the wrap
     EXPECT_EQ(era_test_post_count, 2U);
+}
+
+TEST_F(EraHidReportInterval, BusyVoidOutputIsOwnedWithoutAnotherChangedScan) {
+    era_test_room=false; EXPECT_FALSE(send(KB,4)); EXPECT_FALSE(send(KB,0));
+    EXPECT_EQ(diag().backlog,2U); era_test_room=true; era_hid_report_interval_task(1);
+    ASSERT_EQ(era_test_post_count,2U); EXPECT_EQ(posted_tag(0),4U); EXPECT_EQ(posted_tag(1),0U);
+}
+TEST_F(EraHidReportInterval, FormatEndsOldBytesWithoutResettingSharedCompletionOrder) {
+    ASSERT_TRUE(send(SH,0x39)); era_hid_report_interval_request(80,0); EXPECT_FALSE(send(SH,0));
+    era_hid_report_interval_format_edge(); EXPECT_FALSE(era_hid_report_interval_active());
+    ASSERT_TRUE(send(KB,0)); EXPECT_EQ(era_test_post_count,2U);
+    era_hid_report_interval_note_completed(SH,1); era_hid_report_interval_note_completed(KB,2);
+    era_hid_report_interval_request(80,3); EXPECT_FALSE(send(KB,4));
+    era_hid_report_interval_task(81); EXPECT_EQ(era_test_post_count,2U);
+    era_hid_report_interval_task(82); EXPECT_EQ(era_test_post_count,3U);
+}
+TEST_F(EraHidReportInterval, ResetBeforeNewProducerDoesNotDiscardItsCurrentReport) {
+    era_test_room=false; EXPECT_FALSE(send(KB,4)); era_hid_report_interval_note_session_edge(false);
+    EXPECT_FALSE(send(KB,5)); EXPECT_EQ(diag().backlog,1U);
+    era_test_room=true; era_hid_report_interval_task(10);
+    ASSERT_EQ(era_test_post_count,1U); EXPECT_EQ(posted_tag(0),5U);
 }

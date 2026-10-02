@@ -26,6 +26,7 @@
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
 #include "timer.h"
+#include "../../system/era_matrix_engine.h"
 
 /* A queued request cannot preempt the transaction Core1 has already begun.
  * Core0 therefore gives every publication one complete standing response
@@ -103,22 +104,6 @@ static void era_split_transport_scheduler_note_attach_status_request_attempt(era
      * needs an answer, that gets none, is exactly the peer-stale evidence the
      * route contract names here. */
     if (stale_on_no_response && request_sent && result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
-        era_split_transport_scheduler_mark_peer_stale_revalidation();
-    }
-}
-
-/* The one HOST-PEER owner route left is the matrix push, so this now records
-   the outcome of exactly that. The period stamp it used to take went with the
-   two paced routes (R2); what survives is the pair that was never about a
-   period -- a successful relation frame clears the discovery miss streak, and
-   a request that went out and got nothing back is peer-stale evidence. */
-static void era_split_transport_scheduler_note_host_peer_request_attempt(era_split_transaction_engine_result_t result, bool request_sent) {
-    if (result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
-        g_era_split_transport_scheduler.attach_status_miss_streak = 0;
-        return;
-    }
-
-    if (request_sent) {
         era_split_transport_scheduler_mark_peer_stale_revalidation();
     }
 }
@@ -273,10 +258,17 @@ static bool era_split_transport_scheduler_try_enqueue_host_peer_source_push(void
                                                      ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK,
                                                      ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP,
                                                      ERA_SPLIT_PEER_RESPONSE_WINDOW_MS);
+    era_split_wire_session_status_t facts;
+    if (!era_split_scheduler_session_build_local_status(true, &facts)) return false;
+    era_split_input_source_facts(&facts);
+    if (!era_split_input_source_prepare(&request.semantic.source_push.input, era_split_input_clock())) return false;
+    uint8_t op = request.semantic.source_push.input.op;
+    request.expected_kind = op == ERA_INPUT_FENCE ? ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE_RSP :
+                            op == ERA_INPUT_BIND ? ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP : ERA_SPLIT_WIRE_PAYLOAD_INPUT_RSP;
+    request.alternate_expected_kind = ERA_SPLIT_WIRE_PAYLOAD_INVALID;
     request.semantic.source_push.sections = ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS;
-    if (!era_host_peer_matrix_link_capture_source_push(request.semantic.source_push.packed_rows, &request.semantic.source_push.matrix_seq)) {
-        return false;
-    }
+    matrix_row_t diagnostic_rows[MATRIX_ROWS_PER_HAND];
+    (void)era_matrix_engine_copy_source_push_rows(diagnostic_rows, &request.semantic.source_push.matrix_seq);
     return era_split_transport_scheduler_submit_core1_request(&request, false);
 }
 
@@ -332,49 +324,20 @@ static void era_split_transport_scheduler_apply_core1_session_result(const era_s
    which is where it always was for this relation's other carrier. */
 
 static void era_split_transport_scheduler_apply_core1_host_peer_result(const era_split_communication_core_initiator_result_t *result) {
-    /* Lane facts only. Since D3 a response on this lane carries no section, so
-       everything read here comes from the *request* -- what was sent, and
-       whether the exchange completed -- and nothing from the answer's body. The
-       section set arrives on the standing exchange and is applied from the
-       standing state. */
-    era_split_transaction_engine_result_t lane_result_code = (era_split_transaction_engine_result_t)result->result;
-    bool                                  request_sent    = result->request_sent != 0;
-
-    /* There is no HEARTBEAT arm here. The initiator HEARTBEAT lane enumerator
-       is gone (era_split_communication_core_initiator.h); this function applies
-       SOURCE_PUSH results. SESSION_STATUS has its own apply. Standing/responder
-       HEARTBEAT does not land on this apply path. */
-    if (result->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
-        /* One lane, one section set again since R2, and since D3 the section
-           set is the request's alone. The matrix-link bookkeeping belongs to
-           the matrix section rather than to the lane, and nothing else can
-           arrive on it -- kept because what it asserts is still the rule, and
-           now spelled with the constant that says whose lane this is.
-
-           No sent-state shadow retires here in either relation any more.
-           DUAL-HOST's INPUT_LAYER shadow moved to core1 at Slice 11.5 and
-           HOST-PEER's AUTHORITY shadow followed at R2, both with the send that
-           confirms them. */
-        if ((result->request_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS) != 0) {
-            if (request_sent) {
-                era_host_peer_matrix_link_note_source_push_sent();
-            }
-            if (lane_result_code == ERA_SPLIT_TRANSACTION_RESULT_OK) {
-                era_host_peer_matrix_link_note_source_push_accepted(result->matrix_seq);
-            }
-        }
+    bool ok = result->result == ERA_SPLIT_TRANSACTION_RESULT_OK;
+    if (result->request_sent) era_host_peer_matrix_link_note_source_push_sent();
+    era_split_input_source_complete(&result->input, ok, result->input_status);
+    if (ok) {
+        if (result->input_status == ERA_INPUT_ACCEPTED || result->input_status == ERA_INPUT_ACCEPTED_STOP)
+            era_host_peer_matrix_link_note_source_push_accepted(result->matrix_seq);
+        g_era_split_transport_scheduler.attach_status_miss_streak = 0;
+    } else if (result->request_sent && (result->input.op == ERA_INPUT_FENCE || result->input.op == ERA_INPUT_BIND)) {
+        /* A/B installs a new incarnation; ordinary typed input misses never
+         * revoke a relation or restart its storage audit. */
+        era_split_transport_scheduler_mark_peer_stale_revalidation();
     }
-
-    /* The time anchor was applied from here rather than from inside the retired
-       apply_result(), because this frame held core1's receive instant for the
-       exchange and that one did not (R2.1) -- applying the decoded value without
-       it was how this path once carried the pre-R2 raw form while its twin was
-       corrected. The standing path had solved the same problem earlier and
-       better, by storing its own receive instant beside the value in the record,
-       so the anchor needs no frame to be applied from at all. With one carrier
-       that is the only shape left, and the instant this frame carried went with
-       the arm that read it. */
-    era_split_transport_scheduler_note_host_peer_request_attempt(lane_result_code, request_sent);
+    if (era_split_input_source_due(era_split_input_clock()))
+        era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_HOST_PEER_SOURCE_PUSH);
 }
 
 /* Core0's half of the initiator lane, and since Slice 11.6 it reports work

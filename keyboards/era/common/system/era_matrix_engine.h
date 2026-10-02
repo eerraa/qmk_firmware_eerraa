@@ -58,6 +58,8 @@ void                                       era_matrix_engine_note_source_push_ac
 bool                                       era_matrix_engine_accept_peer_snapshot(const matrix_row_t rows[MATRIX_ROWS_PER_HAND]);
 era_matrix_engine_peer_projection_result_t era_matrix_engine_sync_peer_projection(bool host_mode);
 bool                                       era_matrix_engine_peer_projection_scan_idle(bool host_mode);
+bool                                       era_matrix_engine_peer_closure_pending(void);
+void                                       era_matrix_engine_request_peer_closure(void);
 void                                       era_matrix_engine_flush_host_peer_relation(void);
 void                                       era_matrix_engine_get_host_peer_diagnostics(era_matrix_engine_host_peer_diagnostics_t *snapshot);
 

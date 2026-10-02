@@ -15,6 +15,8 @@
 /* ERA: one completed keyboard-class report is what a synthesized tap's width
  * is measured from (keyboards/era/common/system/era_hid_report_interval_chibios.c). */
 void era_hid_report_interval_endpoint_completed_i(const void *endpoint);
+void era_hid_report_interval_endpoint_posted_i(const void *endpoint);
+bool era_hid_report_interval_endpoint_allowed_i(const void *endpoint, const uint8_t *data);
 #endif
 
 /*===========================================================================*/
@@ -261,6 +263,26 @@ void usb_endpoint_out_rx_complete_cb(USBDriver *usbp, usbep_t ep) {
 bool usb_endpoint_in_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size_t size, sysinterval_t timeout, bool buffered) {
     osalDbgCheck((endpoint != NULL) && (data != NULL) && (size > 0U) && (size <= endpoint->config.buffer_size));
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    if (!buffered) {
+        /* All producers use whole-buffer admission. BUSY never resets a
+         * keyboard prefix on the shared endpoint. No waiting, partial write,
+         * flush, or timed_out retry is allowed in this critical section. */
+        osalSysLock();
+        output_buffers_queue_t *queue = &endpoint->obqueue;
+        if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE || bqIsSuspendedX(queue) ||
+            obqIsFullI(queue) || queue->ptr != NULL || size > queue->bsize - sizeof(size_t) ||
+            !era_hid_report_interval_endpoint_allowed_i(endpoint, data)) {
+            osalSysUnlock(); return false;
+        }
+        if (obqGetEmptyBufferTimeoutS(queue, TIME_IMMEDIATE) != MSG_OK) { osalSysUnlock(); return false; }
+        memcpy(queue->ptr, data, size);
+        era_hid_report_interval_endpoint_posted_i(endpoint);
+        obqPostFullBufferS(queue, size);
+        osalSysUnlock();
+        return true;
+    }
+#endif
     osalSysLock();
     if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
         osalSysUnlock();

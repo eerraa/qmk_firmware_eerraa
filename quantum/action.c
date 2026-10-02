@@ -75,7 +75,13 @@ __attribute__((weak)) bool get_retro_tapping(uint16_t keycode, keyrecord_t *reco
  *
  * FIXME: Needs documentation.
  */
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+bool era_split_input_event_remote(uint8_t row);
+#endif
 void action_exec(keyevent_t event) {
+#if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) && !defined(NO_ACTION_TAPPING)
+    bool previous_origin = action_tapping_set_ingress(IS_EVENT(event) && era_split_input_event_remote(event.key.row));
+#endif
     if (IS_EVENT(event)) {
         ac_dprintf("\n---- action_exec: start -----\n");
         ac_dprintf("EVENT: ");
@@ -148,6 +154,9 @@ void action_exec(keyevent_t event) {
         debug_record(record);
         dprintln();
     }
+#endif
+#if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) && !defined(NO_ACTION_TAPPING)
+    (void)action_tapping_set_ingress(previous_origin);
 #endif
 }
 

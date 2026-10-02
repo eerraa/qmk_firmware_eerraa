@@ -27,3 +27,6 @@ $(TEST_OBJ)/$(TEST_OUTPUT)/keyboards/era/common/split/era_split_matrix_frame.o: 
 # a deterministic TEST-platform shim: the raw timer register and core/event
 # instructions. No production test branch or release state is added.
 $(TEST_OBJ)/$(TEST_OUTPUT)/keyboards/era/common/split/communication_core/era_split_communication_core_standing.o: FILE_SPECIFIC_CFLAGS += -include $(TOP_DIR)/tests/era_split_restart_agreement/standing_platform_shim.h
+
+SRC += keyboards/era/common/split/era_split_input.c
+SRC += tests/era_hid_report_interval/input_clock_stub.c

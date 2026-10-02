@@ -52,7 +52,10 @@ class ReportIntervalWiring(unittest.TestCase):
         nkro = body(main, "send_nkro")
         self.assertIn("era_hid_report_interval_hold_report(USB_ENDPOINT_IN_SHARED", nkro)
         self.assertIn("era_hid_report_interval_note_keyboard_report_posted(USB_ENDPOINT_IN_SHARED)", nkro)
-        self.assertIn("era_hid_report_interval_note_report_posted", body(main, "send_report"))
+        self.assertIn("usb_endpoint_in_send", body(main, "send_report"))
+        self.assertIn("era_hid_report_interval_endpoint_posted_i", body("tmk_core/protocol/chibios/usb_driver.c", "usb_endpoint_in_send"))
+        self.assertIn("era_hid_report_interval_endpoint_allowed_i(endpoint, data)", body("tmk_core/protocol/chibios/usb_driver.c", "usb_endpoint_in_send"))
+        self.assertIn("era_hid_report_interval_protocol_edge_i()", body(main, "usb_requests_hook_cb"))
         for other in ("send_mouse", "send_extra"):
             self.assertNotIn("era_hid_report_interval_hold_report", body(main, other))
         events = body(main, "usb_event_cb")

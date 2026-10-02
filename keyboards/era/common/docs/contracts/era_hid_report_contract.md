@@ -163,18 +163,18 @@ held physical key with the same usage. Mouse and EXTRA reports are never
 held; on the shared endpoint they are counted so completion order stays
 exact. `send_keyboard()` and `send_nkro()` in
 `tmk_core/protocol/chibios/usb_main.c` ask the hold before posting,
-`send_report()` there counts every post, and the IN completion in
+the whole-buffer admission hook counts every successful post under the USB
+lock, and the IN completion in
 `tmk_core/protocol/chibios/usb_driver.c` stamps the moment a report reached
 the host. `era_common_features_task()` in `system/era_common_features.c`
-services the unit once per pass; while nothing is held that service is one
-branch. The scan loop never stalls for a width. Boards outside the ERA
+services the unit once per pass, including format/session re-open obligations. The scan loop never stalls for a width. Boards outside the ERA
 layer, and the host test platform, keep the weak wait.
 
 | Rule | Where |
 | --- | --- |
 | The interval is measured from the completion of the report the tap posted; time already elapsed counts toward it; repeated requests take the larger width | `era_hid_report_interval_request()` in `system/era_hid_report_interval.c` |
 | A report held behind an interval keeps the width it carries, so back-to-back synthesized taps stay their full width apart | the backlog entry's `delay_after` in `system/era_hid_report_interval.c` |
-| Sixteen held reports; the newest then folds into the tail, so the host converges to the latest state and the tail's width survives | `ERA_HID_REPORT_INTERVAL_BACKLOG` in `system/era_hid_report_interval.h` |
+| Preserve the accepted FIFO prefix; merge only overflow reports into a separate latest suffix; move the suffix after the prefix and its final width drain | `ERA_HID_REPORT_INTERVAL_BACKLOG` in `system/era_hid_report_interval.h` |
 | A completion that never arrives abandons the width after `ERA_HID_REPORT_INTERVAL_ANCHOR_LIMIT_MS` and the backlog drains: a host that stopped polling cannot wedge input | `era_hid_report_interval_task()` in `system/era_hid_report_interval.c` |
 | USB reset, unconfigure and configure drop the backlog and every interval with the queues they were behind; suspend keeps the backlog and measures a pending width from resume | `usb_event_cb()` in `tmk_core/protocol/chibios/usb_main.c`, `era_hid_report_interval_note_session_edge()` in `system/era_hid_report_interval.c` |
 | A requested width is capped at `ERA_HID_REPORT_INTERVAL_REQUEST_MAX_MS` | `era_hid_report_interval_request()` in `system/era_hid_report_interval.c` |
@@ -186,6 +186,48 @@ layer, and the host test platform, keep the weak wait.
 > **REFUSED:** hold the shared endpoint's queue as a whole for the interval.
 > **WHY:** the shared endpoint also carries mouse reports, and 80 ms of held mouse motion after every Caps tap is a visible stall; the width is a keyboard fact and only keyboard-class reports wait.
 > **REOPENS:** never, while mouse reports share that endpoint.
+
+## Bounded prefix and USB acceptance
+
+Every valid keyboard/NKRO void output is owned by the interval unit, including
+normal endpoint BUSY, because upper `last_report` has already advanced. A report
+ticket attaches width to that producer's report. Prefix widths survive; a
+replaced suffix loses its own width rather than accumulating it on an unrelated
+report. First suffix overflow emits a sticky pressure edge and prevents future
+HP input claims; local/timer/already claimed work continues. After materializing
+the suffix, capacity recovers through a fresh input baseline, not old history.
+Input reset never deletes this mixed prefix or suffix.
+
+The required finite preservation profiles, with zero posting in the same
+window, are Caps release + four basic taps + basic TD double fallback + modifier
+pair (15), Caps release + two TD double fallbacks + four basic taps (17), local
+MT/LT tap + eight remote basic keys down/up (18), and Caps release + MT tap +
+eight remote basic keys down/up + basic TD double fallback + modifier pair
+(25 nominal). `tests/era_split_input_qmk/` counts real production QMK/TD reports,
+including NKRO for the eight-key chord; the linked capacity is
+`ERA_HID_REPORT_INTERVAL_BACKLOG`. This finite profile is not an upper bound
+on all TD, macro, filter or firmware output. Ordinary boot width and NKRO
+opt-in are unchanged; larger bursts use suffix convergence.
+
+Only USB_ACTIVE, nonsuspended, nonfull, no-partial-buffer, whole empty-buffer
+copy/post under one Core0 system lock counts as success. Keyboard and shared
+endpoint admission rechecks pending USB lifetime edges inside that lock;
+keyboard admission also rejects a stale format, including a protocol change
+that returns to the previous format before the task runs. Keyboard and shared
+mouse/EXTRA producers cannot reset that queue on normal BUSY. Mouse, system,
+consumer and programmable-button owners retain an unaccepted latest report
+per producer and retry independently of keyboard intervals; this convergence
+policy does not promise every auxiliary motion or tap during overload.
+
+Prefix obligations are within one USB session/format. Reset/unconfigure end
+the old obligations; suspend keeps them and starts missing-completion width
+from active resume. Format changes end held old-format keyboard obligations
+without clearing mouse/EXTRA or completion accounting for reports already
+accepted by USB. Reopen force-sends current filtered QMK owner state through
+the selected format, bypassing upper duplicate suppression. Already accepted
+old-format endpoint reports cannot be retracted; cross-format tap preservation
+is not promised. Device IN/OS completion and original global event durations
+remain separately measured boundaries.
 
 ## Split and storage
 

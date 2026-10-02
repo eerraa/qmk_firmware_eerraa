@@ -598,11 +598,12 @@ static bool era_split_transaction_backend_pio_init(pin_t tx_pin, pin_t rx_pin) {
 }
 
 static bool era_split_transaction_backend_driver_init_required(bool role_changed) {
-    if (!g_era_split_transaction_backend_rp2040.transaction_backend_initialized) {
-        return true;
-    }
+    /* Once per new owner lease, including a forced PROC1 relaunch. The old
+     * PIO actors survive a processor halt; pio_sm_init resets PC, shift/count,
+     * divider and FIFOs before the new owner can publish READY. Program/SM
+     * allocations are reused, never reallocated in this path. */
     (void)role_changed;
-    return false;
+    return true;
 }
 
 static bool era_split_transaction_backend_init_role(era_split_transaction_backend_role_t role) {

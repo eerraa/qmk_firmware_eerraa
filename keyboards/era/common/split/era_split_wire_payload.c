@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_split_wire_payload.h"
+#include "era_split_input.h"
 
 #include <string.h>
 
@@ -316,7 +317,7 @@ static bool era_split_wire_layout_walk(const uint8_t *payload, uint16_t payload_
 }
 
 static bool era_split_wire_validate_session_status_payload(const uint8_t *payload, uint16_t payload_len) {
-    if (payload_len != 9 || payload[1] != 0x10) {
+    if (payload_len != 9 || payload[1] != ERA_INPUT_SESSION) {
         return false;
     }
 
@@ -557,7 +558,9 @@ bool era_split_wire_validate_bulk_page_payload(const uint8_t *payload, uint16_t 
 bool era_split_wire_classify_payload(const uint8_t *payload, uint16_t payload_len, era_split_wire_frame_lane_t lane, era_split_wire_payload_kind_t *kind)
     __attribute__((aligned(16)));
 bool era_split_wire_classify_payload(const uint8_t *payload, uint16_t payload_len, era_split_wire_frame_lane_t lane, era_split_wire_payload_kind_t *kind) {
+    if (!kind) return false;
     *kind = ERA_SPLIT_WIRE_PAYLOAD_INVALID;
+    if (!payload || !payload_len || (lane != ERA_SPLIT_WIRE_FRAME_LANE_BULK_PAGE && payload_len > ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN)) return false;
 
     uint8_t control = payload[0];
     if ((control & ERA_SPLIT_WIRE_CONTROL_RESERVED) != 0 || (control & ERA_SPLIT_WIRE_CONTROL_TX_SEQ_MASK) == 0) {
@@ -593,6 +596,34 @@ bool era_split_wire_classify_payload(const uint8_t *payload, uint16_t payload_le
        one-bit flags byte, so it classifies inside the class switch like every
        other op rather than ahead of it. Both directions now validate the same
        way: walk byte2's mask, sum the declared bodies, land on payload_len. */
+    uint8_t input_op = payload[1];
+    if (input_op >= ERA_INPUT_DELTA && input_op <= ERA_INPUT_MISMATCH) {
+        if (!era_split_input_validate(payload, payload_len)) return false;
+        *kind = input_op <= ERA_INPUT_RESET ? ERA_SPLIT_WIRE_PAYLOAD_INPUT : ERA_SPLIT_WIRE_PAYLOAD_INPUT_RSP;
+        return true;
+    }
+    if (input_op >= ERA_INPUT_FENCE && input_op <= ERA_INPUT_BIND_RSP) {
+        bool bind = input_op >= ERA_INPUT_BIND;
+        if (payload_len != (bind ? 11U : 9U) || (bind && !era_split_wire_get16(payload + 9))) return false;
+        uint8_t status[9]; memcpy(status, payload, 9); status[1] = ERA_INPUT_SESSION;
+        if (!era_split_wire_validate_session_status_payload(status, 9)) return false;
+        *kind = (era_split_wire_payload_kind_t)(ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE + input_op - ERA_INPUT_FENCE);
+        return true;
+    }
+    if ((input_op >= ERA_INPUT_FLOW_QUERY && input_op <= ERA_INPUT_BASELINE_READY) || input_op == ERA_INPUT_FLOW_END) {
+        bool query = input_op == ERA_INPUT_FLOW_QUERY || input_op == ERA_INPUT_FLOW_END;
+        if (payload_len != 2) {
+            if (payload_len < 3 || payload_len > ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN) return false;
+            uint8_t envelope[15]; memcpy(envelope, payload, payload_len);
+            envelope[1] = query ? ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH : ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP;
+            era_split_wire_section_layout_t flow_layout;
+            if (!(query ? era_split_wire_layout_source_push(envelope, payload_len, &flow_layout) :
+                          era_split_wire_layout_host_source_rsp(envelope, payload_len, &flow_layout))) return false;
+            if (query && (flow_layout.sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX)) return false;
+        }
+        *kind = query ? ERA_SPLIT_WIRE_PAYLOAD_FLOW_QUERY : ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP;
+        return true;
+    }
     uint8_t op  = payload[1];
     uint8_t cls = op & 0xF0;
     era_split_wire_section_layout_t layout;
@@ -645,7 +676,7 @@ bool era_split_wire_encode_session_status(uint8_t control, const era_split_wire_
     }
 
     payload[0] = (uint8_t)(control | ERA_SPLIT_WIRE_CONTROL_EXT);
-    payload[1] = 0x10;
+    payload[1] = ERA_INPUT_SESSION;
     payload[2] = (uint8_t)((status->accepted_host_open ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN : 0) |
                            (status->accepted_no_host ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_NO_HOST : 0) |
                            (status->rate_searched ? ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_RATE_SEARCHED : 0) |

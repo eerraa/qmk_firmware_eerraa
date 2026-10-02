@@ -47,51 +47,17 @@ static bool era_split_communication_core_initiator_request_valid(const era_split
         return false;
     }
     if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
-        uint8_t sections = request->semantic.source_push.sections;
-        /* Exact equality since D3, where it used to be "a non-empty subset of
-           the push id space". This lane is core0's, and what distinguishes a
-           core0-queued request from core1's own standing exchange on the
-           responder is precisely its section content -- the responder answers
-           the former with a bare ACK so the section set has one carrier
-           (era_split_communication_core_responder_service.c). A subset test
-           lets a future enqueuer add a section here without noticing that it
-           has re-opened the second carrier; the equality test makes that a
-           build-visible decision. */
-        if (sections != ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS) {
-            return false;
-        }
-        /* The frame budget, checked before the encoder writes rather than
-           after, and it stays although the equality test above already admits
-           one value. The encoder fills a 15-byte core1 stack array and compares
-           the length only after writing; the arithmetic that made that safe --
-           MATRIX plus INPUT_LAYER is 13 on the widest board -- is not general,
-           because MATRIX plus AUTHORITY is 17 on tomak79h and 19 on TOMAK.
-           The equality test compares against the constant, so it cannot catch
-           the constant changing; this can, and since the sum moved into
-           era_split_wire_source_push_projected_len() it catches a widening to
-           any section rather than to the three this arm had been written for. */
-        if (era_split_wire_source_push_projected_len(sections) > ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN) {
-            return false;
-        }
-        if ((sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) != 0 &&
-            !era_split_wire_matrix_reserved_bits_clear(request->semantic.source_push.packed_rows)) {
-            return false;
-        }
+        const era_split_input_request_t *input = &request->semantic.source_push.input;
+        if (!input->generation || !input->epoch) return false;
+        if (input->op == ERA_INPUT_FENCE || input->op == ERA_INPUT_BIND) return input->length == 7;
+        uint8_t payload[15], length;
+        if (!era_split_input_encode(1, input, payload, &length)) return false;
     }
     return true;
 }
 
-/* The encoder serializes exactly what core0's lane may carry, and the validator
-   above admits exactly one value for that, so there is one body arm. The assert
-   is what makes widening the constant a build decision rather than a runtime
-   malformed frame: without an arm for a new section the encoder would set its
-   marker bit and emit no body, and the receiver's layout walk would refuse the
-   frame. The INPUT_LAYER and AUTHORITY arms that stood here were the retired
-   planners' (R2), reachable through neither validator call site since D3. */
-_Static_assert(ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS ==
-                   ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX,
-               "Widening core0's lane needs its encoder arm back (era_split_communication_core_host_peer_lanes.c history).");
-
+/* Input/control bodies are immutable Core0 publications. Core1 owns control
+ * sequence construction; input retries retain logical identity, not TX seq. */
 static bool era_split_communication_core_initiator_encode(const era_split_communication_core_initiator_request_t *request, uint8_t *payload, uint8_t *payload_len, uint8_t *tx_seq) {
     if (request == NULL || payload == NULL || payload_len == NULL || tx_seq == NULL) {
         return false;
@@ -109,20 +75,14 @@ static bool era_split_communication_core_initiator_encode(const era_split_commun
         case ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS:
             return era_split_wire_encode_session_status(control, &request->semantic.session_status, payload, payload_len);
         case ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH: {
-            /* Bodies append in ascending marker-bit order, exactly as the
-               response direction does. Core1 serializes the published mask and
-               the copied bodies and decides nothing about either. */
-            uint8_t sections = request->semantic.source_push.sections;
-            payload[0]       = (uint8_t)(control | ERA_SPLIT_WIRE_CONTROL_EXT);
-            payload[1]       = ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH;
-            payload[2]       = sections;
-            uint8_t len      = 3;
-            if ((sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) != 0) {
-                memcpy(&payload[len], request->semantic.source_push.packed_rows, ERA_SPLIT_WIRE_HALF_MATRIX_BYTES);
-                len = (uint8_t)(len + ERA_SPLIT_WIRE_HALF_MATRIX_BYTES);
+            const era_split_input_request_t *input = &request->semantic.source_push.input;
+            if (input->op == ERA_INPUT_FENCE || input->op == ERA_INPUT_BIND) {
+                payload[0] = control | ERA_SPLIT_WIRE_CONTROL_EXT; payload[1] = input->op;
+                memcpy(payload + 2, input->body, 7); *payload_len = 9;
+                if (input->op == ERA_INPUT_BIND) { era_split_wire_put16(payload + 9, input->epoch); *payload_len = 11; }
+                return true;
             }
-            *payload_len = len;
-            return len <= ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN;
+            return era_split_input_encode(control, input, payload, payload_len);
         }
         default:
             return false;
@@ -225,10 +185,18 @@ static bool era_split_communication_core_initiator_decode(const era_split_commun
         return result->decoded.session.valid != 0;
     }
 
-    /* One walk of the response section mask fills every section. A response
-       that carries no section at all is the ordinary one-byte ACK, so a false
-       return here is "nothing to extract", not a decode failure. */
-    (void)era_host_peer_transaction_extract_sections(response, &result->decoded.host_peer);
+    const era_split_input_request_t *input = &request->semantic.source_push.input;
+    if (input->op == ERA_INPUT_FENCE || input->op == ERA_INPUT_BIND) {
+        bool bind = input->op == ERA_INPUT_BIND;
+        if (response->kind != (bind ? ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP : ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE_RSP) ||
+            response->payload_len != (bind ? 11 : 9) ||
+            !(response->payload[2] & ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_HOST_OPEN)) return false;
+        return input->op != ERA_INPUT_BIND || era_split_wire_get16(response->payload + 9) == input->epoch;
+    }
+    if (response->kind != ERA_SPLIT_WIRE_PAYLOAD_INPUT_RSP ||
+        era_split_wire_get16(response->payload + 2) != input->epoch ||
+        era_split_wire_get16(response->payload + 4) != input->record) return false;
+    result->input_status = response->payload[1];
     return true;
 }
 
@@ -285,6 +253,7 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
     result.route_reason         = request->route_reason;
     result.matrix_seq           = request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH ? request->semantic.source_push.matrix_seq : 0;
     result.request_sections     = request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH ? request->semantic.source_push.sections : 0;
+    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) result.input = request->semantic.source_push.input;
     result.result               = ERA_SPLIT_TRANSACTION_RESULT_FAIL;
 
     if (!era_split_communication_core_initiator_request_valid(request)) {
@@ -302,12 +271,30 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
         goto publish;
     }
 
+    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
+        const era_split_input_request_t *input = &request->semantic.source_push.input;
+        /* A due HP standing slot wins once at a frame boundary. A/B remains
+         * contiguous, and SESSION/storage retain their existing priority. */
+        if (input->op != ERA_INPUT_FENCE && input->op != ERA_INPUT_BIND)
+            (void)era_split_communication_core_standing_service_once(request->owner_epoch);
+
+    }
+
     uint8_t payload[ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN];
     uint8_t payload_len = 0;
     if (!era_split_communication_core_initiator_encode(request, payload, &payload_len, &result.tx_seq)) {
         result.result  = ERA_SPLIT_TRANSACTION_RESULT_BAD;
         result.failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
         goto publish;
+    }
+
+    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
+        const era_split_input_request_t *input = &request->semantic.source_push.input;
+        if (!era_split_input_source_tx_allowed(input, request->owner_epoch, request->relation_generation, timer_hw->timerawl) ||
+            era_split_communication_core_standing_stop_generation(request->owner_epoch, request->relation_generation)) {
+            result.failure = ERA_SPLIT_TRANSACTION_FAILURE_QUEUE_EXPIRED;
+            goto publish;
+        }
     }
 
     era_split_wire_frame_t response;
@@ -337,7 +324,7 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
     if (result.result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
         result.response_kind         = (uint8_t)response.kind;
         result.response_payload_len  = (uint8_t)response.payload_len;
-        result.response_section_byte = response.payload_len > 2 ? response.payload[2] : 0;
+        result.response_section_byte = response.kind == ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP && response.payload_len > 2 ? response.payload[2] : 0;
         if (!era_split_communication_core_initiator_decode(request, &response, &result)) {
             result.result  = ERA_SPLIT_TRANSACTION_RESULT_BAD;
             result.failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;

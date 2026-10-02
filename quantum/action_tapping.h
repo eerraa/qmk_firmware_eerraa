@@ -32,7 +32,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #    define TAPPING_TOGGLE 5
 #endif
 
-#define WAITING_BUFFER_SIZE 8
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+#    include "matrix.h"
+#    define WAITING_BUFFER_SIZE (8 + MATRIX_ROWS_PER_HAND * MATRIX_COLS)
+bool action_tapping_set_ingress(bool remote);
+uint8_t action_tapping_remote_room(void);
+#else
+#    define WAITING_BUFFER_SIZE 8
+#endif
 
 #ifndef NO_ACTION_TAPPING
 uint16_t get_record_keycode(keyrecord_t *record, bool update_layer_cache);

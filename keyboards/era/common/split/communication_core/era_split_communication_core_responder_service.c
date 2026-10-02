@@ -24,6 +24,7 @@
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
+#include "../era_split_input.h"
 
 #ifndef ERA_SPLIT_RESPONDER_FIRST_BYTE_TIMEOUT_MS
 #    define ERA_SPLIT_RESPONDER_FIRST_BYTE_TIMEOUT_MS 60000U
@@ -137,24 +138,17 @@ static void __attribute__((noinline)) era_split_communication_core_responder_pla
    that wants to read a reserved slot is the change that has to put the store
    back. */
 static bool era_split_communication_core_responder_prepare_result_slot(bool source_push, uint32_t *write, uint32_t *next) {
-    volatile uint32_t *read_index  = source_push ? &g_era_split_communication_core_responder_source_read : &g_era_split_communication_core_responder_general_read;
-    volatile uint32_t *write_index = source_push ? &g_era_split_communication_core_responder_source_write : &g_era_split_communication_core_responder_general_write;
-    uint32_t           slots       = source_push ? ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS : ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS;
+    (void)source_push;
+    *write = g_era_split_communication_core_responder_general_write;
+    *next = era_split_communication_core_responder_ring_next(*write, ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS);
     __DMB();
-    *write = *write_index;
-    *next  = era_split_communication_core_responder_ring_next(*write, slots);
-    if (*next == *read_index) {
+    if (*next == g_era_split_communication_core_responder_general_read) {
         g_era_split_communication_core.responder_slot_full_count++;
-        g_era_split_communication_core.responder_noack_count++;
-        return false;
+        g_era_split_communication_core.responder_noack_count++; return false;
     }
-    __DMB();
-
-    g_era_split_communication_core.responder_source_push_slot_reserved = source_push ? 1 : 0;
     g_era_split_communication_core.responder_slot_reserve_count++;
     return true;
 }
-
 /* Core1 is the sole writer of the general SPSC ring and Core0 only advances
  * `read`. Snapshot publication is refused while either result ring is non-empty,
  * and a live Core1 snapshot claim additionally blocks publication, so every
@@ -188,20 +182,12 @@ static bool era_split_communication_core_responder_heartbeat_result_pending(
 }
 
 static void era_split_communication_core_responder_publish_result_slot(bool source_push, uint32_t write, uint32_t next, const era_split_communication_core_responder_result_t *result) {
-    era_split_communication_core_responder_result_t *slot = source_push ? &g_era_split_communication_core_responder_source_results[write] : &g_era_split_communication_core_responder_general_results[write];
-    *slot                                                 = *result;
-    __DMB();
-    if (source_push) {
-        g_era_split_communication_core_responder_source_write              = next;
-        g_era_split_communication_core.responder_source_push_slot_reserved = 0;
-        g_era_split_communication_core.responder_source_push_result_ready  = 1;
-    } else {
-        g_era_split_communication_core_responder_general_write = next;
-    }
+    (void)source_push;
+    g_era_split_communication_core_responder_general_results[write] = *result;
+    __DMB(); g_era_split_communication_core_responder_general_write = next;
     g_era_split_communication_core.responder_accept_count++;
     __DMB();
 }
-
 /* `plan` is the caller's already-built plan, not a second derivation from the
    same snapshot. Both are `plan_from_snapshot()` of one unmodified snapshot, so
    recomputing produced a byte-identical copy on every answered non-source-push
@@ -365,7 +351,7 @@ static bool era_split_communication_core_prepare_responder_response_payload(cons
     return *payload_len <= ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN;
 }
 
-static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bool session, bool core0_lane_request, const era_split_communication_core_responder_snapshot_t *snapshot, era_split_communication_core_responder_result_t *result) {
+static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bool session, bool core0_lane_request, const era_split_communication_core_responder_snapshot_t *snapshot, era_split_communication_core_responder_result_t *result, uint8_t flow_response) {
     uint8_t payload[ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN];
     uint8_t payload_len = 0;
     uint8_t control     = 0;
@@ -387,6 +373,10 @@ static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bo
         return false;
     }
 
+    if (flow_response) {
+        payload[0] |= ERA_SPLIT_WIRE_CONTROL_EXT; payload[1] = flow_response;
+        if (payload_len == 1) payload_len = 2;
+    }
     g_era_split_communication_core.responder_response_prepare_count++;
     g_era_split_communication_core.responder_last_response_payload_len = payload_len;
     era_split_transaction_failure_t failure = ERA_SPLIT_TRANSACTION_FAILURE_NONE;
@@ -459,6 +449,48 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         return true;
     }
 
+    /* The input packet owner reserves, validates, copies, receipts and
+     * release-publishes before this ACK. No response-plan lifetime is pinned
+     * by a packet; ACK transmission failure does not cancel its receipt. */
+    if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_INPUT ||
+        frame->kind == ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE || frame->kind == ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND) {
+        if (!snapshot.host_matrix_admitted || !era_split_input_receiver_enabled()) {
+            era_split_communication_core_release_responder_snapshot(); return true;
+        }
+        uint8_t payload[15], length = 0, control = 0, seq = 0;
+        bool input = frame->kind == ERA_SPLIT_WIRE_PAYLOAD_INPUT;
+        if (!input && !era_split_input_control(frame->payload, frame->payload_len, owner_epoch, snapshot.relation_generation)) {
+            era_split_communication_core_release_responder_snapshot(); return true;
+        }
+        uint8_t status = input ? era_split_input_receive(frame->payload, frame->payload_len, owner_epoch,
+                                                        snapshot.relation_generation, timer_hw->timerawl) : 0;
+        era_split_transaction_engine_commit_received_frame(frame);
+        if (era_split_transaction_engine_prepare_control(true, &control, &seq)) {
+            if (input) {
+                payload[0] = control | ERA_SPLIT_WIRE_CONTROL_EXT; payload[1] = status;
+                memcpy(payload + 2, frame->payload + 2, 4); length = 6;
+            } else if (era_split_wire_encode_session_status(control, &snapshot.local_session_status, payload, &length)) {
+                payload[1] = frame->payload[1] + 1;
+                if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND) { memcpy(payload + 9, frame->payload + 9, 2); length = 11; }
+            }
+            era_split_transaction_failure_t failure;
+            if (length) (void)era_split_transaction_engine_send_compact_response_owned(
+                ERA_SPLIT_WIRE_DIRECTION_SECONDARY_TO_PRIMARY, payload, length, seq, owner_epoch, &failure);
+        }
+        __SEV();
+        era_split_communication_core_release_responder_snapshot(); return true;
+    }
+    uint8_t flow_response = 0;
+    if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_QUERY) {
+        if (!(snapshot.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) || !snapshot.heartbeat_allowed) {
+            era_split_communication_core_release_responder_snapshot(); return true;
+        }
+        if (frame->payload[1] == ERA_INPUT_FLOW_END && era_split_input_receiver_enabled()) era_split_input_receiver_end();
+        flow_response = era_split_input_receiver_flow(timer_hw->timerawl);
+        if (frame->payload_len == 2) { frame->kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK; frame->payload_len = 1; }
+        else { frame->kind = ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER; frame->payload[1] = ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH; }
+    }
+
     era_split_communication_core_responder_result_t result;
     memset(&result, 0, sizeof(result));
     result.owner_epoch         = owner_epoch;
@@ -508,41 +540,18 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
             return true;
         }
 
-        /* The matrix section, not the op id, is what claims the dedicated
-           source-push result slot. Every other section mask on this envelope
-           takes the general slot, which is how "source-push capacity stays
-           reserved from session/heartbeat traffic" survives a frame shape
-           where the op alone no longer identifies a matrix.
-
-           Since D3 the same test answers a second question -- whether this
-           request came from the peer's *core0* lane rather than from its core1
-           standing exchange -- so it is spelled with the constant that names
-           that, and `source_push` is what suppresses the response section set
-           below. The two questions have one answer by construction: core1's
-           standing service composes no matrix and core0's only push enqueuer
-           composes nothing else. */
-        source_push = era_split_wire_section_present(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS);
-        result.kind = source_push ? ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SOURCE_PUSH
-                                  : ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_RUNTIME_PUSH;
-
-        /* `runtime_push_allowed`, not `runtime_allowed`: the second also gates
-           the heartbeat answer and is DUAL-HOST-only, so reading it here
-           refused the HOST-PEER HOST its PEER's AUTHORITY push -- no ACK, a
-           failed transaction, and a relation reset on every authority edge. */
-        bool admitted = source_push ? (snapshot.host_matrix_admitted && snapshot.source_push_slot_available)
-                                    : (snapshot.runtime_push_allowed != 0);
-        if (!admitted) {
+        /* Legacy MATRIX is parser-compatible but has no input admission.
+         * New input owns its packet capacity and typed receipt above. */
+        if (era_split_wire_section_present(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS)) {
+            era_split_communication_core_release_responder_snapshot(); return true;
+        }
+        result.kind = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_RUNTIME_PUSH;
+        if (!snapshot.runtime_push_allowed) {
             era_split_communication_core_release_responder_snapshot();
             g_era_split_communication_core.responder_noack_count++;
             return true;
         }
 
-        if (source_push) {
-            memcpy(result.packed_matrix,
-                   &frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX)],
-                   sizeof(result.packed_matrix));
-            g_era_split_communication_core.responder_last_matrix_seq = frame->tx_seq;
-        }
         if (era_split_wire_section_present(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_INPUT_LAYER)) {
             result.peer_input_layer       = frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_INPUT_LAYER)];
             result.peer_input_layer_valid = 1;
@@ -630,7 +639,7 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
     }
 
     era_split_transaction_engine_commit_received_frame(frame);
-    if (!era_split_communication_core_responder_send(owner_epoch, result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION, source_push, &snapshot, &result)) {
+    if (!era_split_communication_core_responder_send(owner_epoch, result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION, source_push, &snapshot, &result, flow_response)) {
         g_era_split_communication_core.responder_noack_count++;
     }
     era_split_transaction_engine_publish_diagnostics_snapshot();

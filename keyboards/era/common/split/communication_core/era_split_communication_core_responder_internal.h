@@ -10,9 +10,7 @@
 #ifndef ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS
 #    define ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS 4U
 #endif
-#ifndef ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS
-#    define ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS 2U
-#endif
+
 
 enum {
     ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SNAPSHOT_READ_RETRIES = 4,
@@ -34,6 +32,3 @@ extern volatile uint32_t                                 g_era_split_communicati
 extern era_split_communication_core_responder_result_t   g_era_split_communication_core_responder_general_results[ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS];
 extern volatile uint32_t                                 g_era_split_communication_core_responder_general_read;
 extern volatile uint32_t                                 g_era_split_communication_core_responder_general_write;
-extern era_split_communication_core_responder_result_t   g_era_split_communication_core_responder_source_results[ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS];
-extern volatile uint32_t                                 g_era_split_communication_core_responder_source_read;
-extern volatile uint32_t                                 g_era_split_communication_core_responder_source_write;

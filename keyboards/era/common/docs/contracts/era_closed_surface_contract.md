@@ -26,10 +26,11 @@ section open in all four serviced cells. STORAGE_PENDING and RESTART_ARM are
 push-only; STORAGE_NEWS and TIME_ANCHOR are response-only. LOCK is HOST-PEER
 response only, and MATRIX is HOST-PEER push only.
 
-These openings add no wire operation, no class id, and no responder-independent
-send. They ride the existing section envelopes in a slot already opened by the
-relation. A payload or behavior not named by an open cell or by the explicit
-storage operations remains closed.
+Runtime section openings add no wire operation, class id, or
+responder-independent send. They ride the existing section envelopes in a slot
+already opened by the relation. MATRIX instead uses the bounded input schema
+below. A payload or behavior not named by an open cell, that schema, or the
+explicit storage operations remains closed.
 
 Additional bounds on open cells:
 
@@ -60,6 +61,12 @@ responder is a role — HOST-PEER HOST or DUAL-HOST Right — not a relation nam
 Opening an independent responder request would create a second initiator and
 requires a deliberate protocol opening, not reuse of an existing response slot.
 
+Bounded debounced snapshot history is open only from HP PEER to HOST under
+`era_host_peer_matrix_contract.md`. DELTA/FULL/RESET and FENCE/BIND/FLOW require
+current owner/relation, authority and storage admission independently of parser
+recognition. Legacy MATRIX section injection remains rejected. No DH input
+lifetime or action state may be created by these bodies.
+
 ## Closed Until Explicitly Opened
 
 The following remain closed even though adjacent markers or classes exist:
@@ -83,8 +90,8 @@ The following remain closed even though adjacent markers or classes exist:
 - digest-only matrix response or a full row-array matrix payload.
 - bulk-page payloads other than the storage contract's CHUNK_RSP response and
   PUSH_CHUNK_REQ request.
-- direct HID injection, remote HID endpoints, remote matrix replay, and full
-  key-event replay.
+- direct HID injection, remote HID endpoints, DUAL-HOST matrix replay, and
+  unbounded full key-event replay.
 
 A newly available symbol, marker, reserved class, or body byte does not by
 itself open any of these surfaces.

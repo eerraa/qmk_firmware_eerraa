@@ -22,3 +22,9 @@ bool era_test_standing_resume(uint16_t owner, uint16_t relation, uint16_t stop);
 bool era_test_standing_snapshot_consistent(void);
 void era_test_standing_visual_reply(void);
 uint8_t era_test_standing_visual_seq(void);
+
+void era_test_standing_mode(bool hp, uint16_t period);
+bool era_test_standing_at(uint32_t now);
+uint8_t era_test_standing_last_length(void);
+uint8_t era_test_standing_last_op(void);
+void era_test_standing_input_pressure(void);

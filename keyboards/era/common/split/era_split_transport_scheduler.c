@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_split_transport_scheduler.h"
+#include "era_split_input.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -1105,6 +1106,8 @@ bool sync_timer_is_time_source(void) {
 }
 
 static inline void __attribute__((always_inline)) era_split_transport_scheduler_flush_host_peer_relation(void) {
+    era_split_input_source_gate(false, 0, 0);
+    era_split_input_receiver_gate(false, 0, 0);
     era_matrix_engine_flush_host_peer_relation();
 }
 
@@ -1120,6 +1123,8 @@ static inline void __attribute__((always_inline)) era_split_transport_scheduler_
    seven-domain relation-open audit sweep. Rotating it is a relation-level
    decision, not a wire-lease one. */
 static void era_split_transport_scheduler_rotate_core1_relation(void) {
+    era_split_input_source_gate(false, 0, 0);
+    era_split_input_receiver_gate(false, 0, 0);
     g_era_split_transport_scheduler.core1_initiator_relation_generation++;
     if (g_era_split_transport_scheduler.core1_initiator_relation_generation == 0) {
         g_era_split_transport_scheduler.core1_initiator_relation_generation = 1;
@@ -1473,7 +1478,9 @@ static inline bool __attribute__((always_inline)) era_split_transport_scheduler_
 }
 
 static inline void __attribute__((always_inline)) era_split_transport_scheduler_sync_peer_matrix_projection(void) {
-    (void)era_matrix_engine_sync_peer_projection(g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_HOST);
+    /* Projection, including closure releases, belongs to the action-pass
+     * admission seam. A relation edge cannot bypass the remote quota. */
+    if (g_era_split_transport_scheduler.mode != ERA_SPLIT_MODE_HOST_PEER_HOST) era_matrix_engine_request_peer_closure();
 }
 
 static inline void __attribute__((always_inline)) era_split_transport_scheduler_publish_host_peer_responder_visual_snapshot(void) {
@@ -1966,6 +1973,24 @@ static inline void __attribute__((always_inline)) era_split_transport_scheduler_
 void era_split_transport_scheduler_transport_step(void) {
     era_split_transport_scheduler_ensure_initialized();
     era_split_transport_scheduler_note_transport_step_call();
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    bool input_storage_closed = era_host_peer_storage_route_exclusive();
+#else
+    bool input_storage_closed = false;
+#endif
+    uint16_t input_owner = era_split_communication_core_owner_epoch();
+    uint16_t input_relation = g_era_split_transport_scheduler.core1_initiator_relation_generation;
+    bool source_open = g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_PEER && !input_storage_closed;
+    if (era_split_input_source_gate(source_open, input_owner, input_relation) && source_open) {
+        matrix_row_t rows[MATRIX_ROWS_PER_HAND];
+        if (era_matrix_engine_copy_local_rows(rows)) era_split_input_source_snapshot(rows, era_split_input_clock());
+    }
+    era_split_input_receiver_gate(g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_HOST &&
+                                  era_split_scheduler_session_host_peer_host_matrix_admitted() && !input_storage_closed,
+                                  input_owner, input_relation);
+    if (source_open && era_matrix_engine_source_push_due())
+        era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_HOST_PEER_SOURCE_PUSH);
+
     /* Visual bodies contain physical local rows. Wake their producer before
        scan-idle even when QMK buffers an LT or consumes its semantic action.
        One cached change bit per scan; packing stays on the due path. */

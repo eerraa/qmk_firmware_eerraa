@@ -10,6 +10,7 @@ typedef struct {
     uint8_t  size;
     uint8_t  data[ERA_HID_REPORT_INTERVAL_REPORT_BYTES];
     uint32_t delay_after; /* ticks the host must wait after this report completes; 0 none */
+    uint32_t ticket;
 } era_hid_report_entry_t;
 
 enum {
@@ -26,13 +27,16 @@ static struct {
        the stamp that belongs to it. */
     volatile uint32_t completed[ERA_HID_REPORT_LANE_COUNT];
     volatile uint32_t completed_at[ERA_HID_REPORT_LANE_COUNT];
-    volatile uint8_t  edge;
+    volatile uint32_t reset_events, suspend_events;
+    uint32_t reset_seen, suspend_seen;
 
     /* Task-owned. */
     uint32_t posted[ERA_HID_REPORT_LANE_COUNT];
     bool     last_post_valid;
     uint8_t  last_post_lane;
     uint32_t last_post_seq;
+    uint32_t next_ticket, producer_ticket, producer_post_ticket;
+    uint32_t pressure_serial;
     bool     anchor_pending;
     uint8_t  anchor_lane;
     uint32_t anchor_target;
@@ -42,11 +46,15 @@ static struct {
     uint32_t deadline;
 
     era_hid_report_entry_t backlog[ERA_HID_REPORT_INTERVAL_BACKLOG];
+    era_hid_report_entry_t suffix;
+    bool suffix_valid;
     uint8_t  head;
     uint8_t  count;
     uint32_t coalesced;
     uint32_t valve_trips;
 } s;
+
+static void era_hid_report_interval_apply_edge(uint8_t edge, uint32_t now);
 
 static inline bool era_hid_report_interval_reached(uint32_t now, uint32_t at) {
     return (int32_t)(now - at) >= 0;
@@ -76,17 +84,33 @@ bool era_hid_report_interval_hold(uint8_t lane, const void *data, uint8_t size) 
     if (lane >= ERA_HID_REPORT_LANE_COUNT || data == NULL || size == 0 || size > ERA_HID_REPORT_INTERVAL_REPORT_BYTES) {
         return false;
     }
-    /* Open gate, nothing queued, no edge waiting: the ordinary path, one
-       branch on the report send and nothing else. */
-    if (!era_hid_report_interval_gate_closed() && s.count == 0 && s.edge == ERA_HID_REPORT_EDGE_NONE) {
-        return false;
+    /* ISR publishes counters; consuming a sampled event cannot erase an
+     * intervening higher-priority reset. Suspend is consumed only on resume. */
+    uint32_t resets = s.reset_events;
+    if (resets != s.reset_seen) {
+        uint32_t suspends = s.suspend_events;
+        era_hid_report_interval_apply_edge(ERA_HID_REPORT_EDGE_RESET, 0);
+        s.reset_seen = resets; s.suspend_seen = suspends;
+    }
+    uint32_t ticket = ++s.next_ticket;
+    s.producer_ticket = ticket;
+    /* This owner takes every valid void output. A normal BUSY keeps it here;
+     * action_util's last_report has already advanced and cannot retry it. */
+    if (!era_hid_report_interval_gate_closed() && s.count == 0 && !s.suffix_valid &&
+        era_hid_report_interval_platform_post(lane, data, size)) {
+        era_hid_report_interval_note_keyboard_posted(lane);
+        s.producer_post_ticket = ticket;
+        return true;
     }
 
     era_hid_report_entry_t *entry;
-    if (s.count == ERA_HID_REPORT_INTERVAL_BACKLOG) {
-        /* Full: the newest state replaces the tail. The host converges to the
-           latest report; the width the tail carried survives with it. */
-        entry = era_hid_report_interval_entry((uint8_t)(s.count - 1));
+    if (s.suffix_valid || s.count == ERA_HID_REPORT_INTERVAL_BACKLOG) {
+        /* Prefix is immutable. Even after it partially drains, new reports
+         * replace only the suffix until its materialization boundary. */
+        entry = &s.suffix;
+        if (!s.suffix_valid) ++s.pressure_serial;
+        s.suffix_valid = true;
+        entry->delay_after = 0;
         s.coalesced++;
     } else {
         entry              = era_hid_report_interval_entry(s.count);
@@ -95,6 +119,7 @@ bool era_hid_report_interval_hold(uint8_t lane, const void *data, uint8_t size) 
     }
     entry->lane = lane;
     entry->size = size;
+    entry->ticket = ticket;
     memcpy(entry->data, data, size);
     return true;
 }
@@ -131,7 +156,11 @@ void era_hid_report_interval_request(uint16_t ms, uint32_t now) {
     }
     uint32_t ticks = (uint32_t)ms * s.ticks_per_ms;
 
-    if (s.count != 0) {
+    if (s.suffix_valid && s.suffix.ticket == s.producer_ticket) {
+        if (s.suffix.delay_after < ticks) s.suffix.delay_after = ticks;
+        return;
+    }
+    if (s.count != 0 && era_hid_report_interval_entry(s.count - 1)->ticket == s.producer_ticket) {
         /* The tap's own report is still held here: its width rides with it
            and starts when that report completes. */
         era_hid_report_entry_t *tail = era_hid_report_interval_entry((uint8_t)(s.count - 1));
@@ -140,7 +169,7 @@ void era_hid_report_interval_request(uint16_t ms, uint32_t now) {
         }
         return;
     }
-    if (!s.last_post_valid) {
+    if (!s.last_post_valid || s.producer_post_ticket != s.producer_ticket) {
         /* Nothing reached the transport, so there is nothing to make wide. */
         return;
     }
@@ -171,14 +200,23 @@ void era_hid_report_interval_request(uint16_t ms, uint32_t now) {
 }
 
 void era_hid_report_interval_note_session_edge(bool keep_backlog) {
-    uint8_t edge = keep_backlog ? ERA_HID_REPORT_EDGE_SUSPEND : ERA_HID_REPORT_EDGE_RESET;
-    if (edge > s.edge) {
-        s.edge = edge;
-    }
+    if (keep_backlog) ++s.suspend_events;
+    else ++s.reset_events;
 }
 
 bool era_hid_report_interval_active(void) {
-    return era_hid_report_interval_gate_closed() || s.count != 0 || s.edge != ERA_HID_REPORT_EDGE_NONE;
+    return era_hid_report_interval_gate_closed() || s.count != 0 || s.suffix_valid || s.reset_events != s.reset_seen || s.suspend_events != s.suspend_seen;
+}
+bool era_hid_report_interval_session_current(void) {
+    return s.reset_events == s.reset_seen && s.suspend_events == s.suspend_seen;
+}
+bool era_hid_report_interval_pressured(void) { return s.suffix_valid; }
+uint32_t era_hid_report_interval_pressure_serial(void) { return s.pressure_serial; }
+void era_hid_report_interval_format_edge(void) {
+    s.head = s.count = 0; s.suffix_valid = false;
+    s.anchor_pending = s.deadline_valid = s.last_post_valid = false;
+    /* Completion counters include reports already admitted by the endpoint;
+     * format change cannot retract them and must not reset those counters. */
 }
 
 static void era_hid_report_interval_apply_edge(uint8_t edge, uint32_t now) {
@@ -191,6 +229,7 @@ static void era_hid_report_interval_apply_edge(uint8_t edge, uint32_t now) {
     if (edge == ERA_HID_REPORT_EDGE_RESET) {
         s.head           = 0;
         s.count          = 0;
+        s.suffix_valid   = false;
         s.anchor_pending = false;
         s.deadline_valid = false;
         return;
@@ -204,10 +243,10 @@ static void era_hid_report_interval_apply_edge(uint8_t edge, uint32_t now) {
 }
 
 void era_hid_report_interval_task(uint32_t now) {
-    uint8_t edge = s.edge;
-    if (edge != ERA_HID_REPORT_EDGE_NONE) {
-        s.edge = ERA_HID_REPORT_EDGE_NONE;
-        era_hid_report_interval_apply_edge(edge, now);
+    uint32_t resets = s.reset_events, suspends = s.suspend_events;
+    if (resets != s.reset_seen || suspends != s.suspend_seen) {
+        era_hid_report_interval_apply_edge(resets != s.reset_seen ? ERA_HID_REPORT_EDGE_RESET : ERA_HID_REPORT_EDGE_SUSPEND, now);
+        s.reset_seen = resets; s.suspend_seen = suspends;
     }
 
     if (s.anchor_pending) {
@@ -226,6 +265,10 @@ void era_hid_report_interval_task(uint32_t now) {
         s.deadline_valid = false;
     }
 
+    if (!era_hid_report_interval_gate_closed() && !s.count && s.suffix_valid) {
+        *era_hid_report_interval_entry(0) = s.suffix;
+        s.count = 1; s.suffix_valid = false;
+    }
     while (!era_hid_report_interval_gate_closed() && s.count != 0) {
         era_hid_report_entry_t *entry = era_hid_report_interval_entry(0);
         if (!era_hid_report_interval_platform_post(entry->lane, entry->data, entry->size)) {
@@ -242,12 +285,17 @@ void era_hid_report_interval_task(uint32_t now) {
         s.last_post_valid = true;
         s.last_post_lane  = lane;
         s.last_post_seq   = s.posted[lane];
+        if (entry->ticket == s.producer_ticket) s.producer_post_ticket = entry->ticket;
         if (delay != 0) {
             s.anchor_pending = true;
             s.anchor_lane    = lane;
             s.anchor_target  = s.posted[lane];
             s.anchor_ticks   = delay;
             s.anchor_since   = now;
+        }
+        if (!era_hid_report_interval_gate_closed() && !s.count && s.suffix_valid) {
+            *era_hid_report_interval_entry(0) = s.suffix;
+            s.count = 1; s.suffix_valid = false;
         }
     }
 }

@@ -34,11 +34,11 @@ The classifier enum and its numeric slots are source-owned by
 mapping is owned by `era_split_wire_classify_payload()` in
 `split/era_split_wire_payload.c`. This contract keeps only the wire-visible
 classification boundary: an EXT-clear one-byte compact payload is the
-control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x10` with length 9,
+control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x11` with length 9,
 storage uses class `0xE0`, and HOST-PEER uses class `0x20` with ops `0x20` and
 `0x21`. Retired `ERROR_NACK` class `0x40`, the unallocated `0x6x` class, and
-unmatched HOST-PEER ops including `0x22` and `0x23..0x2F` are `default`
-reject. Retired classifier slots remain retired so captured diagnostic kind
+input operations below are strict exact-op bodies; all unassigned operations
+are rejected. Retired classifier slots remain retired so captured diagnostic kind
 numbering is not reinterpreted.
 
 `HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over
@@ -51,8 +51,7 @@ ERA_SPLIT_WIRE_HOST_PEER_CLASS = 0x20
 
 0x20: HOST_PEER_SOURCE_PUSH
 0x21: HOST_PEER_HOST_SOURCE_RSP
-0x22: unassigned
-0x23..0x2F: reserved
+0x22..0x2F: input operations below, separate from section envelopes
 ```
 
 Shared envelope, both ops (`split/era_split_wire_protocol.h`):
@@ -65,6 +64,59 @@ byte3..: bodies in ascending marker-bit order
 ```
 
 Ops do not encode relation. The `HOST_PEER` envelope name is historical; renaming was declined as churn. Class `0x6x` carries no reservation. Markers, eligibility and closed cells: below.
+
+## Bounded input schema
+
+Both halves must discover exact SESSION `0x11`; `0x10` images cannot open HP
+or DH serviced relations. This schema change does not change EEPROM format.
+Retired classifier kinds 4/6 remain retired. Input op assignments are owned by
+`split/era_split_input.h`; codec and classifier by `split/era_split_input.c`
+and `split/era_split_wire_payload.c`.
+
+| Op | Body after control/op | Direction / scope |
+| --- | --- | --- |
+| `0x12` FENCE-A, `0x13` response | existing SESSION flags and three uint16 facts (9-byte payload total) | HP PEER request / HOST response only |
+| `0x14` BIND-B, `0x15` response | same facts plus nonzero epoch16 (11 total) | HP only, same authority facts as A |
+| `0x22` DELTA | epoch16, first-record16, 1..9 tokens | HP PEER to HOST |
+| `0x23` FULL | epoch16, nonzero record16, packed full rows | HP PEER to HOST |
+| `0x24` RESET | epoch16, record16=0, packed full rows | HP PEER to HOST |
+| `0x25` ACCEPTED, `0x26` ACCEPTED_STOP, `0x27` WAIT, `0x28` RESET_REQUIRED, `0x29` MISMATCH | epoch16 and first-record16 (6 total) | typed identity response only |
+| `0x2A` FLOW_QUERY, `0x2F` FLOW_END | quiet length2 or standing request envelope bodies | HP PEER pressure only |
+| `0x2B` READY, `0x2C` FLOW_WAIT, `0x2D` FLOW_RESET, `0x2E` BASELINE_READY | quiet length2 or standing response envelope bodies | HP HOST answer only |
+
+Epoch is nonzero. Token bit7 ends one complete snapshot group; bits0..6
+address `row * MATRIX_COLS + col`. Positions within each group must be valid,
+strictly increasing and unique; the last token must end a group. Record is
+nonzero for DELTA/FULL, and DELTA's final record may not wrap. FULL/RESET
+reserved high packed bits are zero. Geometry must fit seven-bit positions and
+the compact FULL prefix6; unsupported geometry is refused at compile time.
+All multi-byte fields retain the common little-endian order.
+
+Typed acceptance means copied, receipted and release-published work, never USB
+completion. WAIT retains an unaccepted immutable request. ACCEPTED_STOP also
+retires the accepted request before pausing. Duplicate receipt identity/body
+excludes control sequence; age is never refreshed. A terminal epoch cannot be
+revived by the old receipt. RESET installs a newer nonwrapping epoch; gaps from
+abandoned unconfirmed baselines are legal. BIND requires its exact bound epoch.
+FENCE/BIND responses have distinct kinds, so one residual old response cannot
+serve as both phases. A/B is required for producer incarnation or epoch reuse,
+not for each input-only ACK miss. The old producer must have ended and fresh
+PIO TX/RX state must precede the new owner READY; at most one residual response
+belongs to the preceding stopped exchange.
+
+FLOW substitutes only the standing op. Existing masks, section lengths,
+eligibility, sent shadows and one runtime-response carrier remain unchanged.
+It never carries a MATRIX section. DH cannot originate, admit or execute any
+input/control/FLOW operation even if its parser recognizes the body. Normal
+quiet HP/DH remains bare; input pressure adds one byte each direction.
+
+For TOMAK packed9, DELTA K tokens costs K+16 total framed bytes in one
+round trip: one token17, nine tokens25. FULL/RESET costs25; A/B costs48 over
+two trips; A/B plus RESET73 over three. Normal quiet6 and pressure quiet8.
+At baud460800/230400/115200, serialization is bytes*10/baud; this is wire
+arithmetic, not measured latency. Multi-key FULL is 8 bytes more than the old
+17-byte MATRIX exchange. Preservation can increase total workload and latest
+state latency; this contract makes no average-performance claim.
 
 ## HOST-PEER Replacement Storage Class
 
@@ -135,18 +187,18 @@ Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That
 
 ## `SESSION_STATUS`
 
-Compact, EXT set, `payload_len == 9`, byte1 `0x10`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
+Compact, EXT set, `payload_len == 9`, byte1 `0x11`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
 
 ```text
 byte0: control with EXT
-byte1: 0x10
+byte1: 0x11
 byte2: flags
 bytes 3..4: usb_epoch, little-endian
 bytes 5..6: host_open_generation, little-endian
 bytes 7..8: host_close_generation, little-endian
 ```
 
-The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x10` exactly, not any `0x1x` nibble.
+The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x11` exactly, not any `0x1x` nibble.
 
 Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protocol.h`):
 
@@ -157,7 +209,7 @@ Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protoc
 0x08 rate_searched           0x80 bulk_page_supported
 ```
 
-`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x10`, then:
+`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x11`, then:
 
 | Check | Rule |
 | --- | --- |
@@ -222,7 +274,9 @@ AUTHORITY is the one section in all four serviced cells. STORAGE_PENDING and RES
 
 ## Push bodies
 
-MATRIX: `ERA_SPLIT_WIRE_HALF_MATRIX_BYTES`, reserved high bits clear.
+MATRIX: the historical section width remains available to packing/layout
+helpers and the eligibility table. Legacy `0x20` MATRIX is rejected at responder
+admission; key input uses the dedicated bodies below.
 
 INPUT, both directions (`split/era_split_peer_layer.c` asserts `sizeof(layer_state_t)` against `ERA_SPLIT_WIRE_INPUT_LAYER_BYTES` 1). Every value is valid.
 
@@ -392,8 +446,8 @@ INPUT, TIME_ANCHOR, and STORAGE_NEWS admit every value of their width.
 ## Closed ids
 
 Wire-visible closed ids are the retired `ERROR_NACK` class `0x40`, the
-unallocated `0x6x` class, and unmatched `0x22` / `0x23..0x2F` HOST-PEER ops;
-all are `default` reject. The classifier enum's retired numeric slots are
+unallocated `0x6x` class, old SESSION op `0x10`, and unassigned exact ops;
+all are rejected. The classifier enum's retired numeric slots are
 source-owned by `era_split_wire_payload_kind_t` in
 `split/era_split_wire_protocol.h` and are not a second wire-id space.
 
@@ -452,7 +506,7 @@ caller fails at link).
 
 ## Section disciplines
 
-Every runtime section in both id spaces is latest-state and edge-armed: the current value, never a transition record; advertised while it differs from what the wire last confirmed; retired when the wire confirms it. Idle and typing-with-no-layer-change carry zero runtime sections while the poll runs, net of TIME_ANCHOR.
+Every standing runtime section in both id spaces is latest-state and edge-armed: the current value, never a transition record; advertised while it differs from what the wire last confirmed; retired when the wire confirms it. Idle and typing-with-no-layer-change carry zero runtime sections while the poll runs, net of TIME_ANCHOR.
 
 Sent-state shadows advance from the wire's own section byte after a confirmed send, never from a plan (`era_split_communication_core_standing_service_once()` in `split/communication_core/era_split_communication_core_standing.c`; `era_host_peer_transaction_commit_responder_response()` in `split/era_host_peer_responder.c`). A deferred or suppressed section stays due.
 

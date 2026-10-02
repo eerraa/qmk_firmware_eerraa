@@ -62,7 +62,7 @@ state.
 | Reason | Wire operation | Required trigger |
 | --- | --- | --- |
 | ATTACH_STATUS revalidation | SESSION_STATUS | bootstrap, policy, discovery, recovery |
-| HOST-PEER matrix source push | HOST_PEER_SOURCE_PUSH | PEER matrix edge or forced baseline; no cadence |
+| HOST-PEER matrix source push | DELTA/FULL/RESET, with FENCE/BIND at incarnation boundaries | PEER matrix edge or fresh baseline; no cadence |
 | storage idle proof | storage probe | relation-open audit, settled local capture, or responder-changed news; no periodic patrol |
 | storage active | storage chunk/apply/complete or abort cleanup | validated transfer episode |
 | runtime section push | HOST_PEER_SOURCE_PUSH with a runtime mask | local eligible section changed from last confirmed |
@@ -168,8 +168,9 @@ Source anchors:
 #### One carrier for the response section set
 
 A response section rides the standing exchange's answer and no other route.
-A Core0-originated request is answered with the bare control ACK and carries no
-runtime response section. Eligibility still decides whether a relation may
+A Core0-originated input request is answered with a typed identity receipt
+and carries no runtime response section. Rare FENCE/BIND uses separate status
+responses. Runtime sections still have only the standing answer carrier. Eligibility still decides whether a relation may
 carry a section; this rule decides which carrier may deliver it.
 
 The initiator's Core1 receive cache is an edge filter between wire state and
@@ -288,11 +289,12 @@ The act table and validators live in `split/era_split_restart_agreement.h` and
 Core0 selects, in order:
 
 1. pending SESSION_STATUS bootstrap/policy/recovery revalidation;
-2. HOST_PEER_SOURCE_PUSH for a dirty PEER matrix or forced baseline.
+2. typed input for a dirty PEER matrix or fresh baseline.
 
 The dedicated storage gate sits ahead of normal matrix work without becoming a
-generic route arm. The standing exchange runs only after queued Core0 work and
-the storage lane have no admitted transaction.
+generic route arm. A due standing slot precedes queued ordinary input at the
+next transaction boundary; FENCE/BIND remains contiguous. Other standing work
+runs after higher-priority Core0 and storage transactions.
 
 Healthy HOST-PEER traffic suppresses duplicate periodic SESSION_STATUS, but
 must never suppress discovery, liveness, or pending revalidation.
@@ -380,3 +382,27 @@ snapshot so the first real edge is not ambiguous.
 Source anchors:
 `split/era_split_transport_scheduler.c` and
 `split/scheduler/era_split_transport_scheduler_timing.c`.
+
+## Input pressure and fairness
+
+`split/era_split_input.c` owns input history lifetime independently of the
+relation and storage audit. A normal input-only ACK miss retains its immutable
+request while born age remains; it does not mark the peer stale. Receiver WAIT
+and ACCEPTED_STOP are capacity states. First HID overflow or history expiry
+ends that input epoch and seeks fresh latest after capacity returns.
+
+Pressure FLOW replaces the next HP standing op rather than adding a route or
+confirmation poll. It retains the 10 ms cadence and runtime sections; quiet
+length changes from one to two bytes in each direction. Normal idle and DH's
+1/2/4 ms standing cadence remain unchanged. FLOW replies carry the source
+producer generation captured before the exchange, so late hints cannot apply
+to a new lifetime. FLOW_END idempotently closes live input; BASELINE_READY
+resumes an unaccepted pending RESET without changing its identity, or permits
+a new epoch after terminal recovery.
+
+Before an input TX, Core1 services one due standing slot at the frame boundary,
+then constructs input control sequence and rechecks born deadline, owner,
+relation, source generation and actual standing stop. Input queued before stop
+cannot transmit around the existing exact SESSION stop handshake. FENCE/BIND
+keeps standing origination closed until B completes. SESSION/storage priority,
+silence windows, baud and storage admission are unchanged.

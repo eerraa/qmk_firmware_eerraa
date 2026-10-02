@@ -9,6 +9,7 @@
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_types.h"
 #include "../era_split_wire_protocol.h"
+#include "../era_split_input.h"
 
 typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_RX_WAIT_MODE_NONE                 = 0,
@@ -31,21 +32,12 @@ typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_COUNT,
 } era_split_communication_core_initiator_lane_t;
 
-/* The one 0x20 request lane core0 still queues, and since R2 it is HOST-PEER's
-   matrix and nothing else: DUAL-HOST's runtime push and HOST-PEER's AUTHORITY
-   push both moved onto core1's standing exchange with the routes that selected
-   them. This structure carried an INPUT layer byte and an AUTHORITY body for
-   those two planners and kept them for two slices after they retired; both are
-   gone with the encoder arms that read them.
-
-   Since D3 the section content is load-bearing rather than incidental: it is
-   what tells the responder that a request came from core0's lane rather than
-   from core1's standing exchange, so the request validator admits exactly
-   ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_CORE0_LANE_SECTIONS here. */
+/* Core0 owns an immutable input/control request. Runtime sections remain on
+ * Core1 standing; section/sequence fields below retain lane diagnostics. */
 typedef struct {
     uint8_t sections;
     uint8_t matrix_seq;
-    uint8_t packed_rows[ERA_SPLIT_WIRE_HALF_MATRIX_BYTES];
+    era_split_input_request_t input;
 } era_split_communication_core_source_push_semantic_t;
 
 typedef struct {
@@ -83,6 +75,8 @@ typedef struct {
     uint8_t  response_payload_len;
     uint8_t  response_section_byte;
     uint8_t  matrix_seq;
+    era_split_input_request_t input;
+    uint8_t input_status;
     /* Which sections this request carried, read back by core0 to run the
        matrix-link bookkeeping. The lane stopped being shared at R2 -- the
        runtime push and the AUTHORITY push moved to the standing exchange with

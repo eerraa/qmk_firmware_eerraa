@@ -21,6 +21,7 @@
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
 #include "../era_split_wire_router.h"
+#include "../era_split_input.h"
 
 
 #ifndef ERA_SPLIT_COMMUNICATION_CORE_STANDING_READ_RETRIES
@@ -374,6 +375,8 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         return false;
     }
     bool cadence_granted = plan.enabled != 0;
+    bool hp_input = (plan.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) != 0;
+    if (hp_input && era_split_input_source_control_active()) return false;
     /* Defensive, not a supported plan value: the single publisher either leaves
      * the record memset -- caught by the generation tests above -- or writes the
      * scheduler's constant, which a _Static_assert holds above zero. This term
@@ -581,6 +584,14 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         payload_len = 1;
     }
 
+    uint32_t flow_generation = era_split_input_source_generation();
+    bool flow_query = hp_input && cadence_granted && era_split_input_source_pressure();
+    if (flow_query) {
+        payload[0] |= ERA_SPLIT_WIRE_CONTROL_EXT;
+        payload[1] = era_split_input_source_terminal() ? ERA_INPUT_FLOW_END : ERA_INPUT_FLOW_QUERY;
+        if (payload_len == 1) payload_len = 2;
+    }
+
     era_split_wire_frame_t response;
     memset(&response, 0, sizeof(response));
     /* `failure` is written and not read here: the stop latch keys on the result
@@ -598,8 +609,8 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
                                                             payload,
                                                             payload_len,
                                                             tx_seq,
-                                                            ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK,
-                                                            ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP,
+                                                            flow_query ? ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP : ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK,
+                                                            flow_query ? ERA_SPLIT_WIRE_PAYLOAD_INVALID : ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP,
                                                             ERA_SPLIT_PEER_RESPONSE_WINDOW_MS,
                                                             owner_epoch,
                                                             &response,
@@ -651,6 +662,13 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
            stop token is still a new revalidation obligation. */
         era_split_communication_core_standing_publish_state(&state, true);
         return true;
+    }
+
+    if (flow_query) {
+        era_split_input_source_flow(response.payload[1], flow_generation);
+        if (response.payload_len == 2) { response.kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK; response.payload_len = 1; }
+        else { response.kind = ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP; response.payload[1] = ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP; }
+        __SEV();
     }
 
     /* The wake is edge-driven from here down. `stopped` falling is news, a new

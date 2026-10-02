@@ -166,6 +166,27 @@ static keyrecord_t tapping_key                         = {};
 static keyrecord_t waiting_buffer[WAITING_BUFFER_SIZE] = {};
 static uint8_t     waiting_buffer_head                 = 0;
 static uint8_t     waiting_buffer_tail                 = 0;
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+_Static_assert(WAITING_BUFFER_SIZE <= UINT8_MAX, "Waiting FIFO index must fit uint8_t.");
+static uint8_t waiting_origin[(WAITING_BUFFER_SIZE + 7) / 8];
+static uint8_t waiting_local_count, waiting_remote_count;
+static bool waiting_ingress_remote;
+bool action_tapping_set_ingress(bool remote) {
+    bool previous = waiting_ingress_remote; waiting_ingress_remote = remote; return previous;
+}
+uint8_t action_tapping_remote_room(void) { return MATRIX_ROWS_PER_HAND * MATRIX_COLS - waiting_remote_count; }
+#endif
+static uint8_t waiting_next(uint8_t index) { return ++index == WAITING_BUFFER_SIZE ? 0 : index; }
+static void waiting_buffer_pop(void) {
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    uint8_t bit = 1U << (waiting_buffer_tail & 7);
+    if (waiting_origin[waiting_buffer_tail >> 3] & bit) --waiting_remote_count;
+    else --waiting_local_count;
+    waiting_origin[waiting_buffer_tail >> 3] &= (uint8_t)~bit;
+#endif
+    waiting_buffer_tail = waiting_next(waiting_buffer_tail);
+}
+
 
 #    ifdef ERA_SPLIT_TAP_ACTIVITY_ENABLE
 /* ERA FA-2 S2: the cross-half judgment seam. The split layer keeps the
@@ -233,7 +254,7 @@ void action_tapping_process(keyrecord_t record) {
     if (IS_EVENT(record.event) && waiting_buffer_head != waiting_buffer_tail) {
         ac_dprintf("---- action_exec: process waiting_buffer -----\n");
     }
-    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE) {
+    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_pop()) {
         if (process_tapping(&waiting_buffer[waiting_buffer_tail])) {
             ac_dprintf("processed: waiting_buffer[%u] =", waiting_buffer_tail);
             debug_record(waiting_buffer[waiting_buffer_tail]);
@@ -407,7 +428,7 @@ bool process_tapping(keyrecord_t *keyp) {
                     // Now that tapping_key has settled as tapped, check whether
                     // Flow Tap applies to following yet-unsettled keys.
                     uint32_t prev_time = tapping_key.event.time;
-                    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE) {
+                    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_pop()) {
                         keyrecord_t *record = &waiting_buffer[waiting_buffer_tail];
                         if (!record->event.pressed) {
                             break;
@@ -467,7 +488,7 @@ bool process_tapping(keyrecord_t *keyp) {
                     uint8_t first_tap = waiting_buffer_find_chordal_hold_tap();
                     ac_dprintf("first_tap = %u\n", first_tap);
                     if (first_tap < WAITING_BUFFER_SIZE) {
-                        for (; waiting_buffer_tail != first_tap; waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE) {
+                        for (; waiting_buffer_tail != first_tap; waiting_buffer_pop()) {
                             ac_dprintf("Processing [%u]\n", waiting_buffer_tail);
                             process_record(&waiting_buffer[waiting_buffer_tail]);
                         }
@@ -567,7 +588,7 @@ bool process_tapping(keyrecord_t *keyp) {
                                 if (waiting_buffer_tail != waiting_buffer_head && is_tap_record(&waiting_buffer[waiting_buffer_tail])) {
                                     tapping_key = waiting_buffer[waiting_buffer_tail];
                                     // Pop tail from the queue.
-                                    waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE;
+                                    waiting_buffer_pop();
                                     debug_waiting_buffer();
                                 } else
 #    endif // CHORDAL_HOLD
@@ -743,13 +764,21 @@ bool waiting_buffer_enq(keyrecord_t record) {
         return true;
     }
 
-    if ((waiting_buffer_head + 1) % WAITING_BUFFER_SIZE == waiting_buffer_tail) {
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    if (waiting_ingress_remote ? waiting_remote_count == MATRIX_ROWS_PER_HAND * MATRIX_COLS : waiting_local_count == 7) return false;
+#endif
+    if (waiting_next(waiting_buffer_head) == waiting_buffer_tail) {
         ac_dprintf("waiting_buffer_enq: Over flow.\n");
         return false;
     }
 
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    uint8_t bit = 1U << (waiting_buffer_head & 7);
+    if (waiting_ingress_remote) { waiting_origin[waiting_buffer_head >> 3] |= bit; ++waiting_remote_count; }
+    else { waiting_origin[waiting_buffer_head >> 3] &= (uint8_t)~bit; ++waiting_local_count; }
+#endif
     waiting_buffer[waiting_buffer_head] = record;
-    waiting_buffer_head                 = (waiting_buffer_head + 1) % WAITING_BUFFER_SIZE;
+    waiting_buffer_head                 = waiting_next(waiting_buffer_head);
 
     ac_dprintf("waiting_buffer_enq: ");
     debug_waiting_buffer();
@@ -763,6 +792,10 @@ bool waiting_buffer_enq(keyrecord_t record) {
 void waiting_buffer_clear(void) {
     waiting_buffer_head = 0;
     waiting_buffer_tail = 0;
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    memset(waiting_origin, 0, sizeof(waiting_origin));
+    waiting_local_count = waiting_remote_count = 0;
+#endif
 }
 
 /** \brief Waiting buffer typed
@@ -770,7 +803,7 @@ void waiting_buffer_clear(void) {
  * FIXME: Needs docs
  */
 bool waiting_buffer_typed(keyevent_t event) {
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         if (KEYEQ(event.key, waiting_buffer[i].event.key) && event.pressed != waiting_buffer[i].event.pressed) {
             return true;
         }
@@ -783,7 +816,7 @@ bool waiting_buffer_typed(keyevent_t event) {
  * FIXME: Needs docs
  */
 __attribute__((unused)) bool waiting_buffer_has_anykey_pressed(void) {
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         if (waiting_buffer[i].event.pressed) return true;
     }
     return false;
@@ -804,7 +837,7 @@ void waiting_buffer_scan_tap(void) {
 #    if (defined(AUTO_SHIFT_ENABLE) && defined(RETRO_SHIFT))
     TAP_DEFINE_KEYCODE;
 #    endif
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         keyrecord_t *candidate = &waiting_buffer[i];
         // clang-format off
         if (IS_EVENT(candidate->event) && KEYEQ(candidate->event.key, tapping_key.event.key) && !candidate->event.pressed && (
@@ -870,7 +903,7 @@ static void speculative_key_press(keyrecord_t *record) {
 
     // Don't do Speculative Hold when there are non-speculated buffered events,
     // since that could result in sending keys out of order.
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         if (!waiting_buffer[i].tap.speculated) {
             return;
         }
@@ -997,7 +1030,7 @@ static void era_speculative_layer_press(keyrecord_t *record) {
 
     // Same ordering guard as the mod-tap half: don't speculate over
     // non-speculated buffered events.
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         if (!waiting_buffer[i].tap.speculated) {
             return;
         }
@@ -1125,7 +1158,7 @@ static uint8_t waiting_buffer_find_chordal_hold_tap(void) {
     keyrecord_t *prev         = &tapping_key;
     uint16_t     prev_keycode = get_record_keycode(&tapping_key, false);
     uint8_t      first_tap    = WAITING_BUFFER_SIZE;
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         keyrecord_t   *cur         = &waiting_buffer[i];
         const uint16_t cur_keycode = get_record_keycode(cur, false);
         if (!cur->event.pressed || !is_mt_or_lt(prev_keycode)) {
@@ -1148,7 +1181,7 @@ static void waiting_buffer_chordal_hold_taps_until(keypos_t key) {
             registered_taps_add(record->event.key);
         }
         process_record(record);
-        waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE;
+        waiting_buffer_pop();
 
         if (KEYEQ(key, record->event.key) && record->event.pressed) {
             break;
@@ -1157,7 +1190,7 @@ static void waiting_buffer_chordal_hold_taps_until(keypos_t key) {
 }
 
 static void waiting_buffer_process_regular(void) {
-    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE) {
+    for (; waiting_buffer_tail != waiting_buffer_head; waiting_buffer_pop()) {
         if (is_tap_record(&waiting_buffer[waiting_buffer_tail])) {
             break; // Stop once a tap-hold key event is reached.
         }
@@ -1279,7 +1312,7 @@ static void debug_tapping_key(void) {
 /** \brief Logs waiting buffer if ACTION_DEBUG is enabled. */
 static void debug_waiting_buffer(void) {
     ac_dprintf("{");
-    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = (i + 1) % WAITING_BUFFER_SIZE) {
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
         ac_dprintf(" [%u]=", i);
         debug_record(waiting_buffer[i]);
     }

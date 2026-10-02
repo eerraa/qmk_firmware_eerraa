@@ -606,6 +606,10 @@ void era_pass_phase_mark_rgb(void);
 void era_pass_phase_mark_keyboard_tail(void);
 #endif
 
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+void era_split_input_action_begin(bool action_open);
+void era_split_input_action_end(void);
+#endif
 matrix_row_t matrix_previous[MATRIX_ROWS];
 
 /**
@@ -622,6 +626,9 @@ static bool matrix_task(void) {
     }
 
     matrix_scan();
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    era_split_input_action_begin(should_process_keypress());
+#endif
     bool matrix_changed = false;
     for (uint8_t row = 0; row < MATRIX_ROWS && !matrix_changed; row++) {
         matrix_changed |= matrix_previous[row] ^ matrix_get_row(row);
@@ -635,6 +642,9 @@ static bool matrix_task(void) {
 
     // Short-circuit the complete matrix processing if it is not necessary
     if (!matrix_changed) {
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+        era_split_input_action_end();
+#endif
         generate_tick_event();
         return matrix_changed;
     }
@@ -669,6 +679,9 @@ static bool matrix_task(void) {
         matrix_previous[row] = current_row;
     }
 
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+    era_split_input_action_end();
+#endif
     return matrix_changed;
 }
 

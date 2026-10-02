@@ -28,6 +28,7 @@
 
 #ifdef SPLIT_KEYBOARD
 #    include "keyboard.h"
+#    include "keyboards/era/common/split/era_split_input.h"
 #    include "split_common/split_util.h"
 #    include "keyboards/era/common/split/era_split_keyboard.h"
 #    include "keyboards/era/common/split/era_split_transport_scheduler.h"
@@ -60,6 +61,7 @@ typedef struct {
     volatile bool    host_peer_peer_cache_dirty;
     matrix_row_t     host_peer_peer_matrix[MATRIX_ROWS_PER_HAND];
     uint8_t          host_peer_peer_matrix_seq8;
+    bool             host_peer_peer_closure_pending;
     bool             host_peer_peer_projection_known;
     bool             host_peer_peer_projection_valid;
     uint8_t          host_peer_peer_projection_seq8;
@@ -394,6 +396,7 @@ bool era_matrix_engine_publish_local_snapshot_if_needed(bool *first_ready) {
             g_era_matrix_engine.host_peer_local_source_push_forced = true;
             g_era_matrix_engine.host_peer_local_matrix_ready       = true;
             changed                                                = true;
+            era_split_input_source_snapshot(g_era_matrix_engine.local_rows, era_split_input_clock());
         }
 
         if (first_ready != NULL) {
@@ -411,7 +414,7 @@ bool era_matrix_engine_local_matrix_ready(void) {
 }
 
 bool era_matrix_engine_source_push_due(void) {
-    return g_era_matrix_engine.host_peer_local_matrix_ready && (g_era_matrix_engine.host_peer_local_source_push_forced || g_era_matrix_engine.host_peer_local_current_seq8 != g_era_matrix_engine.host_peer_local_host_known_seq8);
+    return era_split_input_source_service_needed() && era_split_input_source_due(era_split_input_clock());
 }
 
 bool era_matrix_engine_copy_source_push_rows(matrix_row_t rows[MATRIX_ROWS_PER_HAND], uint8_t *matrix_seq) {
@@ -483,6 +486,7 @@ era_matrix_engine_peer_matrix_copy_result_t era_matrix_engine_copy_peer_matrix_i
 
 era_matrix_engine_peer_projection_result_t era_matrix_engine_sync_peer_projection(bool host_mode) {
     if (!host_mode) {
+        g_era_matrix_engine.host_peer_peer_closure_pending = false;
         if (!g_era_matrix_engine.host_peer_peer_projection_valid) {
             g_era_matrix_engine.host_peer_peer_projection_known = false;
             return ERA_MATRIX_ENGINE_PEER_PROJECTION_UNCHANGED;
@@ -532,7 +536,13 @@ bool era_matrix_engine_peer_projection_scan_idle(bool host_mode) {
     return !g_era_matrix_engine.host_peer_peer_projection_valid;
 }
 
+bool era_matrix_engine_peer_closure_pending(void) { return g_era_matrix_engine.host_peer_peer_closure_pending; }
+void era_matrix_engine_request_peer_closure(void) {
+    if (g_era_matrix_engine.host_peer_peer_projection_valid) g_era_matrix_engine.host_peer_peer_closure_pending = true;
+}
+
 void era_matrix_engine_flush_host_peer_relation(void) {
+    era_matrix_engine_request_peer_closure();
     ATOMIC_BLOCK_RESTORESTATE {
         g_era_matrix_engine.host_peer_peer_cache_valid         = false;
         g_era_matrix_engine.host_peer_peer_cache_dirty         = true;

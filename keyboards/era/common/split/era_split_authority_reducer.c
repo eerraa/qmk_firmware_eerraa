@@ -226,7 +226,7 @@ bool era_split_authority_reducer_task(void) {
     }
 
     if (hid_reopened) {
-        send_keyboard_report();
+        force_send_keyboard_report();
     }
     return authority_changed;
 }

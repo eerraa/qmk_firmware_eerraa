@@ -37,6 +37,8 @@ bool era_hid_report_interval_hold_report(uint8_t endpoint_lut, const void *repor
 void era_hid_report_interval_note_report_posted(uint8_t endpoint_lut);
 void era_hid_report_interval_note_keyboard_report_posted(uint8_t endpoint_lut);
 void era_hid_report_interval_session_edge_i(bool keep_backlog);
+void era_hid_report_interval_protocol_edge_i(void);
+static volatile bool auxiliary_session_reset;
 #endif
 
 #ifdef RAW_ENABLE
@@ -186,6 +188,7 @@ static void usb_event_cb(USBDriver *usbp, usbevent_t event) {
             osalSysLockFromISR();
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
             era_hid_report_interval_session_edge_i(false);
+            auxiliary_session_reset = true;
 #endif
             for (int i = 0; i < USB_ENDPOINT_IN_COUNT; i++) {
                 usb_endpoint_in_configure_cb(&usb_endpoints_in[i]);
@@ -210,6 +213,7 @@ static void usb_event_cb(USBDriver *usbp, usbevent_t event) {
             /* The queues below are about to be emptied: suspend keeps the
                held keyboard reports, the other two edges drop them. */
             era_hid_report_interval_session_edge_i(event == USB_EVENT_SUSPEND);
+            if (event != USB_EVENT_SUSPEND) auxiliary_session_reset = true;
 #endif
             for (int i = 0; i < USB_ENDPOINT_IN_COUNT; i++) {
                 usb_endpoint_in_suspend_cb(&usb_endpoints_in[i]);
@@ -302,6 +306,10 @@ static bool usb_requests_hook_cb(USBDriver *usbp) {
                         break;
                     case HID_REQ_SetProtocol:
                         if (setup->wIndex == KEYBOARD_INTERFACE) {
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+                            if (usb_device_state_get_protocol() != (setup->wValue.lbyte == USB_PROTOCOL_BOOT ? USB_PROTOCOL_BOOT : USB_PROTOCOL_REPORT))
+                                era_hid_report_interval_protocol_edge_i();
+#endif
                             usb_device_state_set_protocol(setup->wValue.lbyte);
                         }
                         usbSetupTransfer(usbp, NULL, 0, NULL);
@@ -409,15 +417,10 @@ __attribute__((weak)) void restart_usb_driver(USBDriver *usbp) {
  * @return false Failure
  */
 bool send_report(usb_endpoint_in_lut_t endpoint, void *report, size_t size) {
-    bool sent = usb_endpoint_in_send(&usb_endpoints_in[endpoint], (uint8_t *)report, size, TIME_MS2I(100), false);
-#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
-    if (sent) {
-        era_hid_report_interval_note_report_posted((uint8_t)endpoint);
-    }
-#endif
-    return sent;
+    /* ERA accounting is inside whole-buffer admission under the USB lock,
+     * before an IN completion can observe the newly posted report. */
+    return usb_endpoint_in_send(&usb_endpoints_in[endpoint], (uint8_t *)report, size, TIME_MS2I(100), false);
 }
-
 /**
  * @brief Send a report to the host, but delay the sending until the size of
  * endpoint report is reached or the incompletely filled buffer is flushed with
@@ -499,9 +502,49 @@ void send_nkro(report_nkro_t *report) {
  * ---------------------------------------------------------
  */
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+/* Each void shared-endpoint producer owns its unaccepted latest output.
+ * These reports never inherit the keyboard interval. Normal BUSY neither
+ * drops an accepted queue prefix nor pretends an unaccepted report was sent. */
+static struct {
+    bool pending;
+    uint8_t endpoint, size;
+    uint8_t bytes[32];
+} auxiliary_reports[4]; /* mouse, system, consumer, programmable buttons */
+
+static void auxiliary_apply_edge(void) {
+    osalSysLock();
+    bool reset = auxiliary_session_reset;
+    auxiliary_session_reset = false;
+    osalSysUnlock();
+    if (reset) {
+        memset(auxiliary_reports, 0, sizeof(auxiliary_reports));
+    }
+}
+static void auxiliary_report(uint8_t slot, usb_endpoint_in_lut_t endpoint, const void *data, uint8_t size) {
+    auxiliary_apply_edge();
+    if (size > sizeof(auxiliary_reports[slot].bytes)) return;
+    auxiliary_reports[slot].endpoint = endpoint;
+    auxiliary_reports[slot].size = size;
+    memcpy(auxiliary_reports[slot].bytes, data, size);
+    auxiliary_reports[slot].pending = !send_report(endpoint, auxiliary_reports[slot].bytes, size);
+}
+void era_usb_auxiliary_reports_task(void) {
+    auxiliary_apply_edge();
+    for (uint8_t i = 0; i < 4; ++i) {
+        if (auxiliary_reports[i].pending && send_report(auxiliary_reports[i].endpoint, auxiliary_reports[i].bytes, auxiliary_reports[i].size))
+            auxiliary_reports[i].pending = false;
+    }
+}
+#endif
+
 void send_mouse(report_mouse_t *report) {
 #ifdef MOUSE_ENABLE
+#    ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    auxiliary_report(0, USB_ENDPOINT_IN_MOUSE, report, sizeof(report_mouse_t));
+#    else
     send_report(USB_ENDPOINT_IN_MOUSE, report, sizeof(report_mouse_t));
+#    endif
 #endif
 }
 
@@ -512,13 +555,21 @@ void send_mouse(report_mouse_t *report) {
 
 void send_extra(report_extra_t *report) {
 #ifdef EXTRAKEY_ENABLE
+#    ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    auxiliary_report(report->report_id == REPORT_ID_SYSTEM ? 1 : 2, USB_ENDPOINT_IN_SHARED, report, sizeof(report_extra_t));
+#    else
     send_report(USB_ENDPOINT_IN_SHARED, report, sizeof(report_extra_t));
+#    endif
 #endif
 }
 
 void send_programmable_button(report_programmable_button_t *report) {
 #ifdef PROGRAMMABLE_BUTTON_ENABLE
+#    ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    auxiliary_report(3, USB_ENDPOINT_IN_SHARED, report, sizeof(report_programmable_button_t));
+#    else
     send_report(USB_ENDPOINT_IN_SHARED, report, sizeof(report_programmable_button_t));
+#    endif
 #endif
 }
 

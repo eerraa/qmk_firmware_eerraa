@@ -154,3 +154,22 @@ TEST_F(EraSplitStandingLifecycle, WithheldGrantDoesNotInventSessionRevalidationD
     EXPECT_TRUE(era_test_standing_resume(1, 1, 0));
     EXPECT_FALSE(era_test_standing_run(1));
 }
+
+TEST_F(EraSplitStandingLifecycle, DhCadenceAndIdleBareFramesStayIndependentOfInputPressure) {
+    for (uint16_t period : {1,2,4}) {
+        era_test_standing_reset(); era_test_standing_mode(false, period);
+        era_test_standing_input_pressure();
+        ASSERT_TRUE(era_test_standing_at(0)); EXPECT_EQ(era_test_standing_last_length(),1U);
+        EXPECT_FALSE(era_test_standing_at(period*1000-1));
+        EXPECT_TRUE(era_test_standing_at(period*1000)); EXPECT_EQ(era_test_standing_last_length(),1U);
+    }
+}
+TEST_F(EraSplitStandingLifecycle, HpPressureSubstitutesTheTenMillisecondStandingSlot) {
+    era_test_standing_mode(true,10); ASSERT_TRUE(era_test_standing_at(0));
+    EXPECT_EQ(era_test_standing_last_length(),1U);
+    era_test_standing_input_pressure();
+    EXPECT_FALSE(era_test_standing_at(9999));
+    ASSERT_TRUE(era_test_standing_at(10000));
+    EXPECT_EQ(era_test_standing_last_length(),2U); EXPECT_EQ(era_test_standing_last_op(),0x2fU);
+    EXPECT_EQ(era_test_standing_transactions(),2U);
+}

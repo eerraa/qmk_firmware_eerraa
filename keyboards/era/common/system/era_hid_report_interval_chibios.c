@@ -15,6 +15,9 @@
 #    include <hal.h>
 
 #    include "host.h"
+#    include "action_util.h"
+#    include "keycode_config.h"
+#    include "usb_device_state.h"
 #    include "usb_main.h"
 
 /* Declared per translation unit, as the ChibiOS protocol files do: the array
@@ -23,6 +26,12 @@
 extern usb_endpoint_in_t usb_endpoints_in[USB_ENDPOINT_IN_COUNT];
 
 static bool era_hid_report_interval_ready;
+static volatile bool era_hid_reopen;
+static uint8_t era_hid_format = UINT8_MAX;
+static volatile uint32_t era_hid_protocol_events;
+static uint32_t era_hid_protocol_seen;
+extern keymap_config_t keymap_config;
+void era_usb_auxiliary_reports_task(void);
 
 static inline uint32_t era_hid_report_interval_now(void) {
     /* The RP2040 port's system tick is the 1 MHz hardware timer read, safe in
@@ -87,6 +96,16 @@ void era_hid_report_interval_note_keyboard_report_posted(uint8_t endpoint_lut) {
     }
 }
 
+/* Successful whole-buffer admission, USB lock held before posting. */
+void era_hid_report_interval_endpoint_posted_i(const void *endpoint) {
+    if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD]) {
+        era_hid_report_interval_note_posted(ERA_HID_REPORT_LANE_KEYBOARD); return;
+    }
+#    if defined(SHARED_EP_ENABLE)
+    if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_SHARED]) era_hid_report_interval_note_posted(ERA_HID_REPORT_LANE_SHARED);
+#    endif
+}
+
 /* ISR context, system lock held by the caller: plain stores only. */
 void era_hid_report_interval_endpoint_completed_i(const void *endpoint) {
     if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD]) {
@@ -102,6 +121,38 @@ void era_hid_report_interval_endpoint_completed_i(const void *endpoint) {
 
 void era_hid_report_interval_session_edge_i(bool keep_backlog) {
     era_hid_report_interval_note_session_edge(keep_backlog);
+    era_hid_reopen = true;
+}
+
+void era_hid_report_interval_protocol_edge_i(void) {
+    ++era_hid_protocol_events;
+    era_hid_reopen = true;
+}
+
+static uint8_t era_hid_report_interval_current_format(void) {
+    uint8_t format = usb_device_state_get_protocol() == USB_PROTOCOL_BOOT ? 0 : 1;
+#    ifdef NKRO_ENABLE
+    if (host_can_send_nkro() && keymap_config.nkro) format = 2;
+#    endif
+    return format;
+}
+
+/* The task's earlier session/format sample is not an admission grant: a USB
+ * ISR may have ended that lifetime before this lock. Auxiliary reports only
+ * wait for session accounting, never for keyboard format or tap intervals. */
+bool era_hid_report_interval_endpoint_allowed_i(const void *endpoint, const uint8_t *data) {
+    bool keyboard = endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD];
+#    if defined(SHARED_EP_ENABLE)
+    bool shared = endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_SHARED];
+    if (shared && data[0] == REPORT_ID_NKRO) keyboard = true;
+#    else
+    bool shared = false;
+    (void)data;
+#    endif
+    if (!keyboard && !shared) return true;
+    return era_hid_report_interval_session_current() &&
+           (!keyboard || (era_hid_protocol_events == era_hid_protocol_seen &&
+                          era_hid_format == era_hid_report_interval_current_format()));
 }
 
 /* --- the requester's entry: QMK's host layer ----------------------------- */
@@ -114,34 +165,33 @@ void host_keyboard_delay(uint16_t delay_ms) {
 /* --- the unit's sink ------------------------------------------------------ */
 
 bool era_hid_report_interval_platform_post(uint8_t lane, const uint8_t *data, uint8_t size) {
-    usb_endpoint_in_lut_t lut      = era_hid_report_interval_lut_of(lane);
-    usb_endpoint_in_t    *endpoint = &usb_endpoints_in[lut];
-    bool                  room;
-
-    osalSysLock();
-    /* A queue that timed out is one the host is not reading; posting to it is
-       the driver's own drop-and-reset path, which is better than holding the
-       backlog for a host that will not come back. */
-    room = usbGetDriverStateI(&USB_DRIVER) == USB_ACTIVE && (!obqIsFullI(&endpoint->obqueue) || endpoint->timed_out);
-    osalSysUnlock();
-    if (!room) {
-        return false;
-    }
-    /* With room, send_report() returns without waiting. Its own failure path
-       is the driver's existing one: the report is gone with the queue, as it
-       would have been on the direct path, so the entry is consumed. */
-    (void)send_report(lut, (void *)data, size);
-    return true;
+    return send_report(era_hid_report_interval_lut_of(lane), (void *)data, size);
 }
-
 /* --- the per-pass service, from the ERA class skeleton ------------------- */
 
-void era_hid_report_interval_service(void) {
-    if (!era_hid_report_interval_active()) {
-        return;
-    }
+bool era_hid_report_interval_select_format(uint8_t format) {
     era_hid_report_interval_ensure_ready();
-    era_hid_report_interval_task(era_hid_report_interval_now());
+    uint32_t events = era_hid_protocol_events;
+    if (format == era_hid_format && events == era_hid_protocol_seen) return false;
+    era_hid_report_interval_format_edge();
+    era_hid_format = format; era_hid_protocol_seen = events;
+    return true;
 }
-
+void era_hid_report_interval_service(void) {
+    era_hid_report_interval_ensure_ready();
+    bool active;
+    osalSysLock();
+    active = usbGetDriverStateI(&USB_DRIVER) == USB_ACTIVE &&
+             !bqIsSuspendedX(&usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD].obqueue);
+    osalSysUnlock();
+    if (!active) return;
+    if (era_hid_report_interval_select_format(era_hid_report_interval_current_format())) era_hid_reopen = true;
+    if (era_hid_report_interval_active()) era_hid_report_interval_task(era_hid_report_interval_now());
+    osalSysLock();
+    bool reopen = era_hid_reopen;
+    era_hid_reopen = false;
+    osalSysUnlock();
+    if (reopen) force_send_keyboard_report();
+    era_usb_auxiliary_reports_task();
+}
 #endif /* ERA_HID_REPORT_INTERVAL_ENABLE */

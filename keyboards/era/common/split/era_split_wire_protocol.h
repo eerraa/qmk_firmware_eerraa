@@ -127,6 +127,14 @@ typedef enum {
     /* 6 was DUAL_HOST; the value stays retired so the diagnostic `rsp` kind
        numbering in captured logs keeps its meaning. */
     ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP = 7,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT = 8,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT_RSP = 9,
+    ERA_SPLIT_WIRE_PAYLOAD_FLOW_QUERY = 10,
+    ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP = 11,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE = 12,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE_RSP = 13,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND = 14,
+    ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP = 15,
 } era_split_wire_payload_kind_t;
 
 #define ERA_SPLIT_WIRE_HOST_PEER_CLASS 0x20

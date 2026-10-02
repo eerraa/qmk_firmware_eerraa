@@ -1,96 +1,99 @@
 # ERA HOST-PEER Matrix Contract
 
 Genre: contract
-Canonical for: HOST-PEER latest-state matrix source semantics, the Core0/Core1
-handoff boundary, HOST cache/projection ownership, relation invalidation, and
-the accepted coalescing class
+Canonical for: bounded HOST-PEER debounced snapshot history, separate latest
+state, input acceptance and execution lifetime, and fallback convergence
 
-Route grants, cadence, standing-exchange preemption, and source-push response
-carrier rules are owned by `era_route_contract.md`. MATRIX payload shape,
-packing width, and section eligibility are owned by `era_wire_contract.md`.
-`matrix_ready` and HOST admission are owned by `era_authority_contract.md`.
-Core1 lifetime/ownership and the rule that transport does not produce HID are
-owned by `era_invariants.md`. Source locations are indexed by
-`era_source_map.md`.
-
-`split/era_host_peer_source_snapshot.c` is a render-state producer for visual
-baseline/RGB. It is not this matrix source and may not write key-input state.
+Wire bodies and schema are owned by `era_wire_contract.md`; route priority,
+FLOW and actual standing-stop recovery by `era_route_contract.md`; authority
+admission by `era_authority_contract.md`; thread ownership by
+`era_invariants.md`. Render snapshots in `split/era_host_peer_source_snapshot.c`
+never write key-input state.
 
 ## Source, cache, and projection
 
-This lane is a latest-state snapshot lane, not an input-event log.
+`system/era_rp2040_matrix_core.c` publishes copied debounced local rows into
+`split/era_split_input.c`. The PEER keeps bounded full snapshots and a separate
+latest value. Wire DELTA batches and FULL fallback do not change that internal
+snapshot meaning. A snapshot's simultaneous changes are never split into
+separate groups, and collection never intentionally waits to fill a batch.
 
-| State | Owner | Required boundary |
-| --- | --- | --- |
-| PEER source snapshot | `system/era_rp2040_matrix_core.c` — `era_matrix_engine_publish_local_snapshot_if_needed()` | Publish only a copied debounced local matrix snapshot. A snapshot that has not been acknowledged remains due; a later local change may replace it with the newer snapshot. |
-| Core0 publication | `split/era_host_peer_matrix_link.c` and `split/scheduler/era_split_transport_scheduler_routes.c` | Capture an immutable request before Core1 owns it. The request record and its fields are canonical in `split/communication_core/era_split_communication_core_initiator.h`. |
-| Core1 initiator execution | `split/communication_core/era_split_communication_core_host_peer_lanes.c` | Core1 may encode/transact only from the immutable request. It must not read the live matrix engine or live scan rows. |
-| HOST responder cache | `split/communication_core/era_split_communication_core_responder_service.c`, then `system/era_rp2040_matrix_core.c` | Admit only under the authority/storage rules, copy the received matrix into the dedicated result before ACK, publish that result after the send, and let Core0 consume only a current-generation result. |
-| HOST projection | `system/era_rp2040_matrix_core.c` — `era_matrix_engine_sync_peer_projection()` | Only the matrix engine may copy a valid HOST cache into peer/composed rows. Invalid cache or leaving HOST mode clears the projection. Transport never injects HID. |
+The sender preserves up to 18 snapshots whose oldest included born-to-actual-TX
+age is less than 24 ms. An immutable pending request keeps its original born
+deadline and logical identity across input-only ACK misses. The Core1 lane
+checks that deadline, producer generation, owner/relation and standing stop
+immediately before TX. Enqueue freshness is a different budget.
 
-Exact sequence fields, cache flags, ring sizes, record members, and counter names
-are implementation facts at those source owners. They are not a second contract
-surface here.
+Core1 accepts up to two packets in a three-slot SPSC ring. All groups in a
+packet share its acceptance time, and each must be claimed less than 4 ms
+later. Capacity is reserved before validation/copy/shadow/receipt and
+release-publication, which precede ACK. An exact duplicate compares logical
+identity and complete body without the control byte; it does not enqueue,
+XOR or refresh age. The receipt survives consumption and ACK transmission
+failure. A mismatching body ends the input epoch.
 
-A failed or lost source-push must not retire the pending latest snapshot. A
-successful result may retire only the immutable snapshot represented by that
-request; if a newer snapshot appeared while it was in flight, the newer state
-remains due.
+The receiver's baseline uses a separate double-buffer mailbox, with at most
+one unretired publication. Core0 publishes applied or retired-not-applied
+before its storage may be reused. A retired baseline cannot be resurrected by
+an identical RESET. Packets retain the read pin until the entire synchronous
+claimed action pass finishes. Version, gate and age are checked again just
+before claim; a reset before claim rejects it, while reset after claim lets
+that group finish and invalidates later work. Input pins do not hold the
+runtime response-plan generation or block general-result draining.
 
-> **REFUSED:** Core1 reading live matrix state or building a source-push from
-> scan-owned rows.
-> **WHY:** Core0 must hand off an immutable snapshot; otherwise the next scan can
-> mutate the input while Core1 is encoding or transmitting it.
-> **REOPENS:** a handoff whose lifetime makes the source immutable for the whole
-> Core1 ownership interval.
+Only `split/era_split_input_qmk.c` admits a snapshot into the matrix engine's
+cache/projection at the beginning of the action pass. It computes all changes
+against actual `matrix_previous` before projection or action side effects.
+Admission requires `remote queued + changes <= P`, with P equal to half-matrix
+positions (66 on TOMAK), and HID capacity. QMK retains one waiting FIFO with
+local quota 7 plus HP remote quota P; origin is captured before swap-hands and
+retained through enqueue, pop and clear. FULL and RESET have no partial
+consumption. A fresh baseline conservatively requires remote queued count 0.
 
-## Response and packing boundaries
+## Invalidation and convergence
 
-MATRIX source-push uses the carrier and section policy in
-`era_wire_contract.md` and `era_route_contract.md`. The response is a bare
-control ACK with no response sections. The Core1 lane diagnostics must continue
-to make any non-empty response summary observable; the exact diagnostic fields
-are source-owned by
-`split/communication_core/era_split_communication_core_host_peer_lanes.c`.
+History full/expired, HID first overflow, receiver expiry, role/USB/storage
+closure and input RESET close future history claims. They do not delete work
+already accepted into QMK or a mixed local/remote HID prefix. Relationship
+closure releases are themselves admitted as a complete group under the same
+remote quota; they cannot overflow QMK by clearing projection outside that
+seam. Local/tick/TD/HID work keeps progressing while capacity is unavailable.
+A suspended HOST can request remote wake from pending input without admitting
+it into action or advancing `matrix_previous`.
 
-Bit packing, reserved-bit rejection, and the matrix body width are implemented
-by `split/era_split_matrix_frame.c` and specified by `era_wire_contract.md`.
-This contract adds no second field list.
+Ordinary terminal recovery captures latest into a new, strictly increasing,
+nonwrapping epoch. Abandoned unconfirmed baselines may leave epoch gaps; a
+terminal/live receiver accepts a strictly newer RESET, while a BIND-bound
+receiver requires its bound epoch. Incarnation changes and epoch reuse require
+FENCE-A/BIND-B. These boundaries never reuse a live packet/version holder.
 
-## Relation invalidation
+Recovery converges to fresh latest and the last release when changes stop and
+the clock, consumer, finite handlers and link progress. It need not preserve
+edges abandoned outside the bounded history. A source-only ACK miss, input
+expiry or saturation does not rotate the relation, restart storage auditing,
+or produce SYNC/LINK presentation. Actual standing stop keeps its SESSION
+recovery contract.
 
-A HOST-PEER relation flush must invalidate stale peer cache state so the next
-projection sync removes stale projected rows, and it must make the current local
-source eligible for re-publication when one exists. It must not turn relation
-recovery into an event replay or erase the current local matrix source merely
-because the peer relation changed.
+## Preservation limits
 
-The implementation owner is
-`era_matrix_engine_flush_host_peer_relation()` in
-`system/era_rp2040_matrix_core.c`; planner/storage recovery call sites are in
-`split/era_split_transport_scheduler.c`. Exact reset fields and sequence
-values remain source-owned.
+Within the admitted budgets, PEER snapshot order reaches successive action
+passes, including short press/release and multi-key groups. This is bounded
+snapshot history, not an unbounded key-event log. Original hold duration,
+global ordering of both halves, tapping settlement time and USB/OS completion
+are not preserved. QMK time is never rewound. Local quota overflow retains
+QMK's legacy clear-all behavior and can affect already accepted mixed work;
+the remote reservation does not promise to repair local overflow.
 
-## Accepted coalescing class
-
-A press and release that both occur between two successful deliveries may net
-to no matrix state and therefore may be invisible to the HOST. This is an
-accepted consequence of latest-state transport, not a delivery defect.
-
-> **REFUSED:** a guarantee that every press/release edge reaches the HOST on
-> this lane.
-> **WHY:** the contract carries current matrix state, not an event history.
-> **REOPENS:** an explicit event-log carrier with its own ordering and recovery
-> contract.
-
-The same time-window can make a visual baseline show no transient light, but
-visual state is a separate render surface and does not modify this matrix
-contract.
+24/4 ms are implementation bounds, not measured performance guarantees or a
+28 ms end-to-end bound. Timeout, ongoing transactions, QMK drain, tap width,
+USB polling and OS processing remain separate. A nine-group packet requires
+its first claim delay plus eight pass intervals to fit 4 ms. Actual pass and
+USB timings require the device gates in `era_performance_gates.md`.
 
 ## Diagnostics
 
-Diagnostics may establish accepted pushes, ACKs, cache updates, projection
-copies, and transaction outcomes, but they cannot prove how many PEER-side
-changes were coalesced before delivery. Counter definitions live at
-`split/era_host_peer_matrix_link.c` and the matrix engine; interpretation of
-captured wire diagnostics lives in `era_capture_reading.md`.
+Source-owned counters at `split/era_host_peer_matrix_link.c` and the matrix
+engine describe transactions, caches and projections, not every preserved
+edge or host USB completion. Host proof lives in
+`tests/era_split_input_history/` and `tests/era_split_input_qmk/`; physical
+capture interpretation remains in `era_capture_reading.md`.

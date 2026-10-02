@@ -172,6 +172,10 @@ void neutralize_flashing_modifiers(uint8_t active_mods);
 #    define MODS_TO_NEUTRALIZE {MOD_BIT(KC_LEFT_ALT), MOD_BIT(KC_LEFT_GUI)}
 #endif
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+void force_send_keyboard_report(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

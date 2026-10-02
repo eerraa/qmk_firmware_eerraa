@@ -22,6 +22,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "action_tapping.h"
 #include "timer.h"
 #include "keycode_config.h"
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+#    include "usb_device_state.h"
+#endif
 #include <string.h>
 
 extern keymap_config_t keymap_config;
@@ -486,6 +489,17 @@ __attribute__((weak)) void keyboard_report_filter(report_keyboard_t *report) {
     (void)report;
 }
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+static bool era_report_force;
+bool era_hid_report_interval_select_format(uint8_t format);
+void force_send_keyboard_report(void) {
+    bool previous = era_report_force;
+    era_report_force = true;
+    send_keyboard_report();
+    era_report_force = previous;
+}
+#endif
+
 void send_6kro_report(void) {
     keyboard_report->mods = get_mods_for_report();
 
@@ -500,7 +514,11 @@ void send_6kro_report(void) {
     static report_keyboard_t last_report;
 
     /* Only send the report if there are changes to propagate to the host. */
-    if (memcmp(&report, &last_report, sizeof(report_keyboard_t)) != 0) {
+    if (
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+        era_report_force ||
+#endif
+        memcmp(&report, &last_report, sizeof(report_keyboard_t)) != 0) {
         memcpy(&last_report, &report, sizeof(report_keyboard_t));
         host_keyboard_send(&report);
     }
@@ -522,7 +540,11 @@ void send_nkro_report(void) {
     static report_nkro_t last_report;
 
     /* Only send the report if there are changes to propagate to the host. */
-    if (memcmp(&report, &last_report, sizeof(report_nkro_t)) != 0) {
+    if (
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+        era_report_force ||
+#endif
+        memcmp(&report, &last_report, sizeof(report_nkro_t)) != 0) {
         memcpy(&last_report, &report, sizeof(report_nkro_t));
         host_nkro_send(&report);
     }
@@ -534,13 +556,27 @@ void send_nkro_report(void) {
  * FIXME: needs doc
  */
 void send_keyboard_report(void) {
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    uint8_t format = usb_device_state_get_protocol() == USB_PROTOCOL_BOOT ? 0 : 1;
+#    ifdef NKRO_ENABLE
+    if (host_can_send_nkro() && keymap_config.nkro) format = 2;
+#    endif
+    bool previous_force = era_report_force;
+    if (era_hid_report_interval_select_format(format)) era_report_force = true;
+#endif
 #ifdef NKRO_ENABLE
     if (host_can_send_nkro() && keymap_config.nkro) {
         send_nkro_report();
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+        era_report_force = previous_force;
+#endif
         return;
     }
 #endif
     send_6kro_report();
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    era_report_force = previous_force;
+#endif
 }
 
 /**

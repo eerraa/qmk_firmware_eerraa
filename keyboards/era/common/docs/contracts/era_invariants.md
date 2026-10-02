@@ -68,9 +68,20 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   and the inter-core FIFO is reserved by the launch handshake.
 - Before a success response publishes new core0 work, bounded responder-result
   capacity MUST already be reserved. Accepted matrix/source data may not be ACKed
-  before it is stored. Exact duplicate reuse is limited to an already-pending
-  result with the same owner/relation/snapshot/section identity. Capacity source:
-  `split/communication_core/era_split_communication_core_responder_internal.h`.
+  before it is stored. Runtime duplicate result reuse requires an already-pending
+  result with the same owner/relation/snapshot/section identity. Input instead
+  reserves its own packet/baseline capacity, copies and release-publishes before
+  ACK, and retains a receipt even after consumption. Input pins must not block
+  runtime plan publication. First input owner: `split/era_split_input.c`.
+- Forced processor halt does not stop PIO. A new wire owner must reset PIO TX/RX
+  PC, shift/count/divider/FIFOs and partial-frame state before READY. Producer
+  incarnation and epoch reuse additionally require typed FENCE/BIND boundaries;
+  a live packet/baseline holder cannot be overwritten or relabeled.
+- Whole snapshot action admission checks remote quota and HID pressure before
+  projection and any action side effect. Closure releases obey the same rule.
+  Input reset never clears already accepted mixed QMK/HID work. Actual whole
+  USB admission, under the Core0 USB system lock, is the only successful report
+  post; normal shared-endpoint BUSY cannot erase accepted reports.
 - ERA NVM program/erase remains synchronous core0 work and MUST NOT recurse into
   keyboard, matrix, scheduler, or transport execution. Durable-apply and
   maintenance bounds are owned by `era_host_peer_storage_contract.md`.

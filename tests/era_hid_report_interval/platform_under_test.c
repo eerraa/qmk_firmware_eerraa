@@ -44,14 +44,9 @@ bool era_hid_report_interval_platform_post(uint8_t lane, const uint8_t *data, ui
 /* A report the firmware posts directly: the hold question, then the post,
    then the keyboard-class note, exactly as send_keyboard()/send_nkro() do. */
 bool era_test_send_keyboard(uint8_t lane, const uint8_t *data, uint8_t size) {
-    if (era_hid_report_interval_hold(lane, data, size)) {
-        return false;
-    }
-    if (!era_hid_report_interval_platform_post(lane, data, size)) {
-        return false;
-    }
-    era_hid_report_interval_note_keyboard_posted(lane);
-    return true;
+    unsigned before = era_test_post_count;
+    (void)era_hid_report_interval_hold(lane, data, size);
+    return era_test_post_count != before;
 }
 
 /* A mouse or EXTRA report on the shared endpoint: counted, never held. */

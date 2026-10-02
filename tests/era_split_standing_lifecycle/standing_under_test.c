@@ -20,7 +20,7 @@ static era_host_peer_transaction_result_t test_reply;
 static bool test_success;
 static uint16_t rotate_owner, rotate_relation;
 static uint32_t transaction_count;
-static uint8_t last_sections;
+static uint8_t last_sections, last_length, last_op;
 
 void era_test_standing_reset(void) {
     memset(&g_era_split_communication_core_standing_plan, 0, sizeof(g_era_split_communication_core_standing_plan));
@@ -34,7 +34,8 @@ void era_test_standing_reset(void) {
     test_timer.timerawl = 0;
     test_success = true;
     rotate_owner = rotate_relation = 0;
-    transaction_count = last_sections = 0;
+    transaction_count = last_sections = last_length = last_op = 0;
+    era_split_input_source_gate(false, 0, 0);
 }
 
 void era_test_standing_publish(uint16_t owner, uint16_t relation, bool pending, bool enabled) {
@@ -103,7 +104,9 @@ era_split_transaction_engine_result_t era_split_transaction_engine_transact_comp
     (void)direction; (void)seq; (void)expected; (void)alternate;
     (void)window; (void)owner; (void)response; (void)sent; (void)failure;
     ++transaction_count;
-    last_sections = len > 1 ? payload[2] : 0;
+    last_sections = len > 2 ? payload[2] : 0;
+    last_length = len; last_op = len > 1 ? payload[1] : 0;
+    response->payload_len = 2; response->payload[1] = ERA_INPUT_BASELINE_READY;
     if (rotate_relation != 0) {
         // Exactly the live-lease scheduler interleaving: Core0 revokes and
         // republishes while the previous Core1 transaction is still in flight.
@@ -137,3 +140,26 @@ void era_test_standing_visual_reply(void) {
     test_reply.host_source_visual_snapshot_valid = true;
 }
 uint8_t era_test_standing_visual_seq(void) { return g_era_split_communication_core_standing_state.peer_visual_seq; }
+
+void era_test_standing_mode(bool hp, uint16_t period) {
+    test_core = 0;
+    era_split_communication_core_standing_plan_t plan = {0};
+    plan.owner_epoch = 7; plan.relation_generation = 9; plan.enabled = true;
+    plan.poll_period_ms = period; plan.liveness_period_ms = 50;
+    plan.eligible_push_sections = hp ? ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX : 0;
+    (void)era_split_communication_core_publish_standing_plan(&plan);
+}
+bool era_test_standing_at(uint32_t now) { test_timer.timerawl = now; test_core = 1; return era_split_communication_core_standing_service_once(7); }
+uint8_t era_test_standing_last_length(void) { return last_length; }
+uint8_t era_test_standing_last_op(void) { return last_op; }
+void era_test_standing_input_pressure(void) {
+    test_core = 0;
+    era_split_input_source_gate(true, 7, 9);
+    matrix_row_t rows[MATRIX_ROWS_PER_HAND] = {0};
+    era_split_input_source_snapshot(rows, 0);
+    era_split_input_request_t r;
+    for (unsigned i=0;i<3;++i) {
+        if (era_split_input_source_prepare(&r, 0)) era_split_input_source_complete(&r, true, ERA_INPUT_ACCEPTED);
+    }
+    for (unsigned i=0;i<19;++i) { rows[0]=i&1?1:2; era_split_input_source_snapshot(rows, i); }
+}

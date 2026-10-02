@@ -18,7 +18,6 @@ enum {
 };
 
 _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS >= 2U, "ERA responder general result ring is too small.");
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS >= 2U, "ERA responder source result ring is too small.");
 
 era_split_communication_core_responder_snapshot_t g_era_split_communication_core_responder_snapshot;
 volatile uint32_t g_era_split_communication_core_responder_snapshot_publish_seq __attribute__((aligned(4)));
@@ -26,29 +25,10 @@ volatile uint32_t g_era_split_communication_core_responder_snapshot_claim_genera
 era_split_communication_core_responder_result_t g_era_split_communication_core_responder_general_results[ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS];
 volatile uint32_t g_era_split_communication_core_responder_general_read __attribute__((aligned(4)));
 volatile uint32_t g_era_split_communication_core_responder_general_write __attribute__((aligned(4)));
-era_split_communication_core_responder_result_t g_era_split_communication_core_responder_source_results[ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS];
-volatile uint32_t g_era_split_communication_core_responder_source_read __attribute__((aligned(4)));
-volatile uint32_t g_era_split_communication_core_responder_source_write __attribute__((aligned(4)));
-
-static bool era_split_communication_core_responder_ring_has_space(volatile uint32_t *read_index, volatile uint32_t *write_index, uint32_t slots) {
-    __DMB();
-    uint32_t read  = *read_index;
-    uint32_t write = *write_index;
-    __DMB();
-    return era_split_communication_core_responder_ring_next(write, slots) != read;
-}
-
-bool era_split_communication_core_responder_source_push_capacity_available(void) {
-    return era_split_communication_core_responder_ring_has_space(&g_era_split_communication_core_responder_source_read,
-                                                                 &g_era_split_communication_core_responder_source_write,
-                                                                 ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS);
-}
 
 static bool era_split_communication_core_responder_result_ready_internal(void) {
-    return g_era_split_communication_core_responder_general_read != g_era_split_communication_core_responder_general_write ||
-           g_era_split_communication_core_responder_source_read != g_era_split_communication_core_responder_source_write;
+    return g_era_split_communication_core_responder_general_read != g_era_split_communication_core_responder_general_write;
 }
-
 static void era_split_communication_core_responder_sanitize_snapshot(era_split_communication_core_responder_snapshot_t *snapshot) {
     snapshot->owner_gate_ready           = snapshot->owner_gate_ready ? 1 : 0;
     snapshot->session_allowed            = snapshot->session_allowed ? 1 : 0;
@@ -90,7 +70,7 @@ bool era_split_communication_core_publish_responder_snapshot(const era_split_com
 
     era_split_communication_core_init();
     era_split_communication_core_responder_snapshot_t published = *snapshot;
-    published.source_push_slot_available = era_split_communication_core_responder_source_push_capacity_available() ? 1 : 0;
+    published.source_push_slot_available = 0; /* Input packet capacity is Core1-owned. */
     era_split_communication_core_responder_sanitize_snapshot(&published);
     /* The generation is excluded from the comparison, and the exclusion is done
        in place: `published` is this call's own copy and its generation is
@@ -156,33 +136,23 @@ bool era_split_communication_core_responder_result_ready(void) {
     return era_split_communication_core_responder_result_ready_internal();
 }
 
-static bool era_split_communication_core_responder_result_pop(era_split_communication_core_responder_result_t *result, bool source_push) {
-    volatile uint32_t *read_index  = source_push ? &g_era_split_communication_core_responder_source_read : &g_era_split_communication_core_responder_general_read;
-    volatile uint32_t *write_index = source_push ? &g_era_split_communication_core_responder_source_write : &g_era_split_communication_core_responder_general_write;
-    uint32_t slots = source_push ? ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SOURCE_RESULT_SLOTS : ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS;
-    uint32_t read = *read_index;
-    if (read == *write_index) {
-        return false;
-    }
+static bool era_split_communication_core_responder_result_pop(era_split_communication_core_responder_result_t *result) {
+    uint32_t read = g_era_split_communication_core_responder_general_read;
     __DMB();
-    *result = source_push ? g_era_split_communication_core_responder_source_results[read] : g_era_split_communication_core_responder_general_results[read];
+    if (read == g_era_split_communication_core_responder_general_write) return false;
+    *result = g_era_split_communication_core_responder_general_results[read];
     __DMB();
-    *read_index = era_split_communication_core_responder_ring_next(read, slots);
-    if (source_push && *read_index == *write_index) {
-        g_era_split_communication_core.responder_source_push_result_ready = 0;
-    }
+    g_era_split_communication_core_responder_general_read = era_split_communication_core_responder_ring_next(read, ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS);
     g_era_split_communication_core.responder_drain_count++;
     g_era_split_communication_core.responder_last_result_generation = result->snapshot_generation;
-    __DMB();
-    return true;
+    __DMB(); return true;
 }
 
 bool era_split_communication_core_drain_responder_result(era_split_communication_core_responder_result_t *result) {
     if (result == NULL || get_core_num() != 0) {
         return false;
     }
-    return era_split_communication_core_responder_result_pop(result, false) ||
-           era_split_communication_core_responder_result_pop(result, true);
+    return era_split_communication_core_responder_result_pop(result);
 }
 
 bool era_split_communication_core_responder_result_matches_current(const era_split_communication_core_responder_result_t *result) {
