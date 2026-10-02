@@ -68,8 +68,10 @@ receiver requires its bound epoch. Incarnation changes and epoch reuse require
 FENCE-A/BIND-B. These boundaries never reuse a live packet/version holder.
 If only the receiver incarnation closes, typed MISMATCH cancels the source's
 old generation and restarts A/B before a baseline can install. A source
-already waiting for FLOW must also reach this recovery once capacity returns;
-unchanged peer USB facts cannot leave it permanently waiting.
+already waiting for FLOW or idle with held keys must also reach this recovery;
+the closed receiver advertises REBIND in its existing standing answer even
+without new input or changed USB facts. Baseline execution still waits for
+capacity; FENCE/BIND does not claim action capacity.
 
 Recovery converges to fresh latest and the last release when changes stop and
 the clock, consumer, finite handlers and link progress. It need not preserve

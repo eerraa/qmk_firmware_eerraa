@@ -5,12 +5,13 @@
 #include "era_split_wire_protocol.h"
 #include "matrix.h"
 
-/* Schema discovery deliberately refuses the old 0x10 image in both relations.
+/* Exact discovery excludes images without receiver-initiated REBIND support.
  * Input ops have no runtime sections; FLOW substitutes the standing envelope. */
 enum {
-    ERA_INPUT_SESSION = 0x11,
+    ERA_INPUT_SESSION = 0x17,
     ERA_INPUT_FENCE = 0x12, ERA_INPUT_FENCE_RSP = 0x13,
     ERA_INPUT_BIND = 0x14, ERA_INPUT_BIND_RSP = 0x15,
+    ERA_INPUT_REBIND = 0x16, /* standing response: receiver incarnation closed */
     ERA_INPUT_DELTA = 0x22, ERA_INPUT_FULL = 0x23, ERA_INPUT_RESET = 0x24,
     ERA_INPUT_ACCEPTED = 0x25, ERA_INPUT_ACCEPTED_STOP = 0x26,
     ERA_INPUT_WAIT = 0x27, ERA_INPUT_RESET_REQUIRED = 0x28, ERA_INPUT_MISMATCH = 0x29,
@@ -55,6 +56,7 @@ void era_split_input_receiver_gate(bool enabled, uint16_t owner, uint16_t relati
 uint8_t era_split_input_receive(const uint8_t *payload, uint8_t length, uint16_t owner, uint16_t relation, uint32_t now);
 bool era_split_input_control(const uint8_t *payload, uint8_t length, uint16_t owner, uint16_t relation);
 uint8_t era_split_input_receiver_flow(uint32_t now);
+bool era_split_input_receiver_rebind(uint16_t owner, uint16_t relation);
 bool era_split_input_receiver_pending(void);
 bool era_split_input_claim(matrix_row_t *candidate, const matrix_row_t *previous, uint8_t remote_room, bool hid_room, uint32_t now);
 void era_split_input_finish(void);

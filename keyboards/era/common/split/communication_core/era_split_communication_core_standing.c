@@ -609,7 +609,8 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
                                                             payload,
                                                             payload_len,
                                                             tx_seq,
-                                                            flow_query ? ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP : ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK,
+                                                            flow_query ? ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP :
+                                                            hp_input ? ERA_SPLIT_WIRE_PAYLOAD_HP_STANDING_RSP : ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK,
                                                             flow_query ? ERA_SPLIT_WIRE_PAYLOAD_INVALID : ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP,
                                                             ERA_SPLIT_PEER_RESPONSE_WINDOW_MS,
                                                             owner_epoch,
@@ -664,7 +665,7 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         return true;
     }
 
-    if (flow_query) {
+    if (response.kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP) {
         era_split_input_source_flow(response.payload[1], flow_generation);
         if (response.payload_len == 2) { response.kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK; response.payload_len = 1; }
         else { response.kind = ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP; response.payload[1] = ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP; }

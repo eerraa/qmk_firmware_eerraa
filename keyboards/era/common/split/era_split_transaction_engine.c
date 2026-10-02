@@ -298,6 +298,11 @@ bool era_split_transaction_engine_timing_last_completed_route(era_split_transact
 #endif
 
 static bool era_split_transaction_engine_response_kind_matches(era_split_wire_payload_kind_t expected_kind, era_split_wire_payload_kind_t alternate_expected_kind, era_split_wire_payload_kind_t response_kind) {
+    if (expected_kind == ERA_SPLIT_WIRE_PAYLOAD_HP_STANDING_RSP) {
+        return response_kind == ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK ||
+               response_kind == ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP ||
+               response_kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP;
+    }
     return response_kind == expected_kind || (alternate_expected_kind != ERA_SPLIT_WIRE_PAYLOAD_INVALID && response_kind == alternate_expected_kind);
 }
 

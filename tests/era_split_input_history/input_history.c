@@ -192,6 +192,7 @@ static void strict_schema_and_pressure(void) {
     era_split_wire_payload_kind_t kind; uint8_t session[9],len;
     era_split_wire_session_status_t status={.accepted_no_host=true,.matrix_ready=true};
     assert(era_split_wire_encode_session_status(1,&status,session,&len)); assert(session[1]==ERA_INPUT_SESSION);
+    session[1]=0x11; assert(!era_split_wire_classify_payload(session,len,ERA_SPLIT_WIRE_FRAME_LANE_COMPACT,&kind));
     session[1]=0x10; assert(!era_split_wire_classify_payload(session,9,ERA_SPLIT_WIRE_FRAME_LANE_COMPACT,&kind));
     p[1]=ERA_INPUT_FLOW_QUERY; assert(era_split_wire_classify_payload(p,2,ERA_SPLIT_WIRE_FRAME_LANE_COMPACT,&kind));
     assert(!era_split_wire_classify_payload(p,16,ERA_SPLIT_WIRE_FRAME_LANE_COMPACT,&kind));
@@ -220,25 +221,27 @@ static void receiver_lifetime_recovery(void) {
         else {
             era_split_input_receiver_end();
             era_split_input_receiver_capacity(false);
-            assert(era_split_input_receiver_flow(clock_us)==ERA_INPUT_FLOW_RESET);
+            assert(era_split_input_receiver_flow(clock_us)==ERA_INPUT_REBIND);
             era_split_input_receiver_capacity(true);
             status=era_split_input_receiver_flow(clock_us);
-            assert(status==ERA_INPUT_BASELINE_READY);
+            assert(status==ERA_INPUT_REBIND);
             era_split_input_source_flow(status,era_split_input_source_generation());
-            era_split_input_request_t probe=prepare();
-            assert(probe.op==ERA_INPUT_RESET);
-            status=deliver(&probe,2);
-            assert(status==ERA_INPUT_MISMATCH && !claim(66));
-            era_split_input_source_complete(&probe,true,status);
+            assert(era_split_input_source_due(clock_us));
         }
         assert(!era_split_input_source_tx_allowed(&old,7,9,clock_us));
         /* Core1 can sample the replacement generation before Core0 raises
          * the A/B barrier. Its late FLOW cannot end that control install. */
-        era_split_input_source_flow(ERA_INPUT_FLOW_RESET,era_split_input_source_generation());
-        era_split_input_request_t r=prepare(); assert(r.op==ERA_INPUT_FENCE);
+        const uint8_t late[] = {ERA_INPUT_FLOW_RESET, ERA_INPUT_REBIND};
+        era_split_input_request_t r;
+        for (unsigned i=0; i<sizeof(late); ++i) {
+            era_split_input_source_flow(late[i],era_split_input_source_generation());
+            r=prepare(); assert(r.op==ERA_INPUT_FENCE);
+        }
         deliver(&r,3); era_split_input_source_complete(&r,true,0);
-        era_split_input_source_flow(ERA_INPUT_FLOW_RESET,era_split_input_source_generation());
-        r=prepare(); assert(r.op==ERA_INPUT_BIND);
+        for (unsigned i=0; i<sizeof(late); ++i) {
+            era_split_input_source_flow(late[i],era_split_input_source_generation());
+            r=prepare(); assert(r.op==ERA_INPUT_BIND);
+        }
         deliver(&r,4); era_split_input_source_complete(&r,true,0);
         r=prepare(); assert(r.op==ERA_INPUT_RESET && r.epoch==1);
         assert(deliver(&r,5)==ERA_INPUT_ACCEPTED);

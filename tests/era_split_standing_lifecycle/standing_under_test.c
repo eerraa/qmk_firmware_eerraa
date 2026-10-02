@@ -106,7 +106,13 @@ era_split_transaction_engine_result_t era_split_transaction_engine_transact_comp
     ++transaction_count;
     last_sections = len > 2 ? payload[2] : 0;
     last_length = len; last_op = len > 1 ? payload[1] : 0;
-    response->payload_len = 2; response->payload[1] = ERA_INPUT_BASELINE_READY;
+    if (expected == ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP) {
+        response->kind = ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP;
+        response->payload_len = 2; response->payload[1] = ERA_INPUT_BASELINE_READY;
+    } else {
+        response->kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK;
+        response->payload_len = 1;
+    }
     if (rotate_relation != 0) {
         // Exactly the live-lease scheduler interleaving: Core0 revokes and
         // republishes while the previous Core1 transaction is still in flight.

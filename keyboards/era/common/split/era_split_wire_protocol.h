@@ -135,6 +135,8 @@ typedef enum {
     ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE_RSP = 13,
     ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND = 14,
     ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP = 15,
+    /* Transaction expectation only; never produced by the wire classifier. */
+    ERA_SPLIT_WIRE_PAYLOAD_HP_STANDING_RSP = 16,
 } era_split_wire_payload_kind_t;
 
 #define ERA_SPLIT_WIRE_HOST_PEER_CLASS 0x20

@@ -1332,6 +1332,7 @@ _Static_assert(ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS >= 2U * ERA_SPLIT_RESPONDER_SIL
  * fixture. No extra runtime owner or public abstraction is introduced. */
 #include "scheduler/era_split_transport_scheduler_link.inc"
 
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void) {
     era_split_transport_scheduler_ensure_initialized();
 
@@ -1353,6 +1354,7 @@ bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void
     }
     return flushed && restored;
 }
+#endif
 
 /* The clock-free half of the housekeeping gate. Every arm below is an event, a
    latch or a published word, and not one of them needs to know what time it

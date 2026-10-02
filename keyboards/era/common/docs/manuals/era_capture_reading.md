@@ -49,6 +49,16 @@ afterward. Treat the trigger and console output as instrumentation, not as an
 invisible observer. A visual state observed while capturing is therefore not a
 pure counter measurement.
 
+`WIRE_DIAG_2` exercises local communication-core stop, queue reset and owner
+restoration, then captures the result. It is a recovery fault injection, not a
+passive snapshot. Its local success does not prove peer input convergence:
+hold a PEER key across a HOST-side trigger, check the closure and restored held
+state, then release it and check the final release. Also exercise queued input
+and a source waiting for capacity. Recovery uses the same input implementation
+as release builds. A failed local operation still produces a snapshot and must
+not be recorded as a successful reset. The trigger and diagnostic output are
+compiled out when wire diagnostics are disabled.
+
 For an enforced-silence bracket, the frozen state can describe the pre-trigger
 interval, but trigger-counted state may still move because of the capture key.
 Prove "no workload" with an independent work/transfer observation rather than a

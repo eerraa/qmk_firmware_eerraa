@@ -610,7 +610,7 @@ bool era_split_wire_classify_payload(const uint8_t *payload, uint16_t payload_le
         *kind = (era_split_wire_payload_kind_t)(ERA_SPLIT_WIRE_PAYLOAD_INPUT_FENCE + input_op - ERA_INPUT_FENCE);
         return true;
     }
-    if ((input_op >= ERA_INPUT_FLOW_QUERY && input_op <= ERA_INPUT_BASELINE_READY) || input_op == ERA_INPUT_FLOW_END) {
+    if ((input_op >= ERA_INPUT_FLOW_QUERY && input_op <= ERA_INPUT_FLOW_END) || input_op == ERA_INPUT_REBIND) {
         bool query = input_op == ERA_INPUT_FLOW_QUERY || input_op == ERA_INPUT_FLOW_END;
         if (payload_len != 2) {
             if (payload_len < 3 || payload_len > ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN) return false;

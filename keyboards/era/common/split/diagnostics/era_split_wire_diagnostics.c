@@ -1010,15 +1010,18 @@ bool era_split_wire_diagnostics_process_record(uint16_t keycode, keyrecord_t *re
             era_split_wire_diagnostics_communication_core_on_diag();
             era_split_wire_diagnostics_print_snapshot();
             return false;
-        case WIRE_DIAG_2:
+        case WIRE_DIAG_2: {
             /* The two arms that stood beside this one -- a bare queue flush and
                a bare quiesce -- selected on pre-CORE1_FULL stages the build
                system refuses, so neither was reachable in any buildable
                configuration. Both functions they named stay: they are live
                through the scheduler's own callers. */
-            (void)era_split_transport_scheduler_flush_communication_core_for_diagnostics();
+            bool flushed = era_split_transport_scheduler_flush_communication_core_for_diagnostics();
             era_split_wire_diagnostics_print_snapshot();
+            /* Local queue flush/owner restore is not peer input convergence. */
+            uprintf("wire diag local_flush=%u\r\n", (unsigned)flushed);
             return false;
+        }
     }
     return true;
 }

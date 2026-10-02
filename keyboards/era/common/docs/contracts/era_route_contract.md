@@ -399,11 +399,17 @@ producer generation captured before the exchange, so late hints cannot apply
 to a new lifetime. FLOW_END idempotently closes live input; BASELINE_READY
 resumes an unaccepted pending RESET without changing its identity, or permits
 a new epoch after terminal recovery.
-BASELINE_READY is a capacity hint, not an input-incarnation grant. An enabled
-but closed receiver with room lets a waiting source attempt RESET, rejects it
-with typed MISMATCH, and requires FENCE/BIND before accepting the baseline.
-This rare receiver-only lifetime recovery costs one rejected RESET exchange;
-ordinary capacity recovery does not reinstall A/B. A disabled gate stays shut.
+BASELINE_READY advertises room for one fresh baseline in an installed input
+incarnation; it is not a reservation against a later gate/capacity change.
+An admitted HOST whose receiver incarnation is closed instead returns REBIND
+in the existing standing answer, including an idle bare heartbeat's answer.
+The PEER cancels its old producer generation and runs FENCE/BIND then RESET,
+without a deliberately rejected RESET probe. The notice repeats until FENCE/
+BIND installs the incarnation, so a lost answer cannot lose the recovery edge.
+No extra poll, ordinary frame byte or scan-path check is added. Only this
+exceptional bare answer grows by one byte. Ordinary capacity recovery does not
+reinstall A/B; a disabled receiver gate cannot request REBIND. Late FLOW cannot
+interrupt FENCE/BIND, even if it sampled the newly published source generation.
 
 Before an input TX, Core1 services one due standing slot at the frame boundary,
 then constructs input control sequence and rechecks born deadline, owner,

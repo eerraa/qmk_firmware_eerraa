@@ -187,6 +187,15 @@ bool era_split_input_source_prepare(era_split_input_request_t *r, uint32_t now) 
     return true;
 }
 
+static void source_rebind(void) {
+    source_end_history();
+    if (!source.enabled) return;
+    source.phase = SOURCE_FENCE; source.epoch = source.next_record = 1;
+    source.waiting = false;
+    release(&source_barrier, 1);
+    release(&source_flow_wait, 0); release(&source_terminal, 0);
+}
+
 void era_split_input_source_complete(const era_split_input_request_t *r, bool ok, uint8_t status) {
     if (!source.pending_valid || !r || memcmp(r, &source.pending, sizeof(*r))) return;
     if (!ok) return; /* immutable retry, original born deadline */
@@ -194,15 +203,8 @@ void era_split_input_source_complete(const era_split_input_request_t *r, bool ok
     if (r->op == ERA_INPUT_BIND) { source.phase = SOURCE_BASELINE; source.pending_valid = false; release(&source_barrier, 0); return; }
     if (status == ERA_INPUT_WAIT) { source.waiting = true; release(&source_flow_wait, 1); return; }
     if (status == ERA_INPUT_RESET_REQUIRED || status == ERA_INPUT_MISMATCH) {
-        source_end_history();
-        if (status == ERA_INPUT_MISMATCH && source.enabled) {
-            /* The remote incarnation may have ended without a local gate
-             * change. Cancel old producers before installing a new A/B. */
-            source.phase = SOURCE_FENCE; source.epoch = source.next_record = 1;
-            source.waiting = false;
-            release(&source_barrier, 1);
-            release(&source_flow_wait, 0); release(&source_terminal, 0);
-        }
+        if (status == ERA_INPUT_MISMATCH) source_rebind();
+        else source_end_history();
         return;
     }
     if (status != ERA_INPUT_ACCEPTED && status != ERA_INPUT_ACCEPTED_STOP) return;
@@ -225,6 +227,7 @@ static void source_apply_flow(uint8_t status) {
     /* A standing exchange may have sampled the new generation just before
      * the control barrier was published. Its hint cannot cancel A/B. */
     if (!source.enabled || source.phase == SOURCE_FENCE || source.phase == SOURCE_BIND) return;
+    if (status == ERA_INPUT_REBIND) { source_rebind(); return; }
     if (status == ERA_INPUT_FLOW_RESET) { if (source.phase != SOURCE_FRESH) source_end_history(); return; }
     if (status == ERA_INPUT_BASELINE_READY) {
         if (source.phase == SOURCE_BASELINE && source.pending_valid) {
@@ -431,15 +434,19 @@ void era_split_input_receiver_end(void) {
 uint8_t era_split_input_receiver_flow(uint32_t now) {
     if (!receiver.gate_enabled) return ERA_INPUT_FLOW_RESET;
     expire_packets(now);
-    /* BASELINE_READY is capacity to attempt recovery, not an incarnation
-     * grant. CLOSED rejects that RESET with MISMATCH and requires A/B. This
-     * also reaches a source already waiting on FLOW when our gate changed. */
-    if (receiver.state == RX_CLOSED || receiver.state == RX_TERMINAL || receiver.state == RX_BOUND) {
+    if (receiver.state == RX_CLOSED) return ERA_INPUT_REBIND;
+    if (receiver.state == RX_TERMINAL || receiver.state == RX_BOUND) {
         return acquire(&receiver.baseline_room) && !acquire(&receiver.pressure) &&
                acquire(&receiver.baseline_published) == acquire(&receiver.baseline_retired)
                    ? ERA_INPUT_BASELINE_READY : ERA_INPUT_FLOW_RESET;
     }
     return next_slot(acquire(&receiver.write)) == acquire(&receiver.read) ? ERA_INPUT_FLOW_WAIT : ERA_INPUT_READY;
+}
+
+bool era_split_input_receiver_rebind(uint16_t owner, uint16_t relation) {
+    /* Core1's existing standing slot observes the gate even with no input TX.
+     * No timer, scan-path work or normal wire byte is needed for this edge. */
+    return receiver_context(owner, relation) && receiver.state == RX_CLOSED;
 }
 
 bool era_split_input_receiver_pending(void) {

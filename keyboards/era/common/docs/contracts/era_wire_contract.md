@@ -34,7 +34,7 @@ The classifier enum and its numeric slots are source-owned by
 mapping is owned by `era_split_wire_classify_payload()` in
 `split/era_split_wire_payload.c`. This contract keeps only the wire-visible
 classification boundary: an EXT-clear one-byte compact payload is the
-control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x11` with length 9,
+control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x17` with length 9,
 storage uses class `0xE0`, and HOST-PEER uses class `0x20` with ops `0x20` and
 `0x21`. Retired `ERROR_NACK` class `0x40`, the unallocated `0x6x` class, and
 input operations below are strict exact-op bodies; all unassigned operations
@@ -67,8 +67,10 @@ Ops do not encode relation. The `HOST_PEER` envelope name is historical; renamin
 
 ## Bounded input schema
 
-Both halves must discover exact SESSION `0x11`; `0x10` images cannot open HP
-or DH serviced relations. This schema change does not change EEPROM format.
+Both halves must discover exact SESSION `0x17`; earlier `0x10`/`0x11` images
+cannot open HP or DH serviced relations. This excludes a peer that cannot
+interpret REBIND rather than discovering the incompatibility during recovery.
+This schema change does not change EEPROM format.
 Retired classifier kinds 4/6 remain retired. Input op assignments are owned by
 `split/era_split_input.h`; codec and classifier by `split/era_split_input.c`
 and `split/era_split_wire_payload.c`.
@@ -77,6 +79,7 @@ and `split/era_split_wire_payload.c`.
 | --- | --- | --- |
 | `0x12` FENCE-A, `0x13` response | existing SESSION flags and three uint16 facts (9-byte payload total) | HP PEER request / HOST response only |
 | `0x14` BIND-B, `0x15` response | same facts plus nonzero epoch16 (11 total) | HP only, same authority facts as A |
+| `0x16` REBIND | quiet length2 or standing response envelope bodies | HP HOST with closed input incarnation, answering an admitted standing request |
 | `0x22` DELTA | epoch16, first-record16, 1..9 tokens | HP PEER to HOST |
 | `0x23` FULL | epoch16, nonzero record16, packed full rows | HP PEER to HOST |
 | `0x24` RESET | epoch16, record16=0, packed full rows | HP PEER to HOST |
@@ -108,7 +111,11 @@ FLOW substitutes only the standing op. Existing masks, section lengths,
 eligibility, sent shadows and one runtime-response carrier remain unchanged.
 It never carries a MATRIX section. DH cannot originate, admit or execute any
 input/control/FLOW operation even if its parser recognizes the body. Normal
-quiet HP/DH remains bare; input pressure adds one byte each direction.
+quiet HP/DH remains bare; input pressure adds one byte each direction. A closed
+HP receiver may substitute REBIND in the ordinary standing answer without a
+FLOW query; only that exceptional quiet response grows by one byte. Its sections
+still pass through the same standing receive cache. REBIND requires both halves
+to implement this schema; older images that lack it are not a supported pair.
 
 For TOMAK packed9, DELTA K tokens costs K+16 total framed bytes in one
 round trip: one token17, nine tokens25. FULL/RESET costs25; A/B costs48 over
@@ -187,18 +194,18 @@ Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That
 
 ## `SESSION_STATUS`
 
-Compact, EXT set, `payload_len == 9`, byte1 `0x11`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
+Compact, EXT set, `payload_len == 9`, byte1 `0x17`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
 
 ```text
 byte0: control with EXT
-byte1: 0x11
+byte1: 0x17
 byte2: flags
 bytes 3..4: usb_epoch, little-endian
 bytes 5..6: host_open_generation, little-endian
 bytes 7..8: host_close_generation, little-endian
 ```
 
-The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x11` exactly, not any `0x1x` nibble.
+The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x17` exactly, not any `0x1x` nibble.
 
 Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protocol.h`):
 
@@ -209,7 +216,7 @@ Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protoc
 0x08 rate_searched           0x80 bulk_page_supported
 ```
 
-`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x11`, then:
+`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x17`, then:
 
 | Check | Rule |
 | --- | --- |

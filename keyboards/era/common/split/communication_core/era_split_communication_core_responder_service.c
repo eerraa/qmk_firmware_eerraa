@@ -481,12 +481,21 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         era_split_communication_core_release_responder_snapshot(); return true;
     }
     uint8_t flow_response = 0;
+    /* HP-only recovery uses an already granted standing response, including
+     * an idle bare heartbeat. SESSION and input receipts keep their own shape. */
+    if (snapshot.host_matrix_admitted && snapshot.heartbeat_allowed &&
+        (snapshot.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) &&
+        (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_QUERY || frame->kind == ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK ||
+         frame->kind == ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER) &&
+        era_split_input_receiver_rebind(owner_epoch, snapshot.relation_generation)) {
+        flow_response = ERA_INPUT_REBIND;
+    }
     if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_QUERY) {
         if (!(snapshot.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) || !snapshot.heartbeat_allowed) {
             era_split_communication_core_release_responder_snapshot(); return true;
         }
         if (frame->payload[1] == ERA_INPUT_FLOW_END && era_split_input_receiver_enabled()) era_split_input_receiver_end();
-        flow_response = era_split_input_receiver_flow(timer_hw->timerawl);
+        if (!flow_response) flow_response = era_split_input_receiver_flow(timer_hw->timerawl);
         if (frame->payload_len == 2) { frame->kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK; frame->payload_len = 1; }
         else { frame->kind = ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER; frame->payload[1] = ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH; }
     }
