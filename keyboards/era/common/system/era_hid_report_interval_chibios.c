@@ -96,6 +96,19 @@ void era_hid_report_interval_note_keyboard_report_posted(uint8_t endpoint_lut) {
     }
 }
 
+/* Only these endpoints have an owner that retries an unaccepted void output.
+ * RAW and other independent producers keep their existing timed transport. */
+bool era_hid_report_interval_endpoint_owned(const void *endpoint) {
+    if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD]) return true;
+#    if defined(SHARED_EP_ENABLE)
+    if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_SHARED]) return true;
+#    endif
+#    if defined(MOUSE_ENABLE)
+    if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_MOUSE]) return true;
+#    endif
+    return false;
+}
+
 /* Successful whole-buffer admission, USB lock held before posting. */
 void era_hid_report_interval_endpoint_posted_i(const void *endpoint) {
     if (endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_KEYBOARD]) {

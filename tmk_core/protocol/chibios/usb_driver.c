@@ -16,6 +16,7 @@
  * is measured from (keyboards/era/common/system/era_hid_report_interval_chibios.c). */
 void era_hid_report_interval_endpoint_completed_i(const void *endpoint);
 void era_hid_report_interval_endpoint_posted_i(const void *endpoint);
+bool era_hid_report_interval_endpoint_owned(const void *endpoint);
 bool era_hid_report_interval_endpoint_allowed_i(const void *endpoint, const uint8_t *data);
 #endif
 
@@ -264,8 +265,8 @@ bool usb_endpoint_in_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size
     osalDbgCheck((endpoint != NULL) && (data != NULL) && (size > 0U) && (size <= endpoint->config.buffer_size));
 
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
-    if (!buffered) {
-        /* All producers use whole-buffer admission. BUSY never resets a
+    if (!buffered && era_hid_report_interval_endpoint_owned(endpoint)) {
+        /* Producers with retry owners use whole-buffer admission. BUSY never resets a
          * keyboard prefix on the shared endpoint. No waiting, partial write,
          * flush, or timed_out retry is allowed in this critical section. */
         osalSysLock();
