@@ -10,5 +10,5 @@ paths:
 
 Route through `era_active_index.md` rows for **a build selector...**,
 **building or flashing...**, or **any build, build experiment, or artifact
-offered as evidence**, whichever matches the task. Claude-specific environment
-mechanics stay in `CLAUDE.md`.
+offered as evidence**, whichever matches the task. Environment mechanics are
+owned by `.claude/tools/era-sync.sh` and `.claude/tools/era-build.sh`.

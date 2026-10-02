@@ -2,7 +2,6 @@
 paths:
   - "keyboards/era/common/docs/**"
   - "AGENTS.md"
-  - "CLAUDE.md"
   - ".claude/rules/**"
   - "keyboards/era/common/tools/era_doc_refs.py"
   - "hooks/era_commit_check.py"

@@ -9,8 +9,8 @@ keyboard, and the short TOMAK_TKL hardware-acceptance handoff
 From the Windows edit tree the entry point is the host adapter's explicit
 `era-build keyboard:keymap` command, invoked through WSL as shown below. It
 synchronises into the WSL local filesystem before it builds. Installation and
-literal machine paths remain environment and therefore live in the host adapter
-(`CLAUDE.md`); the mandatory automated sequence lives here.
+literal machine paths are owned by `.claude/tools/era-sync.sh` and
+`.claude/tools/era-build.sh`; the mandatory automated sequence lives here.
 
 > **REFUSED:** run `qmk` on Windows, build on the `/mnt/` edit tree, invoke the
 > internal launcher by hand, retry an automation refusal, bypass `era-build`
@@ -80,6 +80,7 @@ Gate semantics and additional validation owed by a change are in
 
 Every ERA RP2040 board flashes as a UF2 mass-storage copy. There is no vendor
 tool and no driver.
+Flashing is an explicit owner action, not an automatic build step.
 
 1. **Enter the bootloader.** Any of: the physical RUN double-tap; the `QK_BOOT`
    keycode; VIA's SYSTEM reset/boot control on a VIA build; or connecting the
