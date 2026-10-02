@@ -82,9 +82,9 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
 
 #ifdef VIA_ENABLE
 void via_init_kb(void) {
+    /* Invalidate before VIA checks its region; matrix_init_kb owns runtime
+       loading for both VIA and default keymaps. */
     era_reset_guard_check();
-    era_board_config_load();
-    era_common_features_init();
 }
 
 /* The one VIA dispatcher. QMK's own via_custom_value_command_kb is weak

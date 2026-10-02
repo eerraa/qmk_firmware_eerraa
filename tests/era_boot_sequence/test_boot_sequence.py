@@ -90,6 +90,18 @@ def launch_unit():
     return c
 
 
+def settings_unit(nonsplit=False):
+    c = (HERE / 'settings.c').read_text()
+    sync = COMMON + 'split/era_split_sync_policy.c'
+    storage = source(COMMON + 'split/era_split_sync_storage.h')
+    policy = source(sync)
+    stripped = re.sub(r'^#(?:include|pragma).*$', '', storage + policy, flags=re.M)
+    c = c.replace('/* SYNC_POLICY */', stripped)
+    board = COMMON + 'system/era_nonsplit_board.c' if nonsplit else BOARD
+    funcs = '' if nonsplit else function(board, 'tomak_init_era_owned_modules')
+    funcs += functions(board, 'matrix_init_kb via_init_kb eeconfig_init_kb')
+    funcs += function(MATRIX, 'matrix_init')
+    return c.replace('/* BOARD_HOOKS */', funcs)
 
 
 
@@ -106,7 +118,19 @@ class BootSequence(unittest.TestCase):
         end = c.index('    return era_split_communication_core_owner_transfer_role', start)
         run_c(c[:start] + c[end:], failure='early_starts == 0')
 
+    def test_default_and_via_settings(self):
+        for nonsplit in (False, True):
+            for via in (False, True):
+                with self.subTest(nonsplit=nonsplit, via=via):
+                    flags = (['-DNONSPLIT'] if nonsplit else []) + (['-DVIA_ENABLE'] if via else [])
+                    run_c(settings_unit(nonsplit), flags)
 
+    def test_missing_default_load_is_detected(self):
+        c = settings_unit()
+        start = c.index('void matrix_init_kb(')
+        before, after = c[:start], c[start:]
+        after = after.replace('tomak_init_era_owned_modules();', '', 1)
+        run_c(before + after, failure='feature_init_calls == 1')
 
 
 

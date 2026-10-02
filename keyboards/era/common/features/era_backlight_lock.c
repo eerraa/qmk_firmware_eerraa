@@ -4,9 +4,9 @@
 /* What this is is at the top of the header. Two boundaries matter here.
  *
  * **Init writes the stored block, never the hardware.** `era_common_features_init()`
- * is reached from `matrix_init_kb()` and `via_init_kb()`, which
- * `keyboard_init()` (`quantum/keyboard.c`) runs at positions 470 and 462 --
- * both *before* `backlight_init()` at 505. So correcting eeconfig here is
+ * is reached from `matrix_init_kb()` and the eeconfig reset hook, both before
+ * `keyboard_init()` (`quantum/keyboard.c`) reaches `backlight_init()`.
+ * So correcting eeconfig here is
  * enough: `backlight_init()` reads what this left and applies it, and nothing
  * touches a PWM driver that has not been started. That is the same ordering
  * trap `era_backlight.c` documents from the other side, answered by not

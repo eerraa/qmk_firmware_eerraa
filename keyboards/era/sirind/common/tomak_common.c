@@ -764,6 +764,9 @@ void eeconfig_init_kb(void) {
 void matrix_init_kb(void) {
     era_reset_guard_check();
     tomak_read_config_from_era_eeprom(&g_tomak_config);
+    /* Runtime settings belong to matrix initialization in every keymap.
+       A later eeconfig reset reloads the newly written defaults separately. */
+    tomak_init_era_owned_modules();
     tomak_host_led_state = host_keyboard_led_state();
     tomak_usb_led_state  = (led_t)usb_device_state_get_leds();
     matrix_init_user();
@@ -771,9 +774,9 @@ void matrix_init_kb(void) {
 
 #ifdef VIA_ENABLE
 void via_init_kb(void) {
+    /* VIA must see invalidation before validating its own storage. Runtime
+       settings are loaded by matrix_init_kb, also on non-VIA builds. */
     era_reset_guard_check();
-    tomak_read_config_from_era_eeprom(&g_tomak_config);
-    tomak_init_era_owned_modules();
 }
 
 // Some helpers for setting/getting HSV
