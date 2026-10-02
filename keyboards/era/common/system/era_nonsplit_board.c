@@ -31,15 +31,9 @@ __attribute__((weak)) void era_board_config_load(void) {}
 
 __attribute__((weak)) void era_board_config_reset(void) {}
 
-/* housekeeping_task_kb is not optional on an ERA board, and owning it here is
-   the point of this file rather than an incidental tidy.
-   era_common_features_task() is the only caller of
-   rp2040_bootloader_double_tap_reset_task() in the tree, so a board that stops
-   calling it never closes the window armed before crt0's copy loops and enters
-   BOOTSEL on every reset, permanently. That used to be a per-board convention
-   carried by a comment in fifteen board files, catchable by no $(error) and no
-   linker ASSERT; with the call in the common layer the failure class does not
-   exist for a board that takes this unit. */
+/* Active-loop services belong to the class skeleton. During QMK's blocking
+   suspend loop, era_usb_session.c carries the double-tap closer instead;
+   neither service depends on a board-specific user hook. */
 void housekeeping_task_kb(void) {
     era_common_features_task();
     era_board_housekeeping_tick();

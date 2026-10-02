@@ -73,6 +73,9 @@
 #include "suspend.h"
 #include "timer.h"
 #include "usb_device_state.h"
+#if defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET) && defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING)
+#    include "bootloader.h"
+#endif
 
 #if defined(PROTOCOL_CHIBIOS)
 #    include <hal.h>
@@ -330,6 +333,11 @@ bool era_usb_session_frames_lost(void) {
  * a future non-split board that wants them fails the link rather than
  * silently losing one of these calls. */
 void suspend_power_down_kb(void) {
+#if defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET) && defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING)
+    /* QMK stops housekeeping while suspended. Continue the same post-init
+       deadline here, including suspend before the first housekeeping pass. */
+    rp2040_bootloader_double_tap_reset_task();
+#endif
     /* A suspended host may cut power; commit an approved write first. */
     era_board_persistence_flush_pending();
 #ifdef ERA_LIGHTING_SLEEP_ENABLE

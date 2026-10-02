@@ -58,6 +58,14 @@ by **What A Change Owes** from the synchronized WSL-local tree. `make test:<targ
 is the QMK host-test entry; referenced Python or shell source-contract checks
 run directly from their test directory.
 
+Boot launch/admission, board runtime-setting initialization and the non-split
+suspend deadline bridge run
+`python3 -m unittest discover -s tests/era_boot_sequence -v`.
+The fixture connects the production QMK/Bootmagic/matrix/scheduler/owner call
+chain with simulated authority and hardware boundaries; its negative controls
+must compile and fail at runtime. Physical RUN windows, first wire baud,
+USB/HID readiness and first LED output still need device evidence.
+
 Build-variant identity is the exception worth spelling out:
 `tests/era_build_variant_rules/test_variant_rules.sh` checks the make-layer
 selection rules, while `common/tools/era_qmk_build.sh` binds the resolved tuple

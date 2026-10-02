@@ -53,8 +53,9 @@ __attribute__((weak)) void era_split_board_post_init(void) {}
 /* housekeeping_task_kb is not optional on an ERA board, and the split flavour
    of that fact is the same one the non-split skeleton carries:
    `era_split_keyboard_task()` calls `era_common_features_task()` first, and
-   that is the only caller of `rp2040_bootloader_double_tap_reset_task()` in the
-   tree. A board .c that stopped calling it never closed the window armed before
+   that services `rp2040_bootloader_double_tap_reset_task()` on split builds,
+   which keep housekeeping running through USB suspend. A board .c that stopped
+   calling it never closed the window armed before
    crt0's copy loops and entered BOOTSEL on every reset, permanently, with
    nothing mechanical able to see the loss. Owning the hook here is what retires
    that failure class for split boards, exactly as

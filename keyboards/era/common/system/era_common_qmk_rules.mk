@@ -31,7 +31,7 @@ include keyboards/era/common/system/era_build_variant_rules.mk
 
 # Read by era_sram_resident_rules.mk, which cannot be taken without this file.
 # The reason is at the refusal there, not here: this file supplies both the
-# other half of the double-tap window and its only closer.
+# other half of the double-tap window and its active/suspended service paths.
 ERA_COMMON_QMK_RULES_INCLUDED := yes
 
 # No ERA image links an allocator (era_invariants.md, the Source Gate), and the

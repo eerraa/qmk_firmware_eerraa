@@ -22,14 +22,14 @@
 # double_tap_armed, which platforms/chibios/bootloaders/rp2040.c declares only
 # under ..._NONBLOCKING -- so without the common layer the build does not
 # compile. Add the NONBLOCKING define by hand and it does, and then the board
-# bricks: the only caller of rp2040_bootloader_double_tap_reset_task() in the
-# tree is era_common_features.c, and with nothing closing the window the magic
+# has no guaranteed closer: era_common_features.c services the active loop,
+# and era_usb_session.c services the non-split suspend loop. Without them magic
 # is never cleared and every physical reset enters BOOTSEL, permanently.
 #
 # One refusal before any compile, naming both files, instead of an undefined
 # identifier in a QMK core file that mentions neither.
 ifneq ($(strip $(ERA_COMMON_QMK_RULES_INCLUDED)), yes)
-    $(error the copy-to-RAM bundle requires keyboards/era/common/system/era_common_qmk_rules.mk, included first from this board post_rules.mk -- it supplies the non-blocking double-tap window this bundle arms, and the only task that closes it)
+    $(error the copy-to-RAM bundle requires keyboards/era/common/system/era_common_qmk_rules.mk, included first from this board post_rules.mk -- it supplies the non-blocking double-tap window this bundle arms and its service paths)
 endif
 
 # The same argument one layer up, and it became reachable on 2026-08-13. Before
@@ -48,7 +48,7 @@ endif
 # shipping an image that bricks. A board that genuinely wants its own hooks
 # copies the skeleton rather than deleting it.
 ifneq ($(strip $(ERA_BOARD_COMMON_ENABLE)), yes)
-    $(error the copy-to-RAM bundle requires ERA_BOARD_COMMON_ENABLE=yes; the class skeleton owns housekeeping_task_kb, which is the only closer of the double-tap window this bundle arms, and an image with the arm and no closer enters BOOTSEL on every reset permanently)
+    $(error the copy-to-RAM bundle requires ERA_BOARD_COMMON_ENABLE=yes; the class skeleton owns housekeeping_task_kb, which closes the double-tap window during active operation)
 endif
 
 MCU_LDSCRIPT = ERA_RP2040_SRAM_RESIDENT

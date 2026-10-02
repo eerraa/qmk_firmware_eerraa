@@ -104,6 +104,14 @@ def settings_unit(nonsplit=False):
     return c.replace('/* BOARD_HOOKS */', funcs)
 
 
+def suspend_unit():
+    c = (HERE / 'suspend.c').read_text()
+    boot = 'platforms/chibios/bootloaders/rp2040.c'
+    c = c.replace('/* DEADLINE */', functions(boot,
+        'rp2040_bootloader_double_tap_reset_disarm rp2040_bootloader_double_tap_reset_task'))
+    c = c.replace('/* HOOK */', function(COMMON + 'system/era_usb_session.c', 'suspend_power_down_kb'))
+    c = c.replace('/* ACTIVE */', function(COMMON + 'system/era_common_features.c', 'era_common_features_task'))
+    return c.replace('/* PROTOCOL */', function('tmk_core/protocol/chibios/chibios.c', 'protocol_pre_task'))
 
 
 class BootSequence(unittest.TestCase):
@@ -132,7 +140,15 @@ class BootSequence(unittest.TestCase):
         after = after.replace('tomak_init_era_owned_modules();', '', 1)
         run_c(before + after, failure='feature_init_calls == 1')
 
+    def test_suspended_deadline_and_resume(self):
+        run_c(suspend_unit())
 
+    def test_missing_suspend_service_is_detected(self):
+        c = suspend_unit()
+        start = c.index('void suspend_power_down_kb(')
+        before, after = c[:start], c[start:]
+        after = after.replace('rp2040_bootloader_double_tap_reset_task();', '', 1)
+        run_c(before + after, failure='magic_location == 0')
 
 
 if __name__ == '__main__':
