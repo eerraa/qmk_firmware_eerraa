@@ -10,6 +10,9 @@ Split Official VIA Guide
 한국어
 ----------------------------------------------------------------------
 
+스톡 VIA는 기본 설정을 지원합니다. 복잡한 고급 편집과 자동 갱신 상태 표시는
+usekb.cc Custom 앱에서 지원합니다.
+
 ■ 공식 VIA 시작
 
 이 릴리스와 같은 메이커·보드 ZIP에 동봉된 JSON을 사용하십시오.
@@ -159,6 +162,8 @@ LINK:
 - Medium: 230400 bps / 2 ms
 - Low: 115200 bps / 4 ms
 
+현재 실행·저장 속도와 적용 결과는 usekb.cc Custom 앱에서 확인하십시오.
+공식 VIA의 LINK 선택값은 적용 완료를 뜻하지 않습니다.
 LINK 값을 고른 뒤 Apply를 사용합니다. 연결된 양쪽 유닛이 합의한 시점에
 함께 속도를 전환하며 키보드 재부팅이나 USB 연결 해제는 하지 않습니다.
 
@@ -194,6 +199,9 @@ CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 10초 안에 모두 켜
 ----------------------------------------------------------------------
 English
 ----------------------------------------------------------------------
+
+Stock VIA supports basic configuration. Use the Custom app at usekb.cc for
+advanced editing and automatically refreshed status.
 
 ■ Starting Official VIA
 
@@ -342,6 +350,8 @@ All three are on by default and cover different parts of what the units share.
 - RGB SYNC: aligns lighting across both units, reactive effects included.
 
 LINK:
+Use the Custom app at usekb.cc to inspect runtime/saved speed and Apply results.
+The stock LINK selection does not confirm completion.
 - High: 460800 bps / 1 ms (default)
 - Medium: 230400 bps / 2 ms
 - Low: 115200 bps / 4 ms

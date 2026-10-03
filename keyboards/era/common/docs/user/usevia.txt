@@ -10,6 +10,9 @@ Official VIA Guide
 한국어
 ----------------------------------------------------------------------
 
+스톡 VIA는 기본 설정을 지원합니다. 복잡한 고급 편집과 자동 갱신 상태 표시는
+usekb.cc Custom 앱에서 지원합니다.
+
 ■ 공식 VIA 시작
 
 이 릴리스와 같은 메이커·보드 ZIP에 동봉된 JSON을 사용하십시오.
@@ -208,6 +211,9 @@ CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 10초 안에 모두 켜
 ----------------------------------------------------------------------
 English
 ----------------------------------------------------------------------
+
+Stock VIA supports basic configuration. Use the Custom app at usekb.cc for
+advanced editing and automatically refreshed status.
 
 ■ Starting Official VIA
 

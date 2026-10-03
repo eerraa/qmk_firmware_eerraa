@@ -195,7 +195,7 @@ class SourceContracts(unittest.TestCase):
         self.assertIn("ERA_SPLIT_LINK_SCAN_DWELL_MS >=", scheduler)
         self.assertRegex(scheduler, r"2U \* \(ERA_SPLIT_SESSION_BOOTSTRAP_BACKOFF_PERIOD_MS \+\s*ERA_SPLIT_PEER_RESPONSE_WINDOW_MS.*\+\s*ERA_SPLIT_AUTHORITY_POLL_PERIOD_MS\)")
 
-    def test_all_six_split_definitions_expose_read_only_local_link_labels(self):
+    def test_stock_link_keeps_controls_without_stale_status_labels(self):
         expected = {
             "id_qmk_split_link_runtime": (64, "Runtime Level"),
             "id_qmk_split_link_stored": (65, "Saved Level"),
@@ -217,13 +217,15 @@ class SourceContracts(unittest.TestCase):
                 for name, (value_id, label) in expected.items():
                     with self.subTest(path=path.name, control=name):
                         found = [c for c in controls if c.get("content") == [name, 9, value_id]]
-                        self.assertEqual(len(found), 1)
-                        self.assertEqual(found[0]["type"], "label")
-                        self.assertEqual(found[0]["label"], label)
-                channels = [tuple(c["content"][1:]) for c in controls
-                            if isinstance(c.get("content"), list) and len(c["content"]) == 3
+                        self.assertEqual(found, [])
+                channels = [tuple(c["content"][1:3]) for c in controls
+                            if isinstance(c.get("content"), list) and len(c["content"]) >= 3
                             and c["content"][1] == 9 and isinstance(c["content"][2], int)]
                 self.assertEqual(len(channels), len(set(channels)))
+                self.assertIn((9, 8), channels)
+                self.assertIn((9, 9), channels)
+                for value_id in (64, 65, 66):
+                    self.assertNotIn((9, value_id), channels)
         self.assertEqual(seen, 6)
         header = source("split/era_split_via_link.h")
         for name, value in (("RUNTIME", 64), ("STORED", 65), ("RESULT", 66)):

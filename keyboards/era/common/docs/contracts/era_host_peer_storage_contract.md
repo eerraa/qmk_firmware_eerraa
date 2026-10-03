@@ -183,7 +183,7 @@ Channel 0 values 88..95 encode hold time as BE16, with response byte 2 `0xD3`;
 Mode replies retain byte 1 `0xD2` and advertise advanced timing in byte 2
 `0xD3`. Existing GET/SET/SAVE, Custom-app controls, State Sync CONFIG publication,
 and ERA_CONFIG replacement/reload cover both records. The official VIA definition
-omits these advanced timing controls under the Tap Dance exception in
+omits these advanced timing controls under the stock support policy in
 `era_invariants.md` **Official VIA Definitions**; the wire and stored records
 remain unchanged.
 

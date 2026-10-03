@@ -199,14 +199,15 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
 
 ## Official VIA Definitions
 
-- Except for advanced Tap Dance configuration, every user-facing feature MUST
-  be usable from stock VIA (usevia.app) with the board's official `*-VIA.json`
-  loaded as a draft definition, without the ERA app. A value stock VIA cannot
-  present well, such as an exact 1 ms term or
-  1 s timeout, may have an app-only control, but the same setting stays
-  reachable through a stock control (a preset dropdown). App-only controls are
-  additive, never the only path outside that Tap Dance exception.
-- Tap Dance is the explicit shared QMK/H7S exception: stock VIA edits only a
+- Stock VIA (usevia.app) keeps the basic controls it can support correctly and
+  simply. Features requiring unsupported behavior, complicated explanations or
+  awkward UI are reduced in official JSON and supported in the Custom app at
+  usekb.cc, with guidance in usevia.txt. Preserve existing wire meanings; equal
+  UI exposure is not a requirement. Stock LINK keeps selection and Apply but
+  omits runtime, saved and result TEXT because they cannot stay current there.
+  Keep their read-only wire handlers for Custom observation; do not restart
+  firmware merely to refresh the stock screen.
+- Tap Dance follows this shared QMK/H7S policy: stock VIA edits only a
   slot already in Legacy mode (0), through its four actions and Term presets.
   Input modes 1/2, independent hold timing and hold-on-other-key settings belong
   to the Custom app at usekb.cc. Stock menus cannot adequately express the
