@@ -67,20 +67,9 @@ enum {
     ERA_VIA_SYSTEM_EEPROM_RESET_MASK     = ERA_VIA_SYSTEM_EEPROM_RESET_0_BIT | ERA_VIA_SYSTEM_EEPROM_RESET_1_BIT | ERA_VIA_SYSTEM_EEPROM_RESET_DONE_BIT,
 };
 
-/* How long a partially confirmed erase stays armed. Measured from the first
- * confirm bit and never extended by the later ones: an idle timeout would let
- * anything that periodically touches one of these value ids hold the window
- * open forever, which is the defect this window exists to close. Ten seconds is
- * generous for three deliberate clicks in the VIA UI, and expiring too early
- * costs only a retry. */
-#ifndef ERA_VIA_SYSTEM_EEPROM_RESET_CONFIRM_WINDOW_MS
-#    define ERA_VIA_SYSTEM_EEPROM_RESET_CONFIRM_WINDOW_MS 10000
-#endif
-
 static uint8_t  eeprom_reset_confirm;
 static bool     eeprom_reset_pending;
 static uint32_t eeprom_reset_requested_ms;
-static uint32_t eeprom_reset_confirm_started_ms;
 #endif
 
 /* The raw-HID quiet stamp, and it is deliberately outside every feature guard.
@@ -295,10 +284,6 @@ void era_via_system_task(void) {
 #endif
 
 #ifdef ERA_EEPROM_CLEAN_ENABLE
-    if (eeprom_reset_confirm != 0 && timer_elapsed32(eeprom_reset_confirm_started_ms) >= ERA_VIA_SYSTEM_EEPROM_RESET_CONFIRM_WINDOW_MS) {
-        eeprom_reset_confirm = 0;
-    }
-
     if (!eeprom_reset_pending) {
         return;
     }
@@ -334,9 +319,6 @@ static bool era_via_system_set_value(uint8_t value_id, uint8_t *value_data, uint
     }
 
     if (value_data[0]) {
-        if (eeprom_reset_confirm == 0) {
-            eeprom_reset_confirm_started_ms = timer_read32();
-        }
         eeprom_reset_confirm |= bit;
         era_via_system_trigger_eeprom_reset_if_confirmed();
     } else {
@@ -409,7 +391,6 @@ void era_via_system_test_reset(void) {
     eeprom_reset_confirm            = 0;
     eeprom_reset_pending            = false;
     eeprom_reset_requested_ms       = 0;
-    eeprom_reset_confirm_started_ms = 0;
 #    endif
 }
 

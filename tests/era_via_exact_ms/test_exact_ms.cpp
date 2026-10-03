@@ -253,6 +253,62 @@ TEST_F(EraViaSystemBoot, EepromCleanStillUsesExistingQuietGateAndSoftReset) {
     EXPECT_EQ(g_reset_count, 0U);
 }
 
+static uint8_t clean_confirm(uint8_t command, uint8_t id, uint8_t value = 0) {
+    uint8_t report[32] = {command, ERA_VIA_SYSTEM_CHANNEL, id, value};
+    EXPECT_TRUE(era_via_system_handle_via_command(report, sizeof(report)));
+    return report[3];
+}
+
+TEST_F(EraViaSystemBoot, EepromConfirmSurvivesDelayAndWrapUntilThirdToggle) {
+    const uint8_t first = ERA_VIA_SYSTEM_EEPROM_RESET_0_VALUE_ID;
+    const uint8_t second = ERA_VIA_SYSTEM_EEPROM_RESET_1_VALUE_ID;
+    const uint8_t third = ERA_VIA_SYSTEM_EEPROM_RESET_DONE_VALUE_ID;
+    clean_confirm(id_custom_set_value, first, 1);
+    set_time(11000U);
+    era_via_system_task();
+    EXPECT_EQ(clean_confirm(id_custom_get_value, first), 1);
+    clean_confirm(id_custom_set_value, second, 1);
+    set_time(UINT32_MAX);
+    era_via_system_task();
+    set_time(20U);
+    era_via_system_task();
+    system_save();
+    EXPECT_EQ(clean_confirm(id_custom_get_value, first), 1);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, second), 1);
+    EXPECT_EQ(g_soft_reset_count, 0U);
+    clean_confirm(id_custom_set_value, third, 1);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, first), 0);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, second), 0);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, third), 0);
+    set_time(1500U);
+    era_via_system_task();
+    EXPECT_EQ(g_soft_reset_count, 1U);
+    clean_confirm(id_custom_set_value, third, 1);
+    system_save();
+    era_via_system_task();
+    EXPECT_EQ(g_soft_reset_count, 1U);
+}
+
+TEST_F(EraViaSystemBoot, EepromConfirmOffCancelsOnlyItsBitAndBootClearsAll) {
+    const uint8_t first = ERA_VIA_SYSTEM_EEPROM_RESET_0_VALUE_ID;
+    const uint8_t second = ERA_VIA_SYSTEM_EEPROM_RESET_1_VALUE_ID;
+    const uint8_t third = ERA_VIA_SYSTEM_EEPROM_RESET_DONE_VALUE_ID;
+    clean_confirm(id_custom_set_value, third, 1);
+    clean_confirm(id_custom_set_value, first, 1);
+    set_time(60000U);
+    era_via_system_task();
+    clean_confirm(id_custom_set_value, first, 0);
+    clean_confirm(id_custom_set_value, second, 1);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, first), 0);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, second), 1);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, third), 1);
+    era_via_system_task();
+    EXPECT_EQ(g_soft_reset_count, 0U);
+    era_via_system_test_reset();
+    EXPECT_EQ(clean_confirm(id_custom_get_value, second), 0);
+    EXPECT_EQ(clean_confirm(id_custom_get_value, third), 0);
+}
+
 /* Production State Sync notification now originates below QMK Core, from the
  * ERA custom EEPROM adapter after durable commit. This host fixture deliberately
  * uses QMK's transient EEPROM instead of the RP2040/NVM adapter, so model that

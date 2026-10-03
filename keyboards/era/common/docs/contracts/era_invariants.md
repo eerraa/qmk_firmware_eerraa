@@ -213,7 +213,7 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
   to the Custom app at usekb.cc. Stock menus cannot adequately express the
   advanced inheritance and timing dependencies; partial editing could change
   their meaning. Official definitions retain a hidden read-only
-  mode GET, show the advanced or unavailable state with the app guidance, and
+  mode GET, show only the app guidance for advanced or unknown modes, and
   expose no mode SET or advanced timing control. They must not reinterpret or
   overwrite advanced slots as Legacy. Existing VIA GET/SET/SAVE wire support
   remains available to the Custom app; no app-specific protocol is introduced.

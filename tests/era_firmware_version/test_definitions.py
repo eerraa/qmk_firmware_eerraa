@@ -253,8 +253,7 @@ def validate_stock_tapdance(definition: dict[str, Any]) -> None:
             labels = [node["content"] for node in visible if node["type"] == "label"]
             assert ["Visit usekb.cc"] in labels, "Custom-app guidance must always be visible"
             states = [node["content"] for node in visible if node.get("label") == "Input mode"]
-            wanted = [] if mode == 0 else [[{1: "After decision", 2: "On press"}.get(mode, "Unavailable")]]
-            assert states == wanted, f"mode {mode}: advanced/unknown status must be visible"
+            assert states == [], f"mode {mode}: only Custom-app guidance is displayed"
 
 
 class EraFirmwareVersionDefinitions(unittest.TestCase):
@@ -315,8 +314,8 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             slot(definition).append({"label": "Hold time", "type": "range", "showIf": "0",
                                      "content": ["id_qmk_tapdance_1_hold_term", 0, 88], "options": [0, 65535]})
 
-        def missing_unknown_status(definition):
-            slot(definition)[:] = [node for node in slot(definition) if node.get("content") != ["Unavailable"]]
+        def unwanted_mode_status(definition):
+            slot(definition).append({"label": "Input mode", "type": "label", "content": ["Unavailable"]})
 
         def missing_guidance(definition):
             slot(definition)[:] = [node for node in slot(definition) if node.get("content") != ["Visit usekb.cc"]]
@@ -331,7 +330,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             slot(definition)[1]["showIf"] += " || {id_qmk_tapdance_1_mode} == 128"
 
         for mutate in (mode_setter, wrong_mode_address, unguarded_legacy, advanced_timing,
-                       missing_unknown_status, missing_guidance, missing_mode_get,
+                       unwanted_mode_status, missing_guidance, missing_mode_get,
                        hidden_parent_menu, unknown_mode_editable):
             broken = copy.deepcopy(original)
             mutate(broken)

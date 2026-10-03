@@ -775,6 +775,12 @@ and `system/era_common_features.c`.
 
 ## Why An EEPROM Clean Is An Agreed Restart
 
+The three VIA confirmation toggles are RAM state without a time limit. SET 0
+clears its own bit; reboot clears all bits. Only setting all three bits requests
+CLEAN and consumes the confirmations. GET and SAVE never complete the sequence.
+Removing a partial-confirmation timeout does not change the clean agreement,
+durability proof or restart gates below.
+
 Act `ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN` 2 in
 `split/era_split_restart_agreement.h`. Rules in `split/era_split_keyboard.c`:
 `requires_confirmation`, `yields_to_storage`, `resets`; user `param_max` 0.
