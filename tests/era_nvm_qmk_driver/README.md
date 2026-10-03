@@ -25,5 +25,11 @@ can be linked to pre-change production sources; no engine implementation is copi
 `era_wl_qmk_driver` links production macro callers, EEPROM adapter, wear-leveling
 and State Sync; only backing storage is mocked. Each packet write failure retains
 all desired bytes, equal CLOSE repairs them, and mixed-domain recovery notifies
-KEYMAP/CONFIG without prematurely closing MACRO. AVR and RP2040 physical receipt
+KEYMAP/CONFIG without prematurely closing MACRO. Cold mounts after every packet
+program cut discard the desired cache and require an incomplete macro marker.
+Consolidation tests cut every physical write and four erase boundaries, remount,
+and retry. They explicitly demonstrate the single-bank limit: an erased old
+image cannot be recovered, and an incomplete consolidated image mounts blank
+on checksum failure. The partial-sector fixture models erased words, not silicon
+erase ordering. AVR and RP2040 physical receipt
 fixtures are described in `tests/era_storage_backends/README.md`.

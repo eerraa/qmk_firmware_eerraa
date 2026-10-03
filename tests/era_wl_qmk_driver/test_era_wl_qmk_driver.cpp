@@ -23,6 +23,7 @@ TEST_F(EraWlQmkDriver, FailedPacketRetainsEveryAcceptedByteUntilDurableRepair) {
     auto before = flash.write_invoke_count();
     nvm_dynamic_keymap_macro_update_buffer(0,chunk.size(),chunk.data());
     auto programs = flash.write_invoke_count() - before;
+    ASSERT_GT(programs,0U);
     for (uint64_t boundary=1; boundary<=programs; ++boundary) {
         SetUp();
         nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
@@ -81,4 +82,105 @@ TEST_F(EraWlQmkDriver, RepairPublishesAllRecoveredDomainsAcrossMacroEnvelope) {
     EXPECT_GT(era_state_sync_config_revision(),1U);
     eeprom_driver_init();
     EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),0x1234);
+}
+
+TEST_F(EraWlQmkDriver, ColdMountAfterEveryPacketCutKeepsMacroUncommitted) {
+    auto &flash = MockBackingStore::Instance();
+    std::array<uint8_t,28> chunk;
+    chunk.fill(0x5A);
+    uint8_t opener=0xFF, close=0, marker;
+    nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
+    auto before=flash.write_invoke_count();
+    nvm_dynamic_keymap_macro_update_buffer(0,chunk.size(),chunk.data());
+    auto programs=flash.write_invoke_count()-before;
+    ASSERT_GT(programs,0U);
+    for (uint64_t cut=1; cut<=programs; ++cut) {
+        SetUp();
+        nvm_dynamic_keymap_update_keycode(0,0,0,0x1234);
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
+        auto stop=flash.write_invoke_count()+cut;
+        flash.set_write_callback([stop](uint64_t count,uint32_t) { return count<stop; });
+        nvm_dynamic_keymap_macro_update_buffer(0,chunk.size(),chunk.data());
+        ASSERT_FALSE(eeprom_persistence_ok()) << cut;
+        flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+        eeprom_driver_init(); // discard the desired cache before any repair
+        ASSERT_TRUE(eeprom_persistence_ok()) << cut;
+        EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),0x1234) << cut;
+        nvm_dynamic_keymap_macro_read_buffer(3294,1,&marker);
+        EXPECT_NE(marker,0) << cut;
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
+        nvm_dynamic_keymap_macro_update_buffer(0,chunk.size(),chunk.data());
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+        ASSERT_TRUE(eeprom_persistence_ok());
+        eeprom_driver_init();
+        std::array<uint8_t,28> actual;
+        nvm_dynamic_keymap_macro_read_buffer(0,actual.size(),actual.data());
+        EXPECT_EQ(actual,chunk) << cut;
+        nvm_dynamic_keymap_macro_read_buffer(3294,1,&marker);
+        EXPECT_EQ(marker,0) << cut;
+    }
+    printf("POWER CUT wear-level macro packet boundaries=%llu\n",(unsigned long long)programs);
+}
+
+TEST_F(EraWlQmkDriver, ColdConsolidationCutsExposeSingleBankRecoveryLimit) {
+    auto &flash=MockBackingStore::Instance();
+    std::array<uint8_t,4096> old_image, desired, actual, blank{};
+    old_image.fill(0x35);
+    desired.fill(0x5A);
+    auto seed_pending = [&]() {
+        SetUp();
+        eeprom_write_block(old_image.data(),(void *)0,old_image.size());
+        ASSERT_TRUE(eeprom_persistence_ok());
+        flash.set_write_callback([](uint64_t,uint32_t) { return false; });
+        eeprom_write_block(desired.data(),(void *)0,desired.size());
+        ASSERT_FALSE(eeprom_persistence_ok());
+        flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+    };
+    seed_pending();
+    auto before=flash.write_invoke_count();
+    eeprom_write_block(desired.data(),(void *)0,desired.size());
+    ASSERT_TRUE(eeprom_persistence_ok());
+    auto programs=flash.write_invoke_count()-before;
+    ASSERT_GT(programs,0U);
+    for (uint64_t cut=1; cut<=programs; ++cut) {
+        seed_pending();
+        auto stop=flash.write_invoke_count()+cut;
+        flash.set_write_callback([stop](uint64_t count,uint32_t) { return count<stop; });
+        eeprom_write_block(desired.data(),(void *)0,desired.size());
+        ASSERT_FALSE(eeprom_persistence_ok()) << cut;
+        flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+        eeprom_driver_init();
+        ASSERT_TRUE(eeprom_persistence_ok()) << cut;
+        eeprom_read_block(actual.data(),(void *)0,actual.size());
+        // The old bank was erased. An incomplete consolidated image fails its
+        // checksum and mounts blank; this backend does not promise old-or-new.
+        EXPECT_EQ(actual,blank) << cut;
+        eeprom_write_block(desired.data(),(void *)0,desired.size());
+        ASSERT_TRUE(eeprom_persistence_ok());
+        eeprom_driver_init();
+        eeprom_read_block(actual.data(),(void *)0,actual.size());
+        EXPECT_EQ(actual,desired) << cut;
+    }
+    // The RP2040 backing allocation spans two 4 KiB erase sectors. Also model
+    // a cut part way through a sector, without claiming silicon erase ordering.
+    for (unsigned erased_words : {0U, 1024U, 2048U, 4096U}) {
+        seed_pending();
+        unsigned visited=0;
+        flash.set_erase_callback([&](uint64_t) { return visited++<erased_words; });
+        flash.set_write_callback([](uint64_t,uint32_t) { return false; });
+        eeprom_write_block(desired.data(),(void *)0,desired.size());
+        ASSERT_FALSE(eeprom_persistence_ok());
+        flash.set_erase_callback([](uint64_t) { return true; });
+        flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+        eeprom_driver_init();
+        ASSERT_TRUE(eeprom_persistence_ok());
+        eeprom_read_block(actual.data(),(void *)0,actual.size());
+        EXPECT_EQ(actual,erased_words==0U ? old_image : blank) << erased_words;
+        eeprom_write_block(desired.data(),(void *)0,desired.size());
+        ASSERT_TRUE(eeprom_persistence_ok());
+        eeprom_driver_init();
+        eeprom_read_block(actual.data(),(void *)0,actual.size());
+        EXPECT_EQ(actual,desired);
+    }
+    printf("POWER CUT wear-level consolidation program=%llu erase=4\n",(unsigned long long)programs);
 }
