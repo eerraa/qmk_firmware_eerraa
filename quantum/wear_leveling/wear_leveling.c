@@ -615,7 +615,10 @@ static wear_leveling_status_t wear_leveling_playback_log(void) {
 /**
  * Wear-leveling initialization
  */
+static bool wear_leveling_pending;
+
 wear_leveling_status_t wear_leveling_init(void) {
+    wear_leveling_pending = false;
     wl_dprintf("Init\n");
 
     // Reset the cache
@@ -662,22 +665,34 @@ wear_leveling_status_t wear_leveling_erase(void) {
 
     // Perform the erase
     bool ret = backing_store_erase();
-    wear_leveling_clear_cache();
+    if (ret) wear_leveling_clear_cache();
 
     // Lock the backing store if we acquired the lock successfully
     if (lock_status == STATUS_SUCCESS) {
         ret &= (wear_leveling_lock() != STATUS_FAILURE);
     }
 
+    wear_leveling_pending = !ret;
     return ret ? WEAR_LEVELING_SUCCESS : WEAR_LEVELING_FAILED;
 }
 
 /**
  * Writes logical data into the backing store. Skips writes if there are no changes to values.
  */
+bool wear_leveling_is_pending(void) { return wear_leveling_pending; }
+
+/* Preserve the rest of an accepted logical write after its physical operation
+ * failed. This is desired RAM state only; equality never grants durability. */
+bool wear_leveling_stage(uint32_t address, const void *value, size_t length) {
+    if (address > WEAR_LEVELING_LOGICAL_SIZE || length > WEAR_LEVELING_LOGICAL_SIZE - address || (length && value == NULL)) return false;
+    memcpy(wear_leveling.cache + address, value, length);
+    wear_leveling_pending = true;
+    return true;
+}
+
 wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *value, size_t length) {
-    wl_assert(address + length <= (WEAR_LEVELING_LOGICAL_SIZE));
-    if (address + length > (WEAR_LEVELING_LOGICAL_SIZE)) {
+    wl_assert(address <= WEAR_LEVELING_LOGICAL_SIZE && length <= WEAR_LEVELING_LOGICAL_SIZE - address);
+    if (address > WEAR_LEVELING_LOGICAL_SIZE || length > WEAR_LEVELING_LOGICAL_SIZE - address) {
         return WEAR_LEVELING_FAILED;
     }
 
@@ -685,11 +700,13 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
     wl_dump(address, value, length);
 
     // Skip write if there's no change compared to the current cached value
-    if (memcmp(value, &wear_leveling.cache[address], length) == 0) {
+    if (!wear_leveling_pending && memcmp(value, &wear_leveling.cache[address], length) == 0) {
         return true;
     }
 
     // Update the cache before writing to the backing store -- if we hit the end of the backing store during writes to the log then we'll force a consolidation in-line
+    bool repair = wear_leveling_pending;
+    wear_leveling_pending = true;
     memcpy(&wear_leveling.cache[address], value, length);
 
     // Unlock the backing store
@@ -700,7 +717,9 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
     }
 
     // Perform the actual write
-    wear_leveling_status_t status = wear_leveling_write_raw(address, value, length);
+    /* A failed append may have advanced the physical log. Rebuild from the
+     * retained desired cache before trusting equality or appending again. */
+    wear_leveling_status_t status = repair ? wear_leveling_consolidate_force() : wear_leveling_write_raw(address, value, length);
     switch (status) {
         case WEAR_LEVELING_CONSOLIDATED:
         case WEAR_LEVELING_FAILED:
@@ -724,6 +743,7 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
         }
     }
 
+    wear_leveling_pending = status == WEAR_LEVELING_FAILED;
     return status;
 }
 
@@ -731,8 +751,8 @@ wear_leveling_status_t wear_leveling_write(const uint32_t address, const void *v
  * Reads logical data from the cache.
  */
 wear_leveling_status_t wear_leveling_read(const uint32_t address, void *value, size_t length) {
-    wl_assert(address + length <= (WEAR_LEVELING_LOGICAL_SIZE));
-    if (address + length > (WEAR_LEVELING_LOGICAL_SIZE)) {
+    wl_assert(address <= WEAR_LEVELING_LOGICAL_SIZE && length <= WEAR_LEVELING_LOGICAL_SIZE - address);
+    if (address > WEAR_LEVELING_LOGICAL_SIZE || length > WEAR_LEVELING_LOGICAL_SIZE - address) {
         return WEAR_LEVELING_FAILED;
     }
 

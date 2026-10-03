@@ -224,13 +224,12 @@ void eeconfig_defer_flush_rgblight(void) {
     rgblight_deferred_timer   = timer_read();
 }
 
-/* Consumed before the synchronous write for the reason the ERA gate's own
- * commit states. A sliced erase can run `matrix_task()` inside this call, but
- * reset actions reached there are held until top-level housekeeping after the
- * write returns; the gate task itself is not re-entered from the gap. */
+/* Consume this approval before the write and re-arm it on a failed receipt.
+ * Persistence does not re-enter the keyboard pass. */
 static void rgblight_deferred_commit(void) {
     rgblight_deferred_pending = false;
     eeconfig_update_rgblight_current();
+    if (!eeprom_persistence_ok()) eeconfig_defer_flush_rgblight();
 }
 
 void eeconfig_flush_rgblight_deferred_task(void) {

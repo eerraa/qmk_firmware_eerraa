@@ -22,3 +22,6 @@
 void eeprom_driver_init(void);
 void eeprom_driver_format(bool erase);
 void eeprom_driver_erase(void);
+/* Cache equality may skip a write only when its durable state is known. */
+bool eeprom_driver_can_skip_write(void);
+void eeprom_driver_note_commit(uint32_t address, size_t length);

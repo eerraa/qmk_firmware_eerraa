@@ -80,8 +80,7 @@ static void era_board_keyboard_channel_save_arm(void) {
 }
 
 /* The pending flag is consumed before the synchronous write and not after.
-   QMK's public EEPROM update API remains void-returning, so this accepted
-   deferred-save behaviour has no result path to retry. ERA NVM itself runs no
+   The common durability receipt re-arms an approved save on failure. ERA NVM runs no
    recursive keyboard pass during a program/erase, so this commit cannot be
    re-entered through a flash-yield callback.
 
@@ -91,8 +90,13 @@ static void era_board_keyboard_channel_save_arm(void) {
    one. */
 static void era_board_keyboard_channel_save_commit(void) {
     era_board_keyboard_save_pending = false;
+    if (!eeprom_begin_transaction()) {
+        era_board_keyboard_channel_save_arm();
+        return;
+    }
     era_common_via_keyboard_channel_save();
     era_board_via_save();
+    if (!eeprom_end_transaction()) era_board_keyboard_channel_save_arm();
 }
 
 static void era_board_keyboard_channel_save_task(void) {

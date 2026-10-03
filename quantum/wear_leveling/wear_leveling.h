@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
+bool wear_leveling_is_pending(void);
+bool wear_leveling_stage(uint32_t address, const void *value, size_t length);
 #include <stdlib.h>
 
 /**

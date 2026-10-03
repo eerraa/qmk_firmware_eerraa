@@ -11,6 +11,7 @@
 #include "process_keycode/process_tap_dance.h"
 #include "timer.h"
 #include "wait.h"
+#include "eeprom.h"
 #include "../storage/era_eeprom_storage.h"
 #ifdef VIA_ENABLE
 #    include "../system/era_state_sync.h"
@@ -206,8 +207,10 @@ static void era_tapdance_sync_state_from_storage(void) {
 }
 
 void era_tapdance_save_config(void) {
+    if (!eeprom_begin_transaction()) return;
     era_eeprom_update_config(&tapdance_storage, ERA_EEPROM_TAP_DANCE_CONFIG_OFFSET, sizeof(tapdance_storage));
     era_eeprom_update_config(&tapdance_timing, ERA_EEPROM_TAP_DANCE_TIMING_OFFSET, sizeof(tapdance_timing));
+    eeprom_end_transaction();
 }
 
 void era_tapdance_init(void) {

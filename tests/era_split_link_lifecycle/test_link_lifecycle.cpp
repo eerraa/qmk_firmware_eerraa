@@ -1122,7 +1122,7 @@ TEST_F(EraSplitLinkLifecycle, StorageAndAnchorWaitAreSilentAndStillGateTheDeadli
 
 TEST_F(EraSplitLinkLifecycle, SlowFlashHasNoProgressAndNoSuccessUntilDurableReturn) {
     agree_pair(1); choose(0,1120);
-    nor().delay_ms=80; nor().check_wire=true; nor().check_receipt=true;
+    nor().delay_ms=160; nor().check_wire=true; nor().check_receipt=true;
     era_split_restart_agreement_task();
     nor().check_receipt=false;
     EXPECT_FALSE(nor().observed_unready); EXPECT_EQ(era_test_link_transition_ms(),1120U);

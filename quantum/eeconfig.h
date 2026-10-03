@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "eeprom.h"
 #include <stddef.h>       // offsetof
 #include "action_layer.h" // layer_state_t
 
@@ -177,8 +178,10 @@ void     eeconfig_init_user_datablock(void);
     static inline void eeconfig_flush_##name(bool force) {              \
         if (force || dirty_##name) {                                    \
             eeconfig_update_##name(&config);                            \
-            eeconfig_post_flush_##name();                               \
-            dirty_##name = false;                                       \
+            if (eeprom_persistence_ok()) {                              \
+                eeconfig_post_flush_##name();                           \
+                dirty_##name = false;                                   \
+            }                                       \
         }                                                               \
     }                                                                   \
     static inline void eeconfig_flush_##name##_task(uint16_t timeout) { \
@@ -199,10 +202,8 @@ void     eeconfig_init_user_datablock(void);
     }
 
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
-/* Consume the pending approval before the synchronous update. The update path
- * reports no completion status; consuming first lets a new approval re-arm the
- * pair without the old flush clearing it on return. The flash-gap re-entry path
- * is canonical in keyboards/era/common/docs/contracts/era_invariants.md. */
+/* Consume the current approval before writing; a failed durability receipt
+ * re-arms it. A later approval must not be cleared by the old flush. */
 // clang-format off
 #    define EECONFIG_QUIET_DEBOUNCE_HELPER_CHECKED(name, config)           \
         static uint8_t  dirty_##name = false;                              \
@@ -233,7 +234,8 @@ void     eeconfig_init_user_datablock(void);
                 dirty_##name = false;                                      \
                 deferred_##name = false;                                   \
                 eeconfig_update_##name(&config);                           \
-                eeconfig_post_flush_##name();                              \
+                if (eeprom_persistence_ok()) eeconfig_post_flush_##name(); \
+                else eeconfig_schedule_deferred_flush_##name();           \
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name##_task(uint16_t timeout) { \

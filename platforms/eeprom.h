@@ -2,8 +2,59 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 
+#include <stdbool.h>
+/* Nested synchronous logical operations; only the outer end is a durability
+ * result. Backends without transactions retain their physical write ordering. */
+bool eeprom_begin_transaction(void);
+bool eeprom_end_transaction(void);
+bool eeprom_persistence_ok(void);
+bool eeprom_transaction_active(void);
+void eeprom_transaction_complete(bool success);
+
 #if defined(__AVR__) && !defined(EEPROM_DRIVER)
 #    include <avr/eeprom.h>
+void eeprom_native_note_result(bool success);
+bool eeprom_prepare_commit(uint8_t *address, uint8_t invalid);
+bool eeprom_commit_byte(uint8_t *address, uint8_t value);
+bool eeprom_commit_failed(void);
+/* avr-libc has a void write API. Verify physical bytes after EEPE clears so
+ * the common durability receipt cannot acknowledge a dropped programming. */
+#    define EEPROM_NATIVE_CHECKED(suffix, type) \
+        static inline void eeprom_checked_write_##suffix(type *p, type value) { \
+            eeprom_write_##suffix(p, value); eeprom_busy_wait(); \
+            eeprom_native_note_result(eeprom_read_##suffix(p) == value); \
+        } \
+        static inline void eeprom_checked_update_##suffix(type *p, type value) { \
+            eeprom_update_##suffix(p, value); eeprom_busy_wait(); \
+            eeprom_native_note_result(eeprom_read_##suffix(p) == value); \
+        }
+EEPROM_NATIVE_CHECKED(byte, uint8_t)
+EEPROM_NATIVE_CHECKED(word, uint16_t)
+EEPROM_NATIVE_CHECKED(dword, uint32_t)
+#    undef EEPROM_NATIVE_CHECKED
+static inline void eeprom_native_verify_block(const void *source, const void *address, size_t length) {
+    const uint8_t *data = source, *target = address;
+    bool ok = true;
+    eeprom_busy_wait();
+    for (size_t i = 0; i < length; ++i) ok = (eeprom_read_byte(target + i) == data[i]) && ok;
+    eeprom_native_note_result(ok);
+}
+static inline void eeprom_checked_write_block(const void *source, void *address, size_t length) {
+    eeprom_write_block(source, address, length);
+    eeprom_native_verify_block(source, address, length);
+}
+static inline void eeprom_checked_update_block(const void *source, void *address, size_t length) {
+    eeprom_update_block(source, address, length);
+    eeprom_native_verify_block(source, address, length);
+}
+#    define eeprom_write_byte eeprom_checked_write_byte
+#    define eeprom_write_word eeprom_checked_write_word
+#    define eeprom_write_dword eeprom_checked_write_dword
+#    define eeprom_write_block eeprom_checked_write_block
+#    define eeprom_update_byte eeprom_checked_update_byte
+#    define eeprom_update_word eeprom_checked_update_word
+#    define eeprom_update_dword eeprom_checked_update_dword
+#    define eeprom_update_block eeprom_checked_update_block
 #else
 #    include <stdint.h>
 #    include <stdlib.h>

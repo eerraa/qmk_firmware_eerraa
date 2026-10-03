@@ -7,6 +7,7 @@
 #include "raw_hid.h"
 #include "keycode_config.h"
 #include "dynamic_keymap.h"
+#include "eeprom.h"
 #include "../storage/era_eeprom_layout.h"
 #include "../storage/era_storage_layout.h"
 
@@ -120,13 +121,32 @@ void era_state_sync_note_config_semantic_commit(uint16_t config_offset, uint16_t
 
 void era_state_sync_config_persist_begin(uint16_t config_offset, uint16_t length) {
     uint16_t mask                 = era_state_sync_config_region_mask(ERA_EEPROM_CONFIG_ADDR + config_offset, length);
-    s_config_active_persist_mask = s_config_pending_persist_mask & mask;
-    s_config_pending_persist_mask &= (uint16_t)~mask;
+    s_config_active_persist_mask |= s_config_pending_persist_mask & mask;
+
+}
+
+void eeprom_transaction_complete(bool success) {
+    if (success) s_config_pending_persist_mask &= (uint16_t)~s_config_active_persist_mask;
+    s_config_active_persist_mask = 0;
 }
 
 void era_state_sync_config_persist_end(void) {
-    s_config_active_persist_mask = 0;
+    if (!eeprom_transaction_active()) eeprom_transaction_complete(eeprom_persistence_ok());
 }
+
+#ifdef EEPROM_WEAR_LEVELING
+void eeprom_driver_note_commit(uint32_t address, size_t length) {
+    uint32_t macro = ERA_STORAGE_DYNAMIC_MACRO_ADDR;
+    uint32_t marker = macro + dynamic_keymap_macro_get_buffer_size() - 1U;
+    if (address < marker + 1U && address + length > macro) {
+        if (address < macro) era_state_sync_note_eeprom_span((uint16_t)address, (uint16_t)(macro - address));
+        if (address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) == 0U) era_state_sync_bump_macro();
+        if (address + length > marker + 1U) era_state_sync_note_eeprom_span((uint16_t)(marker + 1U), (uint16_t)(address + length - marker - 1U));
+        return;
+    }
+    era_state_sync_note_eeprom_span((uint16_t)address, (uint16_t)length);
+}
+#endif
 
 void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     uint32_t keymap_start = ERA_STORAGE_DYNAMIC_KEYMAP_ADDR;

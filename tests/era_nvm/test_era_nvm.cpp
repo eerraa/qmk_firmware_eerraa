@@ -337,7 +337,7 @@ TEST(EraNvm, PhysicalProgramsSplitAtEvery256ByteBoundary) {
     for (uint32_t i = 0; i < data.size(); ++i) data[i] = static_cast<uint8_t>(i + 3U);
     ASSERT_EQ(era_nvm_replace(&rig.nvm, 17U, data.data(), data.size(), ERA_NVM_ORIGIN_LOCAL_QMK), ERA_NVM_RESULT_OK);
     rig.expect_geometry_clean();
-    EXPECT_GE(rig.flash.program_ops.size(), 6U); // header + split payload + trailer + commit
+    EXPECT_EQ(rig.flash.program_ops.size(), 4U); // three body pages + final commit
 }
 
 TEST(EraNvm, LogicalBoundsAreExactly24KiB) {
@@ -358,7 +358,7 @@ TEST(EraNvm, SixteenKiBReplaceIsOneAtomicPageScaleRecord) {
     ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, candidate.data(), candidate.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
     const uint64_t program_count = rig.flash.program_calls - programs_before;
     std::cout << "ERA_NVM_16K_PROGRAM_OPS=" << program_count << std::endl;
-    EXPECT_EQ(program_count, 68U);
+    EXPECT_EQ(program_count, 66U);
     rig.expect_geometry_clean();
 
     ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
@@ -460,7 +460,7 @@ TEST(EraNvm, EveryAppendPhaseFaultLeavesPreviousImageReplayable) {
     ASSERT_EQ(era_nvm_replace(&base.nvm, 77U, &old_value, 1U, ERA_NVM_ORIGIN_LOCAL_QMK), ERA_NVM_RESULT_OK);
     const uint8_t candidate = 0xA5;
 
-    for (uint64_t relative = 1U; relative <= 4U; ++relative) { // header, payload, trailer integrity, final commit
+    for (uint64_t relative = 1U; relative <= 2U; ++relative) { // packed body, final commit
         Rig attempt;
         attempt.flash = base.flash;
         ASSERT_EQ(attempt.mount(), ERA_NVM_RESULT_OK);
@@ -490,7 +490,7 @@ TEST(EraNvm, CommitIsAbsentUntilHeaderPayloadAndIntegrityAreComplete) {
     const uint32_t trailer       = record_start + ((sizeof(era_nvm_record_header_t) + candidate.size() + 3U) & ~3U);
     const uint32_t commit        = trailer + offsetof(era_nvm_record_trailer_t, commit);
 
-    for (uint64_t relative = 1U; relative <= 3U; ++relative) {
+    for (uint64_t relative = 1U; relative <= 1U; ++relative) {
         Rig attempt;
         attempt.flash = base.flash;
         ASSERT_EQ(attempt.mount(), ERA_NVM_RESULT_OK);
@@ -656,7 +656,7 @@ TEST(EraNvm, MacroFinalCommitFailureLeavesMarkerInvalidAndOldDurableImageRecover
     const uint64_t programs_before = rig.flash.program_calls;
     (void)programs_before;
     // The final callback for a 16-KiB append is the four-byte commit authority.
-    rig.flash.fail_program_call = rig.flash.program_calls + 68U;
+    rig.flash.fail_program_call = rig.flash.program_calls + 66U;
     rig.flash.program_fault     = FaultMode::FailBefore;
     uint8_t close = 0U;
     EXPECT_EQ(era_nvm_qmk_write(&rig.nvm, marker, &close, 1U), ERA_NVM_RESULT_IO_ERROR);
@@ -704,7 +704,7 @@ TEST(EraNvm, StockStyleMacroResetStagesChunksAndCommitsWholeDomainOnce) {
         }
     }
     EXPECT_GT(skipped_writes, 1000U); // generic eeprom_update_block skipped almost every zero chunk
-    EXPECT_EQ(rig.flash.program_calls - programs_before_reset, 68U);
+    EXPECT_EQ(rig.flash.program_calls - programs_before_reset, 66U);
 
     ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
     std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> actual{};
@@ -736,7 +736,7 @@ TEST(EraNvm, StockStyleMacroResetCanSkipEveryWriteUntilFinalChunk) {
         }
     }
     EXPECT_EQ(skipped_writes, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES / zeros.size() - 1U);
-    EXPECT_EQ(rig.flash.program_calls - programs_before_reset, 68U);
+    EXPECT_EQ(rig.flash.program_calls - programs_before_reset, 66U);
 
     ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
     std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> actual{};
@@ -787,7 +787,7 @@ TEST(EraNvm, BoundedPowerCutsAtEverySmallAppendProgramBoundaryReplayOld) {
     const uint8_t old_value = 0x14;
     ASSERT_EQ(era_nvm_replace(&base.nvm, 333U, &old_value, 1U, ERA_NVM_ORIGIN_LOCAL_QMK), ERA_NVM_RESULT_OK);
 
-    for (uint64_t cut = 1U; cut <= 4U; ++cut) {
+    for (uint64_t cut = 1U; cut <= 2U; ++cut) {
         Rig attempt;
         attempt.flash = base.flash;
         ASSERT_EQ(attempt.mount(), ERA_NVM_RESULT_OK);

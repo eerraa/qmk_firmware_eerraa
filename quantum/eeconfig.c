@@ -6,6 +6,52 @@
 #include "action_layer.h"
 #include "nvm_eeconfig.h"
 #include "keycode_config.h"
+#include "eeprom.h"
+
+__attribute__((weak)) void eeprom_transaction_complete(bool success) { (void)success; }
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+static uint16_t eeprom_native_depth;
+static bool eeprom_native_failed, eeprom_native_ok = true;
+static bool eeprom_native_commit_rejected;
+void eeprom_native_note_result(bool success) {
+    eeprom_native_ok = success;
+    if (!success) eeprom_native_commit_rejected = true;
+    if (eeprom_native_depth && !success) eeprom_native_failed = true;
+}
+bool eeprom_commit_failed(void) { return eeprom_native_commit_rejected; }
+bool eeprom_prepare_commit(uint8_t *address, uint8_t invalid) {
+    eeprom_native_commit_rejected = false;
+    eeprom_update_byte(address, invalid);
+    return eeprom_persistence_ok();
+}
+bool eeprom_commit_byte(uint8_t *address, uint8_t value) {
+    if (eeprom_native_commit_rejected || !eeprom_persistence_ok()) { eeprom_native_note_result(false); return false; }
+    eeprom_update_byte(address, value);
+    return eeprom_persistence_ok();
+}
+bool eeprom_transaction_active(void) { return eeprom_native_depth != 0U; }
+bool eeprom_persistence_ok(void) { return eeprom_native_ok && (!eeprom_native_depth || !eeprom_native_failed); }
+bool eeprom_begin_transaction(void) {
+    if (eeprom_native_depth == UINT16_MAX) return false;
+    if (eeprom_native_depth++ == 0U) eeprom_native_failed = false;
+    return true;
+}
+bool eeprom_end_transaction(void) {
+    if (!eeprom_native_depth) return false;
+    bool ok = eeprom_persistence_ok();
+    if (--eeprom_native_depth == 0U) { eeprom_native_note_result(ok); eeprom_transaction_complete(ok); }
+    return ok;
+}
+#else
+__attribute__((weak)) bool eeprom_transaction_active(void) { return false; }
+__attribute__((weak)) bool eeprom_begin_transaction(void) { return true; }
+__attribute__((weak)) bool eeprom_end_transaction(void) {
+    eeprom_transaction_complete(true);
+    return true;
+}
+__attribute__((weak)) bool eeprom_persistence_ok(void) { return true; }
+#endif
+static bool eeconfig_init_failed;
 
 #ifdef BACKLIGHT_ENABLE
 #    include "backlight.h"
@@ -68,9 +114,13 @@ __attribute__((weak)) void eeconfig_init_kb(void) {
 }
 
 void eeconfig_init_quantum(void) {
-    nvm_eeconfig_erase();
-
-    eeconfig_enable();
+    eeconfig_init_failed = true;
+    if (!eeprom_begin_transaction()) return;
+    nvm_eeconfig_disable();
+    if (!eeprom_persistence_ok()) { eeprom_end_transaction(); return; }
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    eeprom_busy_wait();
+#endif
 
     debug_config_t debug_config = {0};
     eeconfig_update_debug(&debug_config);
@@ -167,6 +217,9 @@ void eeconfig_init_quantum(void) {
     extern void eeconfig_force_flush_led_matrix(void);
     eeconfig_force_flush_led_matrix();
 #endif // LED_MATRIX_ENABLE
+    /* The validity word follows every default owner, including deferred RGB. */
+    if (eeprom_persistence_ok()) eeconfig_enable();
+    eeconfig_init_failed = !eeprom_end_transaction();
 }
 
 void eeconfig_init(void) {
@@ -182,7 +235,7 @@ void eeconfig_disable(void) {
 }
 
 bool eeconfig_is_enabled(void) {
-    bool is_eeprom_enabled = nvm_eeconfig_is_enabled();
+    bool is_eeprom_enabled = !eeconfig_init_failed && nvm_eeconfig_is_enabled();
 #ifdef VIA_ENABLE
     if (is_eeprom_enabled) {
         is_eeprom_enabled = via_eeprom_is_valid();

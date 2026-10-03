@@ -19,6 +19,9 @@
 
 #include "eeprom_driver.h"
 
+__attribute__((weak)) bool eeprom_driver_can_skip_write(void) { return true; }
+__attribute__((weak)) void eeprom_driver_note_commit(uint32_t address, size_t length) { (void)address; (void)length; }
+
 uint8_t eeprom_read_byte(const uint8_t *addr) {
     uint8_t ret = 0;
     eeprom_read_block(&ret, addr, 1);
@@ -50,30 +53,33 @@ void eeprom_write_dword(uint32_t *addr, uint32_t value) {
 }
 
 void eeprom_update_block(const void *buf, void *addr, size_t len) {
-    uint8_t read_buf[len];
-    eeprom_read_block(read_buf, addr, len);
-    if (memcmp(buf, read_buf, len) != 0) {
-        eeprom_write_block(buf, addr, len);
+    uint8_t read_buf[16];
+    bool changed = !eeprom_driver_can_skip_write();
+    for (size_t offset = 0; offset < len; offset += sizeof(read_buf)) {
+        size_t chunk = len - offset < sizeof(read_buf) ? len - offset : sizeof(read_buf);
+        eeprom_read_block(read_buf, (const uint8_t *)addr + offset, chunk);
+        changed |= memcmp((const uint8_t *)buf + offset, read_buf, chunk) != 0;
     }
+    if (changed || !eeprom_driver_can_skip_write()) eeprom_write_block(buf, addr, len);
 }
 
 void eeprom_update_byte(uint8_t *addr, uint8_t value) {
     uint8_t orig = eeprom_read_byte(addr);
-    if (orig != value) {
+    if (orig != value || !eeprom_driver_can_skip_write()) {
         eeprom_write_byte(addr, value);
     }
 }
 
 void eeprom_update_word(uint16_t *addr, uint16_t value) {
     uint16_t orig = eeprom_read_word(addr);
-    if (orig != value) {
+    if (orig != value || !eeprom_driver_can_skip_write()) {
         eeprom_write_word(addr, value);
     }
 }
 
 void eeprom_update_dword(uint32_t *addr, uint32_t value) {
     uint32_t orig = eeprom_read_dword(addr);
-    if (orig != value) {
+    if (orig != value || !eeprom_driver_can_skip_write()) {
         eeprom_write_dword(addr, value);
     }
 }

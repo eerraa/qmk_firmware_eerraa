@@ -84,6 +84,14 @@ typedef struct {
 
     uint8_t inactive_erase_sector;
 
+    /* Synchronous Core0 edit scope. Reads inside the scope see its candidate;
+     * no keyboard/wire callback runs until commit or rollback has finished. */
+    uint16_t edit_depth;
+    bool     edit_failed;
+    bool     edit_format;
+    uint32_t edit_first;
+    uint32_t edit_end;
+
     era_nvm_macro_mode_t macro_mode;
     bool                 macro_payload_seen;
     uint32_t             macro_reset_scan_cursor;
@@ -111,6 +119,8 @@ typedef struct {
 
 void era_nvm_setup(era_nvm_t *nvm, const era_nvm_flash_t *flash, const era_nvm_config_t *config);
 era_nvm_result_t era_nvm_mount(era_nvm_t *nvm);
+era_nvm_result_t era_nvm_begin(era_nvm_t *nvm);
+era_nvm_result_t era_nvm_end(era_nvm_t *nvm);
 
 era_nvm_state_t era_nvm_state(const era_nvm_t *nvm);
 uint8_t         era_nvm_active_bank(const era_nvm_t *nvm);

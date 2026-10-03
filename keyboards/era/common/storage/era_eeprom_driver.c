@@ -47,6 +47,7 @@ _Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_NVM_DYNAMIC_MACRO_SIZE_BY
 
 static era_nvm_t s_era_eeprom_nvm;
 static bool      s_era_eeprom_ready;
+static bool      s_era_eeprom_write_ok;
 
 static bool era_eeprom_driver_range_valid(uint32_t address, size_t length) {
     return length <= UINT32_MAX && address <= ERA_NVM_LOGICAL_SIZE_BYTES &&
@@ -111,6 +112,7 @@ void eeprom_driver_init(void) {
 
     era_nvm_setup(&s_era_eeprom_nvm, &flash, &config);
     s_era_eeprom_ready = era_nvm_mount(&s_era_eeprom_nvm) == ERA_NVM_RESULT_OK;
+    s_era_eeprom_write_ok = s_era_eeprom_ready;
 }
 
 void eeprom_driver_format(bool erase) {
@@ -130,7 +132,9 @@ void eeprom_driver_erase(void) {
      * being readable; the engine deliberately preserves the old authority on
      * every pre-activation failure. QMK's void erase API cannot report the
      * result, but it must not make valid old public data disappear either. */
-    (void)era_nvm_format(&s_era_eeprom_nvm);
+    era_nvm_result_t result = era_nvm_format(&s_era_eeprom_nvm);
+    s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_STAGED;
+    if (!s_era_eeprom_write_ok) s_era_eeprom_nvm.edit_failed = true;
 }
 
 void eeprom_read_block(void *buf, const void *addr, size_t len) {
@@ -139,6 +143,8 @@ void eeprom_read_block(void *buf, const void *addr, size_t len) {
     }
     if (buf == NULL || !s_era_eeprom_ready ||
         era_nvm_qmk_read(&s_era_eeprom_nvm, (uint32_t)(uintptr_t)addr, buf, len) != ERA_NVM_RESULT_OK) {
+        s_era_eeprom_write_ok = false;
+        if (s_era_eeprom_nvm.edit_depth) s_era_eeprom_nvm.edit_failed = true;
         if (buf != NULL) {
             memset(buf, 0, len);
         }
@@ -146,13 +152,18 @@ void eeprom_read_block(void *buf, const void *addr, size_t len) {
 }
 
 void eeprom_write_block(const void *buf, void *addr, size_t len) {
-    if (len == 0U || buf == NULL || !s_era_eeprom_ready) {
+    if (len == 0U) return;
+    if (buf == NULL || !era_eeprom_driver_ready()) {
+        s_era_eeprom_write_ok = false;
+        s_era_eeprom_nvm.edit_failed = true;
         return;
     }
 
     uint32_t       address = (uint32_t)(uintptr_t)addr;
     const uint8_t *source  = (const uint8_t *)buf;
     if (!era_eeprom_driver_range_valid(address, len)) {
+        s_era_eeprom_write_ok = false;
+        s_era_eeprom_nvm.edit_failed = true;
         return;
     }
 
@@ -167,12 +178,13 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
      * committed-span notifier publishes exactly the changed envelope. No
      * caller buffer is allocated -- the mounted 24-KiB image is already the
      * public comparison source. */
-    if (!era_eeprom_driver_range_touches_macro(address, len)) {
+    if (!s_era_eeprom_nvm.edit_depth && !s_era_eeprom_nvm.tail_sealed && !era_eeprom_driver_range_touches_macro(address, len)) {
         size_t first = 0U;
         while (first < len && s_era_eeprom_nvm.image[address + first] == source[first]) {
             first++;
         }
         if (first == len) {
+            s_era_eeprom_write_ok = true;
             return;
         }
         size_t last = len;
@@ -188,7 +200,32 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
      * particular a failed macro close must keep the public nonzero marker and
      * the previous durable image readable. Let era_nvm_state() decide whether
      * the engine itself is still mounted/ready. */
-    (void)era_nvm_qmk_write(&s_era_eeprom_nvm, address, source, len);
+    era_nvm_result_t result = era_nvm_qmk_write(&s_era_eeprom_nvm, address, source, len);
+    s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
+    if (!s_era_eeprom_write_ok) s_era_eeprom_nvm.edit_failed = true;
+}
+
+bool eeprom_driver_can_skip_write(void) {
+    return era_eeprom_driver_ready() && !s_era_eeprom_nvm.tail_sealed && s_era_eeprom_write_ok;
+}
+
+bool eeprom_begin_transaction(void) {
+    bool ok = era_nvm_begin(&s_era_eeprom_nvm) == ERA_NVM_RESULT_OK;
+    if (ok && s_era_eeprom_nvm.edit_depth == 1U) s_era_eeprom_write_ok = true;
+    return ok;
+}
+
+bool eeprom_transaction_active(void) { return s_era_eeprom_nvm.edit_depth != 0U; }
+
+bool eeprom_end_transaction(void) {
+    era_nvm_result_t result = era_nvm_end(&s_era_eeprom_nvm);
+    s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
+    if (!eeprom_transaction_active()) eeprom_transaction_complete(s_era_eeprom_write_ok);
+    return s_era_eeprom_write_ok;
+}
+
+bool eeprom_persistence_ok(void) {
+    return era_eeprom_driver_ready() && s_era_eeprom_write_ok && (!s_era_eeprom_nvm.edit_depth || !s_era_eeprom_nvm.edit_failed);
 }
 
 bool era_eeprom_driver_ready(void) {

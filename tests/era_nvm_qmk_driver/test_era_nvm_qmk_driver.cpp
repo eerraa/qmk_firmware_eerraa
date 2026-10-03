@@ -13,6 +13,7 @@ extern "C" {
 #undef _Static_assert
 #include "keyboards/era/common/storage/era_nvm_rp2040.h"
 #include "nvm_dynamic_keymap.h"
+#include "via.h"
 #include "quantum.h"
 }
 
@@ -31,6 +32,8 @@ struct FakeNor {
     uint64_t program_calls     = 0;
     uint64_t erase_calls       = 0;
     uint64_t fail_program_call = 0;
+    uint64_t read_calls = 0, fail_read_call = 0, fail_erase_call = 0;
+    bool cut_power = false, powered = true;
 
     FakeNor() {
         bytes.fill(0xFF);
@@ -42,6 +45,8 @@ struct FakeNor {
 
     static bool Read(void *context, uint32_t offset, void *data, size_t length) {
         auto *self = static_cast<FakeNor *>(context);
+        self->read_calls++;
+        if (!self->powered || (self->fail_read_call && self->read_calls == self->fail_read_call)) return false;
         if (length > self->bytes.size() || offset > self->bytes.size() - length) {
             return false;
         }
@@ -52,7 +57,13 @@ struct FakeNor {
     static bool Program(void *context, uint32_t offset, const void *data, size_t length) {
         auto *self = static_cast<FakeNor *>(context);
         self->program_calls++;
+        if (!self->powered) return false;
         if (self->fail_program_call != 0 && self->program_calls == self->fail_program_call) {
+            if (self->cut_power) {
+                const auto *partial = static_cast<const uint8_t *>(data);
+                for (size_t i = 0; i < length / 2; ++i) self->bytes[offset + i] &= partial[i];
+                self->powered = false;
+            }
             return false;
         }
         if (length == 0 || length > ERA_NVM_PROGRAM_PAGE_BYTES || offset > self->bytes.size() - length ||
@@ -74,6 +85,7 @@ struct FakeNor {
     static bool Erase(void *context, uint32_t offset) {
         auto *self = static_cast<FakeNor *>(context);
         self->erase_calls++;
+        if (!self->powered || (self->fail_erase_call && self->erase_calls == self->fail_erase_call)) return false;
         if (offset % ERA_NVM_ERASE_SECTOR_BYTES != 0U || offset > self->bytes.size() - ERA_NVM_ERASE_SECTOR_BYTES) {
             return false;
         }
@@ -125,16 +137,7 @@ extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length
     g_notify_length = length;
 }
 
-extern "C" bool process_record_via(uint16_t, keyrecord_t *) {
-    return true;
-}
-
-extern "C" bool via_eeprom_is_valid(void) {
-    return true;
-}
-
-extern "C" void via_init(void) {}
-extern "C" void eeconfig_init_via(void) {}
+extern "C" void raw_hid_send(uint8_t *, uint8_t) {}
 
 TEST_F(EraNvmQmkDriver, StockReadWriteUpdateUsesReplayableEraNvmAndExactChangedEnvelope) {
     uint8_t initial[4] = {0x11, 0x22, 0x33, 0x44};
@@ -390,9 +393,9 @@ TEST_F(EraNvmQmkDriver, FailedMacroCloseLeavesMarkerNonzeroAndNoMacroPublication
     nvm_dynamic_keymap_macro_update_buffer(0U, 1U, &payload);
     reset_notifications();
 
-    /* A 16-KiB append is 68 page-program callbacks; fail the final commit
+    /* A 16-KiB append is 66 page-program callbacks; fail the final commit
      * authority exactly as Session 1's bounded fault test does. */
-    g_flash.fail_program_call = g_flash.program_calls + 68U;
+    g_flash.fail_program_call = g_flash.program_calls + 66U;
     uint8_t valid = 0;
     nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
 
@@ -436,4 +439,120 @@ TEST_F(EraNvmQmkDriver, CleanPreparePhysicalRecordFailureCannotClaimPrepared) {
     uint16_t replay = 0;
     ASSERT_EQ(era_eeprom_driver_replay_read(0U, &replay, sizeof(replay)), ERA_NVM_RESULT_OK);
     EXPECT_EQ(replay, kMagicOn);
+}
+
+TEST_F(EraNvmQmkDriver, StorageCostEvidence) {
+    const auto start = g_flash.program_calls;
+    nvm_dynamic_keymap_update_keycode(0, 0, 0, 0x1234);
+    const auto key = g_flash.program_calls;
+    std::array<uint8_t, 28> payload;
+    payload.fill(0x5A);
+    nvm_dynamic_keymap_update_buffer(2, payload.size(), payload.data());
+    const auto block = g_flash.program_calls;
+    nvm_dynamic_keymap_update_buffer(2, payload.size(), payload.data());
+    std::printf("COST keycode=%llu buffer28=%llu unchanged=%llu erase=%llu nvm_ram=%zu\n",
+                (unsigned long long)(key-start), (unsigned long long)(block-key),
+                (unsigned long long)(g_flash.program_calls-block),
+                (unsigned long long)g_flash.erase_calls, sizeof(era_nvm_t));
+    EXPECT_EQ(key-start, 2U);
+    EXPECT_EQ(block-key, 2U);
+    EXPECT_EQ(g_flash.program_calls, block);
+}
+
+TEST_F(EraNvmQmkDriver, ProductionBootInitializesOnceAndWarmBootWritesNothing) {
+    const auto programs = g_flash.program_calls;
+    const auto erases = g_flash.erase_calls;
+    keyboard_init();
+    ASSERT_TRUE(eeconfig_is_enabled());
+    era_nvm_diagnostics_t diagnostics;
+    era_eeprom_driver_get_nvm_diagnostics(&diagnostics);
+    printf("COST first_boot_programs=%llu first_boot_erases=%llu\n",
+           (unsigned long long)(g_flash.program_calls - programs), (unsigned long long)(g_flash.erase_calls - erases));
+    EXPECT_EQ(g_flash.program_calls - programs, 99U);
+    auto after = g_flash.program_calls;
+    eeprom_driver_init();
+    keyboard_init();
+    EXPECT_EQ(g_flash.program_calls, after);
+    EXPECT_TRUE(eeconfig_is_enabled());
+}
+
+TEST_F(EraNvmQmkDriver, NestedScopeHasOneDurablePublicationAndRetry) {
+    uint8_t old = 0x13, next = 0x57;
+    eeprom_update_byte((uint8_t *)100, old);
+    reset_notifications();
+    auto before = g_flash.program_calls;
+    ASSERT_TRUE(eeprom_begin_transaction());
+    eeprom_update_byte((uint8_t *)100, next);
+    ASSERT_TRUE(eeprom_begin_transaction());
+    eeprom_update_byte((uint8_t *)101, next);
+    ASSERT_TRUE(eeprom_end_transaction());
+    EXPECT_EQ(g_flash.program_calls, before);
+    EXPECT_EQ(g_notify_count, 0U);
+    g_flash.fail_program_call = before + 2U;
+    EXPECT_FALSE(eeprom_end_transaction());
+    EXPECT_EQ(eeprom_read_byte((uint8_t *)100), old);
+    EXPECT_EQ(g_notify_count, 0U);
+    g_flash.fail_program_call = 0U;
+    ASSERT_TRUE(eeprom_begin_transaction());
+    eeprom_update_byte((uint8_t *)100, next);
+    eeprom_update_byte((uint8_t *)101, next);
+    ASSERT_TRUE(eeprom_end_transaction());
+    EXPECT_EQ(g_notify_count, 1U);
+    eeprom_driver_init();
+    EXPECT_EQ(eeprom_read_byte((uint8_t *)100), next);
+    EXPECT_EQ(eeprom_read_byte((uint8_t *)101), next);
+}
+
+TEST_F(EraNvmQmkDriver, FactoryCommitFaultMatrixKeepsOldOrCompleteDefaults) {
+    eeconfig_init();
+    ASSERT_TRUE(eeconfig_is_enabled());
+    nvm_dynamic_keymap_update_keycode(0, 0, 0, 0x1234);
+    const FakeNor seed = g_flash;
+    auto p = g_flash.program_calls, r = g_flash.read_calls, e = g_flash.erase_calls;
+    eeconfig_init();
+    const auto programs = g_flash.program_calls - p, reads = g_flash.read_calls - r, erases = g_flash.erase_calls - e;
+    for (unsigned mode = 0; mode < 4; ++mode) {
+        uint64_t count = mode < 2 ? programs : mode == 2 ? reads : erases;
+        for (uint64_t boundary = 1; boundary <= count; ++boundary) {
+            g_flash = seed;
+            eeprom_driver_init();
+            if (mode < 2) { g_flash.fail_program_call = g_flash.program_calls + boundary; g_flash.cut_power = mode == 1; }
+            if (mode == 2) g_flash.fail_read_call = g_flash.read_calls + boundary;
+            if (mode == 3) g_flash.fail_erase_call = g_flash.erase_calls + boundary;
+            eeconfig_init();
+            EXPECT_FALSE(eeprom_persistence_ok()) << mode << ':' << boundary;
+            g_flash.powered = true;
+            g_flash.fail_program_call = g_flash.fail_read_call = g_flash.fail_erase_call = 0U;
+            eeprom_driver_init();
+            ASSERT_TRUE(era_eeprom_driver_ready());
+            auto recovered = nvm_dynamic_keymap_read_keycode(0, 0, 0);
+            EXPECT_TRUE(recovered == 0x1234 || recovered == KC_NO) << mode << ':' << boundary;
+            if (recovered == KC_NO) EXPECT_TRUE(via_eeprom_is_valid());
+            eeconfig_init();
+            ASSERT_TRUE(eeconfig_is_enabled());
+            EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0, 0, 0), KC_NO);
+        }
+    }
+    printf("FAULT factory programs=%llu reads=%llu erases=%llu (plus torn-program power cuts)\n",
+           (unsigned long long)programs, (unsigned long long)reads, (unsigned long long)erases);
+}
+
+TEST_F(EraNvmQmkDriver, ScopeEnvelopeCannotCommitAnUnrelatedOpenMacro) {
+    uint8_t open = 0xFF, payload = 0x7A;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &open);
+    nvm_dynamic_keymap_macro_update_buffer(0U, 1U, &payload);
+    ASSERT_TRUE(eeprom_begin_transaction());
+    eeprom_update_byte((uint8_t *)100, 0x37);
+    eeprom_update_byte((uint8_t *)(uintptr_t)(kMacroMarker + 1U), 0x38);
+    EXPECT_FALSE(eeprom_end_transaction());
+    EXPECT_TRUE(era_eeprom_driver_macro_transaction_open());
+    EXPECT_EQ(eeprom_read_byte((uint8_t *)100), 0U);
+    uint8_t staged;
+    nvm_dynamic_keymap_macro_read_buffer(0U, 1U, &staged);
+    EXPECT_EQ(staged, payload);
+    uint8_t closed = 0;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &closed);
+    EXPECT_FALSE(era_eeprom_driver_macro_transaction_open());
+    eeprom_driver_init();
+    EXPECT_EQ(eeprom_read_byte((uint8_t *)(uintptr_t)kMacroAddress), payload);
 }

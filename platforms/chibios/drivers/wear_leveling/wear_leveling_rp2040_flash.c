@@ -187,6 +187,8 @@ bool backing_store_erase(void) {
     restore_interrupts(interrupts);
 
     bs_dprintf("Backing store erase took %ldms to complete\n", ((long)(timer_read32() - start)));
+    const uint8_t *erased = (const uint8_t *)(XIP_BASE + WEAR_LEVELING_RP2040_FLASH_BASE);
+    for (uint32_t i = 0; i < WEAR_LEVELING_BACKING_SIZE; ++i) if (erased[i] != 0xFFU) return false;
     return true;
 }
 
@@ -201,6 +203,8 @@ bool backing_store_write_bulk(uint32_t address, backing_store_int_t *values, siz
     interrupts = save_and_disable_interrupts();
     pico_program_bulk(offset, values, item_count);
     restore_interrupts(interrupts);
+    const backing_store_int_t *stored = (const backing_store_int_t *)(XIP_BASE + offset);
+    for (size_t i = 0; i < item_count; ++i) if ((backing_store_int_t)~stored[i] != values[i]) return false;
     return true;
 }
 

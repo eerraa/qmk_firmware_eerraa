@@ -31,6 +31,7 @@
 #include "raw_hid.h"
 #include "dynamic_keymap.h"
 #include "eeconfig.h"
+#include "nvm_eeconfig.h"
 #include "matrix.h"
 #include "timer.h"
 #include "wait.h"
@@ -112,12 +113,15 @@ void via_init(void) {
 
     // If the EEPROM has the magic, the data is good.
     // OK to load from EEPROM.
-    if (!via_eeprom_is_valid()) {
+    if (!nvm_eeconfig_is_enabled()) {
+        eeconfig_init();
+    } else if (!via_eeprom_is_valid()) {
         eeconfig_init_via();
     }
 }
 
 void eeconfig_init_via(void) {
+    if (!eeprom_begin_transaction()) return;
     // Erase any NVM storage if necessary
     nvm_via_erase();
     // set the magic number to false, in case this gets interrupted
@@ -129,7 +133,8 @@ void eeconfig_init_via(void) {
     // This resets the macros in EEPROM to nothing.
     dynamic_keymap_macro_reset();
     // Save the magic number last, in case saving was interrupted
-    via_eeprom_set_valid(true);
+    if (eeprom_persistence_ok()) via_eeprom_set_valid(true);
+    (void)eeprom_end_transaction();
 }
 
 // This is generalized so the layout options EEPROM usage can be
@@ -446,10 +451,12 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             uint16_t offset = (command_data[0] << 8) | command_data[1];
             uint16_t size   = command_data[2]; // size <= 28
             dynamic_keymap_macro_set_buffer(offset, size, &command_data[3]);
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
         case id_dynamic_keymap_macro_reset: {
             dynamic_keymap_macro_reset();
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
         case id_dynamic_keymap_get_layer_count: {

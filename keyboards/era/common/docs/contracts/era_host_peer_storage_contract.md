@@ -31,6 +31,51 @@ not linked. An ordinary QMK EEPROM write has no error return. Replacement
 Apply and CLEAN never derive durable success from a void QMK call; they use
 the result-bearing API below that surface (`storage/era_eeprom_driver.h`).
 
+## Shared Initialization And Durability Boundary
+
+QMK owns default values and calls each default owner once. An invalid QMK
+magic makes VIA enter the full eeconfig initializer before its own validity
+check; an otherwise valid QMK store with invalid VIA magic resets only VIA.
+QMK magic is invalidated before defaults and enabled last. A failed initializer
+must not enter the normal keyboard loop. Native EEPROM must verify invalidation
+before any payload write. CLEAN and reset-key recovery use the same owners.
+
+The public void EEPROM functions remain compatible. `platforms/eeprom.h` adds
+nested `eeprom_begin_transaction()` / `eeprom_end_transaction()` and a durability
+receipt, `eeprom_persistence_ok()`. Only the outer end acknowledges a scoped
+operation; reads within a synchronous Core0 scope may see its desired values.
+No keyboard pass, USB dispatch or wire-owner change may re-enter that scope.
+These scopes are shared by defaults, keymap reset, compound Tap Dance SAVE and
+ordinary configuration writes; they are not boot-only batching flags.
+
+| Backend | Completion and recovery |
+| --- | --- |
+| ERA custom NOR | The existing logical image stages a scope. Outer end commits one changed envelope, or one complete factory snapshot with bank activation last. Failure restores the acknowledged journal prefix; an ambiguous final program may recover old or complete new data at mount, never a partial valid record. |
+| RP2040 QMK wear-leveling | Physical program/erase require readback. A failed desired image is retained; equal-value retry consolidates it before success. A failed multi-byte operation retains all accepted bytes, and recovery notifies every recovered domain. This single backing store does not promise old-or-new recovery across a consolidation erase. |
+| AVR native EEPROM | avr-libc completion is followed by physical readback. Nested failure is sticky through outer end. A generic completion-byte fence refuses a failed sequence's final marker until a new opener/reset; there is no full-image RAM cache or multi-byte rollback. |
+
+Ordinary keycodes/encoders use one two-byte write and VIA keymap packets use
+one bounded block. ERA NOR packs record header/payload/trailer into page-sized
+programs and verifies a separate final commit, preserving format 1 bytes.
+An open macro cannot be accidentally enclosed by a compound write across its
+region: that scope is refused and unrelated edits are rolled back without
+losing the upload. Replacement Apply remains a separate immutable-domain API.
+
+Native macro payloads require durable marker invalidation before mutation and
+write marker zero only after all payload receipts succeed. Failure refuses
+CLOSE; a fresh opener plus complete upload, or RESET, is required. Wear-leveling
+can instead repair its retained desired image. VIA reports a failed macro
+command through the existing unhandled response; the wire layout is unchanged.
+Deferred approved saves re-arm after a failed receipt. CONFIG's semantic SET
+notification remains a runtime event; its matching persistence debt is consumed
+only after successful outer completion. Local policy and recency metadata keep
+their existing excluded-domain ownership and result-bearing APIs.
+
+No stored offsets, record encoding, EEPROM reset key, VIA build date or firmware
+version changes follow from these mechanisms. Physical latency and input/USB/
+split tail latency remain hardware measurements, including the added native
+readback and synchronous flash work; program counts are not elapsed time.
+
 ## ERA NVM Physical Contract
 
 Layout and sizes: `storage/era_nvm_format.h`. Engine: `storage/era_nvm.c`.

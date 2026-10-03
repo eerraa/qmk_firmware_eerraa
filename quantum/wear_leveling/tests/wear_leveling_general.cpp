@@ -202,3 +202,21 @@ TEST_F(WearLevelingGeneral, WriteFailure_NoSubsequentWrites) {
     wear_leveling_read(0x04, &test_val, sizeof(test_val));
     EXPECT_EQ(test_val, 0x14) << "Readback should come from cache regardless of unlock failure";
 }
+
+TEST_F(WearLevelingGeneral, FailedWriteSameValueRetriesAndSurvivesReinit) {
+    auto &inst = MockBackingStore::Instance();
+    uint8_t old = 0x14, next = 0x27;
+    ASSERT_NE(wear_leveling_write(2, &old, 1), WEAR_LEVELING_FAILED);
+    inst.set_write_callback([](std::uint64_t, std::uint32_t) { return false; });
+    EXPECT_EQ(wear_leveling_write(2, &next, 1), WEAR_LEVELING_FAILED);
+    EXPECT_TRUE(wear_leveling_is_pending());
+    auto before = inst.write_invoke_count();
+    inst.set_write_callback([](std::uint64_t, std::uint32_t) { return true; });
+    ASSERT_NE(wear_leveling_write(2, &next, 1), WEAR_LEVELING_FAILED);
+    EXPECT_GT(inst.write_invoke_count(), before);
+    EXPECT_FALSE(wear_leveling_is_pending());
+    ASSERT_NE(wear_leveling_init(), WEAR_LEVELING_FAILED);
+    uint8_t actual;
+    ASSERT_NE(wear_leveling_read(2, &actual, 1), WEAR_LEVELING_FAILED);
+    EXPECT_EQ(actual, next);
+}

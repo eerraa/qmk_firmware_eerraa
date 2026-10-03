@@ -95,8 +95,8 @@ void nvm_dynamic_keymap_update_keycode(uint8_t layer, uint8_t row, uint8_t colum
     if (layer >= DYNAMIC_KEYMAP_LAYER_COUNT || row >= MATRIX_ROWS || column >= MATRIX_COLS) return;
     void *address = dynamic_keymap_key_to_eeprom_address(layer, row, column);
     // Big endian, so we can read/write EEPROM directly from host if we want
-    eeprom_update_byte(address, (uint8_t)(keycode >> 8));
-    eeprom_update_byte(address + 1, (uint8_t)(keycode & 0xFF));
+    uint8_t bytes[2] = {(uint8_t)(keycode >> 8), (uint8_t)keycode};
+    eeprom_update_block(bytes, address, sizeof(bytes));
 }
 
 #ifdef ENCODER_MAP_ENABLE
@@ -117,8 +117,8 @@ void nvm_dynamic_keymap_update_encoder(uint8_t layer, uint8_t encoder_id, bool c
     if (layer >= DYNAMIC_KEYMAP_LAYER_COUNT || encoder_id >= NUM_ENCODERS) return;
     void *address = dynamic_keymap_encoder_to_eeprom_address(layer, encoder_id);
     // Big endian, so we can read/write EEPROM directly from host if we want
-    eeprom_update_byte(address + (clockwise ? 0 : 2), (uint8_t)(keycode >> 8));
-    eeprom_update_byte(address + (clockwise ? 0 : 2) + 1, (uint8_t)(keycode & 0xFF));
+    uint8_t bytes[2] = {(uint8_t)(keycode >> 8), (uint8_t)keycode};
+    eeprom_update_block(bytes, address + (clockwise ? 0 : 2), sizeof(bytes));
 }
 #endif // ENCODER_MAP_ENABLE
 
@@ -139,15 +139,9 @@ void nvm_dynamic_keymap_read_buffer(uint32_t offset, uint32_t size, uint8_t *dat
 
 void nvm_dynamic_keymap_update_buffer(uint32_t offset, uint32_t size, uint8_t *data) {
     uint32_t dynamic_keymap_eeprom_size = DYNAMIC_KEYMAP_LAYER_COUNT * MATRIX_ROWS * MATRIX_COLS * 2;
-    void    *target                     = (void *)(uintptr_t)(DYNAMIC_KEYMAP_EEPROM_ADDR + offset);
-    uint8_t *source                     = data;
-    for (uint32_t i = 0; i < size; i++) {
-        if (offset + i < dynamic_keymap_eeprom_size) {
-            eeprom_update_byte(target, *source);
-        }
-        source++;
-        target++;
-    }
+    if (offset >= dynamic_keymap_eeprom_size) return;
+    if (size > dynamic_keymap_eeprom_size - offset) size = dynamic_keymap_eeprom_size - offset;
+    eeprom_update_block(data, (void *)(uintptr_t)(DYNAMIC_KEYMAP_EEPROM_ADDR + offset), size);
 }
 
 uint32_t nvm_dynamic_keymap_macro_size(void) {
@@ -160,6 +154,9 @@ void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_
     for (uint16_t i = 0; i < size; i++) {
         if (offset + i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE) {
             *target = eeprom_read_byte(source);
+#ifndef EEPROM_CUSTOM
+            if (offset + i == DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U && !eeprom_persistence_ok()) *target = 0xFFU;
+#endif
         } else {
             *target = 0x00;
         }
@@ -169,26 +166,79 @@ void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_
 }
 
 void nvm_dynamic_keymap_macro_update_buffer(uint32_t offset, uint32_t size, uint8_t *data) {
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    const uint32_t marker_offset = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U;
+    uint8_t *marker = (uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + marker_offset);
+    if (offset > marker_offset || size == 0U) return;
+    if (size > DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset) size = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset;
+    bool has_marker = offset + size > marker_offset;
+    bool opener = has_marker && data[marker_offset - offset] != 0U;
+    if (opener) {
+        if (!eeprom_prepare_commit(marker, 0xFFU)) return;
+    } else {
+        if (eeprom_commit_failed()) { eeprom_native_note_result(false); return; }
+        if (offset < marker_offset && eeprom_read_byte(marker) == 0U && !eeprom_prepare_commit(marker, 0xFFU)) return;
+    }
+#endif
+#ifndef EEPROM_CUSTOM
+    if (!eeprom_begin_transaction()) return;
+#endif
     void    *target = (void *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + offset);
     uint8_t *source = data;
     for (uint16_t i = 0; i < size; i++) {
         if (offset + i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE) {
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+            if (offset + i == marker_offset) {
+                if (*source == 0U) eeprom_commit_byte(target, 0U);
+            } else
+#endif
             eeprom_update_byte(target, *source);
         }
         source++;
         target++;
     }
+#ifndef EEPROM_CUSTOM
+    eeprom_end_transaction();
+#endif
 }
 
 void nvm_dynamic_keymap_macro_reset(void) {
+#ifndef EEPROM_CUSTOM
+    bool changed = false;
+    for (uint32_t i = 0; i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE; ++i) {
+        if (eeprom_read_byte((const uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + i)) != 0U) { changed = true; break; }
+    }
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    if (!changed && eeprom_persistence_ok() && !eeprom_commit_failed()) return;
+#else
+    if (!changed && eeprom_persistence_ok()) return;
+#endif
+    if (!eeprom_begin_transaction()) return;
+    /* Native/WL stores retire execution before changing the payload. */
+    uint8_t *marker = (uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U);
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    if (!eeprom_prepare_commit(marker, 0xFFU)) { eeprom_end_transaction(); return; }
+#else
+    eeprom_write_byte(marker, 0xFFU);
+#endif
+#endif
     void   *start     = (void *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR);
     void   *end       = (void *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE);
-    long    remaining = end - start;
+    size_t  remaining = end - start;
     uint8_t dummy[16] = {0};
-    for (int i = 0; i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE; i += sizeof(dummy)) {
-        int this_loop = remaining < sizeof(dummy) ? remaining : sizeof(dummy);
+    for (size_t i = 0; i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE; i += sizeof(dummy)) {
+        size_t this_loop = remaining < sizeof(dummy) ? remaining : sizeof(dummy);
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+        if (start + this_loop == end) --this_loop;
+#endif
         eeprom_update_block(dummy, start, this_loop);
         start += this_loop;
         remaining -= this_loop;
     }
+#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    eeprom_commit_byte(marker, 0U);
+#endif
+#ifndef EEPROM_CUSTOM
+    eeprom_end_transaction();
+#endif
 }

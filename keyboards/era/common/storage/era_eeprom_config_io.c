@@ -14,21 +14,23 @@
 _Static_assert(ERA_EEPROM_CONFIG_END <= TOTAL_EEPROM_BYTE_COUNT, "ERA EEPROM storage exceeds logical EEPROM size.");
 
 uint32_t era_eeprom_read_config(void *buf, uint32_t offset, uint32_t length) {
-    void *ee_start = (void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + offset);
-    void *ee_end   = (void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + MIN(ERA_EEPROM_CONFIG_SIZE, offset + length));
-    eeprom_read_block(buf, ee_start, ee_end - ee_start);
-    return ee_end - ee_start;
+    if (offset >= ERA_EEPROM_CONFIG_SIZE || buf == NULL) return 0;
+    length = MIN(length, ERA_EEPROM_CONFIG_SIZE - offset);
+    eeprom_read_block(buf, (const void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + offset), length);
+    return length;
 }
 
 uint32_t era_eeprom_update_config(const void *buf, uint32_t offset, uint32_t length) {
-    void *ee_start = (void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + offset);
-    void *ee_end   = (void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + MIN(ERA_EEPROM_CONFIG_SIZE, offset + length));
+    if (offset >= ERA_EEPROM_CONFIG_SIZE || buf == NULL) return 0;
+    length = MIN(length, ERA_EEPROM_CONFIG_SIZE - offset);
+    if (!eeprom_begin_transaction()) return 0;
 #ifdef VIA_ENABLE
-    era_state_sync_config_persist_begin((uint16_t)offset, (uint16_t)(ee_end - ee_start));
+    era_state_sync_config_persist_begin((uint16_t)offset, (uint16_t)length);
 #endif
-    eeprom_update_block(buf, ee_start, ee_end - ee_start);
+    eeprom_update_block(buf, (void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + offset), length);
+    bool ok = eeprom_end_transaction();
 #ifdef VIA_ENABLE
     era_state_sync_config_persist_end();
 #endif
-    return ee_end - ee_start;
+    return ok ? length : 0;
 }

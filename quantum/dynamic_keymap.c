@@ -21,6 +21,7 @@
 #include "send_string.h"
 #include "keycodes.h"
 #include "nvm_dynamic_keymap.h"
+#include "eeprom.h"
 
 #ifdef ENCODER_ENABLE
 #    include "encoder.h"
@@ -55,6 +56,7 @@ void dynamic_keymap_set_encoder(uint8_t layer, uint8_t encoder_id, bool clockwis
 #endif // ENCODER_MAP_ENABLE
 
 void dynamic_keymap_reset(void) {
+    if (!eeprom_begin_transaction()) return;
     // Erase the keymaps, if necessary.
     nvm_dynamic_keymap_erase();
 
@@ -72,6 +74,7 @@ void dynamic_keymap_reset(void) {
         }
 #endif // ENCODER_MAP_ENABLE
     }
+    (void)eeprom_end_transaction();
 }
 
 void dynamic_keymap_get_buffer(uint16_t offset, uint16_t size, uint8_t *data) {

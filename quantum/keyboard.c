@@ -17,6 +17,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdint.h>
 #include "keyboard.h"
+#include "wait.h"
 #include "keycode_config.h"
 #include "matrix.h"
 #include "keymap_introspection.h"
@@ -434,6 +435,8 @@ void quantum_init(void) {
     if (!eeconfig_is_enabled()) {
         eeconfig_init();
     }
+    /* A failed defaults write must never launch input or the split owner. */
+    while (!eeconfig_is_enabled()) wait_ms(100);
 
     /* init globals */
     eeconfig_read_debug(&debug_config);
