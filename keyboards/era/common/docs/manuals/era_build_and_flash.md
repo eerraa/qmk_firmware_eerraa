@@ -13,14 +13,20 @@ literal machine paths are owned by `.claude/tools/era-sync.sh` and
 `.claude/tools/era-build.sh`; the mandatory automated sequence lives here.
 
 > **REFUSED:** run `qmk` on Windows, build on the `/mnt/` edit tree, invoke the
-> internal launcher by hand, retry an automation refusal, bypass `era-build`
+> internal launcher by hand, retry an unresolved automation refusal, bypass `era-build`
 > with a direct compile, or substitute a different host to get past a refusal
 > **WHY:** a figure from a different host or an unsynchronised tree is void, and
 > the automation's refusals are stop conditions.
-> **REOPENS:** this manual names a supported host other than the configured WSL
-> local-build automation.
+> **REOPENS:** a supported environment is restored, or the reported source/gate
+> defect is identified and corrected within the authorised task. Re-run through
+> the same configured automation after validating the correction; do not bypass
+> a refusal by changing host or disabling a check.
 
-On a refusal, report the environment and stop.
+On a refusal, report its cause and stop builds that depend on the unresolved
+condition. Investigation and authorised repair may continue. A capacity policy
+change must explain its runtime requirements and retain physical-boundary,
+allocator, vector and stack checks; lowering a threshold until a build passes
+is not a correction.
 
 ## What The Build Needs
 

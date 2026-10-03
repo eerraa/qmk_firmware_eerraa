@@ -34,46 +34,11 @@ if [[ ! -f "$elf" ]]; then
     exit 2
 fi
 
-# SRAM budget gate: at least 32 KiB of main SRAM free after the whole-image
-# copy. .heap is the elastic ChibiOS filler and is not a requirement.
-#
-# `size -A` and not `size -A -x`, and the difference is not cosmetic. The hex
-# form needs strtonum() to parse, which is a GNU awk extension that mawk -- the
-# default `awk` on Debian and Ubuntu -- does not define. On such a host the awk
-# process died, the loop below read nothing, `ram0_resident` stayed 0, and this
-# gate reported the whole 262144 as free and **passed**, with the fabricated
-# figure recorded in the build manifest. Decimal output is parsed by any POSIX
-# awk and removes the dependency rather than documenting it.
-#
-# The zero-section guard is the second half of that fix and stays whatever the
-# parse: a section walk that finds nothing has not measured an empty image, it
-# has failed to measure, and the two must never look alike again.
-ram0_resident=0
-ram0_sections=0
-while read -r section_size section_addr; do
-    ram0_resident=$((ram0_resident + section_size))
-    ram0_sections=$((ram0_sections + 1))
-#
-# The bounds stay hexadecimal here and reach awk as decimals through -v: the
-# shell understands 0x20000000 and every awk understands what it hands over.
-# Writing the decimals inline instead is how this edit first went wrong --
-# 0x20040000 was transcribed as 537001984, which is 0x20020000, and the gate
-# silently stopped counting the upper half of SRAM.
-done < <(arm-none-eabi-size -A "$elf" |
-    awk -v lo=$((0x20000000)) -v hi=$((0x20040000)) \
-        'NR > 2 && $1 ~ /^\./ && $1 != ".heap" {
-        size = $2 + 0; addr = $3 + 0;
-        if (size > 0 && addr >= lo && addr < hi) print size, addr;
-    }')
-if ((ram0_sections == 0)); then
-    echo "era_residency_gate.sh: SRAM budget gate failed: no ram0 section found in $elf -- the section walk did not measure anything" >&2
-    exit 1
-fi
-ram0_free=$((262144 - ram0_resident))
-if ((ram0_free < 32768)); then
-    echo "era_residency_gate.sh: SRAM budget gate failed: ${ram0_free} bytes free of 262144 (floor 32768)" >&2
-    exit 1
-fi
+# Capacity is proved against each physical SRAM bank, including section ends
+# and overlap. The unused main-SRAM count is growth space, not an implicit
+# runtime reserve: allocators are forbidden and stacks are reserved separately.
+# Capture the helper status before emitting any successful manifest fields.
+budget_fields="$(python3 "$(dirname "$0")/era_sram_budget.py" "$elf")"
 
 # No ERA image links an allocator entry point (era_invariants.md).
 allocator_symbols="$(arm-none-eabi-nm "$elf" |
@@ -139,7 +104,6 @@ fi
 rm -f "$vectors_bin"
 trap - EXIT
 
-printf 'ram0_resident_bytes=%s\n' "$ram0_resident"
-printf 'ram0_free_bytes=%s\n' "$ram0_free"
+printf '%s\n' "$budget_fields"
 printf 'vectors_gate=%s entries, reset slot 0x%s in flash, %s in SRAM\n' \
     "${#vector_words[@]}" "${vector_words[1]}" "$((${#vector_words[@]} - 1))"

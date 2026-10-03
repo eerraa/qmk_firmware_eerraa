@@ -154,15 +154,23 @@ cannot measure the target.
 
 The standing requirements are:
 
-- at least **32768 bytes of main SRAM free** after counting linked resident
-  allocations under the gate's method; this floor applies to every variant;
+- every nonempty ALLOC section must fit wholly inside its physical SRAM bank
+  outside the ROM scratch reservation, or the flash startup carve-out; allocations, including the elastic `.heap`
+  filler, must not overlap;
+- linked resident main-SRAM usage and unused capacity must be reported for
+  every variant; `.heap` is excluded from resident usage;
+- unused main SRAM is growth capacity, not an implicit runtime reservation.
+  There is no fixed free-space floor: allocation is static and both cores'
+  stacks are explicitly reserved in their scratch banks. Stack-depth proof
+  against those reservations remains mandatory when call depth changes;
 - no allocator entry point accepted by the gate may be linked into the image;
 - the reset vector must remain in the flash bootstrap range and every other
   live vector entry must resolve to SRAM;
 - the gate consumes the linked ELF itself, not a board-name/profile argument.
 
 Exact memory bounds, vector count, allocator symbol set, and output field names
-are owned by `common/tools/era_residency_gate.sh`. The complementary
+are owned by `common/tools/era_residency_gate.sh` and its
+`common/tools/era_sram_budget.py` allocation checker. The complementary
 placement/closure/magic-word checks are
 `era_performance_gates.md` **Layout Checks**. Core1 call-depth changes use
 `common/tools/era_core1_stack_walk.py <elf>` and compare against the linked

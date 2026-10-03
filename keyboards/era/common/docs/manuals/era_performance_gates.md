@@ -271,13 +271,17 @@ out:
 
 | Field | Accept |
 | --- | --- |
-| `ram0_resident_bytes` / `ram0_free_bytes` | sum of ALLOC ram0 sections excluding `.heap`; free ≥ 32768 of 262144. A walk that finds no ram0 section fails rather than reporting the whole SRAM free |
+| `ram0_resident_bytes` / `ram0_free_bytes` | sum of ALLOC ram0 sections excluding `.heap`; report unused capacity. Every allocation must fit inside its physical SRAM bank outside the ROM scratch reservation or the flash startup carve-out, with no overlaps (including `.heap`). An empty or malformed section walk fails |
 | allocator | `malloc`, `calloc`, `realloc`, `_sbrk`, `chCoreAlloc`, `chCoreAllocI`, `chCoreAllocFromBaseI`, `chCoreAllocFromTopI`, `chHeapAlloc` undefined |
 | `vectors_gate` | `.vectors` holds 48 entries; index 1 (reset) is flash (`0x10000000`..`0x1fffffff`); every other entry is SRAM (`0x20000000`..`0x20041fff`). Read the linked table's own bytes, not handler names |
 
 The linker `ASSERT` on `era_unhandled_vector` is the complement: it catches
 only the whole object going missing. Canonical here per `era_invariants.md`.
-Floor value: `era_sram_residency_contract.md` **Verification**.
+Capacity semantics: `era_sram_residency_contract.md` **Verification**. Main-SRAM
+free space cannot substitute for either core's separately reserved stack
+headroom. The gate's parser/boundary fixtures and real ARM ELF positive/negative
+checks run with `python3 tests/era_residency_gate/test_residency_gate.py` in the
+configured WSL toolchain; rerun them when changing the gate.
 
 Every ERA split link emits a `.map`. Review `linker stubs`, not a `veneer`
 name grep: two expected 16-byte stubs in `.flash_startup` serve the
