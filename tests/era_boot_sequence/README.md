@@ -15,6 +15,16 @@ It checks both halves, storage enabled/disabled, post-init Low startup, request
 admission after teardown, responder ownership, epoch/revoke rejection, readiness
 repair and policy retry after a failed first launch.
 
+The cancellation fixture connects the production housekeeping cancellation,
+dirty consumption and policy dispatch to the real queue reset, quiesce and
+owner transfer. It retains the production policy repair condition/body while
+simulating authority/planner outputs and Core1 acknowledgments. It covers a
+Left no-USB Bootmagic readiness arm followed by post-init discovery, both
+physical sides as PEER initiator or HOST responder, unchanged-role dirty facts,
+failed cancellation/retry, a new responder policy and a closed-wire policy.
+Local DMA readiness and request enqueue are simulated; this is not a complete
+two-board wire or USB-enumeration test.
+
 The settings fixture executes both class hooks in VIA and default builds, plus
 the production sync-policy loader. EEPROM bytes and common feature hardware
 initialization are simulated. It checks one runtime load before the user hook,
@@ -26,9 +36,10 @@ common active task and RP2040 deadline implementation. Time and USB state are
 simulated. It covers suspend before housekeeping, active/suspend/resume sharing
 one deadline, timestamp zero, wrap and clock-free service after disarm.
 
-Three negative controls compile isolated in-memory source mutations and require
+Four negative controls compile isolated in-memory source mutations and require
 the corresponding runtime assertion to fail: implicit ownership grant, missing
-default settings load and missing suspend service. Compilation failure does not
+default settings load, missing suspend service and missing cancellation policy
+repair. Compilation failure does not
 count as a counterexample. No production source is mutated by the tests.
 
 Official firmware builds validate target integration. Physical reset timing,

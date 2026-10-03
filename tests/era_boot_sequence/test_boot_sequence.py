@@ -104,6 +104,74 @@ def settings_unit(nonsplit=False):
     return c.replace('/* BOARD_HOOKS */', funcs)
 
 
+def cancellation_unit(drop_repair=False):
+    """Real cancellation/owner path; policy facts and core1 acknowledgments are simulated."""
+    c = launch_unit().split('int main(void) {', 1)[0]
+    c = c.replace('#define ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE 1',
+                  '#define ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE 64')
+    c = c.replace('unsigned route_due_flags, last_owner_route, mode;',
+                  'unsigned route_due_flags, last_owner_route, mode;\n'
+                  'bool core1_initiator_async_pending, core1_initiator_peer_known_before_request;\n'
+                  'bool local_status_pending, attach_status_last_tx_valid;\n'
+                  'unsigned core1_initiator_pending_lane;')
+    c = c.replace('static bool post_init, lighting_ready, left, fail_start;',
+                  'static bool post_init, lighting_ready, left, fail_start, fail_revoke_wait;\n'
+                  'static bool simulate_boot_matrix_ready, fixture_matrix_ready;')
+    c = c.replace('    *word = expected;',
+                  '    if (word == &g_era_split_communication_core_owner.release_word && fail_revoke_wait) return false;\n'
+                  '    *word = expected;')
+    c = c.replace('static bool era_split_transport_scheduler_cancel_core1_initiator(void) { return true; }',
+                  'bool era_split_transport_scheduler_cancel_core1_initiator(void);')
+    c = c.replace('static void era_split_transport_scheduler_sample_authority(unsigned t, bool b) { (void)t; (void)b; }',
+                  'static bool era_split_transport_scheduler_sample_authority(unsigned t, bool b) { (void)t; (void)b; return false; }')
+    c = c.replace('static void era_split_transport_scheduler_update_mode(bool b) { (void)b; }',
+                  'static bool era_split_transport_scheduler_update_mode(bool repair_wire);')
+    c = c.replace('static bool era_split_transport_scheduler_publish_local_matrix_if_needed(bool *first) { *first = false; return false; }',
+                  'static bool era_split_transport_scheduler_publish_local_matrix_if_needed(bool *first) {\n'
+                  '    *first = simulate_boot_matrix_ready && !fixture_matrix_ready;\n'
+                  '    if (*first) fixture_matrix_ready = true;\n'
+                  '    return *first;\n}')
+    c = c.replace('static void era_split_transport_scheduler_note_local_matrix_publish(bool changed, bool first) { (void)changed; (void)first; }',
+                  'static void era_split_transport_scheduler_note_local_matrix_publish(bool changed, bool first_ready);')
+    c = c.replace('static void era_split_transport_scheduler_execute_owner_route(void) { requests++; }',
+                  'static void era_split_transport_scheduler_execute_owner_route(void) {\n'
+                  '    requests++; g_era_split_transport_scheduler.core1_initiator_async_pending = true;\n}')
+
+    lifecycle = COMMON + 'split/communication_core/era_split_communication_core_lifecycle_rp2040.c'
+    queue = COMMON + 'split/communication_core/era_split_communication_core_queue.c'
+    routes = COMMON + 'split/scheduler/era_split_transport_scheduler_routes.c'
+    fixture = (HERE / 'cancellation.c').read_text()
+    fixture = fixture.replace('/* MATRIX_READY_FUNCTIONS */', functions(SCHED,
+        'era_split_transport_scheduler_mark_local_matrix_ready_revalidation '
+        'era_split_transport_scheduler_note_local_matrix_publish'))
+    fixture = fixture.replace('/* CANCELLATION_FUNCTIONS */',
+        function(lifecycle, 'era_split_communication_core_request_quiesce') +
+        function(queue, 'era_split_communication_core_queue_reset') +
+        functions(routes, 'era_split_transport_scheduler_core1_initiator_pending '
+                          'era_split_transport_scheduler_cancel_core1_initiator'))
+
+    # Keep the production decision and its serial-reset body together. The
+    # authority sampler/planner outputs are fixture inputs, not a second planner.
+    mode = function(SCHED, 'era_split_transport_scheduler_update_mode')
+    start = mode.index('    if (authority_changed || result.mode_changed || wire_role_changed || repair_wire)')
+    end = mode.index('    if (result.peer_matrix_flush_required)', start)
+    fixture = fixture.replace('/* POLICY_REPAIR */', mode[start:end])
+
+    # Execute the actual dirty+pending branch through dirty consumption and
+    # update_mode dispatch. Exclude unrelated standing/storage/LED maintenance.
+    housekeeping = function(SCHED, 'era_split_transport_scheduler_housekeeping_body')
+    start = housekeeping.index('    if (era_split_transport_scheduler_read_pending_dirty_flags() != 0')
+    end = housekeeping.index('    era_split_restart_agreement_task();', start)
+    cancellation = housekeeping[start:end]
+    if drop_repair:
+        repair = 'era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);'
+        if repair not in cancellation:
+            raise AssertionError('Missing cancellation lease-repair arm')
+        cancellation = cancellation.replace(repair, '', 1)
+    fixture = fixture.replace('/* HOUSEKEEPING_CANCELLATION */', cancellation)
+    return c + fixture
+
+
 def suspend_unit():
     c = (HERE / 'suspend.c').read_text()
     boot = 'platforms/chibios/bootloaders/rp2040.c'
@@ -125,6 +193,15 @@ class BootSequence(unittest.TestCase):
         start = c.index('    uint32_t lease_word =', c.index('static bool  era_split_communication_core_owner_repair_core1_role'))
         end = c.index('    return era_split_communication_core_owner_transfer_role', start)
         run_c(c[:start] + c[end:], failure='early_starts == 0')
+
+    def test_dirty_cancellation_restores_policy_lease(self):
+        for flags in ([], ['-DERA_HOST_PEER_STORAGE_V1_ENABLE']):
+            with self.subTest(flags=flags):
+                run_c(cancellation_unit(), flags)
+
+    def test_missing_cancellation_repair_is_detected(self):
+        run_c(cancellation_unit(drop_repair=True),
+              failure='cancellation_restored_current_initiator')
 
     def test_default_and_via_settings(self):
         for nonsplit in (False, True):

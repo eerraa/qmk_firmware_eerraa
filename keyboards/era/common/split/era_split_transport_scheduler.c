@@ -1758,6 +1758,10 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         if (!era_split_transport_scheduler_cancel_core1_initiator()) {
             return false;
         }
+        /* Cancellation parks the owner at NONE even when the policy edge does
+           not change our wire role (for example matrix readiness). Restore the
+           lease through the explicit policy pass, never request admission. */
+        era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
         maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_CORE1_INITIATOR, true);
     } else {
         maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_CORE1_INITIATOR, era_split_transport_scheduler_poll_core1_initiator()) || maintenance_performed;
