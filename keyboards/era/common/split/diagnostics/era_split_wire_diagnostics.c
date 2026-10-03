@@ -30,6 +30,7 @@
 #include "../era_split_mode_planner.h"
 #include "../era_split_tap_activity.h"
 #include "../era_split_transport_scheduler.h"
+#include "../../storage/era_eeprom_driver.h"
 #ifdef ERA_SPLIT_EEPROM_SYNC_ENABLE
 #    include "../era_split_eeprom_sync.h"
 #    include "../era_split_sync_policy.h"
@@ -37,7 +38,6 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "../communication_core/era_split_communication_core_storage.h"
 #    include "../era_host_peer_storage.h"
-#    include "../../storage/era_eeprom_driver.h"
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #        include "era_via_macro_diagnostics.h"
 #    endif
