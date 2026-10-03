@@ -48,6 +48,8 @@ VERSION에서 각 유닛의 버전을 확인하십시오.
 일반 사용자는 https://usekb.cc 를 권장합니다.
 각 설정 메뉴 옆에 Help가 있으므로 별도의 상세 설명서 없이 기능과 설정 방법을
 확인할 수 있습니다.
+Tap Dance의 고급 입력 모드와 홀드 설정은 usekb.cc에서 사용합니다. 공식 VIA는
+Legacy 슬롯의 기본 동작과 Term만 편집하고, 고급 슬롯에는 상태와 안내를 표시합니다.
 
 공식 VIA(https://usevia.app)를 직접 사용하려면 배포 ZIP의 usevia.app/ 폴더를
 참고하십시오. 그 폴더의 usevia.txt에 좌/우 Draft Definition을 불러오는 방법과
@@ -102,6 +104,9 @@ SYSTEM -> VERSION on each unit.
 For normal use, https://usekb.cc is recommended.
 Each configuration menu has Help beside it, so a separate detailed manual is
 not required.
+Advanced Tap Dance input modes and hold settings use usekb.cc. Official VIA
+edits basic actions and Term only for Legacy slots; advanced slots show status
+and guidance.
 
 If you want to use the official VIA app at https://usevia.app directly, see the
 usevia.app/ folder in the distribution ZIP. Its usevia.txt explains how to load

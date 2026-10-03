@@ -26,6 +26,10 @@ TAPDANCE 입력 위치
 
 VIA CONFIGURE -> TAPDANCE에서 아래 칸에 keycode를 입력합니다.
 
+공식 VIA에서는 Legacy 모드의 기본 동작과 Term만 편집합니다. 고급 모드의 슬롯은
+상태와 안내만 표시합니다. 입력 모드 변경, 독립 홀드 시간과 다른 키 누름 시 홀드
+설정은 https://usekb.cc 에서 사용하십시오.
+
 - On Tap
 - On Hold
 - On Double Tap

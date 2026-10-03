@@ -181,8 +181,11 @@ Both halves must run the matching schema-3 image.
 Channel 0 values 88..95 encode hold time as BE16, with response byte 2 `0xD3`;
 96..103 encode the boolean interruption policy, with response byte 1 `0xD3`.
 Mode replies retain byte 1 `0xD2` and advertise advanced timing in byte 2
-`0xD3`. GET/SET/SAVE, official VIA range/dropdown controls, State Sync CONFIG
-publication, and ERA_CONFIG replacement/reload cover both records.
+`0xD3`. Existing GET/SET/SAVE, Custom-app controls, State Sync CONFIG publication,
+and ERA_CONFIG replacement/reload cover both records. The official VIA definition
+omits these advanced timing controls under the Tap Dance exception in
+`era_invariants.md` **Official VIA Definitions**; the wire and stored records
+remain unchanged.
 
 Modes 1/2 capture both timing values and the interruption flag at the first
 press. Released dances use the consecutive-press term, measured from the
@@ -197,8 +200,11 @@ mode 0 retains all legacy decisions and ignores advanced timing.
 ### Tap Dance input modes
 
 Keyboard channel 0 values 80..87 add one mode byte per TD0..TD7 through
-existing Custom Value GET/SET/SAVE. GET/SET echo appends support marker `0xD2`;
-official V3 definitions expose the same values as dropdowns. Existing action
+existing Custom Value GET/SET/SAVE. GET/SET echo appends support marker `0xD2`.
+The Custom app edits these modes. Official V3 definitions retain each mode only
+as a hidden read-only label GET: mode 0 exposes the existing action and Term
+controls; modes 1/2 and unknown values expose status plus usekb.cc guidance.
+No official mode setter or advanced timing control is present. Existing action
 and term IDs retain their encoding. Invalid modes and conflicting on-press
 Hold actions are refused before mutation. CONFIG revision changes only after
 the runtime exposes a different setting.

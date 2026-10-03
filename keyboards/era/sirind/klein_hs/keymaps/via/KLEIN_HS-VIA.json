@@ -281,60 +281,69 @@
           "label": "TD0",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_1_mode", 0, 80],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_1_mode", 0, 80]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_1_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_tap", 0, 32]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_hold", 0, 33]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_dtap", 0, 34]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_thold", 0, 35]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_1_term", 0, 36],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_1_tap", 0, 32]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_1_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_1_hold", 0, 33]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_1_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_1_dtap", 0, 34]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_1_mode} != 0 && {id_qmk_tapdance_1_mode} != 1 && {id_qmk_tapdance_1_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_1_thold", 0, 35]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_1_term", 0, 36],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_1_hold_term", 0, 88]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_1_hold_other", 0, 96]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -342,60 +351,69 @@
           "label": "TD1",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_2_mode", 0, 81],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_2_mode", 0, 81]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_2_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_tap", 0, 37]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_hold", 0, 38]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_dtap", 0, 39]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_thold", 0, 40]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_2_term", 0, 41],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_2_tap", 0, 37]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_2_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_2_hold", 0, 38]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_2_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_2_dtap", 0, 39]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_2_mode} != 0 && {id_qmk_tapdance_2_mode} != 1 && {id_qmk_tapdance_2_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_2_thold", 0, 40]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_2_term", 0, 41],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_2_hold_term", 0, 89]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_2_hold_other", 0, 97]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -403,60 +421,69 @@
           "label": "TD2",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_3_mode", 0, 82],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_3_mode", 0, 82]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_3_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_tap", 0, 42]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_hold", 0, 43]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_dtap", 0, 44]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_thold", 0, 45]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_3_term", 0, 46],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_3_tap", 0, 42]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_3_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_3_hold", 0, 43]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_3_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_3_dtap", 0, 44]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_3_mode} != 0 && {id_qmk_tapdance_3_mode} != 1 && {id_qmk_tapdance_3_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_3_thold", 0, 45]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_3_term", 0, 46],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_3_hold_term", 0, 90]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_3_hold_other", 0, 98]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -464,60 +491,69 @@
           "label": "TD3",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_4_mode", 0, 83],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_4_mode", 0, 83]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_4_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_tap", 0, 47]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_hold", 0, 48]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_dtap", 0, 49]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_thold", 0, 50]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_4_term", 0, 51],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_4_tap", 0, 47]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_4_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_4_hold", 0, 48]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_4_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_4_dtap", 0, 49]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_4_mode} != 0 && {id_qmk_tapdance_4_mode} != 1 && {id_qmk_tapdance_4_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_4_thold", 0, 50]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_4_term", 0, 51],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_4_hold_term", 0, 91]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_4_hold_other", 0, 99]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -525,60 +561,69 @@
           "label": "TD4",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_5_mode", 0, 84],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_5_mode", 0, 84]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_5_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_tap", 0, 52]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_hold", 0, 53]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_dtap", 0, 54]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_thold", 0, 55]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_5_term", 0, 56],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_5_tap", 0, 52]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_5_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_5_hold", 0, 53]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_5_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_5_dtap", 0, 54]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_5_mode} != 0 && {id_qmk_tapdance_5_mode} != 1 && {id_qmk_tapdance_5_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_5_thold", 0, 55]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_5_term", 0, 56],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_5_hold_term", 0, 92]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_5_hold_other", 0, 100]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -586,60 +631,69 @@
           "label": "TD5",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_6_mode", 0, 85],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_6_mode", 0, 85]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_6_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_tap", 0, 57]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_hold", 0, 58]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_dtap", 0, 59]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_thold", 0, 60]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_6_term", 0, 61],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_6_tap", 0, 57]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_6_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_6_hold", 0, 58]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_6_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_6_dtap", 0, 59]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_6_mode} != 0 && {id_qmk_tapdance_6_mode} != 1 && {id_qmk_tapdance_6_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_6_thold", 0, 60]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_6_term", 0, 61],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_6_hold_term", 0, 93]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_6_hold_other", 0, 101]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -647,60 +701,69 @@
           "label": "TD6",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_7_mode", 0, 86],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_7_mode", 0, 86]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_7_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_tap", 0, 62]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_hold", 0, 63]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_dtap", 0, 64]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_thold", 0, 65]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_7_term", 0, 66],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_7_tap", 0, 62]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_7_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_7_hold", 0, 63]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_7_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_7_dtap", 0, 64]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_7_mode} != 0 && {id_qmk_tapdance_7_mode} != 1 && {id_qmk_tapdance_7_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_7_thold", 0, 65]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_7_term", 0, 66],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_7_hold_term", 0, 94]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_7_hold_other", 0, 102]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         },
@@ -708,60 +771,69 @@
           "label": "TD7",
           "content": [
             {
-              "label": "Input start",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_8_mode", 0, 87],
-              "options": [
-                ["Legacy", 0],
-                ["After decision (Transparent = base, None = no input)", 1],
-                ["On press (Hold must be Transparent)", 2]
+              "label": "Mode state",
+              "type": "label",
+              "showIf": "0",
+              "content": ["id_qmk_tapdance_8_mode", 0, 87]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_8_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_tap", 0, 67]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_hold", 0, 68]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_dtap", 0, 69]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_thold", 0, 70]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_8_term", 0, 71],
+                  "options": [
+                    ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                    ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                    ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                    ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+                  ]
+                }
               ]
             },
             {
-              "label": "On Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_8_tap", 0, 67]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_8_mode} == 1",
+              "content": ["After decision"]
             },
             {
-              "label": "On Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_8_hold", 0, 68]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_8_mode} == 2",
+              "content": ["On press"]
             },
             {
-              "label": "On Double Tap",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_8_dtap", 0, 69]
+              "label": "Input mode",
+              "type": "label",
+              "showIf": "{id_qmk_tapdance_8_mode} != 0 && {id_qmk_tapdance_8_mode} != 1 && {id_qmk_tapdance_8_mode} != 2",
+              "content": ["Unavailable"]
             },
             {
-              "label": "Tap+Hold",
-              "type": "keycode",
-              "content": ["id_qmk_tapdance_8_thold", 0, 70]
-            },
-            {
-              "label": "Term",
-              "type": "dropdown",
-              "content": ["id_qmk_tapdance_8_term", 0, 71],
-              "options": [
-                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
-                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
-                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
-                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
-              ]
-            },
-            {
-              "label": "Hold decision time (ms, 0 = same)",
-              "type": "range",
-              "options": [0, 65535],
-              "content": ["id_qmk_tapdance_8_hold_term", 0, 95]
-            },
-            {
-              "label": "Hold on other key press",
-              "type": "dropdown",
-              "options": [
-                ["Off", 0],
-                ["On", 1]
-              ],
-              "content": ["id_qmk_tapdance_8_hold_other", 0, 103]
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
             }
           ]
         }

@@ -199,12 +199,25 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
 
 ## Official VIA Definitions
 
-- Every user-facing feature MUST be usable from stock VIA (usevia.app) with the
-  board's official `*-VIA.json` loaded as a draft definition, without the ERA
-  app. A value stock VIA cannot present well, such as an exact 1 ms term or
+- Except for advanced Tap Dance configuration, every user-facing feature MUST
+  be usable from stock VIA (usevia.app) with the board's official `*-VIA.json`
+  loaded as a draft definition, without the ERA app. A value stock VIA cannot
+  present well, such as an exact 1 ms term or
   1 s timeout, may have an app-only control, but the same setting stays
   reachable through a stock control (a preset dropdown). App-only controls are
-  additive, never the only path. H7S states the same requirement.
+  additive, never the only path outside that Tap Dance exception.
+- Tap Dance is the explicit shared QMK/H7S exception: stock VIA edits only a
+  slot already in Legacy mode (0), through its four actions and Term presets.
+  Input modes 1/2, independent hold timing and hold-on-other-key settings belong
+  to the Custom app at usekb.cc. Stock menus cannot adequately express the
+  advanced inheritance and timing dependencies; partial editing could change
+  their meaning. Official definitions retain a hidden read-only
+  mode GET, show the advanced or unavailable state with the app guidance, and
+  expose no mode SET or advanced timing control. They must not reinterpret or
+  overwrite advanced slots as Legacy. Existing VIA GET/SET/SAVE wire support
+  remains available to the Custom app; no app-specific protocol is introduced.
+  `tests/era_firmware_version/test_definitions.py` checks this boundary, including
+  deliberately broken definitions.
 - Lighting lives under a top-level `Lighting` menu whose submenus are named for
   where the LEDs are (`Per-Key RGB`, `Underglow`, `Backlight`, `Badge`, Riley's
   `RGB LEDs`), never for the engine. Lock indication is chosen by `Indicator` /

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import unittest
@@ -202,6 +203,60 @@ def named_submenu(definition: dict[str, Any], menu_label: str, submenu_label: st
     return matches[0]
 
 
+def visible_td_controls(node: dict[str, Any], command: str, mode: int) -> list[dict[str, Any]]:
+    """Evaluate the official slot's small showIf grammar for a returned mode byte.
+
+    Only equality/inequality, integer constants and boolean conjunctions are
+    admitted here. This checks inherited group visibility, not just the presence
+    of a showIf string on whichever node a definition happens to use.
+    """
+    expression = node.get("showIf", "1")
+    tokens = re.sub(r"\{[a-zA-Z0-9_]+\}|\d+|==|!=|&&|\|\||\s+", "", expression)
+    assert not tokens, f"unsupported Tap Dance condition: {expression}"
+    expression = re.sub(r"\{([a-zA-Z0-9_]+)\}",
+                        lambda match: repr(mode if match[1] == command else None), expression)
+    if not eval(expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}):
+        return []
+    if "type" in node:
+        return [node]
+    return [control for child in node.get("content", []) if isinstance(child, dict)
+            for control in visible_td_controls(child, command, mode)]
+
+
+def validate_stock_tapdance(definition: dict[str, Any]) -> None:
+    """Stock VIA edits only confirmed Legacy slots; advanced slots remain intact."""
+    all_controls = [node for node in walk_dicts(definition) if "type" in node]
+    for control in all_controls:
+        content = control.get("content", [])
+        if len(content) == 3 and content[1] == 0 and isinstance(content[2], int):
+            assert not 88 <= content[2] <= 103, "advanced control must not be declared, even hidden"
+
+    for slot in range(8):
+        pane = named_submenu(definition, "TAPDANCE", f"TD{slot}")
+        menu = dict(named_menu(definition, "TAPDANCE"), content=[pane])
+        command = f"id_qmk_tapdance_{slot + 1}_mode"
+        readers = [node for node in all_controls if node.get("content", [None])[0] == command]
+        assert len(readers) == 1, "each slot needs one mode GET"
+        reader = readers[0]
+        assert reader.get("type") == "label" and reader.get("showIf") == "0", "mode GET must be hidden and read-only"
+        assert reader["content"] == [command, 0, 80 + slot], "mode GET address must match its slot"
+        expected = [[f"id_qmk_tapdance_{slot + 1}_{suffix}", 0, 32 + slot * 5 + offset]
+                    for offset, suffix in enumerate(("tap", "hold", "dtap", "thold", "term"))]
+        for mode in range(256):
+            visible = visible_td_controls(menu, command, mode)
+            editors = [node for node in visible if node["type"] != "label"]
+            assert [node["content"] for node in editors] == (expected if mode == 0 else []), \
+                f"mode {mode}: only Legacy may expose the five basic editors"
+            if mode == 0:
+                assert [node["type"] for node in editors] == ["keycode"] * 4 + ["dropdown"], "Legacy editor types"
+                assert editors[-1]["options"] == [[f"{ms} ms", ms // 10] for ms in range(100, 501, 20)], "Legacy Term presets"
+            labels = [node["content"] for node in visible if node["type"] == "label"]
+            assert ["Visit usekb.cc"] in labels, "Custom-app guidance must always be visible"
+            states = [node["content"] for node in visible if node.get("label") == "Input mode"]
+            wanted = [] if mode == 0 else [[{1: "After decision", 2: "On press"}.get(mode, "Unavailable")]]
+            assert states == wanted, f"mode {mode}: advanced/unknown status must be visible"
+
+
 class EraFirmwareVersionDefinitions(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -228,6 +283,60 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
         for board, paths in self.board_definitions.items():
             split = bool(self.board_metadata[board].get("split", {}).get("enabled"))
             self.assertEqual(len(paths), 2 if split else 1, board)
+
+    def test_official_tapdance_is_legacy_only_on_every_rp2040_definition(self) -> None:
+        checked = 0
+        for board, paths in self.board_definitions.items():
+            if board == BRICK65_BOARD:
+                continue
+            for path in paths:
+                with self.subTest(path=path.relative_to(ROOT).as_posix()):
+                    validate_stock_tapdance(load_json(path))
+                    checked += 1
+        self.assertEqual(checked, 33)
+
+    def test_official_tapdance_guard_rejects_broken_fixtures(self) -> None:
+        original = load_json(self.board_definitions["sirind/tomak"][0])
+        validate_stock_tapdance(original)
+
+        def slot(definition):
+            return named_submenu(definition, "TAPDANCE", "TD0")["content"]
+
+        def mode_setter(definition):
+            slot(definition)[0].update(type="dropdown", options=[["Legacy", 0], ["After decision", 1]])
+
+        def wrong_mode_address(definition):
+            slot(definition)[0]["content"][2] = 81
+
+        def unguarded_legacy(definition):
+            del slot(definition)[1]["showIf"]
+
+        def advanced_timing(definition):
+            slot(definition).append({"label": "Hold time", "type": "range", "showIf": "0",
+                                     "content": ["id_qmk_tapdance_1_hold_term", 0, 88], "options": [0, 65535]})
+
+        def missing_unknown_status(definition):
+            slot(definition)[:] = [node for node in slot(definition) if node.get("content") != ["Unavailable"]]
+
+        def missing_guidance(definition):
+            slot(definition)[:] = [node for node in slot(definition) if node.get("content") != ["Visit usekb.cc"]]
+
+        def missing_mode_get(definition):
+            del slot(definition)[0]
+
+        def hidden_parent_menu(definition):
+            named_menu(definition, "TAPDANCE")["showIf"] = "0"
+
+        def unknown_mode_editable(definition):
+            slot(definition)[1]["showIf"] += " || {id_qmk_tapdance_1_mode} == 128"
+
+        for mutate in (mode_setter, wrong_mode_address, unguarded_legacy, advanced_timing,
+                       missing_unknown_status, missing_guidance, missing_mode_get,
+                       hidden_parent_menu, unknown_mode_editable):
+            broken = copy.deepcopy(original)
+            mutate(broken)
+            with self.subTest(mutation=mutate.__name__), self.assertRaises(AssertionError):
+                validate_stock_tapdance(broken)
 
     def test_exact_version_mapping_is_first_system_submenu_on_all_rp2040_definitions(self) -> None:
         checked = 0
