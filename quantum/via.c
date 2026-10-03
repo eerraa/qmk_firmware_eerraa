@@ -388,6 +388,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
                 case id_layout_options: {
                     uint32_t value = ((uint32_t)command_data[1] << 24) | ((uint32_t)command_data[2] << 16) | ((uint32_t)command_data[3] << 8) | (uint32_t)command_data[4];
                     via_set_layout_options(value);
+                    if (!eeprom_persistence_ok()) *command_id = id_unhandled;
                     break;
                 }
                 case id_device_indication: {
@@ -412,10 +413,12 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         }
         case id_dynamic_keymap_set_keycode: {
             dynamic_keymap_set_keycode(command_data[0], command_data[1], command_data[2], (command_data[3] << 8) | command_data[4]);
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
         case id_dynamic_keymap_reset: {
             dynamic_keymap_reset();
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
         case id_custom_set_value:
@@ -428,6 +431,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         case id_eeprom_reset: {
             via_eeprom_set_valid(false);
             eeconfig_init_via();
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
 #endif
@@ -473,6 +477,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             uint16_t offset = (command_data[0] << 8) | command_data[1];
             uint16_t size   = command_data[2]; // size <= 28
             dynamic_keymap_set_buffer(offset, size, &command_data[3]);
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
 #ifdef ENCODER_MAP_ENABLE
@@ -484,6 +489,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         }
         case id_dynamic_keymap_set_encoder: {
             dynamic_keymap_set_encoder(command_data[0], command_data[1], command_data[2] != 0, (command_data[3] << 8) | command_data[4]);
+            if (!eeprom_persistence_ok()) *command_id = id_unhandled;
             break;
         }
 #endif

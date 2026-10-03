@@ -4,8 +4,11 @@ extern "C" {
 #include "eeprom.h"
 #include "eeprom_driver.h"
 #include "nvm_dynamic_keymap.h"
+#include "via.h"
+void raw_hid_receive(uint8_t *data, uint8_t length);
 #include "keyboards/era/common/system/era_state_sync.h"
-void raw_hid_send(uint8_t *, uint8_t) {}
+static uint8_t g_response_command;
+void raw_hid_send(uint8_t *data, uint8_t) { g_response_command=data[0]; }
 }
 #include <array>
 
@@ -183,4 +186,29 @@ TEST_F(EraWlQmkDriver, ColdConsolidationCutsExposeSingleBankRecoveryLimit) {
         EXPECT_EQ(actual,desired);
     }
     printf("POWER CUT wear-level consolidation program=%llu erase=4\n",(unsigned long long)programs);
+}
+
+TEST_F(EraWlQmkDriver, ViaReportsKnownFailureAndAcceptsIdenticalKeymapRetry) {
+    std::array<uint8_t,32> packet;
+    packet.fill(0x5A);
+    packet[0]=id_dynamic_keymap_set_buffer;
+    packet[1]=packet[2]=0;
+    packet[3]=28;
+    era_state_sync_set_revisions_for_testing(1,1,1);
+    auto &flash=MockBackingStore::Instance();
+    flash.set_write_callback([](uint64_t,uint32_t) { return false; });
+    raw_hid_receive(packet.data(),packet.size());
+    EXPECT_EQ(g_response_command,id_unhandled);
+    EXPECT_FALSE(eeprom_persistence_ok());
+    EXPECT_EQ(era_state_sync_keymap_revision(),1U);
+    flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+    packet[0]=id_dynamic_keymap_set_buffer;
+    raw_hid_receive(packet.data(),packet.size());
+    EXPECT_EQ(g_response_command,id_dynamic_keymap_set_buffer);
+    EXPECT_TRUE(eeprom_persistence_ok());
+    EXPECT_GT(era_state_sync_keymap_revision(),1U);
+    eeprom_driver_init();
+    std::array<uint8_t,28> actual;
+    nvm_dynamic_keymap_read_buffer(0,actual.size(),actual.data());
+    for (auto byte : actual) EXPECT_EQ(byte,0x5A);
 }

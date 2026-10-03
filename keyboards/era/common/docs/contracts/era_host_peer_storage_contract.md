@@ -64,8 +64,10 @@ losing the upload. Replacement Apply remains a separate immutable-domain API.
 Native macro payloads require durable marker invalidation before mutation and
 write marker zero only after all payload receipts succeed. Failure refuses
 CLOSE; a fresh opener plus complete upload, or RESET, is required. Wear-leveling
-can instead repair its retained desired image. VIA reports a failed macro
-command through the existing unhandled response; the wire layout is unchanged.
+can instead repair its retained desired image. VIA reports known synchronous keymap, encoder, layout-option, reset and macro
+write failures through the existing unhandled response. A successful echo from
+an intentionally deferred SET/SAVE remains acceptance, not a new power-loss
+receipt; the wire layout is unchanged.
 Deferred approved saves re-arm after a failed receipt. CONFIG's semantic SET
 notification remains a runtime event; its matching persistence debt is consumed
 only after successful outer completion. Local policy and recency metadata keep

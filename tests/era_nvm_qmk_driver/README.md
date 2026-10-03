@@ -12,6 +12,9 @@ The custom fixture links actual QMK keyboard/VIA/default owners, EEPROM update
 helpers, ERA adapter and journal engine. Only physical NOR is modeled. It checks
 normal remount, one factory commit, nested rollback, uncertain-tail equal retry,
 macro upload/reset, local metadata, CLEAN and scoped writes around an open macro.
+The actual VIA receive/send boundary rejects known failed keycode, keymap-buffer,
+keymap-reset, layout-option and optional EEPROM-reset operations through the
+existing unhandled response, then accepts a complete retry and remount.
 Factory injection visits each program, readback and erase failure and each torn
 program boundary, then remounts and retries against the retained physical bytes.
 `era_nvm` separately covers rotation, maintenance, replacement and replay faults.

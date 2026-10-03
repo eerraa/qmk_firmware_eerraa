@@ -15,6 +15,7 @@ extern "C" {
 #include "nvm_dynamic_keymap.h"
 #include "via.h"
 #include "quantum.h"
+void raw_hid_receive(uint8_t *data, uint8_t length);
 }
 
 #include <array>
@@ -33,7 +34,7 @@ struct FakeNor {
     uint64_t erase_calls       = 0;
     uint64_t fail_program_call = 0;
     uint64_t read_calls = 0, fail_read_call = 0, fail_erase_call = 0;
-    bool cut_power = false, powered = true;
+    bool cut_power = false, powered = true, reject_programs = false;
 
     FakeNor() {
         bytes.fill(0xFF);
@@ -57,7 +58,7 @@ struct FakeNor {
     static bool Program(void *context, uint32_t offset, const void *data, size_t length) {
         auto *self = static_cast<FakeNor *>(context);
         self->program_calls++;
-        if (!self->powered) return false;
+        if (!self->powered || self->reject_programs) return false;
         if (self->fail_program_call != 0 && self->program_calls == self->fail_program_call) {
             if (self->cut_power) {
                 const auto *partial = static_cast<const uint8_t *>(data);
@@ -98,6 +99,8 @@ FakeNor g_flash;
 uint32_t g_notify_count;
 uint16_t g_notify_offset;
 uint16_t g_notify_length;
+uint8_t g_response_command;
+unsigned g_response_count;
 
 void reset_notifications() {
     g_notify_count  = 0;
@@ -137,7 +140,7 @@ extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length
     g_notify_length = length;
 }
 
-extern "C" void raw_hid_send(uint8_t *, uint8_t) {}
+extern "C" void raw_hid_send(uint8_t *data, uint8_t) { g_response_command=data[0]; ++g_response_count; }
 
 TEST_F(EraNvmQmkDriver, StockReadWriteUpdateUsesReplayableEraNvmAndExactChangedEnvelope) {
     uint8_t initial[4] = {0x11, 0x22, 0x33, 0x44};
@@ -555,4 +558,39 @@ TEST_F(EraNvmQmkDriver, ScopeEnvelopeCannotCommitAnUnrelatedOpenMacro) {
     EXPECT_FALSE(era_eeprom_driver_macro_transaction_open());
     eeprom_driver_init();
     EXPECT_EQ(eeprom_read_byte((uint8_t *)(uintptr_t)kMacroAddress), payload);
+}
+
+TEST_F(EraNvmQmkDriver, ViaSynchronousWriteFailureCannotEchoLayoutSuccess) {
+    const std::array<std::array<uint8_t,32>,5> commands = {{
+        {{id_dynamic_keymap_set_keycode,0,0,0,0x12,0x34}},
+        {{id_dynamic_keymap_set_buffer,0,0,2,0x12,0x34}},
+        {{id_dynamic_keymap_reset}},
+        {{id_set_keyboard_value,id_layout_options,0,0,0,0x77}},
+        {{id_eeprom_reset}},
+    }};
+    for (const auto &command : commands) {
+        SetUp();
+        nvm_dynamic_keymap_update_keycode(0,0,0,0x4321);
+        via_eeprom_set_valid(true);
+        reset_notifications();
+        g_response_count=0;
+        g_flash.reject_programs=true;
+        auto packet=command;
+        raw_hid_receive(packet.data(),packet.size());
+        EXPECT_EQ(g_response_count,1U);
+        EXPECT_EQ(g_response_command,id_unhandled) << unsigned(command[0]);
+        EXPECT_FALSE(eeprom_persistence_ok()) << unsigned(command[0]);
+        EXPECT_EQ(g_notify_count,0U);
+        EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),0x4321);
+        g_flash.reject_programs=false;
+        packet=command;
+        raw_hid_receive(packet.data(),packet.size());
+        EXPECT_EQ(g_response_command,command[0]) << unsigned(command[0]);
+        ASSERT_TRUE(eeprom_persistence_ok());
+        eeprom_driver_init();
+        EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),
+                  command[0]==id_set_keyboard_value ? 0x4321 :
+                  command[0]==id_dynamic_keymap_reset || command[0]==id_eeprom_reset ? 0 : 0x1234);
+        if (command[0]==id_set_keyboard_value) EXPECT_EQ(via_get_layout_options(),0x77U);
+    }
 }

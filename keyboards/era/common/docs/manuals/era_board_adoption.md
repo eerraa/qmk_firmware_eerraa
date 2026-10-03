@@ -18,7 +18,7 @@ It force-includes `storage/era_storage_adoption.h` after the board's
 
 | # | Required precondition | Enforcement |
 | --- | --- | --- |
-| 1 | `TOTAL_EEPROM_BYTE_COUNT == 24576`: QMK's `WEAR_LEVELING_LOGICAL_SIZE` is 24 KiB, with twice that backing | `split/era_host_peer_storage.c` span assertion |
+| 1 | `TOTAL_EEPROM_BYTE_COUNT == 24576`: the ERA custom adapter presents a 24-KiB logical image; physical banks are owned by `storage/era_nvm_format.h` | `split/era_host_peer_storage.c` span assertion |
 | 2 | `DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE` is exactly 16 KiB | shared core0/core1 image equality |
 | 3 | `EECONFIG_SIZE == 37`; the board declares no `EECONFIG_KB_DATA_SIZE` or `EECONFIG_USER_DATA_SIZE` | adoption header refusal plus the `ERA_EEPROM_CONFIG_ADDR == 37U` assertion |
 | 4 | `VIA_EEPROM_MAGIC_ADDR == ERA_EEPROM_CONFIG_END`, with the equivalent non-VIA dynamic-keymap base | layout/keymap placement assertions |
