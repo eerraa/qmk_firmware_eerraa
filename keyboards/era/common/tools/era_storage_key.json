@@ -1,9 +1,9 @@
 {
   "keys": {
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
-    "ERA_EEPROM_RESET_KEY": "0x45524108UL"
+    "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "탭댄스의 독립 홀드 시간 24바이트를 추가하여 ERA 블록을 280바이트로 확장하고 보호 영역과 VIA·키맵·매크로 주소를 함께 24바이트 이동한다. 저장 스키마 3과 초기화 키 0x45524108을 적용하며 첫 부팅 전체 초기화를 수용한다. 기존 레이아웃 변환기는 추가하지 않는다.",
+  "reason": "V261004R1 MOUSE v2 integer count/time format; full settings reset approved; slot offsets unchanged",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "7b3087dc2c54e525",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -100,7 +100,7 @@
     "type era_kkuk_config_t": "7a45c622c375ebd4",
     "type era_lighting_sleep_config_t": "cd28ec7cf0a4971e",
     "type era_matrix_debounce_storage_config_t": "a83d8bcd2cfa7128",
-    "type era_mousekey_config_t": "55d1015c52869a79",
+    "type era_mousekey_config_t": "04c23527cea5d79d",
     "type era_reset_guard_t": "17f23f5c109760ea",
     "type era_rgb_indicator_config_t": "ef40a1beeac9a1b0",
     "type era_socd_config_t": "15ddaf2a41609a19",
@@ -122,7 +122,7 @@
     "validity keyboards/era/common/features/era_backlight.c": "dd2cfe90da9ab6bd",
     "validity keyboards/era/common/features/era_kkuk.c": "e3b0c44298fc1c14",
     "validity keyboards/era/common/features/era_lighting_sleep.c": "e3b0c44298fc1c14",
-    "validity keyboards/era/common/features/era_mousekey.c": "52a09e8e454a2eaf",
+    "validity keyboards/era/common/features/era_mousekey.c": "6c6ca3b7f4e98023",
     "validity keyboards/era/common/features/era_rgb_indicator.c": "e0fea58056b7ab52",
     "validity keyboards/era/common/features/era_socd.c": "e3b0c44298fc1c14",
     "validity keyboards/era/common/features/era_tapdance.c": "db6beb97b5e91743",

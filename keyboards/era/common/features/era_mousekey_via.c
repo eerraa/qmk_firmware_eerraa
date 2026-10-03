@@ -29,6 +29,9 @@ static void era_mousekey_via_save(uint8_t channel_id) {
 
 static bool era_mousekey_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
+    if (value_id >= 8 && value_id <= 14) {
+        return length >= 5 && era_mousekey_set_exact(value_id, ((uint16_t)value_data[0] << 8) | value_data[1]);
+    }
     switch (value_id) {
         case ERA_MOUSEKEY_VIA_VALUE_CURSOR_MIN_SPEED:
             era_mousekey_set_cursor_min_speed(value_data[0]);
@@ -55,6 +58,15 @@ static bool era_mousekey_via_set_value(uint8_t channel_id, uint8_t value_id, uin
 
 static bool era_mousekey_via_get_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
+    if (value_id == 7) {
+        if (length < 5) return false;
+        value_data[0] = 0xE4; value_data[1] = 1; return true;
+    }
+    if (value_id >= 8 && value_id <= 14) {
+        if (length < 6) return false;
+        uint16_t value = era_mousekey_get_exact(value_id);
+        value_data[0] = value >> 8; value_data[1] = value & 0xFF; value_data[2] = 0xE4; return true;
+    }
     value_data[0] = 0;
 
     switch (value_id) {

@@ -217,6 +217,8 @@ extern uint16_t mk_wheel_interval;
 extern uint8_t mk_wheel_interval;
 #endif
 #ifdef ERA_MOUSEKEY_RUNTIME_DELTA
+extern uint8_t mk_cursor_top, mk_wheel_top;
+extern uint16_t mk_cursor_ramp_ms, mk_wheel_ramp_ms;
 extern uint8_t mk_move_delta;
 extern uint8_t mk_wheel_delta;
 #endif

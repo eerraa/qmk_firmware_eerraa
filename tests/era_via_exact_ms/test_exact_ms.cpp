@@ -6,6 +6,9 @@
 #include <vector>
 
 extern "C" {
+#include "keyboards/era/common/features/era_mousekey.h"
+#include "keyboards/era/common/features/era_mousekey_via.h"
+#include "mousekey.h"
 #include "keyboards/era/common/features/era_tapping.h"
 #include "keyboards/era/common/features/era_tapping_via.h"
 #include "keyboards/era/common/features/era_tapdance.h"
@@ -81,6 +84,36 @@ static void expect_revisions(uint32_t keymap, uint32_t macro, uint32_t config) {
 }
 
 namespace {
+
+TEST(EraMousePrecision, ExactWireSaveAndLegacyProjection) {
+    era_mousekey_init();
+    uint8_t cap[32] = {id_custom_get_value, 13, 7};
+    ASSERT_TRUE(era_mousekey_handle_via_command(cap, sizeof(cap)));
+    EXPECT_EQ(cap[3], 0xE4); EXPECT_EQ(cap[4], 1);
+    auto set = [](uint8_t id, uint16_t value) {
+        uint8_t data[32] = {id_custom_set_value, 13, id, (uint8_t)(value >> 8), (uint8_t)value};
+        return era_mousekey_handle_via_command(data, sizeof(data));
+    };
+    auto get = [](uint8_t id) {
+        uint8_t data[32] = {id_custom_get_value, 13, id};
+        EXPECT_TRUE(era_mousekey_handle_via_command(data, sizeof(data)));
+        EXPECT_EQ(data[5], 0xE4);
+        return ((uint16_t)data[3] << 8) | data[4];
+    };
+    ASSERT_TRUE(set(8, 7)); ASSERT_TRUE(set(9, 17)); ASSERT_TRUE(set(10, 137));
+    EXPECT_EQ(get(9), 17); EXPECT_EQ(mk_cursor_top, 17); EXPECT_EQ(mk_cursor_ramp_ms, 137);
+    EXPECT_EQ(era_mousekey_get_cursor_max_speed(), 16); EXPECT_EQ(get(9), 17);
+    ASSERT_TRUE(set(10, 65535)); ASSERT_TRUE(set(11, 1)); EXPECT_EQ(mk_cursor_ramp_ms, 65535);
+    ASSERT_FALSE(set(9, 128)); EXPECT_EQ(get(9), 17);
+    ASSERT_TRUE(set(13, 6)); ASSERT_TRUE(set(14, 137)); EXPECT_EQ(era_mousekey_get_wheel_acceleration(), 1);
+    ASSERT_TRUE(set(13, 7)); EXPECT_EQ(era_mousekey_get_wheel_acceleration(), 2);
+    uint8_t save[32] = {id_custom_save, 13};
+    ASSERT_TRUE(era_mousekey_handle_via_command(save, sizeof(save)));
+    ASSERT_TRUE(set(9, 27)); era_mousekey_reload_from_eeprom();
+    EXPECT_EQ(get(9), 17); EXPECT_EQ(get(10), 65535);
+    era_mousekey_set_cursor_acceleration(30); era_mousekey_set_cursor_interval_ms(5);
+    EXPECT_EQ(get(10), 1500); EXPECT_EQ(era_mousekey_get_cursor_acceleration(), 30);
+}
 
 class EraViaSystemBoot : public ::testing::Test {
    protected:

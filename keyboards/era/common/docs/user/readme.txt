@@ -8,6 +8,9 @@ Firmware Guide
 
 ■ 펌웨어 업데이트
 
+V261004R1은 MOUSE 정밀 설정을 위해 EEPROM 형식을 변경합니다. 이전 버전에서
+업데이트하면 키맵·매크로·모든 설정이 초기화됩니다. 먼저 백업하십시오.
+
 V260916R1 및 그 이전 배포본에서 V260929R1 이후 버전으로 처음 업데이트하면 저장 형식
 변경으로 키맵·매크로·설정이 초기화됩니다. 먼저 SAVE + LOAD로 백업하고,
 백업 파일에 포함되지 않는 설정과 탭댄스는 따로 기록하십시오.
@@ -54,6 +57,9 @@ English
 ----------------------------------------------------------------------
 
 ■ Firmware Update
+
+V261004R1 changes the MOUSE storage format. Updating from an older version
+resets all keymaps, macros and settings. Back up first.
 
 The first upgrade from V260916R1 or earlier to V260929R1 or later resets
 keymaps, macros and settings because the stored format changed. Back up with

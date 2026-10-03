@@ -128,7 +128,7 @@
  * guard that differs erases the whole logical EEPROM on the next boot. Move it
  * when stored bytes would mean something else and no narrower guard rejects
  * them (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
-#define ERA_EEPROM_RESET_KEY 0x45524108UL
+#define ERA_EEPROM_RESET_KEY 0x45524109UL
 
 /* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32
  * values plus one guard word, written only at storage convergence closes.

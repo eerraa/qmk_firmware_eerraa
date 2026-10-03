@@ -249,3 +249,21 @@ these:
 | a new split payload, direction, route, response slot, or storage surface | `era_wire_contract.md`, `era_route_contract.md`, `era_closed_surface_contract.md`, or `era_host_peer_storage_contract.md` as applicable |
 | a source split/merge or wrapper that crosses the **Source Structure** boundary | **Source Structure** |
 | reuse or allocation of an externally interpreted numeric identifier, including mode 5/6 | **Identifier Compatibility** plus the owning protocol/VIA contract |
+
+## MOUSE Precision Compatibility
+
+V261004R1 keeps the six Stock VIA presets and adds integer precision only to
+Custom VIA. Legacy reads project to the nearest preset without changing the
+authoritative setting; ties choose the lower preset. Wheel acceleration maps
+zero ramp to Off, otherwise the nearest Mild/Strong target, ignoring duration.
+The live capability and BE16 exact fields are owned by
+`features/era_mousekey_via.c`; a date version is not support evidence.
+`features/era_mousekey.c` owns MOUSE v2 storage and direct count/time values;
+`quantum/era_mousekey_precision.h` owns interpolation. The global reset key
+changes for this format, so all settings reset on upgrade. No v1 migration and
+no mixed-version split support are introduced.
+
+The engine uses actual elapsed milliseconds, independently from report cadence.
+Adding a direction during a gesture keeps its start time. Releasing all directions
+or clearing starts a fresh gesture. Counts remain HID units, not guaranteed
+screen pixels. Zero ramp keeps the start count; a lower target ramps down.

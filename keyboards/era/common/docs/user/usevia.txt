@@ -110,6 +110,11 @@ CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap/Layer-Tap의 탭·홀드 판정을
 
 ■ MOUSE
 
+V261004R1부터 정수 단위 정밀 입력은 usekb.cc의 Precise values에서 제공합니다.
+스톡 VIA는 가장 가까운 프리셋을 표시하며 조회만으로 정밀 값을 바꾸지 않습니다.
+휠 가속은 시간이 0이면 Off, 나머지는 목표 속도 기준으로 Mild/Strong을 표시합니다.
+프리셋을 선택하면 그 설정으로 변경됩니다.
+
 CONFIGURE -> FEATURE -> MOUSE에서 키보드의 Mouse Key 동작을 조정합니다.
 키맵에 Mouse Key가 없으면 이 설정은 입력에 영향을 주지 않습니다. 값들이 서로
 영향을 주므로 한 번에 하나씩 조정하는 것을 권장합니다.
@@ -313,6 +318,11 @@ arrive later.
   press, the release still sends the tap.
 
 ■ MOUSE
+
+From V261004R1, integer precision is available through Precise values at usekb.cc.
+Stock VIA displays the nearest preset; reads never change precise settings.
+Wheel acceleration shows Off for zero ramp, otherwise Mild/Strong by the nearest
+target speed, ignoring duration (ties choose Mild). Selecting a preset writes it.
 
 Configure Mouse Keys in CONFIGURE -> FEATURE -> MOUSE. These settings do not
 affect typing unless Mouse Key keycodes are present in the keymap. The values
