@@ -52,7 +52,7 @@ CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번�
 - On Hold: 길게 눌렀을 때의 keycode
 - On Double Tap: Term 안에 두 번 탭했을 때의 keycode
 - Tap+Hold: 한 번 탭한 뒤 이어서 길게 눌렀을 때의 keycode
-- Term: 어느 동작인지 판단하기까지 기다리는 시간(ms)
+- Term: 동작을 판정하는 시간. 공식 VIA에서는 100~500ms를 20ms 단위로 선택합니다.
 
 Legacy에서 On Double Tap과 Tap+Hold를 비워 둔 슬롯은 키를 떼는 순간 탭이 입력되고,
 Term은 홀드 판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는
@@ -80,7 +80,9 @@ CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키(좌/우, 상/하)
 
 키에는 일반 키나 modifier 키를 지정하십시오. 판정은 PC로 나가는 키를 기준으로
 하므로 Tap Dance나 매크로가 낸 키에도 적용됩니다. 한 쌍의 두 칸에 같은 키를
-넣거나 한 키를 두 쌍에 함께 넣으면 그 쌍은 동작하지 않습니다. DUAL-HOST에서는
+넣으면 그 쌍은 동작하지 않습니다. 두 쌍을 모두 켜고 유효한 키를 지정했을 때
+같은 키를 공유하면 두 쌍 모두 동작하지 않습니다. 꺼진 쌍의 키 지정은 다른 쌍을
+막지 않습니다. DUAL-HOST에서는
 두 유닛이 각자 PC로 보내므로 한 쌍의 두 키가 같은 유닛에 있어야 적용됩니다.
 일부 게임과 대회는 SOCD 사용을 제한하므로 규정을 확인하십시오.
 
@@ -90,7 +92,8 @@ CONFIGURE -> FEATURE -> KKUK에서 사용합니다. 일반 키 두 개 이상을
 눌린 키 묶음을 Delay/Repeat 설정에 따라 주기적으로 뗐다가 다시 누릅니다.
 예를 들어 A, S, D를 계속 누르면 일반적인 "asdddd..." 자동 반복 대신 보통
 "asdasdasd..."처럼 입력됩니다. 문자열 매크로나 매트릭스 ghosting 방지 기능이
-아니며 SOCD에 지정한 키는 반복 대상에서 제외됩니다.
+아닙니다. 켜져 있고 유효하며 다른 쌍과 겹치지 않는 SOCD 쌍의 키만 반복
+대상에서 제외됩니다. 꺼진 쌍이나 무효·충돌한 쌍의 키는 제외하지 않습니다.
 
 ■ DEBOUNCE
 
@@ -154,13 +157,15 @@ Badge는 배지 LED의 역할을 정합니다.
 CONFIGURE -> SYSTEM에는 스플릿 전용 SYNC와 LINK, 그리고 SLEEP과 BOOT가 있습니다.
 
 SYNC:
-세 항목은 모두 기본 On이며 양쪽 유닛이 공유하는 영역을 각각 담당합니다.
-- EEPROM SYNC: 양쪽 유닛의 저장 설정을 동기화합니다. 동기화
-  작업이 보이는 동안 STATUS는 파란색입니다. INPUT SYNC와 RGB SYNC가 완전히
-  동작하려면 먼저 켜져 있어야 합니다.
-- INPUT SYNC: 양쪽 유닛을 모두 PC에 연결한 DUAL-HOST에서도 레이어 상태와 키
+세 항목은 모두 기본 On이며 서로 독립된 설정입니다.
+- EEPROM SYNC: 양쪽 유닛의 저장 설정을 동기화합니다. 동기화 작업이 보이는
+  동안 STATUS는 파란색입니다. INPUT SYNC와 RGB SYNC의 선행 조건은 아니지만,
+  양쪽의 키맵과 설정을 함께 유지하려면 켜 두는 것을 권장합니다.
+- INPUT SYNC: 양쪽 유닛을 모두 PC에 연결한 DUAL-HOST에서 레이어 상태와 키
   입력 판정을 공유해 하나의 키보드처럼 동작하게 합니다.
-- RGB SYNC: 반응형 효과를 포함해 양쪽 유닛의 조명을 맞춥니다.
+- RGB SYNC: DUAL-HOST에서 반응형 효과를 포함해 양쪽 유닛의 조명을 맞춥니다.
+INPUT SYNC와 RGB SYNC는 DUAL-HOST의 공유 범위를 제어합니다. 한쪽만 USB에
+연결한 HOST-PEER에서는 이 두 설정을 꺼도 입력과 조명 전달이 유지됩니다.
 
 LINK:
 - High: 460800 bps / 1 ms (기본값)
@@ -190,17 +195,19 @@ RGB Sleep은 기본 On입니다. 끄면 유휴 시간뿐 아니라 USB 절전과
 꺼도 시간 값은 보존됩니다.
 
 BOOT:
-Jump To BOOT는 켜는 즉시 현재 유닛의 부트로더로 진입합니다. 실행 후 항상
-꺼진 값으로 보이는 것이 정상입니다.
+Jump To BOOT를 켜면 현재 유닛의 부트로더 진입을 요청합니다. VIA의 후속
+처리와 응답 전송을 기다린 뒤 전환하며, 실행 후 항상 꺼진 값으로 보이는 것이
+정상입니다.
 
 ■ EEPROM CLEAN
 
-기존 배포 펌웨어에는 10초 확인 제한이 남아 있습니다. 해당 버전에서는 세 토글을
-10초 안에 모두 켜십시오. 시간 제한 제거는 새 펌웨어 설치 후 적용됩니다.
+세 확인 토글에는 시간 제한이 없습니다. 켠 토글을 끄면 해당 확인만 취소되며,
+재부팅하면 확인 상태가 모두 지워집니다.
 
 CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 모두 켜면 CLEAN이
-실행됩니다. 연결된 양쪽 유닛은 함께 초기화와 재시작을 수행하며, 떨어져 있는
-유닛은 각각 로컬 CLEAN을 수행합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
+요청됩니다. 서로 정상적으로 통신하는 양쪽 유닛은 합의를 거쳐 함께
+키맵·매크로·모든 설정을 초기화하고 재시작합니다. 떨어져 있는 유닛은 각각
+로컬 CLEAN을 수행합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
 
 
 ----------------------------------------------------------------------
@@ -249,7 +256,7 @@ that TD key is actually placed somewhere you can press it.
 - On Hold: keycode for a held press
 - On Double Tap: keycode for two taps inside Term
 - Tap+Hold: keycode for a tap followed by a hold
-- Term: how long the keyboard waits before deciding the action, in milliseconds
+- Term: decision time; official VIA offers 100..500 ms in 20 ms steps.
 
 In Legacy mode, a slot with On Double Tap and Tap+Hold left empty sends the tap the moment
 the key is released, and Term then decides only the hold. With On Double
@@ -278,7 +285,9 @@ SOCD, then choose in Mode what reaches the computer while both keys are held.
 
 Use ordinary keyboard or modifier keycodes. SOCD judges the keys going to the
 computer, so it also applies to keys sent by Tap Dance or a macro. A pair with
-the same key in both slots, or a key used in both pairs, does nothing. In
+the same key in both slots does nothing. If both pairs are enabled with valid
+keys and share a key, neither pair runs. A disabled pair does not block the
+other pair. In
 DUAL-HOST each unit reports on its own, so both keys of a pair must be on the
 same unit. Some games and tournaments restrict SOCD; check their rules.
 
@@ -288,7 +297,8 @@ Use CONFIGURE -> FEATURE -> KKUK. While two or more ordinary keys remain held,
 KKUK periodically releases the held group and presses it again according to
 Delay/Repeat. For example, holding A, S, and D usually produces "asdasdasd..."
 instead of the ordinary "asdddd..." auto-repeat. This is neither a string macro
-nor matrix ghosting prevention. Keys assigned to SOCD are excluded.
+nor matrix ghosting prevention. Only keys in enabled, valid, non-overlapping
+SOCD pairs are excluded. Keys in disabled, invalid or conflicting pairs are not.
 
 ■ DEBOUNCE
 
@@ -352,13 +362,18 @@ colour. Badge controls the badge LED role.
 CONFIGURE -> SYSTEM includes split-specific SYNC and LINK, plus SLEEP and BOOT.
 
 SYNC:
-All three are on by default and cover different parts of what the units share.
-- EEPROM SYNC: synchronizes stored settings between the halves. STATUS is
-  blue while synchronization work is visibly active. INPUT
-  SYNC and RGB SYNC need this on to work fully.
+All three are on by default and are independent settings.
+- EEPROM SYNC: synchronizes stored settings between the halves. STATUS is blue
+  while synchronization work is visibly active. It is not a prerequisite for
+  INPUT SYNC or RGB SYNC, but keeping it on is recommended to maintain matching
+  keymaps and settings on both units.
 - INPUT SYNC: with both units plugged into the PC in DUAL-HOST, they share layer
   state and key decisions so they act as one keyboard.
-- RGB SYNC: aligns lighting across both units, reactive effects included.
+- RGB SYNC: aligns lighting across both units in DUAL-HOST, reactive effects
+  included.
+INPUT SYNC and RGB SYNC control sharing in DUAL-HOST. With only one unit connected
+by USB in HOST-PEER, input and lighting forwarding remain active even when these
+two settings are off.
 
 LINK:
 Use the Custom app at usekb.cc to inspect runtime/saved speed and Apply results.
@@ -390,16 +405,17 @@ default is 10 minutes. Turning RGB Sleep off keeps that timeout for the next
 time you turn it on.
 
 BOOT:
-Jump To BOOT enters the current unit's bootloader as soon as it is switched on
-and normally reads back off after the action.
+Switching on Jump To BOOT requests bootloader entry on the current unit.
+The transition waits for VIA follow-up processing and response transmission;
+the control normally reads back off after the action.
 
 ■ EEPROM CLEAN
 
-Existing release firmware still has a ten-second confirmation limit: turn on
-all three toggles within ten seconds. Removing that limit requires installing
-updated firmware.
+The three confirmation toggles have no time limit. Turning a toggle off cancels
+only that confirmation; restarting the keyboard clears all confirmations.
 
 Turn on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM
-to run CLEAN. Connected units erase and restart together; separated
-units perform local CLEAN independently. Back up the keymap with
+to request CLEAN. Units communicating normally agree to erase all keymaps,
+macros and settings and restart together; separated units perform local CLEAN
+independently. Back up the keymap with
 VIA SAVE + LOAD before running CLEAN.
