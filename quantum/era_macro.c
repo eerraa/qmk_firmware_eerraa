@@ -16,7 +16,12 @@
 #    define DYNAMIC_KEYMAP_MACRO_DELAY TAP_CODE_DELAY
 #endif
 #ifndef DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE
-#    define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE TOTAL_EEPROM_BYTE_COUNT
+#    ifdef NVM_DRIVER_EEPROM
+#        include "nvm/eeprom/nvm_dynamic_keymap_geometry.h"
+#    else
+/* A custom NVM owner supplies its own size or keeps the existing upper bound. */
+#        define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE TOTAL_EEPROM_BYTE_COUNT
+#    endif
 #endif
 _Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE <= UINT16_MAX, "Macro snapshot index width");
 /* One snapshot, never one per queued request. The AVR board does not select

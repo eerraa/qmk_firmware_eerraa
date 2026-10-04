@@ -44,7 +44,7 @@ QMK_DEFINES = (
     ("quantum/eeconfig.h", r"EECONFIG_\w+"),
     ("quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h", r"EECONFIG_\w+"),
     ("quantum/nvm/eeprom/nvm_eeprom_via_internal.h", r"VIA_EEPROM_\w+"),
-    ("quantum/nvm/eeprom/nvm_dynamic_keymap.c", r"DYNAMIC_KEYMAP_\w+"),
+    ("quantum/nvm/eeprom/nvm_dynamic_keymap_geometry.h", r"DYNAMIC_KEYMAP_\w+"),
 )
 # The order of these lists is the stored effect number, and the keycode table
 # gives the numbers a stored keymap holds.

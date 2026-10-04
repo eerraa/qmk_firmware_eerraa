@@ -3,7 +3,7 @@
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
     "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "V261004R1 MOUSE v2 integer count/time format; full settings reset approved; slot offsets unchanged",
+  "reason": "Move unchanged dynamic-keymap geometry definitions to a shared header for exact macro snapshot sizing; stored addresses, sizes and reset keys are unchanged.",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "7b3087dc2c54e525",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -67,7 +67,7 @@
     "define keyboards/era/common/storage/era_storage_adoption.h": "bf78c3a1ff61f02e",
     "define keyboards/era/common/storage/era_storage_layout.h": "82abd1bd909064df",
     "define quantum/eeconfig.h": "cc9b96f5fc2428a8",
-    "define quantum/nvm/eeprom/nvm_dynamic_keymap.c": "5e1c8be0e431db21",
+    "define quantum/nvm/eeprom/nvm_dynamic_keymap_geometry.h": "5e1c8be0e431db21",
     "define quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h": "7f842dc04af2c8e6",
     "define quantum/nvm/eeprom/nvm_eeprom_via_internal.h": "521e60c3b707e92c",
     "keycodes keyboards/era/classicd/classicd_a1/classicd_a1.h": "e58fb0fe527866dc",

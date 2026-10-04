@@ -280,8 +280,9 @@ ID resolves against the valid contents at its execution start, rather than
 the time it was queued. Starting an execution fixes its bytes, so a later
 upload or remote Apply cannot splice new commands into it. Invalid IDs,
 invalid completion markers and out-of-range starts produce no output.
-Snapshot capacity uses the configured macro region where available, otherwise
-the board's logical EEPROM bound; only the actual macro region is copied.
+Snapshot capacity uses the configured macro region. The EEPROM backend and
+executor share its compile-time geometry; a custom backend without that geometry
+may use the board's logical EEPROM bound. Only the actual macro region is copied.
 One bounded region copy and selection scan per activation are accepted
 Core0 costs, at most one activation per pass; idle and waiting passes do
 neither. This bound is not a measured activation-latency claim.
