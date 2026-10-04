@@ -137,9 +137,6 @@ void era_common_features_reload_from_eeprom(void) {
 }
 
 void era_common_features_task(void) {
-#ifdef ERA_MACRO_ENABLE
-    era_macro_platform_sync();
-#endif
     /* The frame-loss half of the ERA sleep decision. Here rather than in a
        board file because it is a fact about USB, not about a keyboard, and
        every ERA board reaches this function once per pass. */
