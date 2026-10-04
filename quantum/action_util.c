@@ -492,11 +492,20 @@ __attribute__((weak)) void keyboard_report_filter(report_keyboard_t *report) {
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
 static bool era_report_force;
 bool era_hid_report_interval_select_format(uint8_t format);
-void force_send_keyboard_report(void) {
+#    ifdef NKRO_ENABLE
+void rebuild_6kro_report(void);
+#    endif
+void resend_keyboard_report(void) {
     bool previous = era_report_force;
     era_report_force = true;
     send_keyboard_report();
     era_report_force = previous;
+}
+void force_send_keyboard_report(void) {
+#    ifdef NKRO_ENABLE
+    if (!(host_can_send_nkro() && keymap_config.nkro)) rebuild_6kro_report();
+#    endif
+    resend_keyboard_report();
 }
 #endif
 
@@ -562,7 +571,12 @@ void send_keyboard_report(void) {
     if (host_can_send_nkro() && keymap_config.nkro) format = 2;
 #    endif
     bool previous_force = era_report_force;
-    if (era_hid_report_interval_select_format(format)) era_report_force = true;
+    if (era_hid_report_interval_select_format(format)) {
+#    ifdef NKRO_ENABLE
+        if (format != 2) rebuild_6kro_report();
+#    endif
+        era_report_force = true;
+    }
 #endif
 #ifdef NKRO_ENABLE
     if (host_can_send_nkro() && keymap_config.nkro) {

@@ -151,17 +151,15 @@ static bool era_kkuk_can_start_pulse(uint16_t repeat_ms) {
 
 /* The pulse has to snapshot whichever report `clear_keys()` is about to empty,
    and that is not always the 6KRO one: `clear_keys_from_report()`
-   (`tmk_core/protocol/report.c`) clears `nkro_report->bits` while NKRO is
-   negotiated and `keyboard_report->keys` otherwise. A 6KRO-only snapshot left
+   (`tmk_core/protocol/report.c`) keeps both ERA NKRO projections together.
+   A 6KRO-only snapshot left
    the NKRO restore with nothing to put back, and `send_nkro_report()`
    (`quantum/action_util.c`) then dropped that restore as unchanged against the
    empty report the pulse had just sent -- so every held key stayed released at
    the host until it was pressed again.
 
-   Both formats are saved rather than the active one, because the predicate is
-   QMK's and a second copy of it here could disagree with the copy
-   `clear_keys()` reads. Writing back the format that was not cleared restores
-   its own bytes and changes nothing. Only the key arrays move: `clear_keys()`
+   Both formats are saved so a protocol edge/reopen observes the same live
+   usage state. Only the key arrays move: `clear_keys()`
    leaves mods alone and every send recomputes them. */
 static void era_kkuk_start_empty_pulse(void) {
     uint8_t saved_keys[KEYBOARD_REPORT_KEYS];

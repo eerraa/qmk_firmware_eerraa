@@ -150,6 +150,12 @@ void del_key_bit(report_nkro_t* nkro_report, uint8_t code) {
  * FIXME: Needs doc
  */
 void add_key_to_report(uint8_t key) {
+#if defined(ERA_HID_REPORT_INTERVAL_ENABLE) && defined(NKRO_ENABLE)
+    /* Both are projections of the same live state. A host protocol edge
+     * must not resurrect an inactive buffer or lose a held NKRO chord. */
+    add_key_bit(nkro_report, key);
+    add_key_byte(keyboard_report, key);
+#else
 #ifdef NKRO_ENABLE
     if (host_can_send_nkro() && keymap_config.nkro) {
         add_key_bit(nkro_report, key);
@@ -157,6 +163,7 @@ void add_key_to_report(uint8_t key) {
     }
 #endif
     add_key_byte(keyboard_report, key);
+#endif
 }
 
 /** \brief del key from report
@@ -164,6 +171,10 @@ void add_key_to_report(uint8_t key) {
  * FIXME: Needs doc
  */
 void del_key_from_report(uint8_t key) {
+#if defined(ERA_HID_REPORT_INTERVAL_ENABLE) && defined(NKRO_ENABLE)
+    del_key_bit(nkro_report, key);
+    del_key_byte(keyboard_report, key);
+#else
 #ifdef NKRO_ENABLE
     if (host_can_send_nkro() && keymap_config.nkro) {
         del_key_bit(nkro_report, key);
@@ -171,6 +182,7 @@ void del_key_from_report(uint8_t key) {
     }
 #endif
     del_key_byte(keyboard_report, key);
+#endif
 }
 
 /** \brief clear key from report
@@ -180,13 +192,28 @@ void del_key_from_report(uint8_t key) {
 void clear_keys_from_report(void) {
     // not clear mods
 #ifdef NKRO_ENABLE
+#    ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+    memset(nkro_report->bits, 0, sizeof(nkro_report->bits));
+#    else
     if (host_can_send_nkro() && keymap_config.nkro) {
         memset(nkro_report->bits, 0, sizeof(nkro_report->bits));
         return;
     }
+#    endif
 #endif
     memset(keyboard_report->keys, 0, sizeof(keyboard_report->keys));
 }
+
+#if defined(ERA_HID_REPORT_INTERVAL_ENABLE) && defined(NKRO_ENABLE)
+/* Only an edge/reopen rebuilds the boot projection. Preserve the existing
+ * six-key ordering and fill empty seats from the full live usage bitmap. */
+void rebuild_6kro_report(void) {
+    for (uint16_t key = 1; key < NKRO_REPORT_BITS * 8; ++key) {
+        if (nkro_report->bits[key >> 3] & (1U << (key & 7)))
+            add_key_byte(keyboard_report, (uint8_t)key);
+    }
+}
+#endif
 
 #ifdef MOUSE_ENABLE
 /**

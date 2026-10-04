@@ -13,6 +13,10 @@
 #include "report.h"
 #include "timer.h"
 
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+bool era_hid_report_interval_handle_idle(uint8_t endpoint_lut, uint8_t report_id);
+#endif
+
 extern usb_endpoint_in_t     usb_endpoints_in[USB_ENDPOINT_IN_COUNT];
 extern usb_endpoint_in_lut_t usb_endpoint_interface_lut[TOTAL_INTERFACES];
 
@@ -231,6 +235,9 @@ void usb_idle_task(void) {
                 osalSysUnlock();
 
                 if (usb_endpoint_in_is_inactive(&usb_endpoints_in[ep]) && report_storage->idle_timer_elasped(report_storage->reports, report_id)) {
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+                    if (era_hid_report_interval_handle_idle(ep, report_id)) continue;
+#endif
                     osalSysLock();
                     report_storage->get_report(report_storage->reports, report_id, &report);
                     osalSysUnlock();
@@ -246,6 +253,9 @@ void usb_idle_task(void) {
         osalSysUnlock();
 
         if (usb_endpoint_in_is_inactive(&usb_endpoints_in[ep]) && report_storage->idle_timer_elasped(report_storage->reports, 0)) {
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+            if (era_hid_report_interval_handle_idle(ep, 0)) continue;
+#endif
             osalSysLock();
             report_storage->get_report(report_storage->reports, 0, &report);
             osalSysUnlock();

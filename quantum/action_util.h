@@ -173,6 +173,9 @@ void neutralize_flashing_modifiers(uint8_t active_mods);
 #endif
 
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+/* Ordinary HID idle bypasses duplicate suppression without rebuilding the
+ * boot projection; a format/session reopen additionally rebuilds it. */
+void resend_keyboard_report(void);
 void force_send_keyboard_report(void);
 #endif
 

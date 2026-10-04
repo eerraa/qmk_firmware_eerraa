@@ -85,12 +85,12 @@ class Fixture:
         first = header.index("typedef struct {\n#ifdef KEYBOARD_SHARED_EP")
         last = header.index("} PACKED report_nkro_t;") + len("} PACKED report_nkro_t;")
         unit += HID_PREAMBLE + header[first:last] + HID_BOUNDARIES
-        for name in "add_key_byte del_key_byte add_key_bit del_key_bit add_key_to_report del_key_from_report clear_keys_from_report".split():
+        for name in "add_key_byte del_key_byte add_key_bit del_key_bit add_key_to_report del_key_from_report clear_keys_from_report rebuild_6kro_report".split():
             unit += self.extract("tmk_core/protocol/report.c", name)
         unit += self.extract("quantum/action_util.h", "clear_keys").replace("inline void", "static inline void", 1)
         for name in "clear_keyboard clear_keyboard_but_mods clear_keyboard_but_mods_and_keys".split():
             unit += self.extract("quantum/action.c", name)
-        for name in "keyboard_report_filter nkro_report_filter force_send_keyboard_report send_6kro_report send_nkro_report send_keyboard_report".split():
+        for name in "keyboard_report_filter nkro_report_filter resend_keyboard_report force_send_keyboard_report send_6kro_report send_nkro_report send_keyboard_report".split():
             unit += self.extract("quantum/action_util.c", name)
         unit += self.extract("keyboards/era/common/system/era_hid_report_interval_chibios.c", "era_hid_report_interval_select_format")
         if magic:
@@ -216,6 +216,15 @@ static report_nkro_t last_host_n;
 static unsigned sent_6,sent_n,clear_count;
 static uint8_t era_hid_format=UINT8_MAX;
 static uint32_t era_hid_protocol_events,era_hid_protocol_seen;
+static uint32_t era_hid_session_events,era_hid_format_session;
+static uint8_t era_hid_retire_pending;
+static uint8_t era_hid_retire_debt;
+static bool era_hid_retire_reset;
+/* This persistence fixture's host callbacks accept synchronously. Transport
+ * retirement is executed with the real USB owner in the lifetime fixture. */
+static void osalSysLock(void) {}
+static void osalSysUnlock(void) {}
+static uint8_t era_hid_report_interval_current_format(void) {return keymap_config.nkro?2:1;}
 static bool era_report_force;
 static bool host_can_send_nkro(void) {return true;}
 static uint8_t usb_device_state_get_protocol(void) {return 1;}

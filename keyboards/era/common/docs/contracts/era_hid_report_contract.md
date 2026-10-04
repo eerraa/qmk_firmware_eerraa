@@ -118,10 +118,9 @@ have no exemption. Modifiers are never cleared. The next task tick's
 a physical release between the two ticks therefore stays released. The snapshot
 must be the report `clear_keys()` will empty, and that is not always 6KRO:
 `clear_keys_from_report()` in `tmk_core/protocol/report.c` writes
-`nkro_report->bits` while NKRO is negotiated, else `keyboard_report->keys`.
-The pulse saves both arrays and restores both; the uncleared side writes
-its own bytes back and changes nothing, so this file does not copy QMK's
-predicate. Both snapshots are function-local; only `kkuk_pulse_state`
+`nkro_report->bits` and `keyboard_report->keys` together on ERA NKRO builds.
+The pulse saves both arrays and restores both, so both projections retain
+the same live owner state across a format edge. Both snapshots are function-local; only `kkuk_pulse_state`
 survives the tick. Keys only: `clear_keys()` in `quantum/action_util.h`
 does not clear mods, and each send recomputes them via
 `get_mods_for_report()` in `quantum/action_util.c`.
@@ -221,9 +220,14 @@ policy does not promise every auxiliary motion or tap during overload.
 
 Prefix obligations are within one USB session/format. Reset/unconfigure end
 the old obligations; suspend keeps them and starts missing-completion width
-from active resume. Format changes end held old-format keyboard obligations
-without clearing mouse/EXTRA or completion accounting for reports already
-accepted by USB. Reopen force-sends current filtered QMK owner state through
+from active resume. Format changes end held old-format tap obligations without
+clearing mouse/EXTRA or completion accounting for reports already accepted by
+USB. A local NKRO choice additionally owes a terminal empty to the old interface,
+preserved through normal BUSY before new keyboard state is admitted. A host
+protocol change ends the old format lifetime; it does not owe that local-toggle
+empty. Reset/unconfigure end both obligations, while suspend preserves them.
+Stored idle reports may not resend a keyboard payload through an inactive format.
+Reopen force-sends current filtered QMK owner state through
 the selected format, bypassing upper duplicate suppression. Already accepted
 old-format endpoint reports cannot be retracted; cross-format tap preservation
 is not promised. Device IN/OS completion and original global event durations

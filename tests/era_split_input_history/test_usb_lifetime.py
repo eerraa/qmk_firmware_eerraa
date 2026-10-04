@@ -22,7 +22,16 @@ static struct { bool nkro; } keymap_config;
 static uint8_t protocol=USB_PROTOCOL_REPORT,era_hid_format=UINT8_MAX;
 static volatile uint32_t era_hid_protocol_events;
 static uint32_t era_hid_protocol_seen;
+static volatile uint32_t era_hid_session_events;
+static uint32_t era_hid_format_session;
 static volatile bool era_hid_reopen;
+static volatile uint8_t era_hid_retire_pending;
+static volatile uint8_t era_hid_retire_debt;
+static volatile uint32_t era_hid_suspend_events;
+static const uint8_t *era_hid_retire_dispatch;
+static volatile bool era_hid_retire_reset;
+typedef struct { uint8_t mods,reserved,keys[6]; } report_keyboard_t;
+typedef struct { uint8_t report_id,mods,bits[6]; } report_nkro_t;
 typedef uint8_t usb_endpoint_in_lut_t;
 static volatile bool auxiliary_session_reset;
 static unsigned inject,forced,clock_reads,aux_sends;
@@ -62,6 +71,9 @@ static void fresh(void) {
     active=USB_ACTIVE;fail_get=false;clock_now=10;
     auxiliary_pending=0;auxiliary_session_reset=false;
     era_hid_format=UINT8_MAX;era_hid_protocol_events=era_hid_protocol_seen=0;era_hid_reopen=false;
+    era_hid_retire_pending=0;era_hid_retire_dispatch=NULL;era_hid_retire_reset=false;
+    era_hid_retire_debt=0;era_hid_suspend_events=0;
+    era_hid_session_events=era_hid_format_session=0;
     keymap_config.nkro=false;
     assert(era_hid_report_interval_select_format(1));
 }
@@ -184,6 +196,9 @@ class UsbLifetime(unittest.TestCase):
         start = main.index('static struct {', main.index('/* Each void shared-endpoint producer'))
         unit += main[start:main.index('\n#endif', start)]
         for name, ret, args in [
+            ('era_hid_report_interval_retire_apply_reset','void','void'),
+            ('era_hid_report_interval_retire_one','void','uint8_t bit,uint8_t endpoint,const void *report,size_t size'),
+            ('era_hid_report_interval_retire_task','void','void'),
             ('era_hid_report_interval_session_edge_i','void','bool keep_backlog'),
             ('era_hid_report_interval_protocol_edge_i','void','void'),
             ('era_hid_report_interval_current_format','uint8_t','void'),

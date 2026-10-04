@@ -30,9 +30,64 @@ static volatile bool era_hid_reopen;
 static uint8_t era_hid_format = UINT8_MAX;
 static volatile uint32_t era_hid_protocol_events;
 static uint32_t era_hid_protocol_seen;
+/* RESET/unconfigure end a session; pending SUSPEND does not. Keep this
+ * independent of admission's stricter pending-event predicate. */
+static volatile uint32_t era_hid_session_events;
+static uint32_t era_hid_format_session;
+/* A local format choice does not reset the host's old interface. Retire its
+ * final held state separately from taps, which end at the format boundary.
+ * One empty per keyboard lane is sufficient even across repeated toggles. */
+static volatile uint8_t era_hid_retire_pending;
+/* USB acceptance can still be flushed by same-session SUSPEND. Retain the
+ * retired-interface obligation for that session, independently of a queued
+ * empty. Only inactive lanes need rearming; reopen restores the active owner. */
+static volatile uint8_t era_hid_retire_debt;
+static volatile uint32_t era_hid_suspend_events;
+static const uint8_t *era_hid_retire_dispatch;
+static volatile bool era_hid_retire_reset;
 extern keymap_config_t keymap_config;
 bool era_usb_auxiliary_reports_pending(void);
 void era_usb_auxiliary_reports_task(void);
+static uint8_t era_hid_report_interval_current_format(void);
+
+static void era_hid_report_interval_retire_apply_reset(void) {
+    if (!era_hid_retire_reset) return;
+    osalSysLock();
+    if (era_hid_retire_reset) {
+        era_hid_retire_reset = false;
+        era_hid_retire_pending = 0;
+        era_hid_retire_debt = 0;
+    }
+    osalSysUnlock();
+}
+
+static void era_hid_report_interval_retire_one(uint8_t bit, uint8_t endpoint, const void *report, size_t size) {
+    uint32_t suspend = era_hid_suspend_events;
+    era_hid_retire_dispatch = report;
+    if (send_report(endpoint, (void *)report, size)) {
+        osalSysLock();
+        /* An ISR after admission may have flushed the packet and rearmed this
+         * very bit. Do not erase that newer obligation on returning to Core0. */
+        if (suspend == era_hid_suspend_events) era_hid_retire_pending &= (uint8_t)~bit;
+        osalSysUnlock();
+    }
+    era_hid_retire_dispatch = NULL;
+}
+
+static void era_hid_report_interval_retire_task(void) {
+    era_hid_report_interval_retire_apply_reset();
+    if (!era_hid_retire_pending) return;
+    static const report_keyboard_t empty_keyboard;
+    if (era_hid_retire_pending & 1U) {
+        era_hid_report_interval_retire_one(1U, USB_ENDPOINT_IN_KEYBOARD, &empty_keyboard, sizeof(empty_keyboard));
+    }
+#    ifdef NKRO_ENABLE
+    static const report_nkro_t empty_nkro = {.report_id = REPORT_ID_NKRO};
+    if (era_hid_retire_pending & 2U) {
+        era_hid_report_interval_retire_one(2U, USB_ENDPOINT_IN_SHARED, &empty_nkro, sizeof(empty_nkro));
+    }
+#    endif
+}
 
 static inline uint32_t era_hid_report_interval_now(void) {
     /* The RP2040 port's system tick is the 1 MHz hardware timer read, safe in
@@ -80,7 +135,18 @@ bool era_hid_report_interval_hold_report(uint8_t endpoint_lut, const void *repor
         return false;
     }
     era_hid_report_interval_ensure_ready();
-    return era_hid_report_interval_hold((uint8_t)lane, report, (uint8_t)size);
+    era_hid_report_interval_retire_task();
+    uint32_t session = era_hid_session_events;
+    bool owned = era_hid_report_interval_hold((uint8_t)lane, report, (uint8_t)size);
+    /* A current-format output already owned in the new session establishes
+     * its lifetime, even before the reopen task. Do not delete that fresh
+     * prefix merely to consume a same-format reset on the next service. */
+    if (owned && session == era_hid_session_events && !era_hid_retire_reset &&
+        era_hid_protocol_events == era_hid_protocol_seen &&
+        era_hid_format == era_hid_report_interval_current_format() &&
+        (lane == ERA_HID_REPORT_LANE_SHARED ? era_hid_format == 2 : era_hid_format != 2))
+        era_hid_format_session = session;
+    return owned;
 }
 
 void era_hid_report_interval_note_report_posted(uint8_t endpoint_lut) {
@@ -136,6 +202,17 @@ void era_hid_report_interval_endpoint_completed_i(const void *endpoint) {
 void era_hid_report_interval_session_edge_i(bool keep_backlog) {
     era_hid_report_interval_note_session_edge(keep_backlog);
     era_hid_reopen = true;
+    if (keep_backlog) {
+        ++era_hid_suspend_events;
+        if (!era_hid_retire_reset && era_hid_protocol_events == era_hid_protocol_seen) {
+            uint8_t active_lane = era_hid_format == 2 ? 2U : 1U;
+            era_hid_retire_pending |= era_hid_retire_debt & (uint8_t)~active_lane;
+        }
+    } else {
+        ++era_hid_session_events;
+        era_hid_retire_reset = true;
+        era_hid_retire_debt = 0;
+    }
 }
 
 void era_hid_report_interval_protocol_edge_i(void) {
@@ -164,9 +241,15 @@ bool era_hid_report_interval_endpoint_allowed_i(const void *endpoint, const uint
     (void)data;
 #    endif
     if (!keyboard && !shared) return true;
-    return era_hid_report_interval_session_current() &&
-           (!keyboard || (era_hid_protocol_events == era_hid_protocol_seen &&
-                          era_hid_format == era_hid_report_interval_current_format()));
+    if (!era_hid_report_interval_session_current()) return false;
+    if (!keyboard) return true;
+    if (era_hid_protocol_events != era_hid_protocol_seen || era_hid_retire_reset) return false;
+    /* Only this dispatch can send the terminal empty through a retired lane.
+     * Idle storage and ordinary producers cannot borrow the exception. */
+    if (data == era_hid_retire_dispatch) return true;
+    uint8_t current = era_hid_report_interval_current_format();
+    return !era_hid_retire_pending && era_hid_format == current &&
+           (shared ? current == 2 : current != 2);
 }
 
 /* --- the requester's entry: QMK's host layer ----------------------------- */
@@ -186,17 +269,71 @@ bool era_hid_report_interval_platform_post(uint8_t lane, const uint8_t *data, ui
 bool era_hid_report_interval_select_format(uint8_t format) {
     era_hid_report_interval_ensure_ready();
     uint32_t events = era_hid_protocol_events;
-    if (format == era_hid_format && events == era_hid_protocol_seen) return false;
+    uint32_t session = era_hid_session_events;
+    if (format == era_hid_format && events == era_hid_protocol_seen &&
+        session == era_hid_format_session && !era_hid_retire_reset) return false;
+    osalSysLock();
+    /* The caller's format argument predates this lock. Never pair a stale
+     * argument with a newer host event serial and consume that host edge. */
+    if (format != era_hid_report_interval_current_format()) {
+        osalSysUnlock();
+        return false;
+    }
+    events = era_hid_protocol_events;
+    session = era_hid_session_events;
+    if (era_hid_retire_reset) {
+        era_hid_retire_reset = false;
+        era_hid_retire_pending = 0;
+        era_hid_retire_debt = 0;
+    }
+    if (format == era_hid_format && events == era_hid_protocol_seen) {
+        era_hid_format_session = session;
+        osalSysUnlock();
+        return false;
+    }
+    if (events != era_hid_protocol_seen) {
+        /* Host protocol changes end the old format lifetime, including ABA. */
+        era_hid_retire_pending = 0;
+        era_hid_retire_debt = 0;
+    } else if (era_hid_format != UINT8_MAX && era_hid_format != format &&
+               session == era_hid_format_session) {
+        era_hid_retire_pending |= era_hid_format == 2 ? 2U : 1U;
+        era_hid_retire_debt |= era_hid_format == 2 ? 2U : 1U;
+    }
     era_hid_report_interval_format_edge();
     era_hid_format = format; era_hid_protocol_seen = events;
+    era_hid_format_session = session;
+    osalSysUnlock();
     return true;
 }
+
+/* Idle storage belongs to the last accepted payload, not the live QMK owner
+ * or the current format lifetime. Rebuild keyboard idle through the ordinary
+ * producer, and let pending releases/widths drain before requesting it again. */
+bool era_hid_report_interval_handle_idle(uint8_t endpoint_lut, uint8_t report_id) {
+    bool keyboard = endpoint_lut == USB_ENDPOINT_IN_KEYBOARD;
+#    if defined(SHARED_EP_ENABLE) && defined(NKRO_ENABLE)
+    bool nkro = endpoint_lut == USB_ENDPOINT_IN_SHARED && report_id == REPORT_ID_NKRO;
+#    else
+    bool nkro = false;
+    (void)report_id;
+#    endif
+    if (!keyboard && !nkro) return false;
+    uint8_t current = era_hid_report_interval_current_format();
+    if (!era_hid_reopen && !era_hid_retire_pending && !era_hid_retire_reset &&
+        !era_hid_report_interval_active() && era_hid_report_interval_session_current() &&
+        era_hid_protocol_events == era_hid_protocol_seen && era_hid_format == current &&
+        (nkro ? current == 2 : current != 2)) resend_keyboard_report();
+    return true;
+}
+
 void era_hid_report_interval_service(void) {
     /* Idle needs only scalar state: no USB lock, clock or endpoint walk.
      * Keep the format comparison for QMK/VIA/storage NKRO changes that do
      * not arrive through the USB ISR. An ISR after this test stays pending
      * for the next pass; endpoint admission still checks the live lifetime. */
-    if (!era_hid_reopen && !era_hid_report_interval_active() && !era_usb_auxiliary_reports_pending() &&
+    if (!era_hid_reopen && !era_hid_retire_pending && !era_hid_retire_reset &&
+        !era_hid_report_interval_active() && !era_usb_auxiliary_reports_pending() &&
         era_hid_format == era_hid_report_interval_current_format()) return;
     era_hid_report_interval_ensure_ready();
     bool active;
@@ -206,6 +343,7 @@ void era_hid_report_interval_service(void) {
     osalSysUnlock();
     if (!active) return;
     if (era_hid_report_interval_select_format(era_hid_report_interval_current_format())) era_hid_reopen = true;
+    era_hid_report_interval_retire_task();
     if (era_hid_report_interval_active()) era_hid_report_interval_task(era_hid_report_interval_now());
     osalSysLock();
     bool reopen = era_hid_reopen;
