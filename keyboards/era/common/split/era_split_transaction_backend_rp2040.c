@@ -837,6 +837,13 @@ void era_split_transaction_backend_core1_deadline_irq(void) {
  * safe are at the declaration in era_split_transaction_backend.h. */
 void era_split_transaction_backend_arm_core1_idle_wake(uint32_t deadline_us) {
     era_split_transaction_backend_arm_core1_deadline(deadline_us);
+    /* The caller's due sample can expire before the alarm write. An alarm
+     * armed in the past waits for timer wrap; retain an event for the next
+     * WFE instead, just as the transaction park rechecks after arming. */
+    if (era_split_transaction_backend_deadline_expired(deadline_us)) {
+        era_split_transaction_backend_disarm_core1_deadline();
+        __SEV();
+    }
 }
 
 /* The one wait primitive of this backend, and the only place core1 parks
