@@ -2662,6 +2662,12 @@ static bool era_host_peer_storage_apply_commit(const era_host_peer_storage_runti
         return false;
     }
 
+    /* The public NVM image is already visible even if manifest publication
+     * below refuses. Cache invalidation cannot wait for that later proof. */
+#ifdef VIA_ENABLE
+    era_state_sync_note_storage_domain((uint8_t)domain);
+#endif
+
     /* Durable success is authority. Reload through the ordinary public EEPROM
      * API now that ERA NVM has atomically published the candidate. The staging
      * buffer already contains that candidate; if manifest publication itself
@@ -2681,9 +2687,6 @@ static bool era_host_peer_storage_apply_commit(const era_host_peer_storage_runti
         }
     }
 
-#ifdef VIA_ENABLE
-    era_state_sync_note_storage_domain((uint8_t)domain);
-#endif
     g_era_host_peer_storage_diagnostics.apply_count++;
     if (host_push) {
         era_host_peer_storage_note_domain_converged(domain, committed_crc32);

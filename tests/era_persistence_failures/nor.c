@@ -76,7 +76,7 @@ static void journal_fault_tests(void) {
 }
 static void macro_tests(void) {
     fresh();macro_seed();uint8_t open=255,close=0,payload=0x77;nvm_dynamic_keymap_macro_update_buffer(16383,1,&open);nvm_dynamic_keymap_macro_update_buffer(0,1,&payload);
-    assert(era_state_sync_macro_revision()==1);
+    assert(era_state_sync_macro_revision()==3);
     assert(era_eeprom_driver_replace(801,&payload,1,ERA_NVM_ORIGIN_REMOTE_APPLY)==ERA_NVM_RESULT_BUSY);
     assert(eeprom_begin_transaction());eeprom_update_byte((void*)4,0x71);eeprom_update_byte((void*)18000,0x72);
     assert(!eeprom_end_transaction());assert(eeprom_read_byte((void*)4)==0 && eeprom_read_byte((void*)18000)==0);assert(eeprom_read_byte((void*)801)==payload);
@@ -84,7 +84,7 @@ static void macro_tests(void) {
     fail_at=programs+1;fail_mode=0;eeprom_update_byte((void*)4,0x19);assert(!eeprom_persistence_ok());fail_at=0;
     eeprom_update_byte((void*)4,0x19);assert(eeprom_persistence_ok());assert(eeprom_read_byte((void*)801)==payload && eeprom_read_byte((void*)17184)==255);
     uint8_t durable[2];assert(era_eeprom_driver_replay_read(801,durable,2)==ERA_NVM_RESULT_OK);assert(durable[0]==0x31);
-    nvm_dynamic_keymap_macro_update_buffer(16383,1,&close);assert(eeprom_persistence_ok());assert(era_state_sync_macro_revision()==2);reboot();assert(eeprom_read_byte((void*)801)==payload);
+    nvm_dynamic_keymap_macro_update_buffer(16383,1,&close);assert(eeprom_persistence_ok());assert(era_state_sync_macro_revision()==4);reboot();assert(eeprom_read_byte((void*)801)==payload);
     nvm_dynamic_keymap_macro_reset();assert(eeprom_persistence_ok());reboot();for(unsigned i=801;i<17185;i++) assert(eeprom_read_byte((void*)(uintptr_t)i)==0);
     puts("PASS macro staging, envelope crossing refusal, unrelated-save rotation, Apply exclusion, CLOSE and stock RESET");
 }
@@ -157,4 +157,45 @@ static void empty_reset_transcript(void) {
     assert(!eeprom_persistence_ok());
     puts("PASS zero-slot RESET upload, no-op RESET cost, raw CLOSE and stale-proof rejection");
 }
-int main(void) { ordinary_and_factory_tests();journal_fault_tests();macro_tests();erase_tests();empty_macro_probe();semantic_envelope_probe();empty_reset_transcript();return 0; }
+static void public_macro_transcript(void) {
+    fresh(); macro_seed(); era_state_sync_set_revisions_for_testing(1, 1, 1);
+    uint8_t open = 255, close = 0, payload = 0x51, visible;
+    nvm_dynamic_keymap_macro_update_buffer(16383, 1, &open);
+    assert(era_state_sync_macro_revision() == 2);
+    nvm_dynamic_keymap_macro_update_buffer(16383, 1, &open);
+    assert(era_state_sync_macro_revision() == 2); // equal opener
+    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
+    nvm_dynamic_keymap_macro_read_buffer(0, 1, &visible);
+    assert(visible == payload && era_state_sync_macro_revision() == 3);
+    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
+    assert(era_state_sync_macro_revision() == 3); // equal payload remains receipt evidence
+    fail_at = programs + 1; fail_mode = 0;
+    nvm_dynamic_keymap_macro_update_buffer(16383, 1, &close);
+    assert(!eeprom_persistence_ok() && era_state_sync_macro_revision() == 3);
+    nvm_dynamic_keymap_macro_read_buffer(16383, 1, &visible); assert(visible == 255);
+    fail_at = 0;
+    nvm_dynamic_keymap_macro_update_buffer(16383, 1, &close);
+    nvm_dynamic_keymap_macro_read_buffer(16383, 1, &visible);
+    assert(eeprom_persistence_ok() && visible == 0 && era_state_sync_macro_revision() == 4);
+    // An ordinary public 16-byte read aborts a partial RESET transcript.
+    // It must not be mistaken for the next private update_block scan chunk.
+    uint8_t zeros[16] = {0}, query[16];
+    eeprom_update_block(zeros, (void *)801, sizeof(zeros));
+    nvm_dynamic_keymap_macro_read_buffer(16, sizeof(query), query);
+    nvm_dynamic_keymap_macro_read_buffer(16383, 1, &visible);
+    assert(visible == 0);
+    // A large snapshot must likewise copy the restored marker, not the
+    // invalid marker that existed before its read aborted the RESET scan.
+    static uint8_t snapshot[16384];
+    eeprom_update_block(zeros, (void *)801, sizeof(zeros));
+    nvm_dynamic_keymap_macro_read_buffer(0, sizeof(snapshot), snapshot);
+    assert(snapshot[16383] == 0);
+    // Overflowing offsets fill safely, and the end is clipped before addition.
+    uint8_t end[3] = {1, 1, 1};
+    nvm_dynamic_keymap_macro_read_buffer(UINT32_MAX, 3, end);
+    assert(end[0] == 0 && end[1] == 0 && end[2] == 0);
+    nvm_dynamic_keymap_macro_read_buffer(16383, 3, end);
+    assert(end[0] == 0 && end[1] == 0 && end[2] == 0);
+    puts("PASS public NOR opener/payload/no-op/failure/retry revisions and bounded reads");
+}
+int main(void) { public_macro_transcript();ordinary_and_factory_tests();journal_fault_tests();macro_tests();erase_tests();empty_macro_probe();semantic_envelope_probe();empty_reset_transcript();return 0; }

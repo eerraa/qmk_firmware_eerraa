@@ -755,15 +755,29 @@ static bool era_nvm_macro_range_contains(const era_nvm_t *nvm, uint32_t address,
     return address >= nvm->config.macro_address && address <= macro_end && length <= macro_end - address;
 }
 
+static void era_nvm_macro_public_changed(era_nvm_t *nvm) {
+    if (nvm->config.public_macro_notifier) nvm->config.public_macro_notifier(nvm->config.commit_context);
+}
+
+static void era_nvm_macro_set_marker(era_nvm_t *nvm, uint8_t value) {
+    uint32_t marker = nvm->config.macro_address + nvm->config.macro_size - 1U;
+    if (nvm->image[marker] == value) return;
+    nvm->image[marker] = value;
+    era_nvm_macro_public_changed(nvm);
+}
+
 static void era_nvm_macro_stage_write(era_nvm_t *nvm, uint32_t address, const uint8_t *data, uint32_t length, bool leave_zero_marker_invalid) {
     uint32_t marker = nvm->config.macro_address + nvm->config.macro_size - 1U;
+    bool changed = false;
     for (uint32_t i = 0U; i < length; ++i) {
         uint32_t logical = address + i;
         if (logical == marker && leave_zero_marker_invalid && data[i] == 0U) {
             continue;
         }
+        changed |= nvm->image[logical] != data[i];
         nvm->image[logical] = data[i];
     }
+    if (changed) era_nvm_macro_public_changed(nvm);
 }
 
 static void era_nvm_macro_reset_tracking_clear(era_nvm_t *nvm) {
@@ -776,8 +790,7 @@ static void era_nvm_macro_reset_tracking_clear(era_nvm_t *nvm) {
 
 static void era_nvm_macro_reset_abort_scan(era_nvm_t *nvm) {
     if (nvm->macro_reset_zero_write_seen) {
-        uint32_t marker    = nvm->config.macro_address + nvm->config.macro_size - 1U;
-        nvm->image[marker] = nvm->macro_reset_saved_marker;
+        era_nvm_macro_set_marker(nvm, nvm->macro_reset_saved_marker);
         nvm->macro_mode    = nvm->macro_reset_prior_mode;
     }
     era_nvm_macro_reset_tracking_clear(nvm);
@@ -802,7 +815,7 @@ static era_nvm_result_t era_nvm_macro_reset_begin(era_nvm_t *nvm) {
     nvm->macro_reset_saved_marker      = nvm->image[marker];
     nvm->macro_reset_zero_write_seen   = true;
     nvm->macro_mode                    = ERA_NVM_MACRO_RESET_OPEN;
-    nvm->image[marker]                 = ERA_NVM_ERASED_BYTE;
+    era_nvm_macro_set_marker(nvm, ERA_NVM_ERASED_BYTE);
     return ERA_NVM_RESULT_OK;
 }
 
@@ -836,7 +849,7 @@ static era_nvm_result_t era_nvm_macro_finish_reset(era_nvm_t *nvm) {
                               nvm->macro_reset_saved_marker == 0U &&
                               era_nvm_bytes_are(nvm->image + nvm->config.macro_address, nvm->config.macro_size - 1U, 0U);
     if (!nvm->tail_sealed && (empty_before_reset || era_nvm_source_matches_image(nvm, nvm->config.macro_address, &source))) {
-        nvm->image[nvm->config.macro_address + nvm->config.macro_size - 1U] = 0U;
+        era_nvm_macro_set_marker(nvm, 0U);
         nvm->macro_mode         = ERA_NVM_MACRO_IDLE;
         nvm->macro_payload_seen = false;
         era_nvm_macro_reset_tracking_clear(nvm);
@@ -850,8 +863,7 @@ static era_nvm_result_t era_nvm_macro_finish_reset(era_nvm_t *nvm) {
         era_nvm_macro_reset_tracking_clear(nvm);
         nvm->macro_empty_reset = true;
     } else {
-        uint32_t marker    = nvm->config.macro_address + nvm->config.macro_size - 1U;
-        nvm->image[marker] = ERA_NVM_ERASED_BYTE;
+        era_nvm_macro_set_marker(nvm, ERA_NVM_ERASED_BYTE);
         nvm->macro_mode    = ERA_NVM_MACRO_RESET_OPEN;
         era_nvm_macro_reset_tracking_clear(nvm);
     }
@@ -920,7 +932,7 @@ static era_nvm_result_t era_nvm_macro_qmk_write(era_nvm_t *nvm, uint32_t address
     }
     if (marker_written && marker_value == 0U) {
         if (!nvm->macro_payload_seen) {
-            nvm->image[marker] = ERA_NVM_ERASED_BYTE;
+            era_nvm_macro_set_marker(nvm, ERA_NVM_ERASED_BYTE);
             return ERA_NVM_RESULT_PROTOCOL;
         }
         return era_nvm_macro_finish_write(nvm);

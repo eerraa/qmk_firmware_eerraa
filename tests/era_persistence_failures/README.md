@@ -33,5 +33,7 @@ the tests preserve the backend's existing storage-format boundary.
 
 `callers.py OUTPUT_DIRECTORY` builds a standalone production VIA fixture; its
 `callers.exe bridge` mode accepts hexadecimal RAW HID reports and a `STATE`
-request on stdin for an external app test. Runtime CONFIG revisions are separate
-from durable KEYMAP/MACRO completion. No fixture changes storage geometry or wire IDs.
+request on stdin for an external app test. Runtime CONFIG and public MACRO revisions are separate
+from durable KEYMAP completion. MACRO regressions exercise staging, no-op writes,
+failed CLOSE, unrelated failure/repair of the public marker and negative controls
+that remove the actual production visibility notifications. No fixture changes storage geometry or wire IDs.

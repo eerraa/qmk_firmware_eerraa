@@ -264,7 +264,7 @@ static void repaired_close(void) {
     packet(15, 0, sizeof(replacement), replacement);
     MACRO_CHECK(response[0] == id_unhandled, "REPAIRED_CLOSE_REJECTS_PAYLOAD");
     assert(program_calls == before && erase_calls == erased);
-    assert(era_state_sync_macro_revision() == revision);
+    assert(era_state_sync_macro_revision() == revision + 1);
     cold_mount(); verify_bytes(accepted, sizeof(accepted)); assert(marker() == 0);
     puts("PASS other-owner repaired CLOSE seals payload until a new opener");
 #endif
@@ -297,13 +297,13 @@ static void duplicate_close(void) {
     close_upload(); MACRO_CHECK(response[0] == id_unhandled, "DUPLICATE_CLOSE_NEEDS_CURRENT_OPEN_TRANSCRIPT");
     assert(program_calls == before && erase_calls == erased);
 #ifndef __AVR__
-    assert(era_state_sync_macro_revision() == revision);
+    assert(era_state_sync_macro_revision() == revision + 1);
 #endif
     cold_mount(); verify_bytes(accepted, sizeof(accepted));
     before = program_calls; erased = erase_calls;
     close_upload(); MACRO_CHECK(response[0] == id_unhandled, "DUPLICATE_CLOSE_NEEDS_CURRENT_OPEN_TRANSCRIPT");
     assert(program_calls == before && erase_calls == erased);
-    puts("PASS strict duplicate CLOSE rejection in live/cold session preserves physical data, write counts and WL MACRO revision");
+    puts("PASS strict duplicate CLOSE rejection in live/cold session preserves physical data/write counts and notifies hidden validity");
 }
 int main(int argc, char **argv) {
 #ifdef VIA_EEPROM_ALLOW_RESET

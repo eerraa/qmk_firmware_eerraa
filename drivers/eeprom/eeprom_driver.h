@@ -29,6 +29,7 @@ bool eeprom_driver_can_skip_write(uint32_t address, size_t length);
  * Success also acknowledges the backend's previously retained desired image.
  * Consumers classify the actual spans; an enclosing physical envelope must not
  * stand in for writes that were never requested. */
+void eeprom_driver_note_write_start(void);
 void eeprom_driver_note_write_result(uint32_t address, size_t length, bool changed, bool success);
 /* Init or a successful erase discards retained write intent. */
 void eeprom_driver_reset_write_observer(void);

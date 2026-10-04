@@ -1,6 +1,7 @@
 // Copyright 2024 Nick Brassel (@tzarc)
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <string.h>
 #include "compiler_support.h"
 #include "keycodes.h"
 #include "eeprom.h"
@@ -174,20 +175,22 @@ uint32_t nvm_dynamic_keymap_macro_size(void) {
 }
 
 void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_t *data) {
-    void    *source = (void *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + offset);
-    uint8_t *target = data;
-    for (uint16_t i = 0; i < size; i++) {
-        if (offset + i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE) {
-            *target = eeprom_read_byte(source);
-#ifndef EEPROM_CUSTOM
-            if (offset + i == DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U && !eeprom_persistence_ok()) *target = 0xFFU;
-#endif
-        } else {
-            *target = 0x00;
-        }
-        source++;
-        target++;
+    if (data == NULL || size == 0U) return;
+    uint32_t readable = offset < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE ? DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset : 0U;
+    if (readable > size) readable = size;
+    /* Preserve the public byte-read boundary: its first read aborts a private
+     * RESET scan before the remaining image is copied. The remainder starts
+     * past the macro base, so it cannot begin that scan itself. */
+    if (readable) {
+        const uint8_t *source = (const uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + offset);
+        data[0] = eeprom_read_byte(source);
+        if (readable > 1U) eeprom_read_block(data + 1, source + 1, readable - 1U);
     }
+    if (readable < size) memset(data + readable, 0, size - readable);
+#ifndef EEPROM_CUSTOM
+    const uint32_t marker = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U;
+    if (offset <= marker && readable > marker - offset && !eeprom_persistence_ok()) data[marker - offset] = 0xFFU;
+#endif
 }
 
 void nvm_dynamic_keymap_macro_update_buffer(uint32_t offset, uint32_t size, uint8_t *data) {

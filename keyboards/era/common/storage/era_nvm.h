@@ -61,6 +61,8 @@ typedef void (*era_nvm_commit_notifier_t)(void *context, uint32_t address, uint3
 typedef struct {
     uint32_t                  macro_address;
     uint32_t                  macro_size;
+    /* Staged public bytes changed; this is not a durability receipt. */
+    void (*public_macro_notifier)(void *context);
     era_nvm_commit_notifier_t commit_notifier;
     void                     *commit_context;
 } era_nvm_config_t;

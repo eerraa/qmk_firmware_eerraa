@@ -100,7 +100,7 @@ TEST_F(EraWlQmkDriver, AnotherOwnerRepairOfFailedCloseSealsFurtherPayload) {
     nvm_dynamic_keymap_macro_update_buffer(0,replacement.size(),replacement.data());
     EXPECT_FALSE(eeprom_persistence_ok());
     EXPECT_EQ(flash.write_invoke_count(),before);
-    EXPECT_EQ(era_state_sync_macro_revision(),revision);
+    EXPECT_EQ(era_state_sync_macro_revision(),revision + 1);
     eeprom_driver_init();
     nvm_dynamic_keymap_macro_read_buffer(0,actual.size(),actual.data());
     EXPECT_EQ(actual,accepted);
@@ -143,12 +143,12 @@ TEST_F(EraWlQmkDriver, RepairPublishesAllRecoveredDomainsAcrossMacroEnvelope) {
     nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
     EXPECT_FALSE(eeprom_persistence_ok());
     EXPECT_EQ(era_state_sync_keymap_revision(),1U);
-    EXPECT_EQ(era_state_sync_macro_revision(),1U);
+    EXPECT_EQ(era_state_sync_macro_revision(),2U);
     flash.set_write_callback([](uint64_t,uint32_t) { return true; });
     eeprom_update_byte((uint8_t *)4,0x12);
     ASSERT_TRUE(eeprom_persistence_ok());
     EXPECT_GT(era_state_sync_keymap_revision(),1U);
-    EXPECT_EQ(era_state_sync_macro_revision(),1U);
+    EXPECT_EQ(era_state_sync_macro_revision(),2U);
     EXPECT_GT(era_state_sync_config_revision(),1U);
     eeprom_driver_init();
     EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),0x1234);

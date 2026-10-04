@@ -55,6 +55,8 @@ def build(out, mutation=None):
     manifest.append({'path': str(state), 'sha256': hashlib.sha256(state_data).hexdigest(), 'scope': 'whole production include; read-only pending-mask observation'})
     if mutation:
         replacements = {
+            'public_payload': ('bool payload = changed &&', 'bool payload = changed && false &&'),
+            'public_marker': ('s_macro_marker_before != era_state_sync_public_macro_marker()', 'false'),
             'gap_debt': ('debt = s_wl_pending_debt_mask;', 'debt = s_config_pending_persist_mask;'),
             'old_generation': ('s_wl_pending_debt_mask &= (uint16_t)~mask;', '(void)mask; /* deliberately retain obsolete debt authority */'),
             'duplicate': ('        era_state_sync_note_eeprom_mask(mask);', '        era_state_sync_note_eeprom_mask(mask); era_state_sync_note_eeprom_mask(mask);'),
@@ -130,6 +132,9 @@ class WearLevelSemanticIntents(unittest.TestCase):
         self.assertEqual(result.returncode, 91, result.stdout + result.stderr)
         self.assertIn('WL_SEMANTIC_ASSERT_' + assertion, result.stderr)
 
+    def test_public_macro_failure_and_unrelated_marker_repair(self): self.positive('public_macro')
+    def test_negative_public_macro_payload(self): self.negative('public_payload', 'public_macro', 'PUBLIC_FAILED_PAYLOAD')
+    def test_negative_public_macro_marker(self): self.negative('public_marker', 'public_macro', 'PUBLIC_OPENER')
     def test_sparse_failure_keeps_unsaved_gap_owner(self): self.positive('sparse_debt')
     def test_new_set_survives_old_repair(self): self.positive('newer_set')
     def test_new_failed_save_recaptures_latest_set(self): self.positive('newer_failed_save')

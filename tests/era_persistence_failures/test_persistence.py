@@ -61,7 +61,7 @@ def overlay(out, path, before, after):
     target = root/path
     source = target.read_text(encoding='utf-8')
     assert before in source, path
-    target.write_text(source.replace(before, after, 1), encoding='utf-8')
+    target.write_text(source.replace(before, after, 1), encoding='utf-8', newline='\n')
     return root
 
 
@@ -122,6 +122,13 @@ class PersistenceFailures(unittest.TestCase):
             if mutation == 'macro_equal':
                 root = overlay(out, 'keyboards/era/common/storage/era_eeprom_driver.c',
                                '!era_eeprom_driver_range_touches_macro(address, length) &&', '((void)address, (void)length, true) &&')
+            elif mutation == 'macro_public_read':
+                root = overlay(out, 'quantum/nvm/eeprom/nvm_dynamic_keymap.c',
+                               '        data[0] = eeprom_read_byte(source);\n        if (readable > 1U) eeprom_read_block(data + 1, source + 1, readable - 1U);',
+                               '        eeprom_read_block(data, source, readable);')
+            elif mutation == 'macro_public':
+                root = overlay(out, 'keyboards/era/common/storage/era_eeprom_driver.c',
+                               '    era_state_sync_note_macro_public_change();', '    /* removed public staging publication */')
             elif mutation == 'semantic_envelope':
                 root = overlay(out, 'keyboards/era/common/storage/era_eeprom_driver.c',
                                'if (s_edit_completing) {', 'if (false) {')
@@ -144,6 +151,12 @@ class PersistenceFailures(unittest.TestCase):
 
     def test_negative_nested_defaults_completion(self):
         self.run_nor(boot=True, mutation='nested_defaults')
+
+    def test_negative_public_macro_read_advances_reset(self):
+        self.run_nor(mutation='macro_public_read')
+
+    def test_negative_macro_public_staging_notification(self):
+        self.run_nor(mutation='macro_public')
 
     def test_negative_equal_macro_elision(self):
         self.run_nor(mutation='macro_equal')

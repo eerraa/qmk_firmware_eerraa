@@ -76,6 +76,13 @@ static bool era_eeprom_driver_range_touches_macro(uint32_t address, size_t lengt
 #endif
 }
 
+static void era_eeprom_driver_note_public_macro(void *context) {
+    (void)context;
+#ifdef VIA_ENABLE
+    era_state_sync_note_macro_public_change();
+#endif
+}
+
 static void era_eeprom_driver_note_commit(void *context, uint32_t address, uint32_t length, era_nvm_origin_t origin) {
     (void)context;
 
@@ -120,6 +127,7 @@ void eeprom_driver_init(void) {
     era_nvm_config_t config = {
         .macro_address   = 0U,
         .macro_size      = 0U,
+        .public_macro_notifier = era_eeprom_driver_note_public_macro,
         .commit_notifier = era_eeprom_driver_note_commit,
         .commit_context  = NULL,
     };

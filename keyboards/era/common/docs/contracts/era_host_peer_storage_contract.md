@@ -421,11 +421,12 @@ spans' domain/region union to ERA. The journal's contiguous envelope is not the
 semantic change set. A wear-level recovery unions its pending and current
 notifications before publishing each revision once. No QMK `nvm_*` weak hook is
 part of this boundary.
-Dynamic-macro staging is the display-only exception: the NVM transaction mode
+Dynamic-macro staging has a separate public-visibility notification: the NVM transaction mode
 opens on the nonzero macro marker and the storage indicator may read that O(1)
 RAM fact immediately. **Opening or staging a macro is not a committed-span
-notification**: it advances no State Sync revision, starts no settled-dirty
-recency claim, and proves no durable content. The ordinary full-domain
+notification**: it starts no settled-dirty recency claim and proves no durable
+content. A changed public staging byte or marker advances MACRO independently
+of that receipt. The ordinary full-domain
 committed-span notification happens only after the final zero has committed
 successfully.
 
@@ -451,8 +452,8 @@ changed or discarded.
 An open macro's RAM staging bytes are not a durable snapshot source. The
 16-KiB domain's final byte is the marker: nonzero means the transaction is open
 and QMK must not execute the staged image. Staging may mutate the one 24-KiB
-public RAM image, but it creates no durable macro record, State Sync revision,
-or portable dirty claim.
+public RAM image and advances the MACRO visibility token when its public
+bytes change. It creates no durable macro record or portable dirty claim.
 
 Externally observable upload transcript:
 
@@ -586,13 +587,35 @@ revision.
 | Token | Advances when |
 | --- | --- |
 | KEYMAP | a durable local write changes the dynamic-keymap span, or remote Apply durably replaces the dynamic-keymap domain |
-| MACRO | the dynamic-macro transaction closes durably, or remote Apply durably replaces the macro domain; opener/payload staging does not advance it |
+| MACRO | public macro bytes or the public validity marker change, including opener/payload staging, failed writes that leave changed readable bytes, verified CLOSE, and remote durable Apply |
 | CONFIG | a semantic SET-before-SAVE commits a configuration change (the matching later persist is suppressed as a duplicate), or an independent durable change/remote Apply reaches syncable ERA config, RGB Matrix, `keymap_config`, default layer, or VIA layout options |
 
-Protected ERA config, recency/storage metadata, `CLEAN_PREPARE`, `FORMAT`, an
-open macro's staging writes, and a no-op persist do not advance these tokens.
+Protected ERA config, recency/storage metadata, `CLEAN_PREPARE`, `FORMAT`, and
+a no-op persist do not advance these tokens.
 Remote Apply advances the named token only after durable replacement succeeds;
 it is not also reported as a fresh local dirty edit.
+
+MACRO is an invalidation token, not an upload completion or power-loss receipt.
+One synchronous request may advance it more than once; consumers compare tokens,
+not increments. A same-value opener/payload without a visibility transition does
+not invalidate. Completion still requires the final zero marker and the backend's
+verified receipt. A failed CLOSE must keep zero hidden even if payload reads and
+MACRO already reflect the accepted upload. NOR staging emits only the visibility
+notification; split dirty/recency/capture stays behind durable CLOSE. Failed remote
+replacement emits neither a domain completion nor a success marker.
+
+On wear leveling the retained desired bytes are public even after a failed write.
+The public macro marker is forced nonzero while the persistence receipt is failed
+or pending. An unrelated write failure or successful repair can therefore change
+macro validity, and must invalidate MACRO too. These comparisons happen at write
+and receipt boundaries; State Sync GET remains a RAM-only read, with no EEPROM
+scan, CRC, or delayed freshness calculation. Brick65's native EEPROM continues
+to expose stock VIA without this ERA State Sync selector; its verified marker
+fence and native failure behavior are preserved.
+
+Apps may already protect their own upload with dirty state and targeted marker
+reads. The notification closes the remaining cache invalidation gap; it does not
+claim that every existing app upload was displayed incorrectly.
 
 > **REFUSED:** H7S copying ERA NVM banks, split authority, replacement Apply
 > internals, or RP2040 flash policy.
@@ -981,7 +1004,7 @@ anchors are `split/era_host_peer_storage.c` and
 | NVM program/erase verification failures | none |
 | unexpected abort/timeout/integrity/stale/queue-expiry or Core1 failure increase | none |
 | content/readback after close | agreement |
-| State Sync revision | advances exactly at semantic durability |
+| State Sync revision | follows its token semantics above; MACRO visibility never substitutes for durable completion |
 | relation liveness | continues through accepted flash windows |
 
 Protocol-visible counts and verified NVM program/erase failure totals are the

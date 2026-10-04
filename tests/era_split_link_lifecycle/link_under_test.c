@@ -89,6 +89,7 @@ uint32_t era_state_sync_eeprom_span_mask(uint16_t address, uint16_t length) {
     (void)address; return length != 0U;
 }
 void era_state_sync_note_eeprom_mask(uint32_t mask) { (void)mask; }
+void era_state_sync_note_macro_public_change(void) {}
 uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t address, uint32_t length) {
     (void)address; return length != 0U;
 }

@@ -173,7 +173,7 @@ wire/storage diagnostics; record wall-clock operation time separately.
 | 16-KiB dynamic-macro upload | opener through durable zero close and targeted marker readback |
 | journal-room Apply | 16-KiB replacement whose active journal has room and therefore does not rotate |
 | rotation Apply | bank rotation, remaining inactive-bank sector erases, new-bank construction |
-| unrelated save during macro staging | rotation with an open upload: elapsed time including committed-macro replay, unrelated setting readback, old complete macro after interruption, new complete macro only after CLOSE; no early MACRO revision |
+| unrelated save during macro staging | rotation with an open upload: elapsed time including committed-macro replay, unrelated setting readback, old complete macro after interruption, new complete macro only after CLOSE; MACRO revision follows public bytes/marker changes without granting early completion |
 | physical diagnostic deltas | program and erase totals may move; `program_failure_count` and `erase_failure_count` stay 0 in every healthy run |
 | post-close agreement | content/readback match and exactly the expected KEYMAP/MACRO/CONFIG State Sync revision boundary |
 | relation liveness | Core1 failure, storage timeout, integrity, stale and queue-expiry counters do not increase outside the explicitly exercised failure leg, across the complete synchronous NVM window |

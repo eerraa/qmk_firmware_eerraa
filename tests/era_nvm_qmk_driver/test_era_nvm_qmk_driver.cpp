@@ -102,7 +102,10 @@ uint16_t g_notify_length;
 uint8_t g_response_command;
 unsigned g_response_count;
 
+unsigned g_public_macro_notify_count;
+
 void reset_notifications() {
+    g_public_macro_notify_count = 0;
     g_notify_count  = 0;
     g_notify_offset = 0;
     g_notify_length = 0;
@@ -133,6 +136,8 @@ extern "C" bool era_nvm_rp2040_flash_bind(era_nvm_flash_t *flash) {
     };
     return true;
 }
+
+extern "C" void era_state_sync_note_macro_public_change(void) { ++g_public_macro_notify_count; }
 
 extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     g_notify_count++;

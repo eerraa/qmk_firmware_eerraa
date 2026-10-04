@@ -193,9 +193,9 @@ static void nested_domains(void) {
     eeprom_update_byte((uint8_t *)(uintptr_t)ERA_STORAGE_DYNAMIC_MACRO_ADDR, 0x57);
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0);
     CHECK(eeprom_end_transaction(), "INNER_END");
-    CHECK(era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 1, "INNER_NOT_PUBLISHED");
+    CHECK(era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 4, "INNER_NOT_PUBLISHED");
     CHECK(eeprom_end_transaction(), "OUTER_END");
-    CHECK(era_state_sync_keymap_revision() == 2 && era_state_sync_macro_revision() == 2, "DOMAIN_UNION_ONCE");
+    CHECK(era_state_sync_keymap_revision() == 2 && era_state_sync_macro_revision() == 4, "DOMAIN_UNION_ONCE");
     cold_byte(marker, 0);
 }
 
@@ -209,10 +209,10 @@ static void failed_nested_domains(void) {
     eeprom_update_byte((uint8_t *)380, 0x56);
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0);
     CHECK(!eeprom_end_transaction(), "FAILED_DOMAIN_END");
-    CHECK(era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 1, "FAILED_DOMAIN_DEFERRED");
+    CHECK(era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 2, "FAILED_DOMAIN_DEFERRED");
     fault = 0;
     eeprom_update_byte((uint8_t *)37, 0x54);
-    CHECK(era_state_sync_keymap_revision() == 2 && era_state_sync_macro_revision() == 2 && era_state_sync_config_revision() == 2, "REPAIR_ALL_DOMAINS_ONCE");
+    CHECK(era_state_sync_keymap_revision() == 2 && era_state_sync_macro_revision() == 3 && era_state_sync_config_revision() == 2, "REPAIR_ALL_DOMAINS_ONCE");
     cold_byte(380, 0x56);
 }
 
@@ -222,13 +222,13 @@ static void reopened_macro(void) {
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0xFF);
     fault = 1;
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0);
-    CHECK(!eeprom_persistence_ok() && era_state_sync_macro_revision() == 1, "FAILED_CLOSE_NOT_PUBLISHED");
+    CHECK(!eeprom_persistence_ok() && era_state_sync_macro_revision() == 2, "FAILED_CLOSE_NOT_PUBLISHED");
     fault = 0;
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0xFF);
-    CHECK(eeprom_persistence_ok() && era_state_sync_macro_revision() == 1, "REOPEN_CANCELS_OLD_CLOSE");
+    CHECK(eeprom_persistence_ok() && era_state_sync_macro_revision() == 2, "REOPEN_CANCELS_OLD_CLOSE");
     eeprom_update_byte((uint8_t *)(uintptr_t)ERA_STORAGE_DYNAMIC_MACRO_ADDR, 0x57);
     eeprom_update_byte((uint8_t *)(uintptr_t)marker, 0);
-    CHECK(era_state_sync_macro_revision() == 2, "FRESH_CLOSE_ONCE");
+    CHECK(era_state_sync_macro_revision() == 4, "FRESH_CLOSE_ONCE");
     cold_byte(marker, 0);
 }
 
@@ -253,7 +253,7 @@ static void rejected_write(void) {
     eeprom_reject_write();
     CHECK(!eeprom_persistence_ok() && !wear_leveling_is_pending(), "PROTOCOL_REJECT_HAS_NO_IMAGE_INTENT");
     eeprom_update_byte((uint8_t *)37, 0x51);
-    CHECK(eeprom_persistence_ok() && era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 1, "REJECT_DID_NOT_CREATE_NOTIFICATION");
+    CHECK(eeprom_persistence_ok() && era_state_sync_keymap_revision() == 1 && era_state_sync_macro_revision() == 3, "REJECT_DID_NOT_CREATE_NOTIFICATION");
     fault = 1;
     eeprom_update_byte((uint8_t *)350, 0x55);
     CHECK(wear_leveling_is_pending(), "PHYSICAL_PENDING_EXISTS");
@@ -281,9 +281,35 @@ static void noop_debt(void) {
     cold_byte(350, 0x55);
 }
 
+static void public_macro(void) {
+    fresh();
+    const uint32_t payload = ERA_STORAGE_DYNAMIC_MACRO_ADDR;
+    const uint32_t marker = payload + dynamic_keymap_macro_get_buffer_size() - 1U;
+    eeprom_update_byte((void *)(uintptr_t)marker, 255);
+    CHECK(era_state_sync_macro_revision() == 2, "PUBLIC_OPENER");
+    eeprom_update_byte((void *)(uintptr_t)marker, 255);
+    CHECK(era_state_sync_macro_revision() == 2, "PUBLIC_EQUAL_OPENER");
+    fault = 1;
+    eeprom_update_byte((void *)(uintptr_t)payload, 65);
+    CHECK(era_state_sync_macro_revision() == 3 && !eeprom_persistence_ok(), "PUBLIC_FAILED_PAYLOAD");
+    eeprom_update_byte((void *)(uintptr_t)marker, 0);
+    CHECK(era_state_sync_macro_revision() == 3 && era_state_sync_public_macro_marker() == 255, "PUBLIC_FAILED_CLOSE");
+    fault = 0;
+    eeprom_update_byte((void *)30, 1);
+    CHECK(era_state_sync_macro_revision() == 4 && era_state_sync_public_macro_marker() == 0, "PUBLIC_UNRELATED_REPAIR");
+    fault = 1;
+    eeprom_update_byte((void *)30, 2);
+    CHECK(era_state_sync_macro_revision() == 5 && era_state_sync_public_macro_marker() == 255, "PUBLIC_UNRELATED_FAILURE");
+    fault = 0;
+    eeprom_update_byte((void *)30, 2);
+    CHECK(era_state_sync_macro_revision() == 6 && era_state_sync_public_macro_marker() == 0, "PUBLIC_REPAIR_ONCE");
+    eeprom_update_byte((void *)30, 2);
+    CHECK(era_state_sync_macro_revision() == 6, "PUBLIC_EQUAL_REPAIR");
+}
+
 typedef struct { const char *name; void (*run)(void); } test_case_t;
 static const test_case_t cases[] = {
-    {"sparse_debt", sparse_debt}, {"newer_set", newer_set}, {"newer_failed_save", newer_failed_save},
+    {"public_macro", public_macro}, {"sparse_debt", sparse_debt}, {"newer_set", newer_set}, {"newer_failed_save", newer_failed_save},
     {"same_retry", same_retry}, {"unrelated_config", unrelated_config}, {"compound_config", compound_config},
     {"nested_domains", nested_domains}, {"failed_nested_domains", failed_nested_domains},
     {"reopened_macro", reopened_macro}, {"erased_intent", erased_intent}, {"rejected_write", rejected_write}, {"noop_debt", noop_debt},

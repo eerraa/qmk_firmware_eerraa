@@ -74,6 +74,8 @@ static void era_state_sync_bump_macro(void) {
     s_macro_revision = era_state_sync_next(s_macro_revision);
 }
 
+void era_state_sync_note_macro_public_change(void) { era_state_sync_bump_macro(); }
+
 static void era_state_sync_bump_config(void) {
     s_config_revision = era_state_sync_next(s_config_revision);
 }
@@ -200,12 +202,28 @@ void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
 }
 
 #ifdef EEPROM_WEAR_LEVELING
+static uint8_t s_macro_marker_before;
+static uint8_t era_state_sync_public_macro_marker(void) {
+    uint32_t marker = ERA_STORAGE_DYNAMIC_MACRO_ADDR + dynamic_keymap_macro_get_buffer_size() - 1U;
+    return eeprom_persistence_ok() ? eeprom_read_byte((const uint8_t *)(uintptr_t)marker) : 0xFFU;
+}
+
+void eeprom_driver_note_write_start(void) {
+    s_macro_marker_before = era_state_sync_public_macro_marker();
+}
+
+static void era_state_sync_note_public_write(uint32_t address, size_t length, bool changed) {
+    bool payload = changed && era_state_sync_span_overlaps(address, length, ERA_STORAGE_DYNAMIC_MACRO_ADDR, dynamic_keymap_macro_get_buffer_size() - 1U);
+    if (payload || s_macro_marker_before != era_state_sync_public_macro_marker()) era_state_sync_bump_macro();
+}
+#endif
+
+#ifdef EEPROM_WEAR_LEVELING
 static uint32_t era_state_sync_wl_span_mask(uint32_t address, size_t length) {
     if (length == 0U) return 0;
     uint32_t mask = era_state_sync_eeprom_span_mask((uint16_t)address, (uint16_t)length);
-    uint32_t marker = ERA_STORAGE_DYNAMIC_MACRO_ADDR + dynamic_keymap_macro_get_buffer_size() - 1U;
-    /* Payload staging is not a durable macro completion. */
-    if (!(address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) == 0U)) mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
+    /* MACRO is published at public visibility, independently of receipts. */
+    mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
     return mask;
 }
 
@@ -220,6 +238,8 @@ void eeprom_driver_reset_write_observer(void) {
 }
 
 void eeprom_driver_note_write_result(uint32_t address, size_t length, bool changed, bool success) {
+    era_state_sync_note_public_write(address, length, changed);
+    if (length == 0U) return;
     uint32_t span = era_state_sync_wl_span_mask(address, length);
     uint16_t config = (uint16_t)span;
     uint16_t debt = config & s_config_current_debt_mask;
@@ -230,12 +250,6 @@ void eeprom_driver_note_write_result(uint32_t address, size_t length, bool chang
         s_config_active_debt_mask = (s_config_active_debt_mask & (uint16_t)~config) | debt;
     }
     uint32_t mask = changed ? span & ~(uint32_t)s_config_current_persist_mask : 0;
-    uint32_t marker = ERA_STORAGE_DYNAMIC_MACRO_ADDR + dynamic_keymap_macro_get_buffer_size() - 1U;
-    if (length && address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) != 0U) {
-        /* Reopening an upload supersedes a retained CLOSE notification. */
-        s_wl_pending_change_mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
-        s_wl_completed_change_mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
-    }
     if (!success) {
         s_wl_pending_change_mask |= mask;
         return;

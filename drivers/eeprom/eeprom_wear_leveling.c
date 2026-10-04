@@ -16,7 +16,9 @@ bool eeprom_driver_can_skip_write(uint32_t address, size_t length) {
 }
 bool eeprom_begin_transaction(void) {
     if (!ready || transaction_depth == UINT16_MAX) return false;
+    eeprom_driver_note_write_start();
     if (transaction_depth++ == 0U) { transaction_failed = false; write_ok = true; }
+    eeprom_driver_note_write_result(0, 0, false, false);
     return true;
 }
 bool eeprom_persistence_ok(void) {
@@ -24,13 +26,17 @@ bool eeprom_persistence_ok(void) {
 }
 bool eeprom_transaction_active(void) { return transaction_depth != 0U; }
 void eeprom_reject_write(void) {
+    eeprom_driver_note_write_start();
     write_ok = false;
     if (transaction_depth) transaction_failed = true;
+    eeprom_driver_note_write_result(0, 0, false, false);
 }
 bool eeprom_end_transaction(void) {
     if (transaction_depth == 0U) return false;
+    eeprom_driver_note_write_start();
     --transaction_depth;
     bool ok = eeprom_persistence_ok();
+    eeprom_driver_note_write_result(0, 0, false, false);
     if (!transaction_depth) eeprom_transaction_complete(ok);
     return ok;
 }
@@ -77,9 +83,10 @@ static bool desired_bytes_changed(uint32_t address, const void *buf, size_t len)
 }
 
 void eeprom_write_block(const void *buf, void *addr, size_t len) {
-    if (!ready) { write_ok = false; return; }
+    eeprom_driver_note_write_start();
+    if (!ready) { write_ok = false; eeprom_driver_note_write_result(0, 0, false, false); return; }
     uint32_t address = (uint32_t)(uintptr_t)addr;
-    if (len > WEAR_LEVELING_LOGICAL_SIZE || address > WEAR_LEVELING_LOGICAL_SIZE - len || (len && !buf)) { note_result(WEAR_LEVELING_FAILED); return; }
+    if (len > WEAR_LEVELING_LOGICAL_SIZE || address > WEAR_LEVELING_LOGICAL_SIZE - len || (len && !buf)) { note_result(WEAR_LEVELING_FAILED); eeprom_driver_note_write_result(0, 0, false, false); return; }
     bool changed = desired_bytes_changed(address, buf, len);
     if (transaction_depth && transaction_failed) {
         (void)wear_leveling_stage(address, buf, len);

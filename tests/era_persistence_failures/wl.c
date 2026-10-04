@@ -134,11 +134,14 @@ int main(void) {
     eeprom_update_byte((uint8_t *)37, 0x43);
     assert(era_state_sync_config_revision() == 3); // recovered debt is consumed
     uint8_t opened = 0xFF, closed = 0;
+    era_state_sync_set_revisions_for_testing(1, 1, 1);
     nvm_dynamic_keymap_macro_update_buffer(127, 1, &opened);
     nvm_dynamic_keymap_macro_update_buffer(0, sizeof(packet), packet);
+    uint32_t before_close = era_state_sync_macro_revision();
+    assert(before_close > 1);
     fault = 1; nvm_dynamic_keymap_macro_update_buffer(127, 1, &closed);
-    assert(!eeprom_persistence_ok() && era_state_sync_macro_revision() == 1);
+    assert(!eeprom_persistence_ok() && era_state_sync_macro_revision() == before_close);
     fault = 0; nvm_dynamic_keymap_macro_update_buffer(127, 1, &closed);
-    assert(eeprom_persistence_ok() && era_state_sync_macro_revision() == 2);
-    puts("PASS one KEYMAP/MACRO revision per recovered completion");
+    assert(eeprom_persistence_ok() && era_state_sync_macro_revision() == before_close + 1);
+    puts("PASS KEYMAP durable completion; MACRO staging plus verified-marker publication");
 }

@@ -20,6 +20,7 @@
 #include "eeprom_driver.h"
 
 __attribute__((weak)) bool eeprom_driver_can_skip_write(uint32_t address, size_t length) { (void)address; (void)length; return true; }
+__attribute__((weak)) void eeprom_driver_note_write_start(void) {}
 __attribute__((weak)) void eeprom_driver_note_write_result(uint32_t address, size_t length, bool changed, bool success) { (void)address; (void)length; (void)changed; (void)success; }
 __attribute__((weak)) void eeprom_driver_reset_write_observer(void) {}
 __attribute__((weak)) void nvm_dynamic_keymap_macro_reset_session(void) {}
