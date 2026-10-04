@@ -199,6 +199,10 @@ static void rgb_matrix_render_policy_defaults(rgb_matrix_render_policy_t *policy
 }
 
 static void rgb_matrix_render_policy_sanitize(rgb_matrix_render_policy_t *policy) {
+    /* Sleep is the output owner's gate, including independent presentation. */
+    if (suspend_state) {
+        policy->flags &= ~(RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE | RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY | RGB_MATRIX_RENDER_POLICY_INDICATORS_ENABLE | RGB_MATRIX_RENDER_POLICY_INDICATORS_DIRTY);
+    }
 #    if !defined(RGB_MATRIX_RENDER_DOMAIN_ENABLE)
     policy->flags &= ~RGB_MATRIX_RENDER_POLICY_RENDER_DOMAIN;
 #    endif
@@ -1058,11 +1062,26 @@ void rgb_matrix_init(void) {
 
 void rgb_matrix_set_suspend_state(bool state) {
 #ifdef RGB_MATRIX_SLEEP
-    if (state && !suspend_state) { // only run if turning off, and only once
-        rgb_task_render(0);        // turn off all LEDs when suspending
-        rgb_task_flush(0);         // and actually flash led state to LEDs
-    }
+    if (state == suspend_state) return;
     suspend_state = state;
+#    if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+    rgb_render_policy_valid = false;
+    rgb_render_frame_flags = 0;
+#    endif
+    if (state) {
+        /* NONE may already be the last effect while an independent indicator
+         * is lit. Clear every output even when that effect needs no init. */
+#    if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
+        rgb_matrix_set_color_all_raw(0, 0, 0);
+#    else
+        rgb_matrix_set_color_all(0, 0, 0);
+#    endif
+        rgb_task_flush(RGB_MATRIX_NONE);
+    } else {
+        /* Repaint cached presentation even without a new host LED event. */
+        rgb_last_effect = UINT8_MAX;
+        rgb_task_state = STARTING;
+    }
 #endif
 }
 

@@ -101,19 +101,20 @@ static RGB odessey_indicator_rgb(void) {
     return odessey_cached_indicator_rgb;
 }
 
-static void odessey_set_indicator_rgb(uint8_t r, uint8_t g, uint8_t b) {
-    rgblight_driver.set_color(ODESSEY_INDICATOR_LED_INDEX, r, g, b);
-    rgblight_driver.flush();
-}
-
-static void odessey_apply_indicator(void) {
+void rgblight_indicators_kb(void) {
     if (!odessey_indicator_enabled() || !odessey_indicator_led_active(host_keyboard_led_state())) {
-        odessey_set_indicator_rgb(0, 0, 0);
+        rgblight_driver.set_color(ODESSEY_INDICATOR_LED_INDEX, 0, 0, 0);
         return;
     }
 
     RGB rgb = odessey_indicator_rgb();
-    odessey_set_indicator_rgb(rgb.r, rgb.g, rgb.b);
+    rgblight_driver.set_color(ODESSEY_INDICATOR_LED_INDEX, rgb.r, rgb.g, rgb.b);
+}
+
+static void odessey_apply_indicator(void) {
+    /* The output owner applies sleep and repaints LED0 on every awake flush,
+     * including wake with no new LED packet and a disabled underglow effect. */
+    rgblight_set();
 }
 
 void keyboard_post_init_kb(void) {

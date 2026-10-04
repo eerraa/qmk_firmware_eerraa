@@ -978,6 +978,8 @@ bool rgblight_get_output_suspend_state(void) {
     return output_suspended;
 }
 
+__attribute__((weak)) void rgblight_indicators_kb(void) {}
+
 void rgblight_set(void) {
     if (output_suspended) {
         rgblight_driver.set_color_all(0, 0, 0);
@@ -1002,6 +1004,7 @@ void rgblight_set(void) {
     }
 #endif
 
+    rgblight_indicators_kb();
     rgblight_driver.flush();
 }
 
