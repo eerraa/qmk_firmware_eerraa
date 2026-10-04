@@ -15,6 +15,10 @@
 #    include <hal.h>
 
 #    include "host.h"
+#    ifdef ERA_MACRO_ENABLE
+#        include "era_macro.h"
+#        include "era_usb_session.h"
+#    endif
 #    include "action_util.h"
 #    include "keycode_config.h"
 #    include "usb_device_state.h"
@@ -27,6 +31,10 @@ extern usb_endpoint_in_t usb_endpoints_in[USB_ENDPOINT_IN_COUNT];
 
 static bool era_hid_report_interval_ready;
 static volatile bool era_hid_reopen;
+/* Logical auxiliary state must be regenerated after the old endpoint queues
+ * have been discarded. This belongs to the USB lifetime, not a producer's
+ * cancellation: cancellation can happen while no endpoint is active. */
+static volatile bool era_hid_auxiliary_reopen;
 static uint8_t era_hid_format = UINT8_MAX;
 static volatile uint32_t era_hid_protocol_events;
 static uint32_t era_hid_protocol_seen;
@@ -49,6 +57,15 @@ extern keymap_config_t keymap_config;
 bool era_usb_auxiliary_reports_pending(void);
 void era_usb_auxiliary_reports_task(void);
 static uint8_t era_hid_report_interval_current_format(void);
+
+#    ifdef ERA_MACRO_ENABLE
+void era_macro_platform_sync(void) {
+    uint8_t state = era_usb_session_configure_state();
+    era_macro_session(era_hid_session_events, state == USB_DEVICE_STATE_CONFIGURED || state == USB_DEVICE_STATE_SUSPEND, state == USB_DEVICE_STATE_SUSPEND);
+}
+bool era_macro_report_source_current(void) { return era_macro_session_current(era_hid_session_events); }
+bool era_macro_platform_pressured(void) { return era_hid_report_interval_pressured() || era_usb_auxiliary_reports_pending(); }
+#    endif
 
 static void era_hid_report_interval_retire_apply_reset(void) {
     if (!era_hid_retire_reset) return;
@@ -202,6 +219,7 @@ void era_hid_report_interval_endpoint_completed_i(const void *endpoint) {
 void era_hid_report_interval_session_edge_i(bool keep_backlog) {
     era_hid_report_interval_note_session_edge(keep_backlog);
     era_hid_reopen = true;
+    era_hid_auxiliary_reopen = true;
     if (keep_backlog) {
         ++era_hid_suspend_events;
         if (!era_hid_retire_reset && era_hid_protocol_events == era_hid_protocol_seen) {
@@ -239,6 +257,13 @@ bool era_hid_report_interval_endpoint_allowed_i(const void *endpoint, const uint
 #    else
     bool shared = false;
     (void)data;
+#    endif
+#    ifdef ERA_MACRO_ENABLE
+    bool macro_endpoint = keyboard || shared;
+#        ifdef MOUSE_ENABLE
+    macro_endpoint = macro_endpoint || endpoint == &usb_endpoints_in[USB_ENDPOINT_IN_MOUSE];
+#        endif
+    if (macro_endpoint && !era_macro_session_current(era_hid_session_events)) return false;
 #    endif
     if (!keyboard && !shared) return true;
     if (!era_hid_report_interval_session_current()) return false;
@@ -328,11 +353,14 @@ bool era_hid_report_interval_handle_idle(uint8_t endpoint_lut, uint8_t report_id
 }
 
 void era_hid_report_interval_service(void) {
+#    ifdef ERA_MACRO_ENABLE
+    era_macro_platform_sync();
+#    endif
     /* Idle needs only scalar state: no USB lock, clock or endpoint walk.
      * Keep the format comparison for QMK/VIA/storage NKRO changes that do
      * not arrive through the USB ISR. An ISR after this test stays pending
      * for the next pass; endpoint admission still checks the live lifetime. */
-    if (!era_hid_reopen && !era_hid_retire_pending && !era_hid_retire_reset &&
+    if (!era_hid_reopen && !era_hid_auxiliary_reopen && !era_hid_retire_pending && !era_hid_retire_reset &&
         !era_hid_report_interval_active() && !era_usb_auxiliary_reports_pending() &&
         era_hid_format == era_hid_report_interval_current_format()) return;
     era_hid_report_interval_ensure_ready();
@@ -348,8 +376,14 @@ void era_hid_report_interval_service(void) {
     osalSysLock();
     bool reopen = era_hid_reopen;
     era_hid_reopen = false;
+    bool auxiliary_reopen = era_hid_auxiliary_reopen;
+    era_hid_auxiliary_reopen = false;
     osalSysUnlock();
     if (reopen) force_send_keyboard_report();
+    /* Consume before dispatch: a concurrent reset must leave a new obligation.
+     * Macro sync above has removed retired contributions; endpoint admission
+     * independently refuses any generation edge that interrupts this replay. */
+    if (auxiliary_reopen) host_resend_last_auxiliary_reports();
     era_usb_auxiliary_reports_task();
 }
 #endif /* ERA_HID_REPORT_INTERVAL_ENABLE */

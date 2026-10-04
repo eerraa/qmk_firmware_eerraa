@@ -63,6 +63,9 @@
  */
 
 #include "era_usb_session.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
 #include "era_usb_session_policy.h"
 #ifdef ERA_LIGHTING_SLEEP_ENABLE
 #    include "../features/era_lighting_sleep.h"
@@ -333,6 +336,9 @@ bool era_usb_session_frames_lost(void) {
  * a future non-split board that wants them fails the link rather than
  * silently losing one of these calls. */
 void suspend_power_down_kb(void) {
+#ifdef ERA_MACRO_ENABLE
+    era_macro_platform_sync();
+#endif
 #if defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET) && defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING)
     /* QMK stops housekeeping while suspended. Continue the same post-init
        deadline here, including suspend before the first housekeeping pass. */

@@ -92,6 +92,13 @@ bool era_hid_report_interval_hold(uint8_t lane, const void *data, uint8_t size) 
         era_hid_report_interval_apply_edge(ERA_HID_REPORT_EDGE_RESET, 0);
         s.reset_seen = resets; s.suspend_seen = suspends;
     }
+#ifdef ERA_MACRO_ENABLE
+    /* Check AFTER reset consumption: otherwise a report built by the old
+     * macro could become the first retained prefix of the new USB session.
+     * A later ISR leaves a pending edge that retires this entry normally. */
+    bool era_macro_report_source_current(void);
+    if (!era_macro_report_source_current()) return true;
+#endif
     uint32_t ticket = ++s.next_ticket;
     s.producer_ticket = ticket;
     /* This owner takes every valid void output. A normal BUSY keeps it here;

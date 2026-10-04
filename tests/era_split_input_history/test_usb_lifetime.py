@@ -25,6 +25,8 @@ static uint32_t era_hid_protocol_seen;
 static volatile uint32_t era_hid_session_events;
 static uint32_t era_hid_format_session;
 static volatile bool era_hid_reopen;
+static volatile bool era_hid_auxiliary_reopen;
+static void host_resend_last_auxiliary_reports(void) {} /* No logical auxiliary producer in this HAL fixture. */
 static volatile uint8_t era_hid_retire_pending;
 static volatile uint8_t era_hid_retire_debt;
 static volatile uint32_t era_hid_suspend_events;
@@ -70,7 +72,7 @@ static void fresh(void) {
     posted=forced=lock_calls=clock_reads=aux_sends=inject=0;protocol=USB_PROTOCOL_REPORT;
     active=USB_ACTIVE;fail_get=false;clock_now=10;
     auxiliary_pending=0;auxiliary_session_reset=false;
-    era_hid_format=UINT8_MAX;era_hid_protocol_events=era_hid_protocol_seen=0;era_hid_reopen=false;
+    era_hid_format=UINT8_MAX;era_hid_protocol_events=era_hid_protocol_seen=0;era_hid_reopen=era_hid_auxiliary_reopen=false;
     era_hid_retire_pending=0;era_hid_retire_dispatch=NULL;era_hid_retire_reset=false;
     era_hid_retire_debt=0;era_hid_suspend_events=0;
     era_hid_session_events=era_hid_format_session=0;

@@ -52,6 +52,14 @@ void    host_raw_hid_send(uint8_t *data, uint8_t length);
 uint16_t host_last_system_usage(void);
 uint16_t host_last_consumer_usage(void);
 
+#if defined(ERA_MACRO_ENABLE) || defined(ERA_HID_REPORT_INTERVAL_ENABLE)
+/* Reconstruct surviving auxiliary owners after retiring a USB macro lifetime. */
+void host_resend_last_extra_reports(void);
+#endif
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+void host_resend_last_auxiliary_reports(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

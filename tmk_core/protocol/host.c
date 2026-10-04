@@ -71,6 +71,9 @@ extern keymap_config_t keymap_config;
 static host_driver_t *driver;
 static uint16_t       last_system_usage   = 0;
 static uint16_t       last_consumer_usage = 0;
+#if defined(ERA_HID_REPORT_INTERVAL_ENABLE) && defined(MOUSE_ENABLE)
+static uint8_t last_mouse_buttons;
+#endif
 
 void host_set_driver(host_driver_t *d) {
     driver = d;
@@ -218,6 +221,9 @@ void host_nkro_send(report_nkro_t *report) {
 }
 
 void host_mouse_send(report_mouse_t *report) {
+#if defined(ERA_HID_REPORT_INTERVAL_ENABLE) && defined(MOUSE_ENABLE)
+    last_mouse_buttons = report->buttons;
+#endif
     host_driver_t *driver = host_get_active_driver();
     if (!driver || !driver->send_mouse) return;
 
@@ -259,6 +265,31 @@ void host_consumer_send(uint16_t usage) {
     };
     (*driver->send_extra)(&report);
 }
+
+#if defined(ERA_MACRO_ENABLE) || defined(ERA_HID_REPORT_INTERVAL_ENABLE)
+void host_resend_last_extra_reports(void) {
+    host_driver_t *driver = host_get_active_driver();
+    if (!driver || !driver->send_extra) return;
+    report_extra_t report = {.report_id = REPORT_ID_SYSTEM, .usage = last_system_usage};
+    driver->send_extra(&report);
+    report.report_id = REPORT_ID_CONSUMER;
+    report.usage = last_consumer_usage;
+    driver->send_extra(&report);
+}
+#endif
+
+#ifdef ERA_HID_REPORT_INTERVAL_ENABLE
+void host_resend_last_auxiliary_reports(void) {
+#    ifdef EXTRAKEY_ENABLE
+    host_resend_last_extra_reports();
+#    endif
+#    ifdef MOUSE_ENABLE
+    /* Relative motion belongs to its original report, not the new session. */
+    report_mouse_t report = {.buttons = last_mouse_buttons};
+    host_mouse_send(&report);
+#    endif
+}
+#endif
 
 #ifdef JOYSTICK_ENABLE
 void host_joystick_send(joystick_t *joystick) {

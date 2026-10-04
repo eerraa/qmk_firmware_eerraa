@@ -5,7 +5,8 @@ Canonical for: the HID keyboard report ERA sends the host — its shape and
 width, the boot-protocol fallback that keeps BIOS working, the opt-in NKRO
 policy, the refusals that keep report-array width and endpoint size tied to
 the upstream values, and the rule that any code that empties and restores
-the report buffer must follow the active format
+the report buffer must follow the active format; shared logical output ownership
+and its separation from producer lifetimes
 
 VIA NKRO value-id owner: `features/era_nkro_via.h`; namespace locator:
 `era_identifier_map.md`. Core-file fork surface:
@@ -232,6 +233,80 @@ the selected format, bypassing upper duplicate suppression. Already accepted
 old-format endpoint reports cannot be retracted; cross-format tap preservation
 is not promised. Device IN/OS completion and original global event durations
 remain separately measured boundaries.
+
+## Shared output ownership
+
+The shared output boundary is `quantum/action_output.h`, implemented alongside
+QMK report and modifier projection in `quantum/action_util.c`. It owns scoped
+contributions to keyboard usages, modifiers, mouse codes and supported extra
+usages. Its regular contributor retains QMK bit-state semantics, including
+unowned firmware output; it is not a per-physical-key reference counter.
+Nested producers must restore the prior scope. Releasing one owner's output
+must preserve every remaining contribution, and report-only edits must not
+retire input ownership.
+
+Producers own their execution and cancellation lifetimes. Tap Dance owns its
+runtime seats and momentary layers; macros own their persistent/temporary
+contributions, queue, snapshot and source-generation fence. None of those
+lifetimes or layer policies belongs in the shared output API. The layer uses
+bounded static registrations, without runtime allocation or a new scan-time
+walk. QMK's ordinary-modifier clear and global weak-modifier clear semantics
+remain distinct; this separation must not silently change them or broaden
+single-usage EXTRA restoration in configurations that did not enable it.
+
+USB reopen owns transport replay, including current auxiliary usages and mouse
+buttons with zero relative motion. A producer's cancellation while endpoints
+are inactive cannot discharge the next configured session's replay obligation.
+An edge during replay rearms it. Wake-key suppression retires ordinary input
+contributions, then reprojects surviving scoped output; it must not leave a
+paused macro or Tap Dance owning keys absent from the report. This bounded
+reconstruction runs only at the explicit wake transition, never every scan.
+Macro-off wake preserves the displayed scoped EXTRA usage without selecting a
+previously hidden usage. Global weak-modifier clearing at other callers keeps
+its existing meaning.
+
+## Cooperative VIA macros
+
+On ERA's common VIA runtime, dynamic macros must yield during DELAY and
+character intervals and bound zero-delay execution per keyboard pass. Core0
+retains execution ownership; Core1 never runs QMK macro or HID work. The
+executor and its compile-time bounds are owned by `quantum/era_macro.c` and
+`quantum/era_macro.h`, selected by `system/era_common_qmk_rules.mk`. Brick65
+does not adopt that common runtime and retains its upstream executor; its AVR
+RAM budget is not inferred from a TOMAK build.
+
+Requests enter a finite FIFO; overload drops the newest request. Each queued
+ID resolves against the valid contents at its execution start, rather than
+the time it was queued. Starting an execution fixes its bytes, so a later
+upload or remote Apply cannot splice new commands into it. Invalid IDs,
+invalid completion markers and out-of-range starts produce no output.
+Snapshot capacity uses the configured macro region where available, otherwise
+the board's logical EEPROM bound; only the actual macro region is copied.
+One bounded region copy and selection scan per activation are accepted
+Core0 costs, at most one activation per pass; idle and waiting passes do
+neither. This bound is not a measured activation-latency claim.
+
+The executor preserves QMK's command order, character lookup tables and
+intervals. Explicit DOWN ownership survives ordinary completion until UP or
+cancellation. Temporary TAP/character ownership is separate from explicit
+DOWN, physical input and Tap Dance. Releasing or canceling one contribution
+must not release a keyboard usage, modifier, mouse code or supported extra
+usage still held by another contributor. Malformed/truncated commands abort
+the execution and clear its output contributions. Report-only empty/restore
+does not cancel inputs.
+
+Suspend pauses execution and its remaining delay. Reset/unconfigure or a
+replacement USB session cancels queued/running work and macro contributions
+before output can enter the new session; a keyboard clear also cancels it.
+Reinitialization must not retain an old execution. Keyboard report pressure
+may postpone execution, while ordinary input and RAW HID polling keep their
+normal service path. Existing endpoint overload/convergence limits above
+still apply to auxiliary output and are not a lossless macro-delivery promise.
+
+Macro readability/revision and durable completion are separate requirements
+owned by `era_host_peer_storage_contract.md` **Dynamic Macro Transaction**
+and **Revisions**. An early change notification never grants execution of an
+incomplete upload.
 
 ## Split and storage
 

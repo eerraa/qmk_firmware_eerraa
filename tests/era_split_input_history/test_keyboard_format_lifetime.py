@@ -30,8 +30,9 @@ DECL = r'''
 #define NKRO_REPORT_BITS 30
 #define KC_NO 0
 #define dprintf(...) ((void)0)
-#define TAP_DANCE_OWNED_ACTIONS
+#define ERA_TAP_DANCE_ENABLE
 #define TAP_DANCE_MAX_SIMULTANEOUS 4
+#include "quantum/action_output.h"
 #define NO_ACTION_ONESHOT
 typedef struct { uint8_t mods,reserved,keys[6]; } report_keyboard_t;
 typedef struct { uint8_t report_id,mods,bits[30]; } report_nkro_t;
@@ -77,6 +78,7 @@ static void usb_device_state_set_protocol(uint8_t value) {protocol=value?USB_PRO
 static bool host_can_send_nkro(void) {return protocol==USB_PROTOCOL_REPORT;}
 static bool era_usb_auxiliary_reports_pending(void) {return false;}
 static void era_usb_auxiliary_reports_task(void) {}
+static void host_resend_last_auxiliary_reports(void) {}
 static bool send_report(usb_endpoint_in_lut_t ep,void *report,size_t size);
 static bool usb_endpoint_in_send(usb_endpoint_in_t *,const uint8_t *,size_t,sysinterval_t,bool);
 static void force_send_keyboard_report(void);
@@ -114,7 +116,7 @@ static uint32_t eeconfig_read_default_layer(void) {abort();}
 static void default_layer_set(uint32_t layer) {(void)layer;abort();}
 static void era_split_eeprom_sync_reload_domain_user(era_split_eeprom_sync_domain_t domain) {(void)domain;}
 static void tap_dance_cancel_all(void) { /* VIA cases have no active TD outputs. */ }
-static void tap_dance_clear_hid_ownership(void) {}
+void action_output_reset_hid(void) {}
 '''
 
 CASES = r'''
@@ -154,12 +156,12 @@ static void fresh(bool nkro) {
  memset(host_shadow,0,sizeof(host_shadow));
  memset(keyboard_report,0,sizeof(*keyboard_report));memset(nkro_report,0,sizeof(*nkro_report));nkro_report->report_id=REPORT_ID_NKRO;
  real_mods=weak_mods=0;now=10;active=USB_ACTIVE;fail_get=false;keymap_config.nkro=nkro;durable_config=keymap_config;
- protocol=USB_PROTOCOL_REPORT;era_hid_format=UINT8_MAX;era_hid_protocol_events=era_hid_protocol_seen=0;era_hid_reopen=false;
+ protocol=USB_PROTOCOL_REPORT;era_hid_format=UINT8_MAX;era_hid_protocol_events=era_hid_protocol_seen=0;era_hid_reopen=era_hid_auxiliary_reopen=false;
  era_hid_retire_pending=0;era_hid_retire_dispatch=NULL;era_hid_retire_reset=false;
  era_hid_retire_debt=0;era_hid_suspend_events=0;inject_suspend_after_terminal_admit=false;
  era_hid_session_events=era_hid_format_session=0;
  inject_suspend_on_update=inject_protocol_before_select=false;
- tap_dance_clear_key_ownership();
+ action_output_reset_keys();
  for(unsigned ep=0;ep<2;++ep) {
   usb_endpoints_in[ep].config.buffer_size=32;usb_endpoints_in[ep].obqueue.bsize=40;
   storage[ep]=(usb_report_storage_t){(void*)(uintptr_t)ep,stored_idle,stored_elapsed,stored_report,reset_storage};
@@ -251,11 +253,11 @@ static void accepted_order_case(void) {
 }
 static void td_protocol_case(void) {
  fresh(true);add_key(4);real_mods=1;
- uint8_t prev=tap_dance_action_set_owner(0);add_key(4);add_mods(2);tap_dance_action_set_owner(prev);
+ uint8_t prev=action_output_set_owner(0);add_key(4);add_mods(2);action_output_set_owner(prev);
  send_keyboard_report();complete();protocol_set(USB_PROTOCOL_BOOT);settle();
  assert(has_key(0,4));assert(stored[0][0].data[0]==3);
  del_key(4);real_mods=0;send_keyboard_report();complete();assert(has_key(0,4));
- prev=tap_dance_action_set_owner(0);del_key(4);del_mods(2);tap_dance_action_set_owner(prev);
+ prev=action_output_set_owner(0);del_key(4);del_mods(2);action_output_set_owner(prev);
  send_keyboard_report();complete();protocol_set(USB_PROTOCOL_REPORT);settle();
  assert(!has_key(1,4));assert(stored[1][REPORT_ID_NKRO].data[1]==0);
  puts("PASS actual TD/basic usage union and modifier owners survive protocol release");
@@ -484,7 +486,7 @@ bool era_hid_report_interval_select_format(uint8_t format) {
     report = (ROOT / 'tmk_core/protocol/report.c').read_text(encoding='utf-8')
     unit += report[report.index('uint8_t has_anykey'):report.index('#ifdef MOUSE_ENABLE')]
     action = (ROOT / 'quantum/action_util.c').read_text(encoding='utf-8')
-    unit += action[action.index('static uint8_t td_action_owner'):action.index('/* Mouse codes keep')]
+    unit += action[action.index('static action_output_owner_t output_owner'):action.index('/* Mouse codes keep')]
     for name, ret, args in [
         ('get_mods','uint8_t','void'), ('get_weak_mods','uint8_t','void'),
         ('get_mods_for_report','uint8_t','void'),

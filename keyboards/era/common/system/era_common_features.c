@@ -5,6 +5,9 @@
 #include "era_common_features.h"
 
 #include "era_usb_session.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
 #    include "era_hid_report_interval.h"
 #endif
@@ -56,6 +59,9 @@
 #endif
 
 void era_common_features_init(void) {
+#ifdef ERA_MACRO_ENABLE
+    era_macro_cancel();
+#endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
     era_hid_report_interval_platform_init();
 #endif
@@ -131,6 +137,9 @@ void era_common_features_reload_from_eeprom(void) {
 }
 
 void era_common_features_task(void) {
+#ifdef ERA_MACRO_ENABLE
+    era_macro_platform_sync();
+#endif
     /* The frame-loss half of the ERA sleep decision. Here rather than in a
        board file because it is a fact about USB, not about a keyboard, and
        every ERA board reaches this function once per pass. */
@@ -140,6 +149,9 @@ void era_common_features_task(void) {
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
+#ifdef ERA_MACRO_ENABLE
+    era_macro_task();
+#endif
 
 #ifdef ERA_VIA_SYSTEM_ENABLE
     era_via_system_task();

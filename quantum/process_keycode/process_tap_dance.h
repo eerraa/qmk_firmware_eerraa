@@ -21,17 +21,11 @@
 #include "action.h"
 #include "quantum_keycodes.h"
 
+#include "process_tap_dance_config.h"
+
 #ifdef ERA_TAP_DANCE_ENABLE
-/* VIA may map the same configuration slot to every physical switch. Keep a
- * direct seat per matrix position and the existing bounded non-matrix pool. */
-#    define TAP_DANCE_MATRIX_STATES (MATRIX_ROWS * MATRIX_COLS)
-#endif
-#ifndef TAP_DANCE_MAX_SIMULTANEOUS
-#    ifdef ERA_TAP_DANCE_ENABLE
-#        define TAP_DANCE_MAX_SIMULTANEOUS (TAP_DANCE_MATRIX_STATES + 8)
-#    else
-#        define TAP_DANCE_MAX_SIMULTANEOUS 3
-#    endif
+/* TD-only layer contributions are outside the shared HID ownership layer. */
+void tap_dance_clear_owner_layers(uint8_t owner);
 #endif
 
 typedef struct {

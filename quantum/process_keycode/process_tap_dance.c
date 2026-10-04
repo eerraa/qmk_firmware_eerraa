@@ -241,7 +241,7 @@ void tap_dance_dual_role_reset(tap_dance_state_t *state, void *user_data) {
 static inline void _process_tap_dance_action_fn(tap_dance_state_t *state, void *user_data, tap_dance_user_fn_t fn) {
     if (fn) {
 #ifdef TAP_DANCE_OWNED_ACTIONS
-        uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+        uint8_t previous = action_output_set_owner(state->runtime_index);
 #endif
 #ifdef ERA_TAP_DANCE_ENABLE
         tap_dance_state_t *outer = callback_state;
@@ -252,7 +252,7 @@ static inline void _process_tap_dance_action_fn(tap_dance_state_t *state, void *
         callback_state = outer;
 #endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
-        tap_dance_action_set_owner(previous);
+        action_output_set_owner(previous);
 #endif
     }
 }
@@ -273,7 +273,7 @@ static inline void process_tap_dance_action_on_each_release(tap_dance_action_t *
 
 static inline void process_tap_dance_action_on_reset(tap_dance_action_t *action, tap_dance_state_t *state) {
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+    uint8_t previous = action_output_set_owner(state->runtime_index);
 #endif
     _process_tap_dance_action_fn(state, action->user_data, action->fn.on_reset);
     del_weak_mods(state->weak_mods);
@@ -281,13 +281,13 @@ static inline void process_tap_dance_action_on_reset(tap_dance_action_t *action,
     del_mods(state->oneshot_mods);
 #endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    tap_dance_clear_owner_mods(state->runtime_index);
-    tap_dance_clear_owner_keys(state->runtime_index);
-    tap_dance_clear_owner_hid(state->runtime_index);
+    action_output_clear_owner_mods(state->runtime_index);
+    action_output_clear_owner_keys(state->runtime_index);
+    action_output_clear_owner_hid(state->runtime_index);
 #ifndef NO_ACTION_LAYER
     tap_dance_clear_owner_layers(state->runtime_index);
 #endif
-    tap_dance_action_set_owner(previous);
+    action_output_set_owner(previous);
 #endif
     send_keyboard_report();
     // Clear the tap dance state and mark it as unused
@@ -298,7 +298,7 @@ static inline void process_tap_dance_action_on_dance_finished(tap_dance_action_t
     if (!state->finished) {
         state->finished = true;
 #ifdef TAP_DANCE_OWNED_ACTIONS
-        uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+        uint8_t previous = action_output_set_owner(state->runtime_index);
 #endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
         /* Tap-time modifiers are replayed for a tap, as in QMK. A hold keeps
@@ -312,7 +312,7 @@ static inline void process_tap_dance_action_on_dance_finished(tap_dance_action_t
         send_keyboard_report();
         _process_tap_dance_action_fn(state, action->user_data, action->fn.on_dance_finished);
 #ifdef TAP_DANCE_OWNED_ACTIONS
-        tap_dance_action_set_owner(previous);
+        action_output_set_owner(previous);
 #endif
     }
     if (active_td == state) {

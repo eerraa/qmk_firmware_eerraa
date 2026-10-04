@@ -42,6 +42,7 @@ of it — saying so is the verification statement.
 | `era_split_link_lifecycle` | production VIA/LINK/agreement, the scheduler's actual cold transition and real EEPROM/NVM with two independent endpoint RAM/NOR images: timeouts, stale intents, role/clock flips, physical-before-NVM ordering, serial/publication faults, program cuts, seal/activation readback ambiguity, reboot, reconciliation scoped to a meeting of the pair (a same-pair reopen after an agreement raises nothing; a fresh meeting, a winner change, an unagreed winner, or a recovery step off the agreed level does), and the pair-wide search report (the listener advertises `rate_searched` from its step until the relation it found opens or the episode ends; the settled initiator requests one LINK_RECOVERED rendezvous from its own search or that answer; an edge with neither local nor peer search, including a same-pair reopen without one, raises no report). The agreed presentation epoch is checked across both HOST orientations and DUAL-HOST, distinct serviced edges, late dispatch/display, timer wrap, role/clock changes, loss, duplication and hidden-report expiry. Physical owner/PIO/NOR and timing are simulated; `test_source_contracts.py` pins dirty-repair, storage admission and report dispatch wiring, not hardware timing |
 | changes the PWM Backlight Pulse state machine or its speed table, the underglow Pulse engine in `features/era_rgblight_pulse.c` or the family policy in `features/era_pulse_policy.h`, the indicator-supply lock policy, the Tap Dance decision or synthesized-tap width rules in `features/era_tapdance.c`, or the non-split suspend bridge that retires Pulse/Breathing | `era_backlight_pulse`, `era_rgblight_pulse`, `era_rgblight_pulse_integration`, `python3 tests/era_rgblight_pulse/test_source_contracts.py`; a VIA build of one effect board and of one RGBLIGHT board; and, when the lock policy changes, a build of one lock-only board |
 | changes the synthesized-tap width or the keyboard report interval | `era_hid_report_interval`, `python3 tests/era_hid_report_interval/test_source_contracts.py`, `era_backlight_pulse`; a build of one board; and the report interval device gate below |
+| changes cooperative VIA macro execution or its output/lifecycle ownership | `era_macro`, `era_macro_no_td`, `python3 -m unittest discover -s tests/era_macro -p 'test_*.py' -v`, `python3 tests/era_macro/wake_ownership_selftest.py`, `era_hid_report_interval`, `era_backlight_pulse`, their affected negative controls, and the macro device gate below; build the requested representative VIA target only |
 | changes the physical-to-visual split wake | `python3 tests/era_split_visual_input/test_source_contracts.py`; a supported split build. The fixture executes the production scheduler entry and visual wake across roles, RGB policy and idle; wire latency and physical rendering remain device checks |
 | changes common build-variant rules or the launcher identity | `tests/era_build_variant_rules/test_variant_rules.sh`, all six canonical variants on one representative split target, and Brick65 `standard`; each UF2 manifest must carry equal resolved/compiled tuples |
 | would move a **Fixed Baseline** | an instrument, first |
@@ -85,6 +86,26 @@ control recompiles one isolated source mutation with the native build's flags
 against unchanged objects and counts only when it compiles and its named
 runtime assertion then fails. They prove host behaviour, not GPIO timing, board
 geometry or an `era-build` gate.
+
+### Cooperative macro device gate
+
+Use the manifest-selected VIA standard image, NKRO off and on. During a
+long DELAY and then a maximum-length zero-delay macro, repeatedly press and
+release ordinary keys while polling State Sync and the macro marker. Capture
+physical edge-to-report latency and RAW HID response latency against the same
+workload without a macro. Repeat with physical/Tap Dance/macro overlap on a
+letter, Shift, mouse button and consumer usage; each remaining owner must
+survive the other owners' releases.
+
+Re-upload different contents during execution, fill the request queue, and
+confirm the running contents stay fixed and later starts use the valid current
+image. Suspend mid-delay, resume, then reset/unconfigure/reconnect and clear
+while outputs are held. No canceled macro output may enter the new session.
+Repeat on both HOST-PEER orientations and DUAL-HOST, including remote macro
+Apply. Poll opener, changed/equal payload, failed CLOSE and successful retry:
+revision is public-value evidence, while marker zero still requires completion.
+Host fixtures and a successful link do not establish these physical timing,
+endpoint, suspend or split results; unrun legs remain unmeasured.
 
 ### Scheduler admission/liveness device gate
 

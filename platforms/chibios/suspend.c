@@ -31,6 +31,12 @@ void suspend_power_down(void) {
  * FIXME: needs doc
  */
 void suspend_wakeup_init(void) {
+#ifdef ACTION_OWNED_OUTPUTS
+    /* Wake suppresses ordinary inputs, not the lifetime of a paused macro or
+     * an active Tap Dance. Rebuild the surviving scoped contributions together
+     * with their reports instead of clearing only the report projection. */
+    action_output_clear_regular();
+#else
     // clear keyboard state
     // need to do it manually, because we're running from ISR
     //  and clear_keyboard() calls print
@@ -43,13 +49,14 @@ void suspend_wakeup_init(void) {
 #ifdef MOUSEKEY_ENABLE
     mousekey_clear();
 #endif /* MOUSEKEY_ENABLE */
-#ifdef PROGRAMMABLE_BUTTON_ENABLE
-    programmable_button_clear();
-#endif /* PROGRAMMABLE_BUTTON_ENABLE */
 #ifdef EXTRAKEY_ENABLE
     host_system_send(0);
     host_consumer_send(0);
 #endif /* EXTRAKEY_ENABLE */
+#endif /* ACTION_OWNED_OUTPUTS */
+#ifdef PROGRAMMABLE_BUTTON_ENABLE
+    programmable_button_clear();
+#endif /* PROGRAMMABLE_BUTTON_ENABLE */
 
     suspend_wakeup_init_quantum();
 }

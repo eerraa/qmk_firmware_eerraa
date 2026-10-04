@@ -16,6 +16,9 @@
  */
 
 #include "dynamic_keymap.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
 #include "keymap_introspection.h"
 #include "action.h"
 #include "send_string.h"
@@ -141,6 +144,9 @@ void dynamic_keymap_macro_reset(void) {
 }
 
 void dynamic_keymap_macro_send(uint8_t id) {
+#ifdef ERA_MACRO_ENABLE
+    (void)era_macro_request(id);
+#else
     if (id >= DYNAMIC_KEYMAP_MACRO_COUNT) {
         return;
     }
@@ -171,4 +177,5 @@ void dynamic_keymap_macro_send(uint8_t id) {
 
     send_string_nvm_state_t state = {.offset = offset};
     send_string_with_delay_impl(send_string_get_next_nvm, &state, DYNAMIC_KEYMAP_MACRO_DELAY);
+#endif
 }

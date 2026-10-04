@@ -272,6 +272,8 @@ endif
 # selector whose only reader is not compiled is how a switch comes to look live
 # when it is not.
 ifeq ($(strip $(VIA_ENABLE)), yes)
+    OPT_DEFS += -DERA_MACRO_ENABLE
+    SRC += quantum/era_macro.c
     SRC += keyboards/era/common/system/era_common_via.c
     SRC += keyboards/era/common/system/era_firmware_version.c
     SRC += keyboards/era/common/system/era_state_sync.c

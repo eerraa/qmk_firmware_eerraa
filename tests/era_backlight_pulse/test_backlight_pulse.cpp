@@ -1433,3 +1433,25 @@ TEST_F(EraBacklightPulse, SleepGateDarkensTheRailAndKeepsTheStoredLevel) {
 #include "test_layer_time_contract.h"
 
 #include "test_td_modes.h"
+
+TEST_F(EraBacklightTapHoldTiming, RegularRetirementKeepsScopedProjectionWithoutBroadeningExtraRestoration) {
+    TestDriver driver;
+    EXPECT_CALL(driver, send_keyboard_mock(testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(driver, send_extra_mock(testing::_)).Times(testing::AnyNumber());
+    EXPECT_CALL(driver, send_mouse_mock(testing::_)).Times(testing::AnyNumber());
+    auto previous=action_output_set_owner(0);
+    register_code(KC_A);register_code(KC_LSFT);register_code(MS_BTN2);register_code(KC_VOLU);
+    add_weak_mods(MOD_BIT(KC_RALT));action_output_set_owner(previous);
+    register_code(KC_B);register_code(KC_LCTL);register_code(MS_BTN1);register_code(KC_VOLD);
+    action_output_clear_regular();
+    EXPECT_TRUE(is_key_pressed(KC_A));EXPECT_FALSE(is_key_pressed(KC_B));
+    EXPECT_EQ(get_mods(),MOD_BIT(KC_LSFT));EXPECT_EQ(get_weak_mods(),MOD_BIT(KC_RALT));
+    EXPECT_EQ(mousekey_get_report().buttons,2);
+    EXPECT_EQ(host_last_consumer_usage(),0) << "Macro-off wake must not select an undisplayed TD usage";
+    previous=action_output_set_owner(0);register_code(KC_VOLU);action_output_set_owner(previous);
+    action_output_clear_regular();
+    EXPECT_EQ(host_last_consumer_usage(),KEYCODE2CONSUMER(KC_VOLU));
+    action_output_clear_owner_keys(0);action_output_clear_owner_mods(0);action_output_clear_owner_hid(0);
+    EXPECT_FALSE(is_key_pressed(KC_A));EXPECT_EQ(get_mods(),0);EXPECT_EQ(get_weak_mods(),0);
+    EXPECT_EQ(mousekey_get_report().buttons,0);EXPECT_EQ(host_last_consumer_usage(),0);
+}

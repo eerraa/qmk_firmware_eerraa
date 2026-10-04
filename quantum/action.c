@@ -27,6 +27,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "action_tapping.h"
 #include "action_util.h"
 #include "action.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
 #include "wait.h"
 #include "keycode_config.h"
 #include "debug.h"
@@ -368,9 +371,9 @@ void process_record_handler(keyrecord_t *record) {
  */
 
 void register_mouse(uint8_t mouse_keycode, bool pressed) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
+#ifdef ACTION_OWNED_OUTPUTS
     /* Another input still holding this mouse code keeps it down. */
-    if (!tap_dance_mouse_update(mouse_keycode, pressed)) return;
+    if (!action_output_mouse_update(mouse_keycode, pressed)) return;
 #endif
 #ifdef MOUSEKEY_ENABLE
     // if mousekeys is enabled, let it do the brunt of the work
@@ -414,17 +417,29 @@ void register_mouse(uint8_t mouse_keycode, bool pressed) {
 #ifdef EXTRAKEY_ENABLE
 /* Each extra report holds one usage; ownership decides whether an up may clear it. */
 static void send_system_usage(uint16_t usage, bool pressed) {
-#    ifdef TAP_DANCE_OWNED_ACTIONS
-    if (!tap_dance_usage_update(TD_USAGE_SYSTEM, usage, host_last_system_usage(), pressed)) return;
+#    ifdef ACTION_OWNED_OUTPUTS
+    if (!action_output_usage_update(ACTION_OUTPUT_USAGE_SYSTEM, usage, host_last_system_usage(), pressed)) return;
 #    endif
-    host_system_send(pressed ? usage : 0);
+    host_system_send(pressed ? usage :
+#    ifdef ERA_MACRO_ENABLE
+                     action_output_usage_remaining(ACTION_OUTPUT_USAGE_SYSTEM)
+#    else
+                     0
+#    endif
+    );
 }
 
 static void send_consumer_usage(uint16_t usage, bool pressed) {
-#    ifdef TAP_DANCE_OWNED_ACTIONS
-    if (!tap_dance_usage_update(TD_USAGE_CONSUMER, usage, host_last_consumer_usage(), pressed)) return;
+#    ifdef ACTION_OWNED_OUTPUTS
+    if (!action_output_usage_update(ACTION_OUTPUT_USAGE_CONSUMER, usage, host_last_consumer_usage(), pressed)) return;
 #    endif
-    host_consumer_send(pressed ? usage : 0);
+    host_consumer_send(pressed ? usage :
+#    ifdef ERA_MACRO_ENABLE
+                       action_output_usage_remaining(ACTION_OUTPUT_USAGE_CONSUMER)
+#    else
+                       0
+#    endif
+    );
 }
 #endif
 
@@ -434,14 +449,14 @@ static void send_consumer_usage(uint16_t usage, bool pressed) {
  */
 void process_action(keyrecord_t *record, action_t action) {
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    uint8_t td_previous_owner = tap_dance_action_get_owner();
+    uint8_t td_previous_owner = action_output_get_owner();
     bool td_momentary = action.kind.id == ACT_LMODS || action.kind.id == ACT_RMODS || action.kind.id == ACT_LAYER_MODS;
     if (action.kind.id == ACT_LAYER_TAP || action.kind.id == ACT_LAYER_TAP_EXT)
         td_momentary = action.layer_tap.code == OP_ON_OFF || action.layer_tap.code < OP_TAP_TOGGLE;
     if (action.kind.id == ACT_LMODS_TAP || action.kind.id == ACT_RMODS_TAP)
         td_momentary = action.layer_tap.code != MODS_TAP_TOGGLE;
     if (action.kind.id == ACT_USAGE || action.kind.id == ACT_MOUSEKEY) td_momentary = true;
-    if (!td_momentary) tap_dance_action_set_owner(UINT8_MAX);
+    if (!td_momentary) action_output_set_owner(ACTION_OUTPUT_OWNER_REGULAR);
 #endif
     keyevent_t event = record->event;
 #ifndef NO_ACTION_TAPPING
@@ -982,7 +997,7 @@ void process_action(keyrecord_t *record, action_t action) {
     }
 #endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    tap_dance_action_set_owner(td_previous_owner);
+    action_output_set_owner(td_previous_owner);
 #endif
 }
 
@@ -1034,8 +1049,12 @@ __attribute__((weak)) void register_code(uint8_t code) {
         // Force a new key press if the key is already pressed
         // without this, keys with the same keycode, but different
         // modifiers will be reported incorrectly, see issue #1708
-        if (is_key_pressed(code)) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
+        if (is_key_pressed(code)
+#ifdef ERA_MACRO_ENABLE
+            && !era_macro_emitting()
+#endif
+        ) {
+#ifdef ACTION_OWNED_OUTPUTS
             /* Every new down is its own keystroke, as in QMK. The up is
              * report-only, so another input that holds the usage keeps it. */
             del_key_from_report(code);
@@ -1205,6 +1224,9 @@ __attribute__((weak)) void unregister_weak_mods(uint8_t mods) {
  * FIXME: Needs documentation.
  */
 void clear_keyboard(void) {
+#ifdef ERA_MACRO_ENABLE
+    era_macro_cancel();
+#endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
     tap_dance_cancel_all();
 #endif
@@ -1217,8 +1239,11 @@ void clear_keyboard(void) {
  * FIXME: Needs documentation.
  */
 void clear_keyboard_but_mods(void) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    tap_dance_clear_key_ownership();
+#ifdef ERA_MACRO_ENABLE
+    era_macro_cancel();
+#endif
+#ifdef ACTION_OWNED_OUTPUTS
+    action_output_reset_keys();
 #endif
     clear_keys();
     clear_keyboard_but_mods_and_keys();
@@ -1229,8 +1254,11 @@ void clear_keyboard_but_mods(void) {
  * FIXME: Needs documentation.
  */
 void clear_keyboard_but_mods_and_keys(void) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    tap_dance_clear_hid_ownership();
+#ifdef ERA_MACRO_ENABLE
+    era_macro_cancel();
+#endif
+#ifdef ACTION_OWNED_OUTPUTS
+    action_output_reset_hid();
 #endif
 #ifdef EXTRAKEY_ENABLE
     host_system_send(0);

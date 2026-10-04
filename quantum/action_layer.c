@@ -241,7 +241,7 @@ void layer_move(uint8_t layer) {
  */
 void layer_on(uint8_t layer) {
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    const uint8_t owner = tap_dance_action_get_owner();
+    const uint8_t owner = action_output_get_owner();
     if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
         tap_dance_replace_layers(owner, td_layer_owners[owner] | ((layer_state_t)1 << layer));
         return;
@@ -256,7 +256,7 @@ void layer_on(uint8_t layer) {
  */
 void layer_off(uint8_t layer) {
 #ifdef TAP_DANCE_OWNED_ACTIONS
-    const uint8_t owner = tap_dance_action_get_owner();
+    const uint8_t owner = action_output_get_owner();
     if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
         tap_dance_replace_layers(owner, td_layer_owners[owner] & ~((layer_state_t)1 << layer));
         return;

@@ -528,6 +528,10 @@ static void auxiliary_apply_edge(void) {
 }
 static void auxiliary_report(uint8_t slot, usb_endpoint_in_lut_t endpoint, const void *data, uint8_t size) {
     auxiliary_apply_edge();
+#    ifdef ERA_MACRO_ENABLE
+    bool era_macro_report_source_current(void);
+    if (!era_macro_report_source_current()) return;
+#    endif
     if (size > sizeof(auxiliary_reports[slot].bytes)) return;
     auxiliary_reports[slot].endpoint = endpoint;
     auxiliary_reports[slot].size = size;
