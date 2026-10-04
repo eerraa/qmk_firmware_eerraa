@@ -828,7 +828,7 @@
   "layouts": {
     "labels": [
       "Split Backspace",
-      ["Right shift", "275U Right shift", "Split Right shift", "Arrow & Right shift"]
+      ["Right shift", "2.75U Right shift", "Split Right shift", "Arrow & Right shift"]
     ],
     "keymap": [
       [

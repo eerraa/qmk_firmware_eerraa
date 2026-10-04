@@ -744,7 +744,7 @@
   "layouts": {
     "labels": [
       ["Right Shift", "Unified", "Split"],
-      ["Bottom Row", "6.26U", "7U"]
+      ["Bottom Row", "6.25U", "7U"]
     ],
     "keymap": [
       [
