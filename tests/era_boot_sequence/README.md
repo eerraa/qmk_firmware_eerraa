@@ -44,3 +44,12 @@ count as a counterexample. No production source is mutated by the tests.
 
 Official firmware builds validate target integration. Physical reset timing,
 USB enumeration, wire baud/latency, LED output and performance remain device gates.
+
+The matrix-startup fixture executes the production PIO sampler initialization,
+raw-row admission/decode and Bootmagic callers. Register, clock, GPIO and DMA
+operations are simulated; debounce is a direct raw-row bridge. Zero and partial
+first-frame timeouts must not produce input or request EEPROM reset/bootloader.
+A later complete frame restores admission, a valid held Bootmagic key still
+works, and a failed/reentered initialization cannot reuse stale readiness.
+The timeout negative control must compile and reproduce the false Bootmagic
+request. This does not measure DMA startup or electrical settle margins.

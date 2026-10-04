@@ -175,6 +175,7 @@ typedef struct {
     uint32_t                all_row_mask;
     uint32_t                last_write_addr;
     bool                    ready;
+    bool                    first_frame_pending;
     /* Instrument counters, read by the diagnostics snapshot below. */
     uint32_t torn_retry_count;
     uint32_t rearm_count;
@@ -324,14 +325,18 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
        after init -- bootmagic's -- reads a real sample rather than zeros. The
        transfer counter counts down from its reload, so words moved is a
        monotonic read that no ring wrap can fold. */
+    state->last_write_addr     = 0;
+    state->first_frame_pending = true;
     uint32_t start_us = timer_hw->timerawl;
     while ((uint32_t)(0xFFFFFFFFU - state->sample_channel->channel->TRANS_COUNT) < ERA_RP2040_MATRIX_PIO_FRAME_WORDS) {
         if ((uint32_t)(timer_hw->timerawl - start_us) >= ERA_RP2040_MATRIX_PIO_FIRST_FRAME_TIMEOUT_US) {
-            break;
+            /* An unfilled ring decodes as pressed columns. Leave admission
+             * closed; a later scan can observe the first complete frame. */
+            return false;
         }
     }
-    state->last_write_addr = 0;
-    state->ready           = true;
+    state->first_frame_pending = false;
+    state->ready               = true;
     return true;
 }
 
@@ -349,7 +354,8 @@ void era_rp2040_matrix_init_pins(void) {
         }
     }
 
-    era_rp2040_matrix_pio_state.ready = false;
+    era_rp2040_matrix_pio_state.ready               = false;
+    era_rp2040_matrix_pio_state.first_frame_pending = false;
     (void)era_rp2040_matrix_pio_start(row_pins, col_pins);
 }
 
@@ -370,7 +376,12 @@ void era_rp2040_matrix_init_pins(void) {
 bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
     era_rp2040_matrix_pio_state_t *state = &era_rp2040_matrix_pio_state;
     if (!state->ready) {
-        return false;
+        if (!state->first_frame_pending ||
+            (uint32_t)(0xFFFFFFFFU - state->sample_channel->channel->TRANS_COUNT) < ERA_RP2040_MATRIX_PIO_FRAME_WORDS) {
+            return false;
+        }
+        state->first_frame_pending = false;
+        state->ready               = true;
     }
 
     const DMA_Channel_Typedef *sample      = state->sample_channel->channel;
