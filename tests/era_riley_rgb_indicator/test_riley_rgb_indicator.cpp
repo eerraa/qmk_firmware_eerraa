@@ -152,10 +152,12 @@ bool process_record_via(uint16_t, keyrecord_t *) {
 bool via_eeprom_is_valid(void) {
     return true;
 }
+bool via_eeprom_is_ready(void) { return via_eeprom_is_valid(); }
 
 void via_init(void) {}
 
 void eeconfig_init_via(void) {}
+void eeconfig_init_via_defaults(void) { eeconfig_init_via(); }
 
 void keyboard_post_init_user(void) {}
 

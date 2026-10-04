@@ -174,8 +174,10 @@ extern "C" bool era_nvm_rp2040_flash_bind(era_nvm_flash_t *f) {
 }
 extern "C" bool process_record_via(uint16_t, keyrecord_t *) { return true; }
 extern "C" bool via_eeprom_is_valid(void) { return true; }
+extern "C" bool via_eeprom_is_ready(void) { return via_eeprom_is_valid(); }
 extern "C" void via_init(void) {}
 extern "C" void eeconfig_init_via(void) {}
+extern "C" void eeconfig_init_via_defaults(void) { eeconfig_init_via(); }
 
 TEST_F(EraSplitLinkLifecycle, SelectionIsRamOnlyAndReportsAreLengthChecked) {
     uint8_t command[4]={id_custom_set_value,ERA_VIA_SYSTEM_CHANNEL,ERA_SPLIT_VIA_LINK_LEVEL_VALUE_ID,1};

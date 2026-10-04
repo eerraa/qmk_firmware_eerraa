@@ -182,7 +182,7 @@ static bool eeprom_end_transaction(void) { eeprom_busy_wait(); return true; }
 static bool eeprom_persistence_ok(void) { return receipt; }
 static void eeconfig_update_debug(const debug_config_t *d) { (void)d; byte_write(2,1); }
 static void eeconfig_update_default_layer(layer_state_t s) { (void)s; byte_write(3,2); }
-static void eeconfig_init_via(void) { byte_write(5,4); byte_write(6,5); }
+static void eeconfig_init_via_defaults(void) { byte_write(5,4); byte_write(6,5); }
 static void eeconfig_init_kb(void) { byte_write(7,6); }
 """ + declaration + r"""
 static void eeconfig_update_keymap(const keymap_config_t *k) { (void)k; byte_write(4,3); }

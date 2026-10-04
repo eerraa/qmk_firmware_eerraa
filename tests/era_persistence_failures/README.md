@@ -20,6 +20,17 @@ paths. Semantic cases distinguish sparse writes, later SET debt and repair-only
 no-ops. CLEAN retry checks include duplicate requests and timer wrap; full-default
 tests reject a foreign scope without weakening nested default-owner coverage.
 
+VIA-only boot cases inject NOR outer commit and final-valid-magic WL append
+failures through the real initializers, adapters and `quantum_init` caller.
+They distinguish raw desired magic from ready state, preserve valid QMK/ERA
+settings during retries, check cold mount after successful retry and valid boot's
+zero-write behavior,
+reject foreign standalone VIA scopes, and retain full defaults' outer gate.
+Negative controls separately remove the receipt, retry classification and
+scope guards; each must compile before its runtime counterexample counts.
+Failed torn WL log headers have no cold old-or-new guarantee in this fixture;
+the tests preserve the backend's existing storage-format boundary.
+
 `callers.py OUTPUT_DIRECTORY` builds a standalone production VIA fixture; its
 `callers.exe bridge` mode accepts hexadecimal RAW HID reports and a `STATE`
 request on stdin for an external app test. Runtime CONFIG revisions are separate

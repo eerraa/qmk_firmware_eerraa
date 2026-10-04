@@ -120,6 +120,9 @@ static void bootmagic_reset_eeprom(void) { assert(false); }
 static void bootloader_jump(void) { assert(false); }
 /* BOOTMAGIC */
 static bool eeconfig_is_enabled(void) { return true; }
+// This fixture starts with valid settings; initialization failures use real
+// adapters and initializers in tests/era_persistence_failures.
+static bool eeconfig_is_init_required(void) { return false; }
 static void eeconfig_init(void) { assert(false); }
 static void eeconfig_read_debug(unsigned *v) { *v = 0; }
 static void eeconfig_read_keymap(unsigned *v) { *v = 0; }

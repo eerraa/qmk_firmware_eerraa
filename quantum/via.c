@@ -66,6 +66,10 @@
 #    include "led_matrix.h"
 #endif
 
+/* Raw magic can reflect a wear-level cache's unpersisted desired bytes. Keep
+ * the initializer's completion separate from that storage validity check. */
+static bool via_init_failed;
+
 // Can be called in an overriding via_init_kb() to test if keyboard level code usage of
 // EEPROM is invalid and use/save defaults.
 bool via_eeprom_is_valid(void) {
@@ -80,6 +84,10 @@ bool via_eeprom_is_valid(void) {
     nvm_via_read_magic(&ee_magic0, &ee_magic1, &ee_magic2);
 
     return ee_magic0 == magic0 && ee_magic1 == magic1 && ee_magic2 == magic2;
+}
+
+bool via_eeprom_is_ready(void) {
+    return !via_init_failed && via_eeprom_is_valid();
 }
 
 // Sets VIA/keyboard level usage of EEPROM to valid/invalid
@@ -114,18 +122,22 @@ void via_init(void) {
     // OK to load from EEPROM.
     if (eeconfig_is_init_required()) {
         eeconfig_init();
-    } else if (!via_eeprom_is_valid()) {
+    } else if (!via_eeprom_is_ready()) {
         eeconfig_init_via();
     }
     if (eeconfig_is_enabled()) via_set_layout_options_kb(via_get_layout_options());
 }
 
-void eeconfig_init_via(void) {
-    if (!eeprom_begin_transaction()) return;
+/* Internal defaults entry: the full eeconfig initializer or the standalone
+ * VIA initializer below must already own the outer completion. */
+void eeconfig_init_via_defaults(void) {
+    via_init_failed = true;
+    if (!eeprom_transaction_active()) return;
     // Erase any NVM storage if necessary
     nvm_via_erase();
     // set the magic number to false, in case this gets interrupted
     via_eeprom_set_valid(false);
+    if (!eeprom_persistence_ok()) return;
     // This resets the layout options
     via_set_layout_options(VIA_EEPROM_LAYOUT_OPTIONS_DEFAULT);
     // This resets the keymaps in EEPROM to what is in flash.
@@ -134,7 +146,16 @@ void eeconfig_init_via(void) {
     dynamic_keymap_macro_reset();
     // Save the magic number last, in case saving was interrupted
     if (eeprom_persistence_ok()) via_eeprom_set_valid(true);
-    (void)eeprom_end_transaction();
+    /* For full defaults, eeconfig's own gate still holds until outer end. */
+    via_init_failed = !eeprom_persistence_ok();
+}
+
+void eeconfig_init_via(void) {
+    via_init_failed = true;
+    /* A foreign scope's STAGED result is not VIA initialization completion. */
+    if (eeprom_transaction_active() || !eeprom_begin_transaction()) return;
+    eeconfig_init_via_defaults();
+    via_init_failed = !eeprom_end_transaction();
 }
 
 // This is generalized so the layout options EEPROM usage can be

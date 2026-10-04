@@ -105,8 +105,9 @@ bool eeconfig_is_init_required(void) {
 
 #ifdef VIA_ENABLE
 bool via_eeprom_is_valid(void);
+bool via_eeprom_is_ready(void);
 void via_eeprom_set_valid(bool valid);
-void eeconfig_init_via(void);
+void eeconfig_init_via_defaults(void);
 #else
 void dynamic_keymap_reset(void);
 #endif // VIA_ENABLE
@@ -223,7 +224,7 @@ void eeconfig_init_quantum(void) {
     // Invalidate VIA eeprom config, and then reset.
     // Just in case if power is lost mid init, this makes sure that it gets
     // properly re-initialized.
-    eeconfig_init_via();
+    eeconfig_init_via_defaults();
 #elif defined(DYNAMIC_KEYMAP_ENABLE)
     dynamic_keymap_reset();
 #endif
@@ -259,7 +260,7 @@ bool eeconfig_is_enabled(void) {
     bool is_eeprom_enabled = !eeconfig_init_failed && nvm_eeconfig_is_enabled();
 #ifdef VIA_ENABLE
     if (is_eeprom_enabled) {
-        is_eeprom_enabled = via_eeprom_is_valid();
+        is_eeprom_enabled = via_eeprom_is_ready();
     }
 #endif // VIA_ENABLE
     return is_eeprom_enabled;

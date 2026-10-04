@@ -26,6 +26,7 @@ void via_init_kb(void) { era_reset_guard_check(); }
 void via_set_layout_options_kb(uint32_t v) { (void)v; }
 void nvm_eeconfig_disable(void);void nvm_eeconfig_enable(void);bool nvm_eeconfig_is_enabled(void);bool nvm_eeconfig_is_disabled(void);
 void eeconfig_init_via(void);void via_eeprom_set_valid(bool);bool via_eeprom_is_valid(void);
+void eeconfig_init_via_defaults(void);bool via_eeprom_is_ready(void);
 void via_set_layout_options(uint32_t);uint32_t via_get_layout_options(void);
 void nvm_via_erase(void);void nvm_via_update_magic(uint8_t,uint8_t,uint8_t);void nvm_via_read_magic(uint8_t*,uint8_t*,uint8_t*);
 uint32_t nvm_via_read_layout_options(void);void nvm_via_update_layout_options(uint32_t);

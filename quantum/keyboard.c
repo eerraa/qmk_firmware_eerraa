@@ -432,10 +432,16 @@ void housekeeping_task(void) {
  */
 void quantum_init(void) {
     /* check signature */
-    if (!eeconfig_is_enabled()) {
+    if (eeconfig_is_init_required()) {
         eeconfig_init();
     }
-    /* A failed defaults write must never launch input or the split owner. */
+#ifdef VIA_ENABLE
+    else if (!eeconfig_is_enabled()) {
+        /* Retrying VIA must preserve an otherwise valid QMK/keyboard store. */
+        eeconfig_init_via();
+    }
+#endif
+    /* A failed initializer must never launch input or the split owner. */
     while (!eeconfig_is_enabled()) wait_ms(100);
 
     /* init globals */

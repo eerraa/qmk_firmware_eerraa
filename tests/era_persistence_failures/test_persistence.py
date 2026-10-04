@@ -30,12 +30,12 @@ def nor_fixture(out, root=ROOT, mutation=None):
     extract, write = scope['extract'], scope['write']
     owners = {
         'quantum/eeconfig.c': 'eeconfig_require_reset eeconfig_is_init_required eeconfig_init_quantum eeconfig_init eeconfig_enable eeconfig_is_enabled',
-        'quantum/via.c': 'via_eeprom_is_valid via_eeprom_set_valid via_init eeconfig_init_via via_get_layout_options via_set_layout_options',
+        'quantum/via.c': 'via_eeprom_is_valid via_eeprom_is_ready via_eeprom_set_valid via_init eeconfig_init_via_defaults eeconfig_init_via via_get_layout_options via_set_layout_options',
         'quantum/nvm/eeprom/nvm_eeconfig.c': 'nvm_eeconfig_is_enabled nvm_eeconfig_is_disabled nvm_eeconfig_enable nvm_eeconfig_disable',
         'quantum/nvm/eeprom/nvm_via.c': 'nvm_via_erase nvm_via_read_magic nvm_via_update_magic nvm_via_read_layout_options nvm_via_update_layout_options',
         'quantum/keyboard.c': 'quantum_init',
     }
-    body = '\n'.join(extract(path, name) for path, names in owners.items() for name in names.split())
+    body = 'static bool via_init_failed;\n' + '\n'.join(extract(path, name) for path, names in owners.items() for name in names.split())
     if mutation == 'boot_gate':
         body = body.replace('eeconfig_init_failed = true;', 'eeconfig_init_failed = false;', 1)
     elif mutation == 'nested_defaults':

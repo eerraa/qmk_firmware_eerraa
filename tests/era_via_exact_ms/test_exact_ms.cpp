@@ -49,8 +49,12 @@ extern "C" bool process_record_via(uint16_t, keyrecord_t *) {
 extern "C" bool via_eeprom_is_valid(void) {
     return true;
 }
+extern "C" bool via_eeprom_is_ready(void) {
+    return via_eeprom_is_valid();
+}
 extern "C" void via_init(void) {}
 extern "C" void eeconfig_init_via(void) {}
+extern "C" void eeconfig_init_via_defaults(void) { eeconfig_init_via(); }
 extern "C" uint16_t dynamic_keymap_macro_get_buffer_size(void) {
     return DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE;
 }
