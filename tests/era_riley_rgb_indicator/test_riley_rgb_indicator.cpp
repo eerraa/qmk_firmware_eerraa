@@ -141,6 +141,10 @@ void rgblight_task(void) {}
 
 void eeconfig_update_rgblight_default(void) {}
 
+// This fixture models RGBLight at its renderer boundary. Persistence receipts
+// and retries run through the real owner/backend in era_persistence_failures.
+void eeconfig_update_rgblight_current(void) {}
+
 bool process_record_via(uint16_t, keyrecord_t *) {
     return true;
 }

@@ -578,6 +578,8 @@ void era_host_peer_storage_note_peer_pending(bool pending);
  * adapter. Remote Apply bypasses this path so convergence never re-dirties
  * itself as a local edit. */
 void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length);
+uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t offset, uint32_t length);
+void era_host_peer_storage_note_eeprom_mask(uint8_t mask);
 /* Diagnostics-only view of the indicator fact's arms: bit0 local arm, bit1
  * peer mirror, bit2 serviceability gate, bit3 derived wire-confirmed hold
  * (`local arm == 0 && last successfully sent local pending == 1`). For the wire

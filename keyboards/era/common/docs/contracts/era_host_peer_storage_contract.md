@@ -39,6 +39,15 @@ check; an otherwise valid QMK store with invalid VIA magic resets only VIA.
 QMK magic is invalidated before defaults and enabled last. A failed initializer
 must not enter the normal keyboard loop. Native EEPROM must verify invalidation
 before any payload write. CLEAN and reset-key recovery use the same owners.
+A reset-key mismatch latches initialization-required independently of stored
+magic; only successful outer defaults completion releases that boot gate.
+The full initializer owns that outer scope. If another caller already holds a
+scope, initialization is refused before writing; that caller's later completion
+cannot release the initialization gate. Nested default-owner scopes remain valid.
+Non-split CLEAN retains its request until the backend receipt and invalid-magic
+readback both succeed, including when a wear-level cache holds unpersisted intent.
+Failed local CLEAN attempts use bounded backoff in addition to the RAW HID quiet
+gate; duplicate confirmations do not restart that retry clock.
 
 The public void EEPROM functions remain compatible. `platforms/eeprom.h` adds
 nested `eeprom_begin_transaction()` / `eeprom_end_transaction()` and a durability
@@ -64,14 +73,27 @@ losing the upload. Replacement Apply remains a separate immutable-domain API.
 Native macro payloads require durable marker invalidation before mutation and
 write marker zero only after all payload receipts succeed. Failure refuses
 CLOSE; a fresh opener plus complete upload, or RESET, is required. Wear-leveling
-can instead repair its retained desired image. VIA reports known synchronous keymap, encoder, layout-option, reset and macro
+can instead repair its retained desired image. Neither backend treats an invalid
+marker found after cold mount as proof of a live upload. A new opener must receive
+payload before CLOSE, except when successful RESET supplied the empty-upload
+proof. Native failure stays with the upload even if another owner saves successfully.
+VIA reports known synchronous keymap, encoder, layout-option, reset and macro
 write failures through the existing unhandled response. A successful echo from
 an intentionally deferred SET/SAVE remains acceptance, not a new power-loss
 receipt; the wire layout is unchanged.
+Custom synchronous SET/SAVE owners propagate the same failure response. A
+keyboard-channel SAVE still approves its deferred owners if its immediate owner
+fails. Policy and lighting-sleep owners retain failed persistence intent for a
+same-value retry, independently of runtime equality or another owner's receipt.
 Deferred approved saves re-arm after a failed receipt. CONFIG's semantic SET
 notification remains a runtime event; its matching persistence debt is consumed
 only after successful outer completion. Local policy and recency metadata keep
 their existing excluded-domain ownership and result-bearing APIs.
+Recovered wear-level writes publish only their accepted semantic domains; gaps
+between writes do not consume another setting's persistence debt. A later SET
+retains its debt until its own value has been included in successful completion.
+Reading a setting must not restore an unrelated runtime setting from EEPROM;
+HID format changes always pass through the report-release boundary.
 
 No stored offsets, record encoding, EEPROM reset key, VIA build date or firmware
 version changes follow from these mechanisms. Physical latency and input/USB/
@@ -394,8 +416,11 @@ and cannot re-dirty a domain: those spans sit outside every domain range.
 ## Normal Local Writes And Dirty Publication
 
 The authoritative local-write notification is below QMK Core. After a durable
-`LOCAL_QMK` commit succeeds, the custom adapter reports the exact changed
-logical span to ERA. No QMK `nvm_*` weak hook is part of this boundary.
+`LOCAL_QMK` commit succeeds, the custom adapter reports the changed logical
+spans' domain/region union to ERA. The journal's contiguous envelope is not the
+semantic change set. A wear-level recovery unions its pending and current
+notifications before publishing each revision once. No QMK `nvm_*` weak hook is
+part of this boundary.
 Dynamic-macro staging is the display-only exception: the NVM transaction mode
 opens on the nonzero macro marker and the storage indicator may read that O(1)
 RAM fact immediately. **Opening or staging a macro is not a committed-span
@@ -435,7 +460,11 @@ Externally observable upload transcript:
 RESET -> FF opener -> payload -> zero close -> targeted marker read
 ```
 
-The final zero is accepted only after payload was seen. It commits one
+The final zero is accepted only after payload was received, including equal
+bytes. A successful RESET can supply the empty payload for its immediately
+following FF opener and zero close, so a zero-slot upload is valid. That RAM
+proof is consumed by the opener; it is not authorization for an arbitrary raw
+CLOSE or for reuse after a failed RESET, replacement, format or reboot. It commits one
 whole-domain `MACRO_TRANSACTION` record; marker zero and the ordinary committed
 span become public only after that durable commit succeeds. A failed close
 keeps the marker invalid and the previous complete macro mount-recoverable.
@@ -446,7 +475,8 @@ must not activate or publish. `CLOSE`, `RESET`, and `FORMAT` supply complete
 replacements. `tests/era_nvm` and `tests/era_nvm_qmk_driver` prove the
 production and QMK-facing paths.
 
-A zero close with no payload, or opener/payload without an open transaction, is
+A zero close without received payload or that completed-RESET empty proof,
+or payload without an open transaction, is
 `ERA_NVM_RESULT_PROTOCOL`. A durable write outside the macro domain remains
 allowed during upload; replacement that overlaps the open macro domain is
 `ERA_NVM_RESULT_BUSY`.
@@ -575,7 +605,7 @@ it is not also reported as a fresh local dirty edit.
 
 | Record | Home |
 | --- | --- |
-| per-domain baseline CRC32 + guard | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 220 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 (`220..251`). Struct `era_host_peer_storage_baseline_record_t` in `split/era_host_peer_storage.c`: seven CRC32 then a guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
+| per-domain baseline CRC32 + guard | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 (`244..275`). Struct `era_host_peer_storage_baseline_record_t` in `split/era_host_peer_storage.c`: seven CRC32 then a guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
 | 16-bit LE divergence counters | local-policy `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10, seven × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2; layout `era_authority_contract.md` **Persisted Sync Policy** |
 
 They never cross as portable domain bytes.
@@ -591,7 +621,7 @@ changed until the relation proves it, so a standalone or unilateral CLEAN is a
 real local divergence. Confirmed convergence is one result-bearing replacement
 over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 200 +
 `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10 through
-`ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 252 exclusive (`186..251`) via
+`ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 276 exclusive (`210..275`) via
 `era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`
 (agreed CRC and a zero counter; intervening link/reset bytes copied unchanged). I/O failure leaves both old facts public. First MATCH
 after an invalid record keeps unknown neighbour CRC seats at zero. The NVM

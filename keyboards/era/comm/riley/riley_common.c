@@ -9,6 +9,7 @@
 #include "rgblight.h"
 #include "../../common/storage/era_eeprom_storage.h"
 #include "../../common/system/era_nonsplit_board.h"
+#include "../../common/features/era_rgblight_persistence.h"
 
 /* Riley is the one ERA product whose three RGBLight LEDs are simultaneously
    effect pixels and independently selectable lock indicators. RGBLight layers
@@ -253,6 +254,7 @@ bool era_board_via_set_value(uint8_t *data) {
     uint8_t  field;
     bool     config_changed  = false;
     bool     runtime_changed = false;
+    bool     persistence_ok = true;
 
     if (riley_value_to_slot(data[0], &slot, &field)) {
         riley_config_t previous = g_riley_config;
@@ -276,17 +278,17 @@ bool era_board_via_set_value(uint8_t *data) {
                 config_changed = previous != riley_indicator_only(&g_riley_config);
                 break;
             }
-            case id_custom_riley_velocikey_enable:
+            case id_custom_riley_velocikey_enable: {
 #    if defined(VELOCIKEY_ENABLE)
-                if ((value_data[0] != 0) != rgblight_velocikey_enabled()) {
-                    rgblight_velocikey_toggle();
-                    runtime_changed = true;
-                }
+                bool previous_velocikey = rgblight_velocikey_enabled();
+                persistence_ok = era_rgblight_velocikey_set_enabled(value_data[0] != 0);
+                runtime_changed = previous_velocikey != rgblight_velocikey_enabled();
                 value_data[0] = rgblight_velocikey_enabled() ? 1 : 0;
                 break;
 #    else
                 return false;
 #    endif
+            }
             default:
                 return false;
         }
@@ -298,7 +300,7 @@ bool era_board_via_set_value(uint8_t *data) {
     if (config_changed || runtime_changed) {
         era_state_sync_note_config_semantic_commit(RILEY_CONFIG_EEPROM_OFFSET, sizeof(g_riley_config));
     }
-    return true;
+    return persistence_ok;
 }
 
 void era_board_via_save(void) {

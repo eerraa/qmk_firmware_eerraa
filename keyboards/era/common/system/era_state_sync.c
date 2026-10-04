@@ -31,6 +31,18 @@ static uint32_t s_config_revision = 1;
    unrelated firmware-side writes must still invalidate CONFIG. */
 static uint16_t s_config_pending_persist_mask;
 static uint16_t s_config_active_persist_mask;
+static uint16_t s_config_active_debt_mask;
+static uint16_t s_config_current_persist_mask;
+static uint16_t s_config_current_debt_mask;
+
+#ifdef EEPROM_WEAR_LEVELING
+/* Already classified accepted writes, never the gaps of a physical envelope.
+ * Publication and matching SET debt are separate: a later SET invalidates the
+ * old intent's right to consume its debt without republishing that old SET. */
+static uint32_t s_wl_pending_change_mask;
+static uint32_t s_wl_completed_change_mask;
+static uint16_t s_wl_pending_debt_mask;
+#endif
 
 #define ERA_STATE_SYNC_CONFIG_REGION_TAP_DANCE (1U << 0)
 #define ERA_STATE_SYNC_CONFIG_REGION_TAPPING (1U << 1)
@@ -115,76 +127,132 @@ static uint16_t era_state_sync_config_region_mask(uint16_t offset, uint16_t leng
 }
 
 void era_state_sync_note_config_semantic_commit(uint16_t config_offset, uint16_t length) {
-    s_config_pending_persist_mask |= era_state_sync_config_region_mask(ERA_EEPROM_CONFIG_ADDR + config_offset, length);
+    uint16_t mask = era_state_sync_config_region_mask(ERA_EEPROM_CONFIG_ADDR + config_offset, length);
+    s_config_pending_persist_mask |= mask;
+    s_config_active_debt_mask &= (uint16_t)~mask;
+    s_config_current_debt_mask &= (uint16_t)~mask;
+#ifdef EEPROM_WEAR_LEVELING
+    s_wl_pending_debt_mask &= (uint16_t)~mask;
+#endif
     era_state_sync_bump_config();
 }
 
 void era_state_sync_config_persist_begin(uint16_t config_offset, uint16_t length) {
     uint16_t mask                 = era_state_sync_config_region_mask(ERA_EEPROM_CONFIG_ADDR + config_offset, length);
-    s_config_active_persist_mask |= s_config_pending_persist_mask & mask;
-
+    s_config_current_persist_mask = s_config_pending_persist_mask & mask;
+    s_config_current_debt_mask    = s_config_current_persist_mask;
+    s_config_active_persist_mask |= s_config_current_persist_mask;
+    s_config_active_debt_mask    |= s_config_current_debt_mask;
 }
 
 void eeprom_transaction_complete(bool success) {
-    if (success) s_config_pending_persist_mask &= (uint16_t)~s_config_active_persist_mask;
+    if (success) s_config_pending_persist_mask &= (uint16_t)~s_config_active_debt_mask;
+#ifdef EEPROM_WEAR_LEVELING
+    uint32_t completed = s_wl_completed_change_mask;
+    if (!success) {
+        s_wl_pending_change_mask |= completed;
+        s_wl_pending_debt_mask |= s_config_active_debt_mask;
+    }
+    s_wl_completed_change_mask = 0;
+#endif
     s_config_active_persist_mask = 0;
+    s_config_active_debt_mask = 0;
+#ifdef EEPROM_WEAR_LEVELING
+    if (success) era_state_sync_note_eeprom_mask(completed);
+#endif
 }
 
 void era_state_sync_config_persist_end(void) {
+    s_config_current_persist_mask = 0;
+    s_config_current_debt_mask = 0;
     if (!eeprom_transaction_active()) eeprom_transaction_complete(eeprom_persistence_ok());
 }
 
-#ifdef EEPROM_WEAR_LEVELING
-void eeprom_driver_note_commit(uint32_t address, size_t length) {
-    uint32_t macro = ERA_STORAGE_DYNAMIC_MACRO_ADDR;
-    uint32_t marker = macro + dynamic_keymap_macro_get_buffer_size() - 1U;
-    if (address < marker + 1U && address + length > macro) {
-        if (address < macro) era_state_sync_note_eeprom_span((uint16_t)address, (uint16_t)(macro - address));
-        if (address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) == 0U) era_state_sync_bump_macro();
-        if (address + length > marker + 1U) era_state_sync_note_eeprom_span((uint16_t)(marker + 1U), (uint16_t)(address + length - marker - 1U));
-        return;
-    }
-    era_state_sync_note_eeprom_span((uint16_t)address, (uint16_t)length);
-}
+
+/* The journal may cover gaps between edits. Classify the changed spans before
+ * staging and union their meanings; one durable operation publishes each
+ * revision at most once. These masks are RAM-only and never go on the wire. */
+#define ERA_STATE_SYNC_CHANGE_KEYMAP (1UL << 16)
+#define ERA_STATE_SYNC_CHANGE_MACRO (1UL << 17)
+#define ERA_STATE_SYNC_CHANGE_CORE_CONFIG (1UL << 18)
+
+uint32_t era_state_sync_eeprom_span_mask(uint16_t offset, uint16_t length) {
+    uint32_t mask = era_state_sync_config_region_mask(offset, length);
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_DYNAMIC_KEYMAP_ADDR, ERA_STORAGE_DYNAMIC_MACRO_ADDR - ERA_STORAGE_DYNAMIC_KEYMAP_ADDR)) mask |= ERA_STATE_SYNC_CHANGE_KEYMAP;
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_DYNAMIC_MACRO_ADDR, dynamic_keymap_macro_get_buffer_size())) mask |= ERA_STATE_SYNC_CHANGE_MACRO;
+#ifdef RGB_MATRIX_ENABLE
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, sizeof(rgb_config_t))) mask |= ERA_STATE_SYNC_CHANGE_CORE_CONFIG;
 #endif
+    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_KEYMAP_ADDR, sizeof(keymap_config_t)) ||
+        era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR, sizeof(uint8_t)) ||
+        era_state_sync_span_overlaps(offset, length, ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR, VIA_EEPROM_LAYOUT_OPTIONS_SIZE)) mask |= ERA_STATE_SYNC_CHANGE_CORE_CONFIG;
+    return mask;
+}
+
+void era_state_sync_note_eeprom_mask(uint32_t mask) {
+    if (mask & ERA_STATE_SYNC_CHANGE_KEYMAP) era_state_sync_bump_keymap();
+    if (mask & ERA_STATE_SYNC_CHANGE_MACRO) era_state_sync_bump_macro();
+    if ((mask & ERA_STATE_SYNC_CHANGE_CORE_CONFIG) || ((uint16_t)mask & (uint16_t)~s_config_active_persist_mask)) era_state_sync_bump_config();
+}
 
 void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
-    uint32_t keymap_start = ERA_STORAGE_DYNAMIC_KEYMAP_ADDR;
-    uint32_t macro_start  = ERA_STORAGE_DYNAMIC_MACRO_ADDR;
-    if (macro_start > keymap_start && era_state_sync_span_overlaps(offset, length, keymap_start, macro_start - keymap_start)) {
-        era_state_sync_bump_keymap();
+    era_state_sync_note_eeprom_mask(era_state_sync_eeprom_span_mask(offset, length));
+}
+
+#ifdef EEPROM_WEAR_LEVELING
+static uint32_t era_state_sync_wl_span_mask(uint32_t address, size_t length) {
+    if (length == 0U) return 0;
+    uint32_t mask = era_state_sync_eeprom_span_mask((uint16_t)address, (uint16_t)length);
+    uint32_t marker = ERA_STORAGE_DYNAMIC_MACRO_ADDR + dynamic_keymap_macro_get_buffer_size() - 1U;
+    /* Payload staging is not a durable macro completion. */
+    if (!(address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) == 0U)) mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
+    return mask;
+}
+
+void eeprom_driver_reset_write_observer(void) {
+    s_wl_pending_change_mask = 0;
+    s_wl_completed_change_mask = 0;
+    s_wl_pending_debt_mask = 0;
+    s_config_active_persist_mask = 0;
+    s_config_active_debt_mask = 0;
+    s_config_current_persist_mask = 0;
+    s_config_current_debt_mask = 0;
+}
+
+void eeprom_driver_note_write_result(uint32_t address, size_t length, bool changed, bool success) {
+    uint32_t span = era_state_sync_wl_span_mask(address, length);
+    uint16_t config = (uint16_t)span;
+    uint16_t debt = config & s_config_current_debt_mask;
+    /* A new accepted write can supersede the old intent in the same region.
+     * Only the SET snapshot captured for this write can consume current debt. */
+    s_wl_pending_debt_mask = (s_wl_pending_debt_mask & (uint16_t)~config) | debt;
+    if (eeprom_transaction_active()) {
+        s_config_active_debt_mask = (s_config_active_debt_mask & (uint16_t)~config) | debt;
     }
-    /* The custom NVM layer emits this notification only after a completed macro
-     * transaction. Opener/payload staging emits nothing, so no QMK transaction
-     * accessor or wider suppression belongs here. */
-    if (era_state_sync_span_overlaps(offset, length, macro_start, dynamic_keymap_macro_get_buffer_size())) {
-        era_state_sync_bump_macro();
+    uint32_t mask = changed ? span & ~(uint32_t)s_config_current_persist_mask : 0;
+    uint32_t marker = ERA_STORAGE_DYNAMIC_MACRO_ADDR + dynamic_keymap_macro_get_buffer_size() - 1U;
+    if (length && address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) != 0U) {
+        /* Reopening an upload supersedes a retained CLOSE notification. */
+        s_wl_pending_change_mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
+        s_wl_completed_change_mask &= ~ERA_STATE_SYNC_CHANGE_MACRO;
     }
-    if (era_state_sync_span_overlaps(offset, length, ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET, ERA_EEPROM_SYNCABLE_CONFIG_SIZE)) {
-        uint16_t changed_region_mask = era_state_sync_config_region_mask(offset, length);
-        if ((changed_region_mask & (uint16_t)~s_config_active_persist_mask) != 0) {
-            era_state_sync_bump_config();
-        }
+    if (!success) {
+        s_wl_pending_change_mask |= mask;
         return;
     }
-#ifdef RGB_MATRIX_ENABLE
-    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, sizeof(rgb_config_t))) {
-        era_state_sync_bump_config();
-        return;
-    }
-#endif
-    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_KEYMAP_ADDR, sizeof(keymap_config_t))) {
-        era_state_sync_bump_config();
-        return;
-    }
-    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR, sizeof(uint8_t))) {
-        era_state_sync_bump_config();
-        return;
-    }
-    if (era_state_sync_span_overlaps(offset, length, ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR, VIA_EEPROM_LAYOUT_OPTIONS_SIZE)) {
-        era_state_sync_bump_config();
+    mask |= s_wl_pending_change_mask;
+    debt = s_wl_pending_debt_mask;
+    s_wl_pending_change_mask = 0;
+    s_wl_pending_debt_mask = 0;
+    if (eeprom_transaction_active()) {
+        s_wl_completed_change_mask |= mask;
+        s_config_active_debt_mask |= debt;
+    } else {
+        s_config_pending_persist_mask &= (uint16_t)~debt;
+        era_state_sync_note_eeprom_mask(mask);
     }
 }
+#endif
 
 void era_state_sync_note_storage_domain(uint8_t domain) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
@@ -267,6 +335,12 @@ void era_state_sync_set_revisions_for_testing(uint32_t keymap, uint32_t macro, u
     s_config_revision                = config;
     s_config_pending_persist_mask    = 0;
     s_config_active_persist_mask     = 0;
+    s_config_active_debt_mask        = 0;
+    s_config_current_persist_mask    = 0;
+    s_config_current_debt_mask       = 0;
+#ifdef EEPROM_WEAR_LEVELING
+    eeprom_driver_reset_write_observer();
+#endif
 }
 #endif
 

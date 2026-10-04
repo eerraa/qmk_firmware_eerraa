@@ -64,7 +64,11 @@ int main(void) {
 
     def test_native_avr_receipts_verify_physical_values_and_retain_scope_failure(self):
         source = (ROOT/'quantum/eeconfig.c').read_text()
-        owner = source[source.index('static uint16_t eeprom_native_depth;'):source.index('#else\n__attribute__((weak)) bool eeprom_transaction_active')]
+        start = source.index('static uint16_t eeprom_native_depth;')
+        owner = source[start:source.index('\n#else', start)]
+        macro_source = (ROOT/'quantum/nvm/eeprom/nvm_dynamic_keymap.c').read_text()
+        macro_context = macro_source[macro_source.index('#ifndef EEPROM_CUSTOM\n/* A cold marker'):
+                                     macro_source.index('static inline void *dynamic_keymap_key_to_eeprom_address')]
         header = r"""
 #include <stdint.h>
 #include <stddef.h>
@@ -100,7 +104,7 @@ void eeprom_transaction_complete(bool success) { (void)success; }
 """+owner+r"""
 #define DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR 256U
 #define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE 128U
-"""+boot.functions('quantum/nvm/eeprom/nvm_dynamic_keymap.c', 'nvm_dynamic_keymap_macro_read_buffer nvm_dynamic_keymap_macro_update_buffer nvm_dynamic_keymap_macro_reset')+r"""
+"""+macro_context+boot.functions('quantum/nvm/eeprom/nvm_dynamic_keymap.c', 'nvm_dynamic_keymap_macro_read_buffer nvm_dynamic_keymap_macro_update_buffer nvm_dynamic_keymap_macro_reset')+r"""
 int main(void) {
     const uint8_t block[4]={1,2,3,4};
 #define VERIFY(call) do { memset(storage,0,sizeof(storage)); drop_program=true; call; assert(!eeprom_persistence_ok()); drop_program=false; call; assert(eeprom_persistence_ok()); } while(0)
@@ -172,6 +176,7 @@ static jmp_buf reset;
 static void byte_write(unsigned a,uint8_t v) { if(store[a]==v) return; if(++writes==cut) longjmp(reset,1); store[a]=v; }
 static void eeprom_update_word(uint16_t *addr,uint16_t v) { if(drop_magic) { receipt=false; return; } unsigned a=(unsigned)(uintptr_t)addr; byte_write(a,v); byte_write(a+1,v>>8); }
 static void eeprom_busy_wait(void) {}
+static bool eeprom_transaction_active(void) { return false; }
 static bool eeprom_begin_transaction(void) { receipt=true; return true; }
 static bool eeprom_end_transaction(void) { eeprom_busy_wait(); return true; }
 static bool eeprom_persistence_ok(void) { return receipt; }

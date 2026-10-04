@@ -140,6 +140,11 @@ extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length
     g_notify_length = length;
 }
 
+// This target observes physical completions. The production State Sync masks
+// and revision semantics execute in era_persistence_failures.
+extern "C" uint32_t era_state_sync_eeprom_span_mask(uint16_t, uint16_t length) { return length ? 1U : 0U; }
+extern "C" void era_state_sync_note_eeprom_mask(uint32_t mask) { if (mask) g_notify_count++; }
+
 extern "C" void raw_hid_send(uint8_t *data, uint8_t) { g_response_command=data[0]; ++g_response_count; }
 
 TEST_F(EraNvmQmkDriver, StockReadWriteUpdateUsesReplayableEraNvmAndExactChangedEnvelope) {

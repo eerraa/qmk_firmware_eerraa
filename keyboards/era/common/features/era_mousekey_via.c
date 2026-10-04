@@ -22,9 +22,9 @@ enum {
     ERA_MOUSEKEY_VIA_VALUE_WHEEL_ACCELERATION,
 };
 
-static void era_mousekey_via_save(uint8_t channel_id) {
+static bool era_mousekey_via_save(uint8_t channel_id) {
     (void)channel_id;
-    era_mousekey_save_config();
+    return era_mousekey_save_config();
 }
 
 static bool era_mousekey_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

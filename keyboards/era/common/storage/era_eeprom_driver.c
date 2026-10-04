@@ -48,6 +48,13 @@ _Static_assert(DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE == ERA_NVM_DYNAMIC_MACRO_SIZE_BY
 static era_nvm_t s_era_eeprom_nvm;
 static bool      s_era_eeprom_ready;
 static bool      s_era_eeprom_write_ok;
+#ifdef VIA_ENABLE
+static uint32_t s_edit_semantic_mask;
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+static uint8_t s_edit_domain_mask;
+#endif
+static bool s_edit_completing;
 
 static bool era_eeprom_driver_range_valid(uint32_t address, size_t length) {
     return length <= UINT32_MAX && address <= ERA_NVM_LOGICAL_SIZE_BYTES &&
@@ -80,6 +87,16 @@ static void era_eeprom_driver_note_commit(void *context, uint32_t address, uint3
         return;
     }
 
+    if (s_edit_completing) {
+#ifdef VIA_ENABLE
+        era_state_sync_note_eeprom_mask(s_edit_semantic_mask);
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        era_host_peer_storage_note_eeprom_mask(s_edit_domain_mask);
+#endif
+        return;
+    }
+
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     era_host_peer_storage_note_eeprom_commit(address, length);
 #elif defined(VIA_ENABLE)
@@ -94,6 +111,7 @@ void eeprom_driver_init(void) {
     era_nvm_flash_t flash;
     memset(&s_era_eeprom_nvm, 0, sizeof(s_era_eeprom_nvm));
     s_era_eeprom_ready = false;
+    s_edit_completing = false;
 
     if (!era_nvm_rp2040_flash_bind(&flash)) {
         return;
@@ -200,25 +218,60 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
      * particular a failed macro close must keep the public nonzero marker and
      * the previous durable image readable. Let era_nvm_state() decide whether
      * the engine itself is still mounted/ready. */
+    if (s_era_eeprom_nvm.edit_depth) {
+        /* Record meanings of actual changed runs, independently of the single
+         * contiguous record the NVM engine will commit. This runs only at a
+         * synchronous write boundary, never on the scan-bound idle path. */
+        for (size_t cursor = 0; cursor < len;) {
+            if (s_era_eeprom_nvm.image[address + cursor] == source[cursor]) { cursor++; continue; }
+            size_t first = cursor++;
+            while (cursor < len && s_era_eeprom_nvm.image[address + cursor] != source[cursor]) cursor++;
+#ifdef VIA_ENABLE
+            s_edit_semantic_mask |= era_state_sync_eeprom_span_mask((uint16_t)(address + first), (uint16_t)(cursor - first));
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+            s_edit_domain_mask |= era_host_peer_storage_eeprom_domain_mask(address + first, cursor - first);
+#endif
+            (void)first;
+        }
+    }
     era_nvm_result_t result = era_nvm_qmk_write(&s_era_eeprom_nvm, address, source, len);
     s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
     if (!s_era_eeprom_write_ok) s_era_eeprom_nvm.edit_failed = true;
 }
 
-bool eeprom_driver_can_skip_write(void) {
-    return era_eeprom_driver_ready() && !s_era_eeprom_nvm.tail_sealed && s_era_eeprom_write_ok;
+bool eeprom_driver_can_skip_write(uint32_t address, size_t length) {
+    /* An equal macro byte is still a received transcript event (including
+     * CLOSE). Ordinary updates retain their no-op optimization. */
+    return !era_eeprom_driver_range_touches_macro(address, length) &&
+           era_eeprom_driver_ready() && !s_era_eeprom_nvm.tail_sealed && s_era_eeprom_write_ok;
 }
 
 bool eeprom_begin_transaction(void) {
     bool ok = era_nvm_begin(&s_era_eeprom_nvm) == ERA_NVM_RESULT_OK;
-    if (ok && s_era_eeprom_nvm.edit_depth == 1U) s_era_eeprom_write_ok = true;
+    if (ok && s_era_eeprom_nvm.edit_depth == 1U) {
+        s_era_eeprom_write_ok = true;
+#ifdef VIA_ENABLE
+        s_edit_semantic_mask = 0;
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        s_edit_domain_mask = 0;
+#endif
+    }
     return ok;
 }
 
 bool eeprom_transaction_active(void) { return s_era_eeprom_nvm.edit_depth != 0U; }
 
+void eeprom_reject_write(void) {
+    s_era_eeprom_write_ok = false;
+    if (eeprom_transaction_active()) s_era_eeprom_nvm.edit_failed = true;
+}
+
 bool eeprom_end_transaction(void) {
+    s_edit_completing = s_era_eeprom_nvm.edit_depth == 1U;
     era_nvm_result_t result = era_nvm_end(&s_era_eeprom_nvm);
+    s_edit_completing = false;
     s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
     if (!eeprom_transaction_active()) eeprom_transaction_complete(s_era_eeprom_write_ok);
     return s_era_eeprom_write_ok;

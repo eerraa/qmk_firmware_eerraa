@@ -41,6 +41,7 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(era_lighting_sleep_config_t) == ERA_EEPROM_LIGHTING_SLEEP_CONFIG_SIZE, "ERA lighting sleep config size changed.");
 
 static era_lighting_sleep_config_t sleep_config;
+static bool sleep_persist_pending;
 
 static bool era_lighting_sleep_config_is_valid(const era_lighting_sleep_config_t *config) {
     if ((config->flags & (uint8_t)~ERA_LIGHTING_SLEEP_BACKLIGHT_OFF) != 0) {
@@ -59,14 +60,22 @@ static uint16_t era_lighting_sleep_seconds(uint16_t stored) {
 }
 
 /* SET persists at once, like the RGB switch beside it on the SYSTEM channel. */
-static void era_lighting_sleep_commit(void) {
+static void era_lighting_sleep_note_change(void) {
+    sleep_persist_pending = true;
 #ifdef VIA_ENABLE
     era_state_sync_note_config_semantic_commit(ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, sizeof(sleep_config));
 #endif
-    era_eeprom_update_config(&sleep_config, ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, sizeof(sleep_config));
+}
+
+static bool era_lighting_sleep_commit(void) {
+    if (sleep_persist_pending) {
+        sleep_persist_pending = era_eeprom_update_config(&sleep_config, ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, sizeof(sleep_config)) != sizeof(sleep_config);
+    }
+    return !sleep_persist_pending;
 }
 
 void era_lighting_sleep_reload_from_eeprom(void) {
+    sleep_persist_pending = false;
     if (era_eeprom_read_config(&sleep_config, ERA_EEPROM_LIGHTING_SLEEP_CONFIG_OFFSET, sizeof(sleep_config)) != sizeof(sleep_config) || !era_lighting_sleep_config_is_valid(&sleep_config)) {
         memset(&sleep_config, 0, sizeof(sleep_config));
     }
@@ -86,9 +95,9 @@ bool era_lighting_sleep_set_rgb_timeout_seconds(uint16_t seconds) {
     }
     if (era_lighting_sleep_rgb_timeout_seconds() != seconds) {
         sleep_config.rgb_timeout_seconds = seconds;
-        era_lighting_sleep_commit();
+        era_lighting_sleep_note_change();
     }
-    return true;
+    return era_lighting_sleep_commit();
 }
 
 bool era_lighting_sleep_backlight_enabled(void) {
@@ -98,9 +107,9 @@ bool era_lighting_sleep_backlight_enabled(void) {
 bool era_lighting_sleep_set_backlight_enabled(bool enabled) {
     if (era_lighting_sleep_backlight_enabled() != enabled) {
         sleep_config.flags = enabled ? 0 : ERA_LIGHTING_SLEEP_BACKLIGHT_OFF;
-        era_lighting_sleep_commit();
+        era_lighting_sleep_note_change();
     }
-    return true;
+    return era_lighting_sleep_commit();
 }
 
 uint16_t era_lighting_sleep_backlight_timeout_seconds(void) {
@@ -113,9 +122,9 @@ bool era_lighting_sleep_set_backlight_timeout_seconds(uint16_t seconds) {
     }
     if (era_lighting_sleep_backlight_timeout_seconds() != seconds) {
         sleep_config.backlight_timeout_seconds = seconds;
-        era_lighting_sleep_commit();
+        era_lighting_sleep_note_change();
     }
-    return true;
+    return era_lighting_sleep_commit();
 }
 
 #ifndef SPLIT_KEYBOARD

@@ -1580,25 +1580,32 @@ static void era_host_peer_storage_note_domain_dirty(era_split_eeprom_sync_domain
     }
 }
 
-void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length) {
-    if (!g_era_host_peer_storage_local.initialized || length == 0 || offset > UINT16_MAX || length > UINT16_MAX) {
-        return;
+uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t offset, uint32_t length) {
+    uint8_t mask = 0;
+    if (length == 0 || offset > UINT16_MAX || length > UINT16_MAX) return 0;
+    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
+        if (era_host_peer_storage_range_overlaps((uint16_t)offset, (uint16_t)length, &g_era_host_peer_storage_domains[domain])) mask |= (uint8_t)(1U << domain);
     }
+    return mask;
+}
 
+void era_host_peer_storage_note_eeprom_mask(uint8_t mask) {
+    if (!g_era_host_peer_storage_local.initialized) return;
+    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
+        if (!(mask & (1U << domain))) continue;
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
+        if (domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO) era_host_peer_storage_cause_note_macro_dirty(timer_read32());
+#endif
+        era_host_peer_storage_note_domain_dirty((era_split_eeprom_sync_domain_t)domain, ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS);
+    }
+}
+
+void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length) {
+    if (!g_era_host_peer_storage_local.initialized || length == 0 || offset > UINT16_MAX || length > UINT16_MAX) return;
 #ifdef VIA_ENABLE
     era_state_sync_note_eeprom_span((uint16_t)offset, (uint16_t)length);
 #endif
-
-    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; domain++) {
-        if (era_host_peer_storage_range_overlaps((uint16_t)offset, (uint16_t)length, &g_era_host_peer_storage_domains[domain])) {
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-            if (domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO) {
-                era_host_peer_storage_cause_note_macro_dirty(timer_read32());
-            }
-#endif
-            era_host_peer_storage_note_domain_dirty((era_split_eeprom_sync_domain_t)domain, ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS);
-        }
-    }
+    era_host_peer_storage_note_eeprom_mask(era_host_peer_storage_eeprom_domain_mask(offset, length));
 }
 
 static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {

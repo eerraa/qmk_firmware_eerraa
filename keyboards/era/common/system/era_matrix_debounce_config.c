@@ -89,9 +89,9 @@ static void era_matrix_debounce_config_ensure_loaded(void) {
     }
 }
 
-void era_matrix_debounce_config_save(void) {
+bool era_matrix_debounce_config_save(void) {
     era_matrix_debounce_config_ensure_loaded();
-    era_eeprom_update_config(&debounce_config, ERA_EEPROM_DEBOUNCE_CONFIG_OFFSET, sizeof(debounce_config));
+    return era_eeprom_update_config(&debounce_config, ERA_EEPROM_DEBOUNCE_CONFIG_OFFSET, sizeof(debounce_config)) == sizeof(debounce_config);
 }
 
 static bool era_matrix_debounce_config_load_from_eeprom(bool write_defaults) {

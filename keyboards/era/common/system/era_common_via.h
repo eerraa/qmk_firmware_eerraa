@@ -71,7 +71,9 @@
    callback the whole way down, and a reader who wonders why nothing reads it
    finds this paragraph. */
 typedef bool (*era_common_via_value_fn_t)(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length);
-typedef void (*era_common_via_save_fn_t)(uint8_t channel_id);
+/* Immediate owners return their checked completion; deferred acceptance is
+ * owned separately by the keyboard-channel quiet gate. */
+typedef bool (*era_common_via_save_fn_t)(uint8_t channel_id);
 
 enum {
     ERA_COMMON_VIA_LEGACY_TERM_UNIT_MS = 10,
@@ -108,7 +110,7 @@ static inline bool era_common_via_value_command(uint8_t *data, uint8_t length, e
     uint8_t  channel_id = data[1];
 
     if (*command_id == id_custom_save) {
-        save(channel_id);
+        if (!save(channel_id)) *command_id = id_unhandled;
         return true;
     }
 

@@ -15,7 +15,7 @@ void era_kkuk_init(void);
 void era_kkuk_reload_from_eeprom(void);
 void era_kkuk_task(void);
 bool era_kkuk_process_record(uint16_t keycode, keyrecord_t *record);
-void era_kkuk_save_config(void);
+bool era_kkuk_save_config(void);
 void era_kkuk_set_enabled(bool enabled);
 void era_kkuk_set_delay_ticks(uint8_t delay_ticks);
 void era_kkuk_set_repeat_ticks(uint8_t repeat_ticks);

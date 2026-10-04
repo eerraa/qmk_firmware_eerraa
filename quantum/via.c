@@ -109,15 +109,15 @@ void via_init(void) {
     // Let keyboard level test EEPROM valid state,
     // but not set it valid, it is done here.
     via_init_kb();
-    via_set_layout_options_kb(via_get_layout_options());
 
     // If the EEPROM has the magic, the data is good.
     // OK to load from EEPROM.
-    if (!nvm_eeconfig_is_enabled()) {
+    if (eeconfig_is_init_required()) {
         eeconfig_init();
     } else if (!via_eeprom_is_valid()) {
         eeconfig_init_via();
     }
+    if (eeconfig_is_enabled()) via_set_layout_options_kb(via_get_layout_options());
 }
 
 void eeconfig_init_via(void) {

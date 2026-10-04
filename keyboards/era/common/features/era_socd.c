@@ -210,11 +210,11 @@ static void era_socd_pair_changed(uint8_t pair) {
     send_keyboard_report();
 }
 
-void era_socd_save_pair(uint8_t pair) {
+bool era_socd_save_pair(uint8_t pair) {
     if (pair >= ERA_SOCD_PAIR_COUNT) {
-        return;
+        return false;
     }
-    era_eeprom_update_config(&socd_config[pair], era_socd_config_offset(pair), sizeof(socd_config[pair]));
+    return era_eeprom_update_config(&socd_config[pair], era_socd_config_offset(pair), sizeof(socd_config[pair])) == sizeof(socd_config[pair]);
 }
 
 static bool era_socd_load_pair(uint8_t pair, bool write_defaults) {

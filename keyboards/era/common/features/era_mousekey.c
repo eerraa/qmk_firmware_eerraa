@@ -150,8 +150,8 @@ static bool set_value(uint8_t id, uint16_t value) {
 #endif
     return true;
 }
-void era_mousekey_save_config(void) {
-    era_eeprom_update_config(&cfg, ERA_EEPROM_MOUSEKEY_CONFIG_OFFSET, sizeof(cfg));
+bool era_mousekey_save_config(void) {
+    return era_eeprom_update_config(&cfg, ERA_EEPROM_MOUSEKEY_CONFIG_OFFSET, sizeof(cfg)) == sizeof(cfg);
 }
 static void load(bool persist) {
     if (era_eeprom_read_config(&cfg, ERA_EEPROM_MOUSEKEY_CONFIG_OFFSET, sizeof(cfg)) != sizeof(cfg) || cfg.version != ERA_MOUSEKEY_VERSION || cfg.signature != ERA_MOUSEKEY_SIGNATURE) {

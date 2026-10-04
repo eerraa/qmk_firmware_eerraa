@@ -79,8 +79,8 @@ static void era_tapping_sync_state_from_config(void) {
     memset(tapping_config.reserved, 0, sizeof(tapping_config.reserved));
 }
 
-void era_tapping_save_config(void) {
-    era_eeprom_update_config(&tapping_config, ERA_EEPROM_TAPPING_CONFIG_OFFSET, sizeof(tapping_config));
+bool era_tapping_save_config(void) {
+    return era_eeprom_update_config(&tapping_config, ERA_EEPROM_TAPPING_CONFIG_OFFSET, sizeof(tapping_config)) == sizeof(tapping_config);
 }
 
 static bool era_tapping_load_from_eeprom(bool write_defaults) {

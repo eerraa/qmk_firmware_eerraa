@@ -65,6 +65,8 @@ static struct {
     uint8_t  flags;
     uint8_t  dirty_flags;
     bool     initialized;
+    bool     persist_pending;
+    bool     persist_full_pending;
 } era_split_sync_policy_state;
 
 static uint8_t era_split_sync_policy_field_bit(era_split_sync_policy_field_t field) {
@@ -163,25 +165,25 @@ static bool era_split_sync_policy_storage_is_valid(const era_split_sync_policy_s
 /* Ordinary persists write the policy-owned prefix only. The counter bytes
  * behind it belong to the storage recency layer, and writing the whole block
  * from this module would zero them on every policy toggle. */
-static void era_split_sync_policy_persist_current(void) {
+static bool era_split_sync_policy_persist_current(void) {
     era_split_sync_policy_storage_t storage;
     ATOMIC_BLOCK_RESTORESTATE {
         era_split_sync_policy_ensure_initialized_locked();
         era_split_sync_policy_build_storage_locked(&storage);
     }
-    era_eeprom_update_config(&storage, ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET, ERA_SPLIT_SYNC_POLICY_STORAGE_PREFIX_BYTES);
+    uint32_t length = era_split_sync_policy_state.persist_full_pending ? sizeof(storage) : ERA_SPLIT_SYNC_POLICY_STORAGE_PREFIX_BYTES;
+    bool ok = era_eeprom_update_config(&storage, ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET, length) == length;
+    era_split_sync_policy_state.persist_pending = !ok;
+    if (ok) era_split_sync_policy_state.persist_full_pending = false;
+    return ok;
 }
 
 /* Fresh-block persist: only for a block whose signature/prefix did not
  * validate. Garbage counters must not survive under a freshly written
  * signature, so this is the one write that covers the whole block. */
 static void era_split_sync_policy_persist_current_full(void) {
-    era_split_sync_policy_storage_t storage;
-    ATOMIC_BLOCK_RESTORESTATE {
-        era_split_sync_policy_ensure_initialized_locked();
-        era_split_sync_policy_build_storage_locked(&storage);
-    }
-    era_eeprom_update_config(&storage, ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET, sizeof(storage));
+    era_split_sync_policy_state.persist_full_pending = true;
+    era_split_sync_policy_persist_current();
 }
 
 static void era_split_sync_policy_load_storage_locked(const era_split_sync_policy_storage_t *storage) {
@@ -194,6 +196,8 @@ static void era_split_sync_policy_load_storage_locked(const era_split_sync_polic
     era_split_sync_policy_state.flags       = era_split_sync_policy_normalize_flags(storage->flags);
     era_split_sync_policy_state.dirty_flags = 0;
     era_split_sync_policy_state.initialized = true;
+    era_split_sync_policy_state.persist_pending = false;
+    era_split_sync_policy_state.persist_full_pending = false;
 }
 
 void era_split_sync_policy_init(void) {
@@ -273,10 +277,10 @@ bool era_split_sync_policy_set_requested(era_split_sync_policy_field_t field, bo
     }
 
     if (changed) {
-        era_split_sync_policy_persist_current();
+        era_split_sync_policy_state.persist_pending = true;
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_SYNC_POLICY);
     }
-    return true;
+    return !era_split_sync_policy_state.persist_pending || era_split_sync_policy_persist_current();
 }
 
 bool era_split_sync_policy_get_requested(era_split_sync_policy_field_t field, bool *requested) {

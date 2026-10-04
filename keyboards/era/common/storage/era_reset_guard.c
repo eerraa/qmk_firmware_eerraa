@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include "eeprom.h"
+#include "eeconfig.h"
 #include "nvm_eeprom_eeconfig_internal.h"
 #include "nvm_eeconfig.h"
 #include "era_eeprom_storage.h"
@@ -43,6 +44,10 @@ bool era_reset_guard_check(void) {
     if (era_reset_guard_is_valid()) {
         return false;
     }
+
+    /* The stored magic may survive a failed invalidation. Keep the boot gate
+     * independent of those bytes until defaults have actually completed. */
+    eeconfig_require_reset();
 
     /* An erase already pending -- EEPROM CLEAN, or a store QMK has never
      * initialised -- runs eeconfig_init() anyway, and that writes the guard

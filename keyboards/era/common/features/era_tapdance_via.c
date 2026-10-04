@@ -55,9 +55,9 @@ static uint8_t era_tapdance_via_field_index(uint8_t value_id) {
     return (value_id - ERA_TAP_DANCE_VIA_VALUE_ID_BASE) % ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE;
 }
 
-static void era_tapdance_via_save(uint8_t channel_id) {
+static bool era_tapdance_via_save(uint8_t channel_id) {
     (void)channel_id;
-    era_tapdance_save_config();
+    return era_tapdance_save_config();
 }
 
 static bool era_tapdance_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

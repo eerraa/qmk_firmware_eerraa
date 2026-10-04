@@ -63,10 +63,9 @@ _Static_assert(RAW_EPSIZE >= 5, "An ERA VIA report must carry command, channel, 
 /* **The unclaimed answer.** Every handler below returns true only for a command
    it actually answered. A channel it does not own, a value id it does not own,
    a command id it has no arm for, a report too short to carry one: all of those
-   return false and write nothing into the report. `id_unhandled` is written in
-   exactly one place -- era_board_via_keyboard_channel_command()
-   (system/era_board_hooks.c) -- because that is the end of the chain on both
-   class skeletons and the only point that knows the chain is out of handlers.
+   return false and write nothing into the report. The board terminal reports
+   an unclaimed command as `id_unhandled`. A claimed synchronous SET/SAVE may
+   also return that existing error after its owner reports persistence failure.
 
    Two channels have a second claimant standing behind the first, which is what
    makes this a rule rather than a tidy: era_via_system.c owns value ids 1-4 on
@@ -74,8 +73,8 @@ _Static_assert(RAW_EPSIZE >= 5, "An ERA VIA report must carry command, channel, 
    reachable only because the first declines. id_custom_channel carries a stack
    of claimants the same way -- tap dance, NKRO, the two common lighting
    adapters, and whatever a board hangs off
-   era_board_hooks.h. A handler that marks id_unhandled and claims the command
-   deletes every claimant behind it; the single-claimant channels used to do
+   era_board_hooks.h. A handler that marks an unknown value id as id_unhandled
+   and claims the command deletes every claimant behind it; the single-claimant channels used to do
    exactly that and got away with it only because no value id is shared, which
    is an accident of the partition and not a licence. */
 

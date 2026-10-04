@@ -11,6 +11,11 @@
 #define ERA_VIA_SYSTEM_EEPROM_RESET_0_VALUE_ID 2
 #define ERA_VIA_SYSTEM_EEPROM_RESET_1_VALUE_ID 3
 #define ERA_VIA_SYSTEM_EEPROM_RESET_DONE_VALUE_ID 4
+
+/* A failed local CLEAN keeps its intent, but storage retries do not run at
+ * housekeeping frequency. Backoff is separate from the raw-HID quiet gate. */
+#define ERA_VIA_SYSTEM_CLEAN_RETRY_INITIAL_MS 1000U
+#define ERA_VIA_SYSTEM_CLEAN_RETRY_MAX_MS 30000U
 /* Lighting sleep controls continue the shared SYSTEM value-id range after
    sync (5..7) and link (8..9). Each output has a switch, a minute preset for
    the stock VIA definition and an exact-seconds uint16 for the ERA app. A

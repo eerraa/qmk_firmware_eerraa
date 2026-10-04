@@ -10,6 +10,7 @@
 #include "rgblight_drivers.h"
 #include "../../common/storage/era_eeprom_storage.h"
 #include "../../common/system/era_nonsplit_board.h"
+#include "../../common/features/era_rgblight_persistence.h"
 
 /* The odessey family's whole board content, owned once for `odessey60h` and
    `odessey60s`. The two board files it replaces were string-identical after
@@ -184,6 +185,7 @@ bool era_board_via_set_value(uint8_t *data) {
     uint8_t *value_data = &data[1];
     odessey_config_t previous = g_odessey_config;
     bool             runtime_changed = false;
+    bool             persistence_ok = true;
 
     switch (*value_id) {
         case id_custom_indicator_select:
@@ -195,17 +197,17 @@ bool era_board_via_set_value(uint8_t *data) {
         case id_custom_indicator_color:
             odessey_set_color(&g_odessey_config.indicator_hsv, value_data);
             break;
-        case id_custom_velocikey_enable:
+        case id_custom_velocikey_enable: {
 #if defined(VELOCIKEY_ENABLE)
-            if ((value_data[0] != 0) != rgblight_velocikey_enabled()) {
-                rgblight_velocikey_toggle();
-                runtime_changed = true;
-            }
+            bool previous_velocikey = rgblight_velocikey_enabled();
+            persistence_ok = era_rgblight_velocikey_set_enabled(value_data[0] != 0);
+            runtime_changed = previous_velocikey != rgblight_velocikey_enabled();
             value_data[0] = rgblight_velocikey_enabled() ? 1 : 0;
             break;
 #else
             return false;
 #endif
+        }
         default:
             return false;
     }
@@ -217,7 +219,7 @@ bool era_board_via_set_value(uint8_t *data) {
     if (runtime_changed || config_changed) {
         era_state_sync_note_config_semantic_commit(ERA_EEPROM_KEYBOARD_CONFIG_OFFSET, sizeof(g_odessey_config));
     }
-    return true;
+    return persistence_ok;
 }
 
 void era_board_via_save(void) {

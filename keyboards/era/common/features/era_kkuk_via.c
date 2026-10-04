@@ -14,9 +14,9 @@ enum {
     ERA_KKUK_VIA_VALUE_MODE   = 4,
 };
 
-static void era_kkuk_via_save(uint8_t channel_id) {
+static bool era_kkuk_via_save(uint8_t channel_id) {
     (void)channel_id;
-    era_kkuk_save_config();
+    return era_kkuk_save_config();
 }
 
 static bool era_kkuk_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

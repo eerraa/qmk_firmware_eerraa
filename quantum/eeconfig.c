@@ -19,6 +19,7 @@ void eeprom_native_note_result(bool success) {
     if (eeprom_native_depth && !success) eeprom_native_failed = true;
 }
 bool eeprom_commit_failed(void) { return eeprom_native_commit_rejected; }
+void eeprom_reject_write(void) { eeprom_native_note_result(false); }
 bool eeprom_prepare_commit(uint8_t *address, uint8_t invalid) {
     eeprom_native_commit_rejected = false;
     eeprom_update_byte(address, invalid);
@@ -43,15 +44,32 @@ bool eeprom_end_transaction(void) {
     return ok;
 }
 #else
-__attribute__((weak)) bool eeprom_transaction_active(void) { return false; }
-__attribute__((weak)) bool eeprom_begin_transaction(void) { return true; }
-__attribute__((weak)) bool eeprom_end_transaction(void) {
-    eeprom_transaction_complete(true);
+static uint16_t eeprom_fallback_depth;
+static bool eeprom_fallback_failed;
+__attribute__((weak)) void eeprom_reject_write(void) { eeprom_fallback_failed = true; }
+__attribute__((weak)) bool eeprom_transaction_active(void) { return eeprom_fallback_depth != 0U; }
+__attribute__((weak)) bool eeprom_begin_transaction(void) {
+    if (eeprom_fallback_depth == UINT16_MAX) return false;
+    if (eeprom_fallback_depth++ == 0U) eeprom_fallback_failed = false;
     return true;
 }
-__attribute__((weak)) bool eeprom_persistence_ok(void) { return true; }
+__attribute__((weak)) bool eeprom_end_transaction(void) {
+    if (eeprom_fallback_depth == 0U) return false;
+    bool ok = !eeprom_fallback_failed;
+    if (--eeprom_fallback_depth == 0U) eeprom_transaction_complete(ok);
+    return ok;
+}
+__attribute__((weak)) bool eeprom_persistence_ok(void) { return !eeprom_fallback_failed; }
 #endif
 static bool eeconfig_init_failed;
+
+void eeconfig_require_reset(void) {
+    eeconfig_init_failed = true;
+}
+
+bool eeconfig_is_init_required(void) {
+    return eeconfig_init_failed || !nvm_eeconfig_is_enabled();
+}
 
 #ifdef BACKLIGHT_ENABLE
 #    include "backlight.h"
@@ -115,7 +133,10 @@ __attribute__((weak)) void eeconfig_init_kb(void) {
 
 void eeconfig_init_quantum(void) {
     eeconfig_init_failed = true;
-    if (!eeprom_begin_transaction()) return;
+    /* Full defaults own the outer completion. An existing caller scope could
+     * otherwise return STAGED here and release the boot gate before commit.
+     * Nested scopes used by the default owners below remain supported. */
+    if (eeprom_transaction_active() || !eeprom_begin_transaction()) return;
     nvm_eeconfig_disable();
     if (!eeprom_persistence_ok()) { eeprom_end_transaction(); return; }
 #if defined(__AVR__) && !defined(EEPROM_DRIVER)

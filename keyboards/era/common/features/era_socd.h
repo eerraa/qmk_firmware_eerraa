@@ -27,7 +27,7 @@ enum {
 void     era_socd_init(void);
 void     era_socd_reload_from_eeprom(void);
 bool     era_socd_is_bound_keycode(uint16_t keycode);
-void     era_socd_save_pair(uint8_t pair);
+bool     era_socd_save_pair(uint8_t pair);
 bool     era_socd_set_enabled(uint8_t pair, bool enabled);
 bool     era_socd_get_enabled(uint8_t pair);
 bool     era_socd_set_keycode(uint8_t pair, uint8_t key_index, uint16_t keycode);

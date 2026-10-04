@@ -11,7 +11,7 @@
  * Precision uses additive BE16 value ids; see era_mousekey_via.c. */
 void era_mousekey_init(void);
 void era_mousekey_reload_from_eeprom(void);
-void era_mousekey_save_config(void);
+bool era_mousekey_save_config(void);
 
 void era_mousekey_set_cursor_min_speed(uint8_t pixels);
 void era_mousekey_set_cursor_max_speed(uint8_t pixels);

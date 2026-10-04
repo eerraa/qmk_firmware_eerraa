@@ -4,6 +4,7 @@
 #include "era_rgb_sleep.h"
 
 #include "eeconfig.h"
+#include "eeprom.h"
 #include "keycode_config.h"
 
 bool era_rgb_sleep_enabled(void) {
@@ -14,14 +15,16 @@ bool era_rgb_sleep_enabled(void) {
 #    include "../system/era_via_system.h"
 #    include "via.h"
 
-static void era_rgb_sleep_set_enabled(bool enabled) {
-    eeconfig_read_keymap(&keymap_config);
-    if (era_rgb_sleep_enabled() == enabled) {
-        return;
-    }
-
+static bool era_rgb_sleep_set_enabled(bool enabled) {
+    if (!eeprom_begin_transaction()) return false;
+    keymap_config_t stored;
+    eeconfig_read_keymap(&stored);
+    /* RGB sleep owns only its bit; reloading the global word could switch a
+     * failed-but-active NKRO choice without clearing its old report. */
     keymap_config.era_rgb_sleep_disabled = !enabled;
-    eeconfig_update_keymap(&keymap_config);
+    stored.era_rgb_sleep_disabled = !enabled;
+    eeconfig_update_keymap(&stored);
+    return eeprom_end_transaction();
 }
 
 bool era_rgb_sleep_handle_via_command(uint8_t *data, uint8_t length) {
@@ -31,11 +34,10 @@ bool era_rgb_sleep_handle_via_command(uint8_t *data, uint8_t length) {
 
     switch (data[0]) {
         case id_custom_set_value:
-            era_rgb_sleep_set_enabled(data[3] != 0);
+            if (!era_rgb_sleep_set_enabled(data[3] != 0)) data[0] = id_unhandled;
             data[3] = era_rgb_sleep_enabled() ? 1 : 0;
             return true;
         case id_custom_get_value:
-            eeconfig_read_keymap(&keymap_config);
             data[3] = era_rgb_sleep_enabled() ? 1 : 0;
             return true;
         default:

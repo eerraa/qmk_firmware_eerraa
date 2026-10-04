@@ -12,7 +12,7 @@ static uint8_t eeprom[280];
 static int feature_init_calls, config_loads, guard_checks, guard_writes, user_inits;
 static int stored_feature, loaded_feature;
 static unsigned era_eeprom_read_config(void *b, unsigned a, unsigned n) { memcpy(b, eeprom + a, n); return n; }
-static void era_eeprom_update_config(const void *b, unsigned a, unsigned n) { memcpy(eeprom + a, b, n); }
+static uint32_t era_eeprom_update_config(const void *b, unsigned a, unsigned n) { memcpy(eeprom + a, b, n); return n; }
 static void era_split_transport_scheduler_mark_dirty(unsigned flags) { (void)flags; }
 /* SYNC_POLICY */
 typedef uint8_t led_t;

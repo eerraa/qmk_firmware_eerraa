@@ -23,11 +23,13 @@
    a value that the corresponding VIA GET can now return. The config-relative
    span identifies which later EEPROM persist must not increment CONFIG again. */
 void     era_state_sync_note_config_semantic_commit(uint16_t config_offset, uint16_t length);
-/* Bracket era_eeprom_update_config(). The callback it emits is synchronous, so
-   only pending semantic regions covered by this write are suppressed. */
+/* Bracket era_eeprom_update_config(). Retain the SET snapshot through outer
+   completion; a newer SET must keep its own debt when an older write repairs. */
 void     era_state_sync_config_persist_begin(uint16_t config_offset, uint16_t length);
 void     era_state_sync_config_persist_end(void);
 void     era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length);
+uint32_t era_state_sync_eeprom_span_mask(uint16_t offset, uint16_t length);
+void     era_state_sync_note_eeprom_mask(uint32_t mask);
 void     era_state_sync_note_storage_domain(uint8_t domain);
 bool     era_state_sync_via_command(uint8_t *data, uint8_t length);
 

@@ -14,9 +14,9 @@ enum {
     ERA_DEBOUNCE_VIA_VALUE_TIME_POST,
 };
 
-static void era_debounce_via_save(uint8_t channel_id) {
+static bool era_debounce_via_save(uint8_t channel_id) {
     (void)channel_id;
-    era_matrix_debounce_config_save();
+    return era_matrix_debounce_config_save();
 }
 
 static bool era_debounce_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

@@ -9,7 +9,7 @@
 
 void era_tapping_init(void);
 void era_tapping_reload_from_eeprom(void);
-void era_tapping_save_config(void);
+bool era_tapping_save_config(void);
 void era_tapping_set_term_ms(uint16_t term_ms);
 bool era_tapping_set_term_ms_exact(uint16_t term_ms);
 void era_tapping_set_permissive_hold(bool enabled);

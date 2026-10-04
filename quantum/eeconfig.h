@@ -54,6 +54,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define EECONFIG_KEYMAP_NKRO (1 << 7)
 
 bool eeconfig_is_enabled(void);
+/* A boot compatibility guard can require defaults even if invalidating the
+ * physical magic failed. Only completed outer initialization clears this. */
+void eeconfig_require_reset(void);
+bool eeconfig_is_init_required(void);
 bool eeconfig_is_disabled(void);
 
 void eeconfig_init(void);

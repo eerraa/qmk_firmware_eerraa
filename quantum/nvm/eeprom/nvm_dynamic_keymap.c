@@ -74,8 +74,33 @@ void nvm_dynamic_keymap_erase(void) {
     // No-op, nvm_eeconfig_erase() will have already erased EEPROM if necessary.
 }
 
+#ifndef EEPROM_CUSTOM
+/* A cold marker is storage state, not proof of a request in this RAM session.
+ * An opener needs received payload or a successful RESET's empty proof before
+ * completion. WL retains failed desired bytes in this session; native EEPROM
+ * must receive a fresh upload. */
+static bool dynamic_keymap_macro_upload_open;
+static bool dynamic_keymap_macro_payload_seen;
+static bool dynamic_keymap_macro_empty_reset;
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+static bool dynamic_keymap_macro_upload_failed;
+#    endif
+#endif
+
+void nvm_dynamic_keymap_macro_reset_session(void) {
+#ifndef EEPROM_CUSTOM
+    dynamic_keymap_macro_upload_open = false;
+    dynamic_keymap_macro_payload_seen = false;
+    dynamic_keymap_macro_empty_reset = false;
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    dynamic_keymap_macro_upload_failed = false;
+#    endif
+#endif
+}
+
 void nvm_dynamic_keymap_macro_erase(void) {
-    // No-op, nvm_eeconfig_erase() will have already erased EEPROM if necessary.
+    // nvm_eeconfig_erase() will have already erased EEPROM if necessary.
+    nvm_dynamic_keymap_macro_reset_session();
 }
 
 static inline void *dynamic_keymap_key_to_eeprom_address(uint8_t layer, uint8_t row, uint8_t column) {
@@ -166,22 +191,52 @@ void nvm_dynamic_keymap_macro_read_buffer(uint32_t offset, uint32_t size, uint8_
 }
 
 void nvm_dynamic_keymap_macro_update_buffer(uint32_t offset, uint32_t size, uint8_t *data) {
-#if defined(__AVR__) && !defined(EEPROM_DRIVER)
+#ifndef EEPROM_CUSTOM
     const uint32_t marker_offset = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U;
-    uint8_t *marker = (uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + marker_offset);
-    if (offset > marker_offset || size == 0U) return;
+    if (size == 0U) return;
+    if (offset > marker_offset || data == NULL) { eeprom_reject_write(); return; }
     if (size > DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset) size = DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset;
     bool has_marker = offset + size > marker_offset;
     bool opener = has_marker && data[marker_offset - offset] != 0U;
+    bool payload = offset < marker_offset;
+    uint8_t *marker = (uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + marker_offset);
+    bool empty_reset_upload = opener && offset == marker_offset && size == 1U && dynamic_keymap_macro_empty_reset;
+    dynamic_keymap_macro_empty_reset = false;
+    if (!opener && !dynamic_keymap_macro_upload_open) { eeprom_reject_write(); return; }
+    if (has_marker && !opener && !payload && !dynamic_keymap_macro_payload_seen) { eeprom_reject_write(); return; }
+    /* A retained CLOSE may have been repaired by another owner's write. The
+     * marker now seals that image even while the RAM upload proof remains. */
+    if (!opener && payload && eeprom_read_byte(marker) == 0U) { eeprom_reject_write(); return; }
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    if (!opener && dynamic_keymap_macro_upload_failed) { eeprom_reject_write(); return; }
+#    endif
+    if (!eeprom_begin_transaction()) { eeprom_reject_write(); return; }
     if (opener) {
-        if (!eeprom_prepare_commit(marker, 0xFFU)) return;
-    } else {
-        if (eeprom_commit_failed()) { eeprom_native_note_result(false); return; }
-        if (offset < marker_offset && eeprom_read_byte(marker) == 0U && !eeprom_prepare_commit(marker, 0xFFU)) return;
+        dynamic_keymap_macro_upload_open = false;
+        dynamic_keymap_macro_payload_seen = empty_reset_upload;
     }
-#endif
-#ifndef EEPROM_CUSTOM
-    if (!eeprom_begin_transaction()) return;
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    if (opener) {
+        dynamic_keymap_macro_upload_failed = false;
+        if (!eeprom_prepare_commit(marker, 0xFFU)) {
+            dynamic_keymap_macro_upload_failed = true;
+            eeprom_end_transaction();
+            return;
+        }
+    } else {
+        if (eeprom_commit_failed()) {
+            dynamic_keymap_macro_upload_failed = true;
+            eeprom_reject_write();
+            eeprom_end_transaction();
+            return;
+        }
+    }
+#    else
+    /* A packet may include payload and its nonzero opener. Retire execution
+     * first; on failure the adapter stages payload without programming it. */
+    if (opener) eeprom_update_byte(marker, 0xFFU);
+#    endif
+    if (opener) dynamic_keymap_macro_upload_open = true;
 #endif
     void    *target = (void *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + offset);
     uint8_t *source = data;
@@ -198,26 +253,42 @@ void nvm_dynamic_keymap_macro_update_buffer(uint32_t offset, uint32_t size, uint
         target++;
     }
 #ifndef EEPROM_CUSTOM
-    eeprom_end_transaction();
+    if (payload) dynamic_keymap_macro_payload_seen = true;
+    bool persisted = eeprom_end_transaction();
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    if (!persisted) dynamic_keymap_macro_upload_failed = true;
+#    endif
+    if (has_marker && !opener && persisted) {
+        dynamic_keymap_macro_upload_open = false;
+        dynamic_keymap_macro_payload_seen = false;
+    }
 #endif
 }
 
 void nvm_dynamic_keymap_macro_reset(void) {
 #ifndef EEPROM_CUSTOM
+    dynamic_keymap_macro_upload_open = false;
+    dynamic_keymap_macro_payload_seen = false;
+    dynamic_keymap_macro_empty_reset = false;
     bool changed = false;
     for (uint32_t i = 0; i < DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE; ++i) {
         if (eeprom_read_byte((const uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + i)) != 0U) { changed = true; break; }
     }
 #if defined(__AVR__) && !defined(EEPROM_DRIVER)
-    if (!changed && eeprom_persistence_ok() && !eeprom_commit_failed()) return;
+    if (!changed && eeprom_persistence_ok() && !eeprom_commit_failed()) {
+        dynamic_keymap_macro_upload_failed = false;
+        dynamic_keymap_macro_empty_reset = true;
+        return;
+    }
 #else
-    if (!changed && eeprom_persistence_ok()) return;
+    if (!changed && eeprom_persistence_ok()) { dynamic_keymap_macro_empty_reset = true; return; }
 #endif
-    if (!eeprom_begin_transaction()) return;
+    if (!eeprom_begin_transaction()) { eeprom_reject_write(); return; }
     /* Native/WL stores retire execution before changing the payload. */
     uint8_t *marker = (uint8_t *)(uintptr_t)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U);
 #if defined(__AVR__) && !defined(EEPROM_DRIVER)
-    if (!eeprom_prepare_commit(marker, 0xFFU)) { eeprom_end_transaction(); return; }
+    dynamic_keymap_macro_upload_failed = false;
+    if (!eeprom_prepare_commit(marker, 0xFFU)) { dynamic_keymap_macro_upload_failed = true; eeprom_end_transaction(); return; }
 #else
     eeprom_write_byte(marker, 0xFFU);
 #endif
@@ -239,6 +310,13 @@ void nvm_dynamic_keymap_macro_reset(void) {
     eeprom_commit_byte(marker, 0U);
 #endif
 #ifndef EEPROM_CUSTOM
-    eeprom_end_transaction();
+    bool persisted = eeprom_end_transaction();
+    dynamic_keymap_macro_empty_reset = persisted;
+#    if defined(__AVR__) && !defined(EEPROM_DRIVER)
+    dynamic_keymap_macro_upload_failed = !persisted;
+#    else
+    /* A failed reset can repair its retained image on a fresh RESET. */
+    (void)persisted;
+#    endif
 #endif
 }

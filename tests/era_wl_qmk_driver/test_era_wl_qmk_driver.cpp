@@ -52,19 +52,86 @@ TEST_F(EraWlQmkDriver, FailedPacketRetainsEveryAcceptedByteUntilDurableRepair) {
 }
 
 TEST_F(EraWlQmkDriver, FailedResetRetainsTheWholeZeroImageForSameValueRetry) {
-    uint8_t old = 0x35, close = 0;
+    uint8_t old = 0x35, opener = 0xFF, close = 0;
+    nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
     nvm_dynamic_keymap_macro_update_buffer(1000,1,&old);
+    nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+    ASSERT_TRUE(eeprom_persistence_ok());
+    eeprom_driver_init();
+    uint8_t baseline;
+    nvm_dynamic_keymap_macro_read_buffer(1000,1,&baseline);
+    ASSERT_EQ(baseline,old);
     auto &flash=MockBackingStore::Instance();
     flash.set_write_callback([](uint64_t,uint32_t) { return false; });
     nvm_dynamic_keymap_macro_reset();
     ASSERT_FALSE(eeprom_persistence_ok());
     flash.set_write_callback([](uint64_t,uint32_t) { return true; });
-    nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+    std::array<uint8_t,32> close_packet{};
+    close_packet[0]=id_dynamic_keymap_macro_set_buffer;
+    close_packet[1]=3294>>8;
+    close_packet[2]=3294&255;
+    close_packet[3]=1;
+    raw_hid_receive(close_packet.data(),close_packet.size());
+    ASSERT_EQ(g_response_command,id_unhandled);
+    ASSERT_FALSE(eeprom_persistence_ok());
+    // Retry the approved full RESET; CLOSE is not proof of that empty image.
+    nvm_dynamic_keymap_macro_reset();
     ASSERT_TRUE(eeprom_persistence_ok());
     eeprom_driver_init();
     std::array<uint8_t,3295> actual;
     nvm_dynamic_keymap_macro_read_buffer(0,actual.size(),actual.data());
     for(auto b:actual) EXPECT_EQ(b,0);
+}
+
+TEST_F(EraWlQmkDriver, AnotherOwnerRepairOfFailedCloseSealsFurtherPayload) {
+    auto &flash=MockBackingStore::Instance();
+    uint8_t opener=0xFF, close=0;
+    std::array<uint8_t,2> accepted{{65,0}}, replacement{{66,0}}, actual;
+    nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
+    nvm_dynamic_keymap_macro_update_buffer(0,accepted.size(),accepted.data());
+    flash.set_write_callback([](uint64_t,uint32_t) { return false; });
+    nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+    ASSERT_FALSE(eeprom_persistence_ok());
+    flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+    eeprom_update_byte((uint8_t *)4,0x12);
+    ASSERT_TRUE(eeprom_persistence_ok());
+    auto revision=era_state_sync_macro_revision();
+    auto before=flash.write_invoke_count();
+    nvm_dynamic_keymap_macro_update_buffer(0,replacement.size(),replacement.data());
+    EXPECT_FALSE(eeprom_persistence_ok());
+    EXPECT_EQ(flash.write_invoke_count(),before);
+    EXPECT_EQ(era_state_sync_macro_revision(),revision);
+    eeprom_driver_init();
+    nvm_dynamic_keymap_macro_read_buffer(0,actual.size(),actual.data());
+    EXPECT_EQ(actual,accepted);
+    uint8_t marker;
+    nvm_dynamic_keymap_macro_read_buffer(3294,1,&marker);
+    EXPECT_EQ(marker,0);
+}
+
+TEST_F(EraWlQmkDriver, CombinedOpenerRetiresExecutionBeforeAnyPayloadProgram) {
+    auto &flash=MockBackingStore::Instance();
+    std::array<uint8_t,3> packet{{77,78,0xFF}};
+    auto seed = [&]() { SetUp(); nvm_dynamic_keymap_macro_reset(); ASSERT_TRUE(eeprom_persistence_ok()); };
+    seed();
+    auto before=flash.write_invoke_count();
+    nvm_dynamic_keymap_macro_update_buffer(3292,packet.size(),packet.data());
+    ASSERT_TRUE(eeprom_persistence_ok());
+    auto programs=flash.write_invoke_count()-before;
+    ASSERT_GT(programs,0U);
+    for(uint64_t cut=1;cut<=programs;++cut) {
+        seed();
+        auto stop=flash.write_invoke_count()+cut;
+        flash.set_write_callback([stop](uint64_t count,uint32_t) { return count<stop; });
+        nvm_dynamic_keymap_macro_update_buffer(3292,packet.size(),packet.data());
+        ASSERT_FALSE(eeprom_persistence_ok()) << cut;
+        flash.set_write_callback([](uint64_t,uint32_t) { return true; });
+        eeprom_driver_init();
+        std::array<uint8_t,3> cold;
+        nvm_dynamic_keymap_macro_read_buffer(3292,cold.size(),cold.data());
+        if(cold[2]==0) { EXPECT_EQ(cold[0],0) << cut; EXPECT_EQ(cold[1],0) << cut; }
+    }
+    printf("POWER CUT combined wear-level opener boundaries=%llu\n",(unsigned long long)programs);
 }
 
 TEST_F(EraWlQmkDriver, RepairPublishesAllRecoveredDomainsAcrossMacroEnvelope) {
@@ -111,6 +178,13 @@ TEST_F(EraWlQmkDriver, ColdMountAfterEveryPacketCutKeepsMacroUncommitted) {
         EXPECT_EQ(nvm_dynamic_keymap_read_keycode(0,0,0),0x1234) << cut;
         nvm_dynamic_keymap_macro_read_buffer(3294,1,&marker);
         EXPECT_NE(marker,0) << cut;
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+        EXPECT_FALSE(eeprom_persistence_ok()) << cut;
+        nvm_dynamic_keymap_macro_read_buffer(3294,1,&marker);
+        EXPECT_NE(marker,0) << cut;
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
+        nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);
+        EXPECT_FALSE(eeprom_persistence_ok()) << cut; // opener alone cannot bless a cut prefix
         nvm_dynamic_keymap_macro_update_buffer(3294,1,&opener);
         nvm_dynamic_keymap_macro_update_buffer(0,chunk.size(),chunk.data());
         nvm_dynamic_keymap_macro_update_buffer(3294,1,&close);

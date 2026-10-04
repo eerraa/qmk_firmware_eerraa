@@ -23,5 +23,14 @@ void eeprom_driver_init(void);
 void eeprom_driver_format(bool erase);
 void eeprom_driver_erase(void);
 /* Cache equality may skip a write only when its durable state is known. */
-bool eeprom_driver_can_skip_write(void);
-void eeprom_driver_note_commit(uint32_t address, size_t length);
+bool eeprom_driver_can_skip_write(uint32_t address, size_t length);
+/* Observe each accepted logical write, including bytes retained after failure.
+ * `changed` compares against desired RAM, so an equal repair is not a new edit.
+ * Success also acknowledges the backend's previously retained desired image.
+ * Consumers classify the actual spans; an enclosing physical envelope must not
+ * stand in for writes that were never requested. */
+void eeprom_driver_note_write_result(uint32_t address, size_t length, bool changed, bool success);
+/* Init or a successful erase discards retained write intent. */
+void eeprom_driver_reset_write_observer(void);
+/* QMK's macro owner may keep RAM-only upload proof for this mounted image. */
+void nvm_dynamic_keymap_macro_reset_session(void);

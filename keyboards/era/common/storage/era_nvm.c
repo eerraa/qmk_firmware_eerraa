@@ -784,6 +784,7 @@ static void era_nvm_macro_reset_abort_scan(era_nvm_t *nvm) {
 }
 
 static era_nvm_result_t era_nvm_macro_reset_begin(era_nvm_t *nvm) {
+    nvm->macro_empty_reset = false;
     if (nvm->macro_reset_zero_write_seen) {
         return ERA_NVM_RESULT_OK;
     }
@@ -829,10 +830,17 @@ static era_nvm_result_t era_nvm_macro_finish_reset(era_nvm_t *nvm) {
         .kind   = ERA_NVM_SOURCE_ZERO,
         .length = nvm->config.macro_size,
     };
-    if (era_nvm_source_matches_image(nvm, nvm->config.macro_address, &source)) {
+    /* RESET temporarily invalidates the RAM marker. That marker alone must
+     * not turn an already durable empty domain into a new record/revision. */
+    bool empty_before_reset = nvm->macro_reset_zero_write_seen && nvm->macro_reset_prior_mode == ERA_NVM_MACRO_IDLE &&
+                              nvm->macro_reset_saved_marker == 0U &&
+                              era_nvm_bytes_are(nvm->image + nvm->config.macro_address, nvm->config.macro_size - 1U, 0U);
+    if (!nvm->tail_sealed && (empty_before_reset || era_nvm_source_matches_image(nvm, nvm->config.macro_address, &source))) {
+        nvm->image[nvm->config.macro_address + nvm->config.macro_size - 1U] = 0U;
         nvm->macro_mode         = ERA_NVM_MACRO_IDLE;
         nvm->macro_payload_seen = false;
         era_nvm_macro_reset_tracking_clear(nvm);
+        nvm->macro_empty_reset = true;
         return ERA_NVM_RESULT_NO_CHANGE;
     }
     era_nvm_result_t result = era_nvm_commit_source(nvm, nvm->config.macro_address, &source, ERA_NVM_ORIGIN_MACRO_TRANSACTION);
@@ -840,6 +848,7 @@ static era_nvm_result_t era_nvm_macro_finish_reset(era_nvm_t *nvm) {
         nvm->macro_mode         = ERA_NVM_MACRO_IDLE;
         nvm->macro_payload_seen = false;
         era_nvm_macro_reset_tracking_clear(nvm);
+        nvm->macro_empty_reset = true;
     } else {
         uint32_t marker    = nvm->config.macro_address + nvm->config.macro_size - 1U;
         nvm->image[marker] = ERA_NVM_ERASED_BYTE;
@@ -856,6 +865,8 @@ static era_nvm_result_t era_nvm_macro_qmk_write(era_nvm_t *nvm, uint32_t address
     bool     marker_written = marker >= address && marker - address < length;
     uint8_t  marker_value   = marker_written ? data[marker - address] : 0U;
     bool     payload_written = address < marker && length > 0U;
+    bool empty_reset_upload = nvm->macro_empty_reset && address == marker && length == 1U && marker_value != 0U;
+    nvm->macro_empty_reset = false;
 
     bool reset_chunk = length == ERA_NVM_QMK_MACRO_RESET_CHUNK_BYTES && era_nvm_bytes_are(data, length, 0U);
     bool reset_write_matches_scan = nvm->macro_reset_scan_cursor >= length &&
@@ -900,7 +911,7 @@ static era_nvm_result_t era_nvm_macro_qmk_write(era_nvm_t *nvm, uint32_t address
             return result;
         }
         nvm->macro_mode         = ERA_NVM_MACRO_WRITE_OPEN;
-        nvm->macro_payload_seen = false;
+        nvm->macro_payload_seen = empty_reset_upload;
     }
 
     era_nvm_macro_stage_write(nvm, address, data, length, marker_written && marker_value == 0U);
@@ -942,6 +953,7 @@ era_nvm_result_t era_nvm_mount(era_nvm_t *nvm) {
         return ERA_NVM_RESULT_INVALID_ARGUMENT;
     }
     nvm->state       = ERA_NVM_STATE_UNINITIALIZED;
+    nvm->macro_empty_reset = false;
     nvm->active_bank = ERA_NVM_NO_ACTIVE_BANK;
     if (nvm->flash.init != NULL && !nvm->flash.init(nvm->flash.context)) {
         nvm->state = ERA_NVM_STATE_FAULTED;
@@ -1011,6 +1023,7 @@ era_nvm_result_t era_nvm_begin(era_nvm_t *nvm) {
     if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
     if (nvm->edit_depth == UINT16_MAX) return ERA_NVM_RESULT_BUSY;
     if (nvm->edit_depth++ == 0U) {
+        nvm->macro_empty_reset = false;
         nvm->edit_first = sizeof(nvm->image);
         nvm->edit_end = 0U;
         nvm->edit_failed = false;
@@ -1200,6 +1213,7 @@ era_nvm_result_t era_nvm_replace(era_nvm_t *nvm, uint32_t address, const void *d
     if (!nvm->tail_sealed && era_nvm_source_matches_image(nvm, address, &source)) {
         return ERA_NVM_RESULT_NO_CHANGE;
     }
+    if (era_nvm_macro_range_overlaps(nvm, address, length)) nvm->macro_empty_reset = false;
     return era_nvm_commit_source(nvm, address, &source, origin);
 }
 
@@ -1207,6 +1221,7 @@ era_nvm_result_t era_nvm_format(era_nvm_t *nvm) {
     if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) {
         return ERA_NVM_RESULT_NOT_READY;
     }
+    nvm->macro_empty_reset = false;
 
     /* A format is a rotation whose snapshot is the erased logical image, not a
      * sweep of journal records. That is what makes it power-safe for free: the

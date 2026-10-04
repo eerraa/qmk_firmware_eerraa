@@ -10,6 +10,8 @@ bool eeprom_end_transaction(void);
 bool eeprom_persistence_ok(void);
 bool eeprom_transaction_active(void);
 void eeprom_transaction_complete(bool success);
+/* Refuse a logical operation without inventing a physical storage failure. */
+void eeprom_reject_write(void);
 
 #if defined(__AVR__) && !defined(EEPROM_DRIVER)
 #    include <avr/eeprom.h>

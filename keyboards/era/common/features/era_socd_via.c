@@ -30,8 +30,8 @@ static uint8_t era_socd_via_pair_from_channel(uint8_t channel_id) {
    these three take the channel byte the shared value-command terminal hands
    every callback rather than a pair of their own. It is the one caller that
    uses it, and it is why the terminal passes it at all. */
-static void era_socd_via_save(uint8_t channel_id) {
-    era_socd_save_pair(era_socd_via_pair_from_channel(channel_id));
+static bool era_socd_via_save(uint8_t channel_id) {
+    return era_socd_save_pair(era_socd_via_pair_from_channel(channel_id));
 }
 
 static bool era_socd_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

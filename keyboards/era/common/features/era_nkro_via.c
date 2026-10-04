@@ -4,6 +4,7 @@
 #include "era_nkro_via.h"
 
 #include "eeconfig.h"
+#include "eeprom.h"
 #include "keycode_config.h"
 #include "quantum.h"
 #include "via.h"
@@ -19,16 +20,19 @@ bool era_nkro_via_is_value_id(uint8_t value_id) {
  * reported in one protocol and released in the other -- the host never sees the
  * release and the key sticks. Clearing on both sides is what makes the toggle
  * safe to press while typing, and it is why this is not a bare bit write. */
-static void era_nkro_via_set_enabled(bool enabled) {
-    eeconfig_read_keymap(&keymap_config);
-    if (keymap_config.nkro == enabled) {
-        return;
-    }
-
-    clear_keyboard();
+static bool era_nkro_via_set_enabled(bool enabled) {
+    if (!eeprom_begin_transaction()) return false;
+    keymap_config_t stored;
+    eeconfig_read_keymap(&stored);
+    /* A failed write can leave the active format ahead of EEPROM. Compare the
+     * runtime bit, and preserve other owners' durable bits in the write. */
+    bool changed = keymap_config.nkro != enabled;
+    if (changed) clear_keyboard();
     keymap_config.nkro = enabled;
-    eeconfig_update_keymap(&keymap_config);
-    clear_keyboard();
+    stored.nkro = enabled;
+    eeconfig_update_keymap(&stored);
+    if (changed) clear_keyboard();
+    return eeprom_end_transaction();
 }
 
 bool era_nkro_via_handle_via_command(uint8_t *data, uint8_t length) {
@@ -41,14 +45,13 @@ bool era_nkro_via_handle_via_command(uint8_t *data, uint8_t length) {
 
     switch (*command_id) {
         case id_custom_set_value:
-            era_nkro_via_set_enabled(value_data[0] != 0);
+            if (!era_nkro_via_set_enabled(value_data[0] != 0)) *command_id = id_unhandled;
             /* Echo what the bit actually became rather than what was asked.
                The two differ if a future NKRO_ENABLE=no build ever reaches
                here, and VIA renders the echo. */
             value_data[0] = keymap_config.nkro ? 1 : 0;
             return true;
         case id_custom_get_value:
-            eeconfig_read_keymap(&keymap_config);
             value_data[0] = keymap_config.nkro ? 1 : 0;
             return true;
         /* No id_custom_save arm on purpose: the set path already wrote through

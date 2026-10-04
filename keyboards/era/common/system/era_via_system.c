@@ -70,6 +70,8 @@ enum {
 static uint8_t  eeprom_reset_confirm;
 static bool     eeprom_reset_pending;
 static uint32_t eeprom_reset_requested_ms;
+static uint32_t eeprom_reset_retry_started_ms;
+static uint16_t eeprom_reset_retry_delay_ms;
 #endif
 
 /* The raw-HID quiet stamp, and it is deliberately outside every feature guard.
@@ -215,8 +217,10 @@ bool era_via_system_eeprom_invalidate(void) {
     era_nvm_result_t result = era_eeprom_driver_prepare_reboot_word(ERA_STORAGE_EECONFIG_MAGIC_ADDR, invalid_magic);
     return result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE;
 #else
+    if (!eeprom_begin_transaction()) return false;
     eeprom_update_word(EECONFIG_MAGIC, invalid_magic);
-    return eeprom_read_word(EECONFIG_MAGIC) == invalid_magic;
+    bool persisted = eeprom_end_transaction();
+    return persisted && eeprom_read_word(EECONFIG_MAGIC) == invalid_magic;
 #endif
 }
 
@@ -254,6 +258,7 @@ static void era_via_system_trigger_eeprom_reset_if_confirmed(void) {
 
         eeprom_reset_pending      = true;
         eeprom_reset_requested_ms = timer_read32();
+        eeprom_reset_retry_delay_ms = 0;
     }
 }
 #endif
@@ -288,16 +293,31 @@ void era_via_system_task(void) {
         return;
     }
 
+    if (eeprom_reset_retry_delay_ms && timer_elapsed32(eeprom_reset_retry_started_ms) < eeprom_reset_retry_delay_ms) {
+        return;
+    }
+
     if (!era_via_system_restart_quiet_ok(eeprom_reset_requested_ms)) {
         return;
     }
 
-    eeprom_reset_pending = false;
     /* A non-split board has no peer vote: ordinary logical invalidation, then
        QMK's controlled-reset path. */
     if (!era_via_system_eeprom_invalidate()) {
+        /* Start after the synchronous attempt. Duplicate requests cannot
+         * shorten this backoff or restart its quiet/defer origin. */
+        eeprom_reset_retry_started_ms = timer_read32();
+        if (!eeprom_reset_retry_delay_ms) {
+            eeprom_reset_retry_delay_ms = ERA_VIA_SYSTEM_CLEAN_RETRY_INITIAL_MS;
+        } else if (eeprom_reset_retry_delay_ms < ERA_VIA_SYSTEM_CLEAN_RETRY_MAX_MS / 2U) {
+            eeprom_reset_retry_delay_ms *= 2U;
+        } else {
+            eeprom_reset_retry_delay_ms = ERA_VIA_SYSTEM_CLEAN_RETRY_MAX_MS;
+        }
         return;
     }
+    eeprom_reset_pending = false;
+    eeprom_reset_retry_delay_ms = 0;
     soft_reset_keyboard();
 #endif
 }
@@ -391,6 +411,8 @@ void era_via_system_test_reset(void) {
     eeprom_reset_confirm            = 0;
     eeprom_reset_pending            = false;
     eeprom_reset_requested_ms       = 0;
+    eeprom_reset_retry_started_ms   = 0;
+    eeprom_reset_retry_delay_ms     = 0;
 #    endif
 }
 

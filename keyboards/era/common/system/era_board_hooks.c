@@ -74,9 +74,10 @@ __attribute__((weak)) void era_board_housekeeping_task(void) {}
 static bool     era_board_keyboard_save_pending;
 static uint16_t era_board_keyboard_save_timer;
 
-static void era_board_keyboard_channel_save_arm(void) {
+static bool era_board_keyboard_channel_save_arm(void) {
     era_board_keyboard_save_pending = true;
     era_board_keyboard_save_timer   = timer_read();
+    return true;
 }
 
 /* The pending flag is consumed before the synchronous write and not after.
@@ -113,9 +114,11 @@ static void era_board_keyboard_channel_save_now(void) {
     era_board_keyboard_channel_save_commit();
 }
 #    else
-static void era_board_keyboard_channel_save_arm(void) {
+static bool era_board_keyboard_channel_save_arm(void) {
+    if (!eeprom_begin_transaction()) return false;
     era_common_via_keyboard_channel_save();
     era_board_via_save();
+    return eeprom_end_transaction();
 }
 
 static void era_board_keyboard_channel_save_task(void) {}
@@ -252,7 +255,15 @@ void era_board_via_keyboard_channel_command(uint8_t *data, uint8_t length) {
     uint8_t *value_id_and_data = &data[2];
 
     if (*channel_id == id_custom_channel) {
+        bool save_requested = *command_id == id_custom_save;
         if (era_common_via_handle_keyboard_channel_command(data, length)) {
+            return;
+        }
+
+        /* SAVE also approves the deferred owners when an immediate owner
+         * fails. Preserve that failure response while arming their work. */
+        if (save_requested) {
+            if (!era_board_keyboard_channel_save_arm()) *command_id = id_unhandled;
             return;
         }
 
@@ -266,14 +277,6 @@ void era_board_via_keyboard_channel_command(uint8_t *data, uint8_t length) {
                 if (!era_board_via_get_value(value_id_and_data)) {
                     *command_id = id_unhandled;
                 }
-                break;
-            case id_custom_save:
-                /* Arms the channel's quiet gate above rather than saving here.
-                   The common router has already run and persisted what the gate
-                   does not own, and it returned false so this arm runs beside
-                   it -- which is the same contract as before, one step later in
-                   time. */
-                era_board_keyboard_channel_save_arm();
                 break;
             default:
                 *command_id = id_unhandled;

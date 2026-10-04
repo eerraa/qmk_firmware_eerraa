@@ -47,6 +47,7 @@ bool process_magic(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
         if (IS_MAGIC_KEYCODE(keycode)) {
             /* keymap config */
+            clear_keyboard(); // release active format before EEPROM may reload it
             eeconfig_read_keymap(&keymap_config);
             switch (keycode) {
                 case QK_MAGIC_SWAP_CONTROL_CAPS_LOCK:

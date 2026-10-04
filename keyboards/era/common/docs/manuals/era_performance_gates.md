@@ -51,6 +51,12 @@ refusals as stop conditions — is `era_build_and_flash.md`'s.
 
 ### Focused host tests
 
+Storage caller failure changes also run
+`python3 -m unittest discover -s tests/era_persistence_failures -v`.
+These fixtures compile production NVM/WL, adapters and callers, extract complete
+boot/CLEAN functions, and require negative mutations to compile before their
+runtime assertions fail. They model hardware; no device result follows from them.
+
 The test and fixture source owns the target inventory and exact assertions.
 ERA host tests live under `tests/`; QMK wear-level tests live under
 `quantum/wear_leveling/tests/`. Run the target or source-contract script named

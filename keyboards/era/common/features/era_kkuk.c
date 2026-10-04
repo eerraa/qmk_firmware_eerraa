@@ -120,8 +120,8 @@ static void era_kkuk_reset_runtime(void) {
     kkuk_pulse_gap_active = false;
 }
 
-void era_kkuk_save_config(void) {
-    era_eeprom_update_config(&kkuk_config, ERA_EEPROM_KKUK_CONFIG_OFFSET, sizeof(kkuk_config));
+bool era_kkuk_save_config(void) {
+    return era_eeprom_update_config(&kkuk_config, ERA_EEPROM_KKUK_CONFIG_OFFSET, sizeof(kkuk_config)) == sizeof(kkuk_config);
 }
 
 static bool era_kkuk_load_from_eeprom(bool write_defaults) {

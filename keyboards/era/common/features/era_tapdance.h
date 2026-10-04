@@ -38,7 +38,7 @@ bool era_tapdance_get_hold_other(uint8_t slot);
 bool era_tapdance_set_hold_other(uint8_t slot, uint8_t enabled);
 void     era_tapdance_on_each_release(tap_dance_state_t *state, void *user_data);
 void     era_tapdance_reload_from_eeprom(void);
-void     era_tapdance_save_config(void);
+bool     era_tapdance_save_config(void);
 bool     era_tapdance_set_action(uint8_t slot_index, uint8_t action_index, uint16_t keycode);
 bool     era_tapdance_set_slot_term_ms(uint8_t slot_index, uint16_t term_ms);
 bool     era_tapdance_set_slot_term_ms_exact(uint8_t slot_index, uint16_t term_ms);

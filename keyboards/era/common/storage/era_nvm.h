@@ -94,6 +94,8 @@ typedef struct {
 
     era_nvm_macro_mode_t macro_mode;
     bool                 macro_payload_seen;
+    /* One successful RESET can supply the empty payload of the next upload. */
+    bool                 macro_empty_reset;
     uint32_t             macro_reset_scan_cursor;
     bool                 macro_reset_zero_write_seen;
     bool                 macro_reset_scan_complete;

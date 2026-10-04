@@ -16,9 +16,9 @@ enum {
     ERA_TAPPING_VIA_VALUE_GLOBAL_TERM_EXACT = 5,
 };
 
-static void era_tapping_via_save(uint8_t channel_id) {
+static bool era_tapping_via_save(uint8_t channel_id) {
     (void)channel_id;
-    era_tapping_save_config();
+    return era_tapping_save_config();
 }
 
 static bool era_tapping_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
