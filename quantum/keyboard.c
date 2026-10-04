@@ -620,6 +620,12 @@ void era_split_input_action_begin(bool action_open);
 void era_split_input_action_end(void);
 #endif
 matrix_row_t matrix_previous[MATRIX_ROWS];
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+/* Physical local downs admitted into action_exec include still-queued tapping
+ * records. Their ups must retire through that same pipeline after USB authority
+ * closes. A down consumed while closed never owns an action, even after reopen. */
+static matrix_row_t matrix_action_down[MATRIX_ROWS];
+#endif
 
 /**
  * @brief This task scans the keyboards matrix and processes any key presses
@@ -677,7 +683,18 @@ static bool matrix_task(void) {
             if (row_changes & col_mask) {
                 const bool key_pressed = current_row & col_mask;
 
-                if (process_keypress && !keypress_is_wakeup_key(row, col)) {
+                bool key_action_open = process_keypress;
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+                const bool local_key = (row < MATRIX_ROWS / 2) == is_keyboard_left();
+                if (local_key && !key_pressed) key_action_open = (matrix_action_down[row] & col_mask) != 0;
+#endif
+                if (key_action_open && !keypress_is_wakeup_key(row, col)) {
+#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
+                    if (local_key) {
+                        if (key_pressed) matrix_action_down[row] |= col_mask;
+                        else matrix_action_down[row] &= ~col_mask;
+                    }
+#endif
                     action_exec(MAKE_KEYEVENT(row, col, key_pressed));
                 }
 
