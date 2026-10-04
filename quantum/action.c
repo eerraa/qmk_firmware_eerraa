@@ -48,6 +48,90 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 int tp_buttons;
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+/* An ordinary input dispatched after wake clear still owns its captured up.
+ * This is input lifetime, not a second report or synthetic output owner. */
+static matrix_row_t wakeup_action_down[MATRIX_ROWS];
+static keypos_t wakeup_record_key(const keyrecord_t *record) {
+#    ifdef SWAP_HANDS_ENABLE
+    return record->tap_dance_raw_key;
+#    else
+    return record->event.key;
+#    endif
+}
+static bool wakeup_record_position(const keyrecord_t *record, keypos_t *key) {
+    *key = wakeup_record_key(record);
+    return record->tap_dance_epoch_valid && !record->tap_dance_injected && IS_KEYEVENT(record->event) &&
+           key->row < MATRIX_ROWS && key->col < MATRIX_COLS;
+}
+static bool wakeup_record_has_action(const keyrecord_t *record) {
+    keypos_t key;
+    return wakeup_record_position(record, &key) && (wakeup_action_down[key.row] & ((matrix_row_t)1 << key.col));
+}
+#    ifndef NO_ACTION_LAYER
+/* Layer clear does not retire an LM's modifiers. Keep its original layer + 1
+ * and the TT inverse operation in the low byte, still-live ordinary modifiers
+ * in the high byte. Wake
+ * clear retires only those modifiers; explicit layer replacement only the
+ * layer. This remains QMK bit-state, not per-key layer/mod reference counts. */
+static uint16_t wakeup_layer_down[MATRIX_ROWS][MATRIX_COLS];
+enum { WAKEUP_LAYER_INVERT = 0x80 };
+static uint16_t wakeup_record_layer(const keyrecord_t *record) {
+    keypos_t key;
+    return wakeup_record_position(record, &key) ? wakeup_layer_down[key.row][key.col] : 0;
+}
+static void wakeup_record_layer_on(const keyrecord_t *record, uint8_t layer, uint8_t mods, bool invert) {
+    keypos_t key;
+    if (action_output_get_owner() == ACTION_OUTPUT_OWNER_REGULAR && wakeup_record_position(record, &key))
+        wakeup_layer_down[key.row][key.col] = (uint16_t)mods << 8 | (layer + 1) | (invert ? WAKEUP_LAYER_INVERT : 0);
+}
+static void wakeup_record_clear_layer(const keyrecord_t *record) {
+    keypos_t key;
+    if (wakeup_record_position(record, &key)) wakeup_layer_down[key.row][key.col] = 0;
+}
+void action_wakeup_reset_layers(void) {
+    for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
+        for (uint8_t col = 0; col < MATRIX_COLS; ++col) {
+            if (wakeup_layer_down[row][col]) {
+                wakeup_action_down[row] &= ~((matrix_row_t)1 << col);
+                wakeup_layer_down[row][col] &= 0xff00;
+            }
+        }
+    }
+}
+static void wakeup_record_layer_up(const keyrecord_t *record, uint16_t action) {
+    wakeup_record_clear_layer(record);
+    keypos_t key;
+    if (wakeup_record_position(record, &key)) wakeup_action_down[key.row] &= ~((matrix_row_t)1 << key.col);
+    const action_output_owner_t previous = action_output_set_owner(ACTION_OUTPUT_OWNER_REGULAR);
+    if (action >> 8) unregister_mods(action >> 8);
+    const uint8_t layer = action & 0x7f;
+    if (layer) {
+        if (action & WAKEUP_LAYER_INVERT) layer_invert(layer - 1);
+        else layer_off(layer - 1);
+    }
+    action_output_set_owner(previous);
+    led_set(host_keyboard_leds());
+}
+#    endif
+void action_prepare_wakeup(void) {
+    memset(wakeup_action_down, 0, sizeof(wakeup_action_down));
+#    ifndef NO_ACTION_LAYER
+    for (uint8_t row = 0; row < MATRIX_ROWS; ++row)
+        for (uint8_t col = 0; col < MATRIX_COLS; ++col)
+            wakeup_layer_down[row][col] &= 0xff;
+#    endif
+#    ifndef NO_ACTION_TAPPING
+    action_tapping_prepare_wakeup();
+#    endif
+}
+void action_wakeup_record_dispatch(const keyrecord_t *record, uint16_t keycode) {
+    keypos_t key;
+    if (record->tap_dance_wakeup_record && record->event.pressed &&
+        !IS_QK_TAP_DANCE(tap_dance_remap_keycode(keycode)) && wakeup_record_position(record, &key))
+        wakeup_action_down[key.row] |= (matrix_row_t)1 << key.col;
+}
+#endif
 
 #if defined(RETRO_TAPPING) || defined(RETRO_TAPPING_PER_KEY) || (defined(AUTO_SHIFT_ENABLE) && defined(RETRO_SHIFT))
 bool     retro_tap_primed   = false;
@@ -81,9 +165,51 @@ __attribute__((weak)) bool get_retro_tapping(uint16_t keycode, keyrecord_t *reco
 #ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
 bool era_split_input_event_remote(uint8_t row);
 #endif
-void action_exec(keyevent_t event) {
+static void action_exec_internal(keyevent_t event, bool wakeup_release) {
+#if defined(ERA_TAP_DANCE_WAKE_CAPTURE) && defined(SWAP_HANDS_ENABLE)
+    const keypos_t raw_key = event.key;
+#endif
 #if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) && !defined(NO_ACTION_TAPPING)
     bool previous_origin = action_tapping_set_ingress(IS_EVENT(event) && era_split_input_event_remote(event.key.row));
+#endif
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    bool pending_wakeup_press = false;
+    if (wakeup_release) {
+#    ifdef SWAP_HANDS_ENABLE
+        process_hand_swap(&event);
+#    endif
+        /* The query uses the press's hand-swap mapping. It runs only on a
+         * captured wake-key up, before retro-tap or preprocessing side effects. */
+#    ifndef NO_ACTION_TAPPING
+        pending_wakeup_press = action_tapping_has_pending_press(event);
+#    endif
+        const keyrecord_t wake_record = {.event = event, .tap_dance_epoch_valid = true,
+                                        .tap_dance_epoch = tap_dance_input_epoch()
+#    ifdef SWAP_HANDS_ENABLE
+                                       , .tap_dance_raw_key = raw_key
+#    endif
+        };
+#    ifndef NO_ACTION_LAYER
+        const uint16_t layer = wakeup_record_layer(&wake_record);
+        if (!pending_wakeup_press && layer) {
+            /* Wake retired key/mod output, not this original layer action.
+             * A live remap must not turn its up into an ordinary HID up. */
+            wakeup_record_layer_up(&wake_record, layer);
+#    if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) && !defined(NO_ACTION_TAPPING)
+            (void)action_tapping_set_ingress(previous_origin);
+#    endif
+            return;
+        }
+#    endif
+        if (!pending_wakeup_press && tap_dance_owned_keycode(&wake_record) == KC_NO && !wakeup_record_has_action(&wake_record)) {
+#    if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) && !defined(NO_ACTION_TAPPING)
+            (void)action_tapping_set_ingress(previous_origin);
+#    endif
+            return;
+        }
+    }
+#else
+    (void)wakeup_release;
 #endif
     if (IS_EVENT(event)) {
         ac_dprintf("\n---- action_exec: start -----\n");
@@ -108,7 +234,7 @@ void action_exec(keyevent_t event) {
 
 #ifdef SWAP_HANDS_ENABLE
     // Swap hands handles both keys and encoders, if ENCODER_MAP_ENABLE is defined.
-    if (IS_EVENT(event)) {
+    if (IS_EVENT(event) && !wakeup_release) {
         process_hand_swap(&event);
     }
 #endif
@@ -119,6 +245,12 @@ void action_exec(keyevent_t event) {
         record.tap_dance_epoch_valid = true;
         record.tap_dance_epoch = tap_dance_input_epoch();
     }
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    record.tap_dance_wakeup_record = wakeup_release;
+#        ifdef SWAP_HANDS_ENABLE
+    record.tap_dance_raw_key = raw_key;
+#        endif
+#    endif
 #endif
 
 #ifndef NO_ACTION_ONESHOT
@@ -145,11 +277,13 @@ void action_exec(keyevent_t event) {
         retroshift_poll_time(&event);
     }
 #    endif
-    if (IS_NOEVENT(record.event) || pre_process_record_quantum(&record)) {
+    /* Wake ups retire accepted input; do not preprocess their live mapping.
+     * A pending down still executes first and supplies the release identity. */
+    if (IS_NOEVENT(record.event) || wakeup_release || pre_process_record_quantum(&record)) {
         action_tapping_process(record);
     }
 #else
-    if (IS_NOEVENT(record.event) || pre_process_record_quantum(&record)) {
+    if (IS_NOEVENT(record.event) || wakeup_release || pre_process_record_quantum(&record)) {
         process_record(&record);
     }
     if (IS_EVENT(record.event)) {
@@ -162,6 +296,16 @@ void action_exec(keyevent_t event) {
     (void)action_tapping_set_ingress(previous_origin);
 #endif
 }
+
+void action_exec(keyevent_t event) {
+    action_exec_internal(event, false);
+}
+
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+void action_exec_wakeup_release(keyevent_t event) {
+    action_exec_internal(event, true);
+}
+#endif
 
 #ifdef SWAP_HANDS_ENABLE
 extern const keypos_t PROGMEM hand_swap_config[MATRIX_ROWS][MATRIX_COLS];
@@ -299,10 +443,33 @@ void process_record(keyrecord_t *record) {
     if (IS_NOEVENT(record->event)) {
         return;
     }
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    const bool wakeup_action = wakeup_record_has_action(record);
+#    ifndef NO_ACTION_LAYER
+    const uint16_t wakeup_layer = wakeup_record_layer(record);
+#    endif
+    if (!record->event.pressed) {
+        keypos_t key;
+        if (wakeup_record_position(record, &key)) wakeup_action_down[key.row] &= ~((matrix_row_t)1 << key.col);
+#    ifndef NO_ACTION_LAYER
+        wakeup_record_clear_layer(record);
+#    endif
+    }
+#    ifndef NO_ACTION_LAYER
+    if (record->tap_dance_wakeup_record && !record->event.pressed && wakeup_layer) {
+        wakeup_record_layer_up(record, wakeup_layer);
+        return;
+    }
+#    endif
+#endif
 #ifdef ERA_TAP_DANCE_ENABLE
     /* Discard only retired TD records before they can interrupt a new dance
      * or consume one-shot state. Ordinary LT/MT waiting records still run. */
     if (tap_dance_discard_retired_record(record)) return;
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    if (record->tap_dance_wakeup_record && !record->event.pressed &&
+        tap_dance_owned_keycode(record) == KC_NO && !wakeup_action) return;
+#    endif
 #endif
 #ifdef SPECULATIVE_HOLD
     if (record->event.pressed) {
@@ -704,6 +871,9 @@ void process_action(keyrecord_t *record, action_t action) {
         case ACT_LAYER_MODS:
             if (event.pressed) {
                 layer_on(action.layer_mods.layer);
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                wakeup_record_layer_on(record, action.layer_mods.layer, action.layer_mods.mods, false);
+#    endif
                 register_mods(action.layer_mods.mods);
             } else {
                 unregister_mods(action.layer_mods.mods);
@@ -720,6 +890,9 @@ void process_action(keyrecord_t *record, action_t action) {
                         if (tap_count < TAPPING_TOGGLE) {
                             layer_invert(action.layer_tap.val);
                         }
+#        ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                        if (tap_count <= TAPPING_TOGGLE) wakeup_record_layer_on(record, action.layer_tap.val, 0, true);
+#        endif
                     } else {
                         if (tap_count <= TAPPING_TOGGLE) {
                             layer_invert(action.layer_tap.val);
@@ -729,6 +902,9 @@ void process_action(keyrecord_t *record, action_t action) {
 #    endif
                 case OP_ON_OFF:
                     event.pressed ? layer_on(action.layer_tap.val) : layer_off(action.layer_tap.val);
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                    if (event.pressed) wakeup_record_layer_on(record, action.layer_tap.val, 0, false);
+#    endif
                     break;
                 case OP_OFF_ON:
                     event.pressed ? layer_off(action.layer_tap.val) : layer_on(action.layer_tap.val);
@@ -742,6 +918,9 @@ void process_action(keyrecord_t *record, action_t action) {
                     if (!keymap_config.oneshot_enable) {
                         if (event.pressed) {
                             layer_on(action.layer_tap.val);
+#        ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                            wakeup_record_layer_on(record, action.layer_tap.val, 0, false);
+#        endif
                         } else {
                             layer_off(action.layer_tap.val);
                         }
@@ -778,6 +957,9 @@ void process_action(keyrecord_t *record, action_t action) {
 #    else  // NO_ACTION_ONESHOT && NO_ACTION_TAPPING
                     if (event.pressed) {
                         layer_on(action.layer_tap.val);
+#        ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                        wakeup_record_layer_on(record, action.layer_tap.val, 0, false);
+#        endif
                     } else {
                         layer_off(action.layer_tap.val);
                     }
@@ -792,6 +974,9 @@ void process_action(keyrecord_t *record, action_t action) {
                         } else {
                             ac_dprintf("KEYMAP_TAP_KEY: No tap: On on press\n");
                             layer_on(action.layer_tap.val);
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                            wakeup_record_layer_on(record, action.layer_tap.val, 0, false);
+#    endif
                         }
                     } else {
                         if (tap_count > 0) {

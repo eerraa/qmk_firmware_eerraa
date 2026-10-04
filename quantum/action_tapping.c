@@ -177,6 +177,24 @@ bool action_tapping_set_ingress(bool remote) {
 uint8_t action_tapping_remote_room(void) { return MATRIX_ROWS_PER_HAND * MATRIX_COLS - waiting_remote_count; }
 #endif
 static uint8_t waiting_next(uint8_t index) { return ++index == WAITING_BUFFER_SIZE ? 0 : index; }
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+bool action_tapping_has_pending_press(keyevent_t event) {
+    bool pressed = false;
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i)) {
+        const keyevent_t queued = waiting_buffer[i].event;
+        if (queued.type == event.type && KEYEQ(queued.key, event.key)) pressed = queued.pressed;
+    }
+    return pressed;
+}
+void action_tapping_prepare_wakeup(void) {
+    /* Only unexecuted downs acquire post-clear dispatch lifetime. Released
+     * queue pairs still clear the position normally, preserving FIFO order. */
+    if (tapping_key.event.pressed && tapping_key.tap.count == 0)
+        tapping_key.tap_dance_wakeup_record = true;
+    for (uint8_t i = waiting_buffer_tail; i != waiting_buffer_head; i = waiting_next(i))
+        if (waiting_buffer[i].event.pressed) waiting_buffer[i].tap_dance_wakeup_record = true;
+}
+#    endif
 static void waiting_buffer_pop(void) {
 #ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
     uint8_t bit = 1U << (waiting_buffer_tail & 7);
@@ -619,16 +637,10 @@ bool process_tapping(keyrecord_t *keyp) {
                     if (tapping_key.tap.count > 1) {
                         ac_dprintf("Tapping: Start new tap with releasing last tap(>1).\n");
                         // unregister key
-                        process_record(&(keyrecord_t){
-                            .tap           = tapping_key.tap,
-                            .event.key     = tapping_key.event.key,
-                            .event.time    = event.time,
-                            .event.pressed = false,
-                            .event.type    = tapping_key.event.type,
-#    ifdef COMBO_ENABLE
-                            .keycode = tapping_key.keycode,
-#    endif
-                        });
+                        keyrecord_t release_record = tapping_key;
+                        release_record.event.time = event.time;
+                        release_record.event.pressed = false;
+                        process_record(&release_record);
                     } else {
                         ac_dprintf("Tapping: Start while last tap(1).\n");
                     }
@@ -670,16 +682,10 @@ bool process_tapping(keyrecord_t *keyp) {
                     if (tapping_key.tap.count > 1) {
                         ac_dprintf("Tapping: Start new tap with releasing last timeout tap(>1).\n");
                         // unregister key
-                        process_record(&(keyrecord_t){
-                            .tap           = tapping_key.tap,
-                            .event.key     = tapping_key.event.key,
-                            .event.time    = event.time,
-                            .event.pressed = false,
-                            .event.type    = tapping_key.event.type,
-#    ifdef COMBO_ENABLE
-                            .keycode = tapping_key.keycode,
-#    endif
-                        });
+                        keyrecord_t release_record = tapping_key;
+                        release_record.event.time = event.time;
+                        release_record.event.pressed = false;
+                        process_record(&release_record);
                     } else {
                         ac_dprintf("Tapping: Start while last timeout tap(1).\n");
                     }

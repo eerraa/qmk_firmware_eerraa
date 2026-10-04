@@ -355,6 +355,12 @@ bool process_record_quantum(keyrecord_t *record) {
     }
 #endif
 
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    /* Resolved ordinary input owns its up even when a module such as Space
+     * Cadet produces output and returns false before the action handler.
+     * Retired TD records never reach this dispatch. */
+    action_wakeup_record_dispatch(record, keycode);
+#endif
     if (!(
 #if defined(KEY_LOCK_ENABLE)
             // Must run first to be able to mask key_up events.

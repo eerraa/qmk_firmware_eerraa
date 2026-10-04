@@ -620,10 +620,11 @@ void era_split_input_action_begin(bool action_open);
 void era_split_input_action_end(void);
 #endif
 matrix_row_t matrix_previous[MATRIX_ROWS];
-#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
-/* Physical local downs admitted into action_exec include still-queued tapping
- * records. Their ups must retire through that same pipeline after USB authority
- * closes. A down consumed while closed never owns an action, even after reopen. */
+#if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) || defined(ERA_TAP_DANCE_WAKE_CAPTURE)
+/* Physical downs admitted into action_exec include still-queued LT/MT records.
+ * Local split ups retire that pipeline after authority closes; TD wake ups
+ * need the raw accepted position before a possible hand-swap transformation.
+ * A down consumed while closed or waking never owns a later release. */
 static matrix_row_t matrix_action_down[MATRIX_ROWS];
 #endif
 
@@ -687,16 +688,26 @@ static bool matrix_task(void) {
 #ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
                 const bool local_key = (row < MATRIX_ROWS / 2) == is_keyboard_left();
                 if (local_key && !key_pressed) key_action_open = (matrix_action_down[row] & col_mask) != 0;
+#elif defined(ERA_TAP_DANCE_WAKE_CAPTURE)
+                const bool local_key = true;
 #endif
                 if (key_action_open && !keypress_is_wakeup_key(row, col)) {
-#ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
-                    if (local_key) {
-                        if (key_pressed) matrix_action_down[row] |= col_mask;
-                        else matrix_action_down[row] &= ~col_mask;
-                    }
+#if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) || defined(ERA_TAP_DANCE_WAKE_CAPTURE)
+                    if (local_key && key_pressed) matrix_action_down[row] |= col_mask;
 #endif
                     action_exec(MAKE_KEYEVENT(row, col, key_pressed));
                 }
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+                else if (key_action_open && !key_pressed && (matrix_action_down[row] & col_mask)) {
+                    /* Wake clear preserves dance owners. Their own ups and
+                     * accepted downs queued behind LT/MT still retire; fresh
+                     * wake keys and already-cleared ordinary ups do not. */
+                    action_exec_wakeup_release(MAKE_KEYEVENT(row, col, false));
+                }
+#endif
+#if defined(ERA_SPLIT_INPUT_HISTORY_ENABLE) || defined(ERA_TAP_DANCE_WAKE_CAPTURE)
+                if (local_key && !key_pressed) matrix_action_down[row] &= ~col_mask;
+#endif
 
                 switch_events(row, col, key_pressed);
             }

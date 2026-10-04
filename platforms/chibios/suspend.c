@@ -35,6 +35,9 @@ void suspend_wakeup_init(void) {
     /* Wake suppresses ordinary inputs, not the lifetime of a paused macro or
      * an active Tap Dance. Rebuild the surviving scoped contributions together
      * with their reports instead of clearing only the report projection. */
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    action_prepare_wakeup();
+#    endif
     action_output_clear_regular();
 #else
     // clear keyboard state

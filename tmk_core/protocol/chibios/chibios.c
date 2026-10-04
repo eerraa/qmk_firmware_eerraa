@@ -198,6 +198,11 @@ void protocol_pre_task(void) {
             }
         }
         /* Woken up */
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+        /* A resume ISR enqueues wake clear after the queue at entry was
+         * drained. Apply it before QMK settles pending LT/MT records. */
+        usb_event_queue_task();
+#    endif
     }
 #endif
 }

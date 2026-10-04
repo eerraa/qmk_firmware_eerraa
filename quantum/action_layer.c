@@ -192,6 +192,11 @@ static void layer_state_set_regular(layer_state_t state) {
  * Their late releases must not undo a new ordinary layer contribution.
  * Modifier and HID-usage ownership are unaffected. */
 void layer_state_set(layer_state_t state) {
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    /* An explicit replacement retires old physical layer-release identities.
+     * A later captured up must not erase a newly established ordinary layer. */
+    action_wakeup_reset_layers();
+#endif
 #ifdef TAP_DANCE_OWNED_ACTIONS
     memset(td_layer_owners, 0, sizeof(td_layer_owners));
     memset(td_layer_counts, 0, sizeof(td_layer_counts));

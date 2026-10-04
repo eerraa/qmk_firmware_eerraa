@@ -24,6 +24,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "keycode.h"
 #include "action_code.h"
 
+/* Captured wake-key suppression comes from the stock protocol suspend loop.
+ * ERA split removes that loop but still performs USB wake re-projection. */
+#if defined(ERA_TAP_DANCE_ENABLE) && !defined(NO_USB_STARTUP_CHECK)
+#    define ERA_TAP_DANCE_WAKE_CAPTURE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -56,6 +62,14 @@ typedef struct keyrecord_t {
     /* A dance's own quantum keycode, named by tap_dance_keycode: its output,
      * never an input of any dance. */
     bool tap_dance_injected;
+#    ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+    /* Pending downs at wake and captured wake ups retain input lifetime
+     * after the ordinary output clear. */
+    bool tap_dance_wakeup_record;
+#        ifdef SWAP_HANDS_ENABLE
+    keypos_t tap_dance_raw_key;
+#        endif
+#    endif
 #endif
 #ifndef NO_ACTION_TAPPING
     tap_t tap;
@@ -67,6 +81,14 @@ typedef struct keyrecord_t {
 
 /* Execute action per keyevent */
 void action_exec(keyevent_t event);
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+void action_exec_wakeup_release(keyevent_t event);
+void action_prepare_wakeup(void);
+void action_wakeup_record_dispatch(const keyrecord_t *record, uint16_t keycode);
+#    ifndef NO_ACTION_LAYER
+void action_wakeup_reset_layers(void);
+#    endif
+#endif
 
 /* action for key */
 action_t action_for_key(uint8_t layer, keypos_t key);

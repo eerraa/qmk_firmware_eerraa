@@ -45,6 +45,11 @@ uint8_t action_tapping_remote_room(void);
 uint16_t get_record_keycode(keyrecord_t *record, bool update_layer_cache);
 uint16_t get_event_keycode(keyevent_t event, bool update_layer_cache);
 void     action_tapping_process(keyrecord_t record);
+#ifdef ERA_TAP_DANCE_WAKE_CAPTURE
+/* Captured wake releases only: match the last accepted queued edge. */
+bool action_tapping_has_pending_press(keyevent_t event);
+void action_tapping_prepare_wakeup(void);
+#endif
 #endif
 
 uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record);
