@@ -288,6 +288,11 @@ bool era_split_restart_agreement_agreed_deadline(uint32_t *local_ms);
  * act of NONE is the idle form of each. */
 void era_split_restart_agreement_fill_authority(era_split_wire_authority_section_t *authority);
 void era_split_restart_agreement_note_peer_authority(const era_split_wire_authority_section_t *authority);
+/* Internal standing receipt identity. Only a successfully transmitted current
+ * arm/IDLE followed by a freshly decoded matching authority may produce it.
+ * The scheduler checks owner/relation before handing the receipt over. */
+void era_split_restart_agreement_restart_generation(uint32_t *generation);
+void era_split_restart_agreement_note_restart_receipt(uint32_t generation);
 void era_split_restart_agreement_arm_section(uint8_t *act, uint8_t *param, uint32_t *commit_ms);
 void era_split_restart_agreement_note_peer_arm(uint8_t act, uint8_t param, uint32_t commit_ms);
 

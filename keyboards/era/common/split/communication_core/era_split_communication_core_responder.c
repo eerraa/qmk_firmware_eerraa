@@ -25,6 +25,11 @@ volatile uint32_t g_era_split_communication_core_responder_snapshot_claim_genera
 era_split_communication_core_responder_result_t g_era_split_communication_core_responder_general_results[ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS];
 volatile uint32_t g_era_split_communication_core_responder_general_read __attribute__((aligned(4)));
 volatile uint32_t g_era_split_communication_core_responder_general_write __attribute__((aligned(4)));
+static bool g_era_split_communication_core_responder_refresh_due;
+
+void era_split_communication_core_refresh_responder_snapshot(void) {
+    if (get_core_num() == 0) g_era_split_communication_core_responder_refresh_due = true;
+}
 
 static bool era_split_communication_core_responder_result_ready_internal(void) {
     return g_era_split_communication_core_responder_general_read != g_era_split_communication_core_responder_general_write;
@@ -82,7 +87,8 @@ bool era_split_communication_core_publish_responder_snapshot(const era_split_com
        publish makes every publish differ, which is the failure this path
        measured at 911 publishes per second. */
     published.snapshot_generation = g_era_split_communication_core_responder_snapshot.snapshot_generation;
-    if (g_era_split_communication_core.responder_snapshot_valid &&
+    if (!g_era_split_communication_core_responder_refresh_due &&
+        g_era_split_communication_core.responder_snapshot_valid &&
         memcmp(&published, &g_era_split_communication_core_responder_snapshot, sizeof(published)) == 0) {
         return true;
     }
@@ -111,6 +117,7 @@ bool era_split_communication_core_publish_responder_snapshot(const era_split_com
     __DMB();
 
     g_era_split_communication_core.responder_snapshot_valid       = 1;
+    g_era_split_communication_core_responder_refresh_due = false;
     g_era_split_communication_core.responder_snapshot_source      = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SNAPSHOT_SOURCE_CORE0;
     g_era_split_communication_core.responder_owner_gate_ready     = published.owner_gate_ready;
     g_era_split_communication_core.responder_owner_epoch          = published.owner_epoch;

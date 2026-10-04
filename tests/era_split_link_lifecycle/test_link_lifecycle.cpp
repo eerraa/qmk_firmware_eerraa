@@ -95,6 +95,22 @@ Arm arm() { Arm a{}; era_split_restart_agreement_arm_section(&a.act,&a.param,&a.
 era_split_wire_authority_section_t authority() {
     era_split_wire_authority_section_t a{}; era_split_restart_agreement_fill_authority(&a); return a;
 }
+// Fresh decoded answer to the current transmitted body is a transport seam
+// here; the real standing/responder receipt producer lives in the endpoint suite.
+// Requests and cached/late authorities continue to use the raw cache API.
+void completed_current_arm_exchange(const era_split_wire_authority_section_t *reply) {
+    era_split_restart_agreement_note_peer_authority(reply);
+    const Arm offered=arm();
+    const bool idle=!reply->restart_armed ||
+                    (reply->restart_act==ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+                     reply->restart_param==ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED);
+    const bool matches=offered.act==ERA_SPLIT_RESTART_ACT_NONE ? idle :
+                       reply->restart_armed && reply->restart_act==offered.act && reply->restart_param==offered.param;
+    if (matches) {
+        uint32_t generation;era_split_restart_agreement_restart_generation(&generation);
+        era_split_restart_agreement_note_restart_receipt(generation);
+    }
+}
 void agree_pair(uint8_t target, uint32_t left_ms=1000, uint32_t right_ms=5000) {
     choose(0,left_ms); era_test_link_clock_offset(static_cast<int32_t>(right_ms-left_ms));
     era_test_link_relation(true,true,true,true);
@@ -102,7 +118,7 @@ void agree_pair(uint8_t target, uint32_t left_ms=1000, uint32_t right_ms=5000) {
     choose(1,right_ms); era_test_link_clock_offset(0); era_test_link_relation(true,false,false,false);
     era_split_restart_agreement_note_peer_arm(offer.act,offer.param,offer.deadline);
     auto answer=authority(); ASSERT_TRUE(answer.restart_armed);
-    choose(0,left_ms); era_split_restart_agreement_note_peer_authority(&answer);
+    choose(0,left_ms); completed_current_arm_exchange(&answer);
 }
 // Exercise the listener's production search, rather than inventing a local
 // search flag. The caller selects Right; its settled role may later reverse.
@@ -150,7 +166,7 @@ void agree_recovery_report(bool left_initiator=true, bool left_winner=true,
     era_split_restart_agreement_note_peer_arm(offer.act,offer.param,offer.deadline);
     const auto echo=authority(); ASSERT_TRUE(echo.restart_armed);
     choose(initiator,local_ms[initiator]);
-    if (confirm) era_split_restart_agreement_note_peer_authority(&echo);
+    if (confirm) completed_current_arm_exchange(&echo);
 }
 
 void expect_report(unsigned side, uint32_t ms, bool active, bool lit) {
@@ -314,7 +330,7 @@ TEST_F(EraSplitLinkLifecycle, WinnerLowUsesAgreementRatherThanUnilateralAdoption
     auto offer=arm(); ASSERT_EQ(offer.act,ERA_SPLIT_RESTART_ACT_LINK_SPEED); ASSERT_EQ(offer.param,2);
     choose(1,1000); era_test_link_relation(true,false,false,false);
     era_split_restart_agreement_note_peer_arm(offer.act,offer.param,offer.deadline); auto answer=authority();
-    choose(0,1000); era_split_restart_agreement_note_peer_authority(&answer);
+    choose(0,1000); completed_current_arm_exchange(&answer);
     choose(0,1120); era_split_restart_agreement_task(); EXPECT_EQ(era_test_link_stored(),2);
     choose(1,1120); era_split_restart_agreement_task(); EXPECT_EQ(era_test_link_stored(),2);
 }
@@ -481,7 +497,7 @@ TEST_F(EraSplitLinkLifecycle, TalkerRaisesTheListenersSearchReportFromItsAnswer)
     era_split_link_task(); era_split_restart_agreement_task();
     const auto offer=arm(); ASSERT_EQ(offer.act,ERA_SPLIT_RESTART_ACT_LINK_RECOVERED);
     auto reply=authority(); reply.restart_act=offer.act; reply.restart_param=0; reply.restart_armed=true;
-    era_split_restart_agreement_note_peer_authority(&reply);
+    completed_current_arm_exchange(&reply);
     set_time(offer.deadline); era_split_restart_agreement_task();
     ASSERT_TRUE(era_split_link_reconcile_success_report_advance(&on)); EXPECT_TRUE(on);
     advance_time(ERA_SPLIT_LINK_RECONCILE_SUCCESS_REPORT_ON_MS);
@@ -689,7 +705,7 @@ TEST_F(EraSplitLinkLifecycle, RecoveryReportAgreementOverlapsConfirmationInEvery
         choose(responder,clocks[responder]);
         era_split_restart_agreement_note_peer_arm(rate.act,rate.param,rate.deadline);
         auto echo=authority();
-        choose(initiator,clocks[initiator]); era_split_restart_agreement_note_peer_authority(&echo);
+        choose(initiator,clocks[initiator]); completed_current_arm_exchange(&echo);
         for (unsigned side=0;side<2;++side) {
             choose(side,clocks[side]+120); era_split_restart_agreement_task();
             EXPECT_EQ(era_test_link_physical(),ERA_SPLIT_LINK_LEVEL_HIGH);
@@ -708,7 +724,7 @@ TEST_F(EraSplitLinkLifecycle, RecoveryReportAgreementOverlapsConfirmationInEvery
         choose(responder,clocks[responder]+200);
         era_split_restart_agreement_note_peer_arm(report.act,report.param,report.deadline);
         echo=authority();
-        choose(initiator,clocks[initiator]+200); era_split_restart_agreement_note_peer_authority(&echo);
+        choose(initiator,clocks[initiator]+200); completed_current_arm_exchange(&echo);
         for (unsigned side=0;side<2;++side) {
             choose(side,clocks[side]+319); era_split_restart_agreement_task();
             EXPECT_FALSE(era_split_link_reconcile_success_report_advance(nullptr));
@@ -776,7 +792,7 @@ TEST_F(EraSplitLinkLifecycle, SearchedFallbackCanReportWithoutEnablingARateRaise
     era_split_link_task(); era_split_restart_agreement_task();
     const auto offer=arm(); ASSERT_EQ(offer.act,ERA_SPLIT_RESTART_ACT_LINK_RECOVERED);
     auto reply=authority(); reply.restart_act=offer.act; reply.restart_param=0; reply.restart_armed=true;
-    era_split_restart_agreement_note_peer_authority(&reply);
+    completed_current_arm_exchange(&reply);
     set_time(offer.deadline); era_split_restart_agreement_task();
     EXPECT_TRUE(era_split_link_reconcile_success_report_advance(nullptr));
     EXPECT_TRUE(era_test_link_fallback()); EXPECT_EQ(nor().programs,0U);
@@ -887,7 +903,7 @@ TEST_F(EraSplitLinkLifecycle, FailedConfirmationCancelsAnAlreadyAgreedFutureRepo
     advance_time(100); era_split_link_task(); era_split_restart_agreement_task();
     const auto offer=arm(); ASSERT_EQ(offer.act,ERA_SPLIT_RESTART_ACT_LINK_RECOVERED);
     auto echo=authority(); echo.restart_act=offer.act; echo.restart_param=0; echo.restart_armed=true;
-    era_split_restart_agreement_note_peer_authority(&echo);
+    completed_current_arm_exchange(&echo);
     advance_time(100); era_test_link_meet(false,true,true,true,false,false);
     era_split_link_task(); ASSERT_TRUE(era_test_link_fallback());
     set_time(offer.deadline); era_split_restart_agreement_task();
@@ -992,10 +1008,13 @@ TEST_F(EraSplitLinkLifecycle, ExpiredApplyReceiptCannotBorrowALaterSuccessfulRep
     era_test_link_relation(true,true,true,true); begin_local(1);
     advance_time(60); era_split_restart_agreement_task(); era_split_link_task();
     EXPECT_EQ(era_split_link_apply_status(),ERA_SPLIT_LINK_APPLY_CANCELLED);
+    ASSERT_EQ(arm().act,ERA_SPLIT_RESTART_ACT_NONE);
+    const era_split_wire_authority_section_t disarmed{};
+    completed_current_arm_exchange(&disarmed);
     ASSERT_TRUE(era_split_restart_agreement_request(ERA_SPLIT_RESTART_ACT_LINK_RECOVERED,0));
     era_split_restart_agreement_task(); const auto offer=arm();
     auto echo=authority(); echo.restart_act=offer.act; echo.restart_param=0; echo.restart_armed=true;
-    era_split_restart_agreement_note_peer_authority(&echo);
+    completed_current_arm_exchange(&echo);
     set_time(offer.deadline); era_split_restart_agreement_task(); era_split_link_task();
     EXPECT_EQ(era_split_restart_agreement_last_result(),ERA_SPLIT_RESTART_RESULT_SUCCEEDED);
     EXPECT_EQ(era_split_link_apply_status(),ERA_SPLIT_LINK_APPLY_CANCELLED);
@@ -1088,7 +1107,7 @@ TEST_F(EraSplitLinkLifecycle, PromptApplyWorksInBothDualHostDirectionsAndBothHos
             choose(responder,clocks[responder]);
             era_split_restart_agreement_note_peer_arm(offer.act,offer.param,offer.deadline);
             const auto answer=authority(); ASSERT_TRUE(answer.restart_armed);
-            choose(initiator,clocks[initiator]); era_split_restart_agreement_note_peer_authority(&answer);
+            choose(initiator,clocks[initiator]); completed_current_arm_exchange(&answer);
             for (unsigned side=0;side<2;++side) {
                 choose(side,clocks[side]+119); era_split_restart_agreement_task();
                 bool on=true; EXPECT_FALSE(era_split_link_apply_report_advance(nullptr,&on)); EXPECT_FALSE(on);
@@ -1117,7 +1136,7 @@ TEST_F(EraSplitLinkLifecycle, StorageAndAnchorWaitAreSilentAndStillGateTheDeadli
     era_test_link_storage_busy(false); era_split_restart_agreement_task();
     const auto offer=arm(); ASSERT_EQ(offer.act,ERA_SPLIT_RESTART_ACT_LINK_SPEED);
     auto answer=authority(); answer.restart_act=offer.act; answer.restart_param=1; answer.restart_armed=true;
-    era_split_restart_agreement_note_peer_authority(&answer);
+    completed_current_arm_exchange(&answer);
     set_time(offer.deadline); era_split_restart_agreement_task();
     EXPECT_EQ(era_split_link_apply_status(),ERA_SPLIT_LINK_APPLY_APPLIED);
 }
@@ -1222,7 +1241,7 @@ TEST_F(EraSplitLinkLifecycle, LeftHostReportsPeerSearchWithoutAnIdleBetweenRateA
     choose(0,clocks[0]);
     era_split_restart_agreement_note_peer_arm(rate.act,rate.param,rate.deadline);
     const auto echo=authority();
-    choose(1,clocks[1]); era_split_restart_agreement_note_peer_authority(&echo);
+    choose(1,clocks[1]); completed_current_arm_exchange(&echo);
     for (unsigned side=0;side<2;++side) {
         choose(side,clocks[side]+120);
         era_split_restart_agreement_task(); era_split_link_task();
@@ -1243,7 +1262,7 @@ TEST_F(EraSplitLinkLifecycle, LeftHostReportsPeerSearchWithoutAnIdleBetweenRateA
     choose(0,clocks[0]+130);
     era_split_restart_agreement_note_peer_arm(report.act,report.param,report.deadline);
     const auto report_echo=authority();
-    choose(1,clocks[1]+130); era_split_restart_agreement_note_peer_authority(&report_echo);
+    choose(1,clocks[1]+130); completed_current_arm_exchange(&report_echo);
     for (unsigned side=0;side<2;++side) {
         choose(side,clocks[side]+250);
         era_split_restart_agreement_task(); era_split_link_task();
@@ -1313,7 +1332,7 @@ TEST_F(EraSplitLinkLifecycle, SampledLatestStateRecoversOnceAcrossAllRolesAndRat
                             era_split_restart_agreement_note_peer_authority(&initiator_authority);
                             era_split_restart_agreement_note_peer_arm(offer.act,offer.param,offer.deadline);
                             choose(initiator,clocks[initiator]+t);
-                            era_split_restart_agreement_note_peer_authority(&responder_authority);
+                            completed_current_arm_exchange(&responder_authority);
                         }
                     }
                     EXPECT_EQ(report_arms,searched ? 1U : 0U);

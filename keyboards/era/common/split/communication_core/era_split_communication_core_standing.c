@@ -22,6 +22,7 @@
 #include "../era_split_wire_payload.h"
 #include "../era_split_wire_router.h"
 #include "../era_split_input.h"
+#include "../era_split_restart_agreement.h"
 
 
 #ifndef ERA_SPLIT_COMMUNICATION_CORE_STANDING_READ_RETRIES
@@ -93,6 +94,7 @@ static struct {
     uint8_t  sent_restart_act;
     uint8_t  sent_restart_param;
     uint32_t sent_restart_commit_ms;
+    uint32_t sent_restart_generation;
     uint8_t  sent_restart_valid;
     /* Which period the current deadline was armed under. The two differ by an
        order of magnitude, so carrying one across the edge either fires a beat
@@ -475,7 +477,8 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         (!g_era_split_communication_core_standing_private.sent_restart_valid ||
          g_era_split_communication_core_standing_private.sent_restart_act != plan.restart_act ||
          g_era_split_communication_core_standing_private.sent_restart_param != plan.restart_param ||
-         g_era_split_communication_core_standing_private.sent_restart_commit_ms != plan.restart_commit_ms)) {
+         g_era_split_communication_core_standing_private.sent_restart_commit_ms != plan.restart_commit_ms ||
+         g_era_split_communication_core_standing_private.sent_restart_generation != plan.restart_generation)) {
         if (era_split_wire_source_push_projected_len((uint8_t)(push_sections | ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)) <=
             ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN) {
             push_sections |= ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM;
@@ -750,6 +753,7 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         g_era_split_communication_core_standing_private.sent_restart_act       = plan.restart_act;
         g_era_split_communication_core_standing_private.sent_restart_param     = plan.restart_param;
         g_era_split_communication_core_standing_private.sent_restart_commit_ms = plan.restart_commit_ms;
+        g_era_split_communication_core_standing_private.sent_restart_generation = plan.restart_generation;
         g_era_split_communication_core_standing_private.sent_restart_valid     = 1;
         state.tx_section_count++;
     }
@@ -766,6 +770,31 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
      * on one check. */
     era_host_peer_transaction_result_t decoded;
     (void)era_host_peer_transaction_extract_sections(&response, &decoded);
+    /* A cached authority replay cannot retire or confirm a proposal. This
+       cold receipt moves once per semantic arm, including equal IDLE bodies.
+       The send's own response predates Core0 apply on the responder; require
+       a subsequent exchange. Responder snapshot freshness fences any still
+       queued restart apply from supplying its old authority on that exchange. */
+    if (decoded.host_source_authority_valid && plan.restart_generation != 0 &&
+        (plan.eligible_rsp_sections & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY) != 0 &&
+        (push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM) == 0 &&
+        g_era_split_communication_core_standing_private.sent_restart_valid &&
+        g_era_split_communication_core_standing_private.sent_restart_generation == plan.restart_generation &&
+        g_era_split_communication_core_standing_private.sent_restart_act == plan.restart_act &&
+        g_era_split_communication_core_standing_private.sent_restart_param == plan.restart_param &&
+        g_era_split_communication_core_standing_private.sent_restart_commit_ms == plan.restart_commit_ms) {
+        const era_split_wire_authority_section_t *authority = &decoded.host_source_authority;
+        bool idle = !authority->restart_armed ||
+                    (authority->restart_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+                     authority->restart_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED);
+        bool matches = plan.restart_act == ERA_SPLIT_RESTART_ACT_NONE ? idle :
+                       authority->restart_armed && authority->restart_act == plan.restart_act &&
+                       authority->restart_param == plan.restart_param;
+        if (matches && state.restart_receipt_generation != plan.restart_generation) {
+            state.restart_receipt_generation = plan.restart_generation;
+            notify = true;
+        }
+    }
     if (decoded.host_source_input_layer_valid &&
         (plan.eligible_rsp_sections & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_INPUT_LAYER) != 0 &&
         (!state.peer_input_layer_valid || state.peer_input_layer != decoded.host_source_input_layer)) {

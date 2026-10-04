@@ -30,6 +30,15 @@
 #    define ERA_SPLIT_RESPONDER_FIRST_BYTE_TIMEOUT_MS 60000U
 #endif
 
+/* Core1-private lifetime of authority captured before a queued restart apply.
+ * Core0's cold apply requests a new snapshot generation, even for ARM -> IDLE
+ * whose final body equals the old snapshot. Other response facts stay usable. */
+static struct {
+    uint16_t owner_epoch;
+    uint16_t relation_generation;
+    uint16_t snapshot_generation;
+} g_era_split_communication_core_responder_restart_fence;
+
 static bool era_split_communication_core_copy_responder_snapshot(era_split_communication_core_responder_snapshot_t *snapshot) {
     if (snapshot == NULL) {
         return false;
@@ -616,6 +625,26 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         return true;
     }
 
+    /* Retire the old lifetime as soon as a different published identity is
+       observed, rather than leaving a dormant 16-bit tuple to alias at wrap. */
+    if (snapshot.owner_epoch != g_era_split_communication_core_responder_restart_fence.owner_epoch ||
+        snapshot.relation_generation != g_era_split_communication_core_responder_restart_fence.relation_generation ||
+        snapshot.snapshot_generation != g_era_split_communication_core_responder_restart_fence.snapshot_generation) {
+        g_era_split_communication_core_responder_restart_fence.snapshot_generation = 0;
+    }
+    bool restart_fenced = result.peer_restart_valid ||
+        (snapshot.owner_epoch == g_era_split_communication_core_responder_restart_fence.owner_epoch &&
+         snapshot.relation_generation == g_era_split_communication_core_responder_restart_fence.relation_generation &&
+         snapshot.snapshot_generation == g_era_split_communication_core_responder_restart_fence.snapshot_generation);
+    if (restart_fenced) {
+        /* This is ownership freshness, not capacity deferral. The immutable
+           snapshot's restart vote predates work handed to Core0. An ordinary
+           ACK and the remaining current sections still supply wire liveness;
+           the actual section byte keeps omitted AUTHORITY's shadow pending. */
+        snapshot.response_section_mask &= (uint8_t)~ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY;
+        result.response_plan.send_authority = false;
+    }
+
     /* Reserve only for a response that will publish a result (Slice 11.7).
      *
      * The invariant is that a success response handing core0 work may not be
@@ -647,6 +676,11 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         return true;
     }
 
+    if (result.peer_restart_valid) {
+        g_era_split_communication_core_responder_restart_fence.owner_epoch = snapshot.owner_epoch;
+        g_era_split_communication_core_responder_restart_fence.relation_generation = snapshot.relation_generation;
+        g_era_split_communication_core_responder_restart_fence.snapshot_generation = snapshot.snapshot_generation;
+    }
     era_split_transaction_engine_commit_received_frame(frame);
     if (!era_split_communication_core_responder_send(owner_epoch, result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION, source_push, &snapshot, &result, flow_response)) {
         g_era_split_communication_core.responder_noack_count++;

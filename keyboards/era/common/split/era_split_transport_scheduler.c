@@ -274,6 +274,7 @@ static void era_split_transport_scheduler_build_standing_plan(era_split_communic
         uint8_t restart_act   = 0;
         uint8_t restart_param = 0;
         era_split_restart_agreement_arm_section(&restart_act, &restart_param, &plan->restart_commit_ms);
+        era_split_restart_agreement_restart_generation(&plan->restart_generation);
         plan->restart_act   = restart_act;
         plan->restart_param = restart_param;
     }
@@ -457,6 +458,7 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
            these fields, because a restart intent is not a session edge. Core1's
            edge is what makes reaching here mean something changed at all. */
         era_split_restart_agreement_note_peer_authority(&state.peer_authority);
+        era_split_restart_agreement_note_restart_receipt(state.restart_receipt_generation);
     }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE

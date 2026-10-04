@@ -12,6 +12,12 @@ owner quiesce/READY, snapshot publication, peer facts and the NOR device are
 fault-injection boundaries. The whole scheduler planner, PIO registers, USB
 stack and physical IRQ timing are not executed by this fixture.
 
+Fresh answers to a successfully transmitted current restart body are an
+explicit fixture receipt seam. Request authorities and cached/late authority
+injections use the raw cache API and cannot confirm a deadline. The complete
+production standing/responder receipt producer, equal-IDLE coalescing and
+snapshot freshness fence run in `tests/era_split_restart_endpoints`.
+
 Two endpoint snapshots hold independent singleton RAM and NVM engine states.
 Each NOR has independent bytes and mutation counters. Endpoint selection does
 not synchronize clocks or copy storage. The test explicitly selects each

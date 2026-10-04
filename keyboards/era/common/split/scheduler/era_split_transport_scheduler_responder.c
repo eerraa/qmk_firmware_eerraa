@@ -456,6 +456,9 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
         if (result->peer_restart_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM) != 0) {
             era_split_restart_agreement_note_peer_arm(result->peer_restart_act, result->peer_restart_param, result->peer_restart_commit_ms);
+            era_split_communication_core_refresh_responder_snapshot();
+            era_host_peer_transaction_force_responder_authority_response();
+            g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
         }
         if (result->peer_authority_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_AUTHORITY) != 0) {

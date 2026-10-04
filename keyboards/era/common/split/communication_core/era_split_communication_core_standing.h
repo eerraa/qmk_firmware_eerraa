@@ -113,6 +113,9 @@ typedef struct {
     uint8_t  restart_act;
     uint8_t  restart_param;
     uint32_t restart_commit_ms;
+    /* Local semantic identity. It forces even an equal IDLE across after a
+       rotation/timeout; it is never serialized into RESTART_ARM. */
+    uint32_t restart_generation;
 } era_split_communication_core_standing_plan_t;
 
 /* core1 -> core0. Latest-state and deliberately not a queue: core1 overwrites
@@ -122,6 +125,9 @@ typedef struct {
 typedef struct {
     uint16_t owner_epoch;
     uint16_t relation_generation;
+    /* Receipt for the current transmitted arm/IDLE and a subsequent fresh
+       decoded matching authority, independent of latest-state cache edges. */
+    uint32_t restart_receipt_generation;
     uint8_t  peer_input_layer;
     uint8_t  peer_input_layer_valid;
     /* The peer's authority, reported only when the decoded record differs from

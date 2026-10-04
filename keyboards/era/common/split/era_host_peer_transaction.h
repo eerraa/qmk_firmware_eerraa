@@ -178,6 +178,9 @@ void era_host_peer_transaction_get_time_anchor_refresh_diagnostics(int32_t *last
    its own passes and no HID event is produced here. */
 void era_host_peer_transaction_apply_activity(const era_split_wire_activity_section_t *activity);
 void era_host_peer_transaction_force_responder_lock_state_response(void);
+/* A restart body actually applied on Core0 invalidates only this reply's vote
+ * shadow. Even an equal final IDLE must be published after queued ARM/IDLE. */
+void era_host_peer_transaction_force_responder_authority_response(void);
 /* The relation rotation drops every edge-armed send-shadow this unit owns but
    the lock's -- seven of the eight. They are one call because they rotate for
    one reason -- the peer clears what it holds -- and separating them once

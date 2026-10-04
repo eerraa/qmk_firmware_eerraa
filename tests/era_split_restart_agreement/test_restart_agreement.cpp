@@ -70,6 +70,24 @@ era_split_wire_authority_section_t local_authority() {
     return authority;
 }
 
+// Algorithm cases inject a completed current-body transport receipt explicitly.
+// The dedicated two-endpoint pipeline suite verifies its real production owner.
+void receive_current_peer_authority(const era_split_wire_authority_section_t *authority) {
+    era_split_restart_agreement_note_peer_authority(authority);
+    const ArmBody body = arm_body();
+    const bool idle = !authority->restart_armed ||
+                      (authority->restart_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
+                       authority->restart_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED);
+    const bool matching = body.act == ERA_SPLIT_RESTART_ACT_NONE ? idle :
+                          authority->restart_armed && authority->restart_act == body.act &&
+                          authority->restart_param == body.param;
+    if (matching) {
+        uint32_t generation;
+        era_split_restart_agreement_restart_generation(&generation);
+        era_split_restart_agreement_note_restart_receipt(generation);
+    }
+}
+
 void expect_idle_arm() {
     const ArmBody arm = arm_body();
     EXPECT_EQ(arm.act, ERA_SPLIT_RESTART_ACT_NONE);
@@ -467,7 +485,7 @@ TEST_F(EraSplitRestartAgreement, InitiatorNeedsBothPreparedVotesAndCommitEchoBef
     EXPECT_EQ(g_reset_count, 0U);
 
     auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     arm = arm_body();
     ASSERT_EQ(arm.act, ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN);
@@ -476,7 +494,7 @@ TEST_F(EraSplitRestartAgreement, InitiatorNeedsBothPreparedVotesAndCommitEchoBef
     EXPECT_EQ(g_reset_count, 0U);
 
     auto peer_commit = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
 
     set_time(arm.commit_ms - 1U);
     era_split_restart_agreement_task();
@@ -606,13 +624,13 @@ TEST_F(EraSplitRestartAgreement, RelationRotationRollsPreparedStateForward) {
     ASSERT_EQ(g_prepare_count, 1U);
 
     auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_note_relation_rotation();
     expect_idle_arm();
     EXPECT_TRUE(era_split_restart_agreement_storage_quarantined());
 
     era_split_restart_agreement_note_relation(true, true, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
 
     const ArmBody arm = arm_body();
@@ -677,7 +695,7 @@ TEST_F(EraSplitRestartAgreement, LostCommitEchoDisarmsBeforeAFreshPreparedRearms
     select_and_prepare_initiator_clean();
 
     const auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     const ArmBody first_commit = arm_body();
     ASSERT_EQ(first_commit.param, ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT);
@@ -688,7 +706,7 @@ TEST_F(EraSplitRestartAgreement, LostCommitEchoDisarmsBeforeAFreshPreparedRearms
     expect_idle_arm();
     EXPECT_EQ(g_reset_count, 0U);
 
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     const ArmBody second_commit = arm_body();
     EXPECT_EQ(second_commit.act, ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN);
@@ -703,7 +721,7 @@ TEST_F(EraSplitRestartAgreement, LostCleanCommitEchoAcrossRelationRotationDisarm
     select_and_prepare_initiator_clean();
 
     const auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     const ArmBody first_commit = arm_body();
     ASSERT_EQ(first_commit.act, ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN);
@@ -736,14 +754,14 @@ TEST_F(EraSplitRestartAgreement, LostCleanCommitEchoAcrossRelationRotationDisarm
     EXPECT_EQ(disarm.commit_ms, 0U);
 
     const auto stale_commit = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true);
-    era_split_restart_agreement_note_peer_authority(&stale_commit);
+    receive_current_peer_authority(&stale_commit);
     era_split_restart_agreement_task();
     expect_idle_arm();
     EXPECT_FALSE(era_split_restart_agreement_commit_agreed());
     EXPECT_EQ(g_reset_count, 0U);
 
     advance_time(10U);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     const ArmBody second_commit = arm_body();
     ASSERT_EQ(second_commit.act, ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN);
@@ -752,7 +770,7 @@ TEST_F(EraSplitRestartAgreement, LostCleanCommitEchoAcrossRelationRotationDisarm
     EXPECT_EQ(g_prepare_count, 1U);
 
     const auto peer_commit = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
     EXPECT_TRUE(era_split_restart_agreement_commit_agreed());
 
     set_time(first_commit.commit_ms);
@@ -769,14 +787,14 @@ TEST_F(EraSplitRestartAgreement, DuplicateCommitEchoIsIdempotent) {
     select_and_prepare_initiator_clean();
 
     const auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     const ArmBody commit = arm_body();
     ASSERT_EQ(commit.param, ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT);
 
     const auto peer_commit = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
     EXPECT_TRUE(era_split_restart_agreement_commit_agreed());
     EXPECT_EQ(local_authority().restart_param, ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT);
 
@@ -850,7 +868,7 @@ TEST_F(EraSplitRestartAgreement, StandaloneCleanPromotesToInitiatorAgreementIfRe
     ASSERT_EQ(arm.commit_ms, 0U);
 
     const auto peer_prepared = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED, true);
-    era_split_restart_agreement_note_peer_authority(&peer_prepared);
+    receive_current_peer_authority(&peer_prepared);
     era_split_restart_agreement_task();
     arm = arm_body();
     ASSERT_EQ(arm.param, ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT);
@@ -858,7 +876,7 @@ TEST_F(EraSplitRestartAgreement, StandaloneCleanPromotesToInitiatorAgreementIfRe
     EXPECT_EQ(g_reset_count, 0U);
 
     const auto peer_commit = clean_authority(ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, true);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
     set_time(arm.commit_ms);
     era_split_restart_agreement_task();
     EXPECT_EQ(g_reset_count, 1U);
@@ -1008,7 +1026,7 @@ TEST_F(EraSplitRestartAgreement, LinkSpeedServicedHandshakeCommitsOnlyAfterMatch
     EXPECT_FALSE(era_split_restart_agreement_commit_agreed());
 
     const auto peer_commit = link_authority(2, true);
-    era_split_restart_agreement_note_peer_authority(&peer_commit);
+    receive_current_peer_authority(&peer_commit);
     EXPECT_TRUE(era_split_restart_agreement_commit_agreed());
     const auto authority = local_authority();
     EXPECT_EQ(authority.restart_act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
@@ -1207,7 +1225,7 @@ TEST_F(EraSplitRestartAgreement, PeerArmConsumesLocalRequestBeforeItsFirstTask) 
 TEST_F(EraSplitRestartAgreement, UnansweredPeerRequestWaitsForIdleBeforeAnotherArm) {
     era_split_restart_agreement_note_relation(true, true, true);
     auto peer = link_authority(1, false);
-    era_split_restart_agreement_note_peer_authority(&peer);
+    receive_current_peer_authority(&peer);
     era_split_restart_agreement_task();
     ASSERT_EQ(arm_body().act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
     advance_time(ERA_SPLIT_RESTART_ARM_TIMEOUT_MS);
@@ -1215,9 +1233,9 @@ TEST_F(EraSplitRestartAgreement, UnansweredPeerRequestWaitsForIdleBeforeAnotherA
     era_split_restart_agreement_task();
     expect_idle_arm();
     peer = {};
-    era_split_restart_agreement_note_peer_authority(&peer);
+    receive_current_peer_authority(&peer);
     peer = link_authority(1, false);
-    era_split_restart_agreement_note_peer_authority(&peer);
+    receive_current_peer_authority(&peer);
     era_split_restart_agreement_task();
     EXPECT_EQ(arm_body().act, ERA_SPLIT_RESTART_ACT_LINK_SPEED);
 }

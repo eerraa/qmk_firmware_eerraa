@@ -49,6 +49,12 @@ static bool                              g_era_host_peer_transaction_responder_s
 static uint8_t                           g_era_host_peer_transaction_responder_storage_news_sent;
 static uint32_t                          g_era_host_peer_transaction_responder_storage_news_sent_ms;
 
+void era_host_peer_transaction_force_responder_authority_response(void) {
+    ATOMIC_BLOCK_RESTORESTATE {
+        g_era_host_peer_transaction_responder_authority_sent_valid = false;
+    }
+}
+
 static bool era_host_peer_transaction_visual_baseline_equal(const uint8_t lhs[ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES], const uint8_t rhs[ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES]) {
     for (uint8_t index = 0; index < ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES; index++) {
         if (lhs[index] != rhs[index]) {

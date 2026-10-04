@@ -165,6 +165,9 @@ typedef struct {
 } era_split_communication_core_responder_coalesced_counts_t;
 
 bool era_split_communication_core_publish_responder_snapshot(const era_split_communication_core_responder_snapshot_t *snapshot);
+/* Cold Core0 restart-apply receipt: the next safe publish must acquire a new
+ * generation even when a drained ARM -> IDLE leaves the same final bytes. */
+void era_split_communication_core_refresh_responder_snapshot(void);
 bool era_split_communication_core_responder_result_ready(void);
 bool era_split_communication_core_drain_responder_result(era_split_communication_core_responder_result_t *result);
 bool era_split_communication_core_responder_result_matches_current(const era_split_communication_core_responder_result_t *result);
