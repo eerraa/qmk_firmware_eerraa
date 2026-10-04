@@ -22,6 +22,20 @@ static uint32_t session = 1;
 static bool connected = true, sleeping, pressure;
 static unsigned reads, raw_replies;
 static std::array<uint8_t,32> raw_reply;
+static constexpr uint8_t mouse_directions[] = {MS_UP, MS_DOWN, MS_LEFT, MS_RGHT, MS_WHLU, MS_WHLD, MS_WHLL, MS_WHLR};
+static uint8_t mouse_opposite(uint8_t code) {
+    for (unsigned i = 0; i < sizeof(mouse_directions); ++i) {
+        if (mouse_directions[i] == code) return mouse_directions[i ^ 1];
+    }
+    return KC_NO;
+}
+static int16_t mouse_axis(uint8_t code) {
+    const auto report = mousekey_get_report();
+    if (code == MS_UP || code == MS_DOWN) return report.y;
+    if (code == MS_LEFT || code == MS_RGHT) return report.x;
+    if (code == MS_WHLU || code == MS_WHLD) return report.v;
+    return report.h;
+}
 extern "C" {
 void raw_hid_send(uint8_t *data,uint8_t length) { ++raw_replies; std::copy_n(data,length,raw_reply.begin()); }
 uint16_t nvm_dynamic_keymap_read_keycode(uint8_t,uint8_t,uint8_t) { return KC_NO; }
@@ -176,6 +190,176 @@ TEST_F(EraMacro, AuxiliaryReleaseRestoresOtherOwners) {
     EXPECT_TRUE(mousekey_get_report().buttons & 1);
     era_macro_cancel();EXPECT_TRUE(mousekey_get_report().buttons & 1);
     unregister_code(KC_VOLU);unregister_code(KC_SYSTEM_SLEEP);unregister_code(MS_BTN1);
+}
+
+TEST_F(EraMacro, MouseOppositePhysicalDirectionSurvivesMacroCancel) {
+    KeymapKey left(0, 0, 0, MS_LEFT);
+    set_keymap({left});
+    left.press();
+    run_one_scan_loop();
+    ASSERT_LT(mouse_axis(MS_LEFT), 0);
+    load({SS_QMK_PREFIX, SS_DOWN_CODE, MS_RGHT, SS_QMK_PREFIX, SS_DELAY_CODE, '9', '9', '9', '9', '|', 0});
+    dynamic_keymap_macro_send(0);
+    step();
+    ASSERT_GT(mouse_axis(MS_LEFT), 0);
+    era_macro_cancel();
+    EXPECT_LT(mouse_axis(MS_LEFT), 0);
+    run_one_scan_loop();
+    EXPECT_LT(mouse_axis(MS_LEFT), 0);
+    left.release();
+    run_one_scan_loop();
+    EXPECT_EQ(mouse_axis(MS_LEFT), 0);
+}
+
+TEST_F(EraMacro, MouseOpposedDirectionsRestoreOnMacroUpAndCancel) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        register_code(held_code);
+        const auto held_value = mouse_axis(held_code);
+        const auto displaced = mouse_opposite(held_code);
+        ASSERT_NE(held_value, 0);
+        load({SS_QMK_PREFIX, SS_DOWN_CODE, displaced, SS_QMK_PREFIX, SS_UP_CODE, displaced, 0});
+        dynamic_keymap_macro_send(0);
+        step(3);
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        era_macro_cancel();
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        load({SS_QMK_PREFIX, SS_DOWN_CODE, displaced, SS_QMK_PREFIX, SS_DELAY_CODE, '9', '9', '9', '9', '|', 0});
+        dynamic_keymap_macro_send(0);
+        step();
+        EXPECT_EQ(mouse_axis(held_code), -held_value);
+        era_macro_cancel();
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        unregister_code(held_code);
+        EXPECT_EQ(mouse_axis(held_code), 0);
+    }
+}
+
+TEST_F(EraMacro, MouseTemporaryOppositeTapPreservesPersistentDirection) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        load({SS_QMK_PREFIX, SS_DOWN_CODE, held_code, SS_QMK_PREFIX, SS_TAP_CODE, mouse_opposite(held_code), 0});
+        dynamic_keymap_macro_send(0);
+        step(3);
+        const bool positive = held_code == MS_DOWN || held_code == MS_RGHT || held_code == MS_WHLU || held_code == MS_WHLR;
+        EXPECT_EQ(mouse_axis(held_code) > 0, positive);
+        EXPECT_NE(mouse_axis(held_code), 0);
+        era_macro_cancel();
+        EXPECT_EQ(mouse_axis(held_code), 0);
+    }
+}
+
+TEST_F(EraMacro, MouseRegularReleaseRestoresScopedOpposite) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        const auto previous = action_output_set_owner(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        register_code(held_code);
+        const auto held_value = mouse_axis(held_code);
+        action_output_set_owner(previous);
+        register_code(mouse_opposite(held_code));
+        ASSERT_EQ(mouse_axis(held_code), -held_value);
+        unregister_code(mouse_opposite(held_code));
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        action_output_clear_owner_hid(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        EXPECT_EQ(mouse_axis(held_code), 0);
+    }
+}
+
+TEST_F(EraMacro, MouseHiddenAndSameCodeOwnerReleasesPreserveWinner) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        const auto previous = action_output_set_owner(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        register_code(held_code);
+        action_output_set_owner(previous);
+        register_code(mouse_opposite(held_code));
+        const auto winner = mouse_axis(held_code);
+        action_output_clear_owner_hid(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        EXPECT_EQ(mouse_axis(held_code), winner); // Releasing a hidden direction leaves the winner.
+        unregister_code(mouse_opposite(held_code));
+        EXPECT_EQ(mouse_axis(held_code), 0);
+
+        register_code(held_code);
+        const auto held_value = mouse_axis(held_code);
+        action_output_set_owner(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        register_code(mouse_opposite(held_code));
+        action_output_set_owner(ACTION_OUTPUT_OWNER_MACRO_TAP);
+        register_code(mouse_opposite(held_code));
+        action_output_set_owner(previous);
+        action_output_clear_owner_hid(ACTION_OUTPUT_OWNER_MACRO_HOLD);
+        EXPECT_EQ(mouse_axis(held_code), -held_value); // The second owner still holds the winning code.
+        action_output_clear_owner_hid(ACTION_OUTPUT_OWNER_MACRO_TAP);
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        unregister_code(held_code);
+        EXPECT_EQ(mouse_axis(held_code), 0);
+    }
+}
+
+TEST_F(EraMacro, MouseOrdinaryOpposedDirectionsKeepQmkReleaseSemantics) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        register_code(held_code);
+        const auto held_value = mouse_axis(held_code);
+        register_code(mouse_opposite(held_code));
+        ASSERT_EQ(mouse_axis(held_code), -held_value);
+        unregister_code(mouse_opposite(held_code));
+        EXPECT_EQ(mouse_axis(held_code), 0);
+        unregister_code(held_code);
+    }
+}
+
+#ifdef ERA_TAP_DANCE_ENABLE
+TEST_F(EraMacro, MouseOppositeScopedProducerSurvivesMacroCancel) {
+    for (uint8_t held_code : mouse_directions) {
+        SCOPED_TRACE(held_code);
+        const auto previous = action_output_set_owner(0);
+        register_code(held_code);
+        const auto held_value = mouse_axis(held_code);
+        action_output_set_owner(previous);
+        load({SS_QMK_PREFIX, SS_DOWN_CODE, mouse_opposite(held_code), SS_QMK_PREFIX, SS_DELAY_CODE, '9', '9', '9', '9', '|', 0});
+        dynamic_keymap_macro_send(0);
+        step();
+        ASSERT_EQ(mouse_axis(held_code), -held_value);
+        era_macro_cancel();
+        EXPECT_EQ(mouse_axis(held_code), held_value);
+        action_output_clear_owner_hid(0);
+        EXPECT_EQ(mouse_axis(held_code), 0);
+    }
+}
+#endif
+
+TEST_F(EraMacro, MouseOppositeCancelPreservesOtherAxesButtonsAndAcceleration) {
+    report_mouse_t emitted{};
+    ON_CALL(driver, send_mouse_mock(_)).WillByDefault([&emitted](report_mouse_t &report) { emitted = report; });
+    register_code(MS_ACL1);
+    for (uint8_t code : {MS_LEFT, MS_UP, MS_WHLU, MS_WHLL, MS_BTN1}) register_code(code);
+    set_time(1001);
+    mousekey_task();
+    const auto baseline = emitted;
+    const auto projection = mousekey_get_report();
+    ASSERT_LT(baseline.x, 0);
+    load({SS_QMK_PREFIX, SS_DOWN_CODE, MS_RGHT, SS_QMK_PREFIX, SS_DOWN_CODE, MS_ACL2,
+          SS_QMK_PREFIX, SS_DELAY_CODE, '9', '9', '9', '9', '|', 0});
+    dynamic_keymap_macro_send(0);
+    step();
+    era_macro_cancel();
+    const auto restored = mousekey_get_report();
+    EXPECT_LT(restored.x, 0);
+    EXPECT_EQ(restored.y, projection.y);
+    EXPECT_EQ(restored.v, projection.v);
+    EXPECT_EQ(restored.h, projection.h);
+    EXPECT_EQ(restored.buttons, projection.buttons);
+    EXPECT_EQ(emitted.x, 0); // The final auxiliary replay is buttons-only.
+    EXPECT_EQ(emitted.y, 0);
+    EXPECT_EQ(emitted.v, 0);
+    EXPECT_EQ(emitted.h, 0);
+    EXPECT_EQ(emitted.buttons, 1);
+    set_time(2001);
+    mousekey_task();
+    EXPECT_EQ(emitted.x, baseline.x);
+    EXPECT_EQ(emitted.y, baseline.y);
+    EXPECT_EQ(emitted.v, baseline.v);
+    EXPECT_EQ(emitted.h, baseline.h);
+    for (uint8_t code : {MS_LEFT, MS_UP, MS_WHLU, MS_WHLL, MS_BTN1, MS_ACL1}) unregister_code(code);
 }
 
 TEST_F(EraMacro, PendingIdsSnapshotLatestValidImageOnlyWhenStarted) {

@@ -60,7 +60,9 @@ void action_output_clear_regular(void);
 
 #define ACTION_OUTPUT_USAGE_SYSTEM 0
 #define ACTION_OUTPUT_USAGE_CONSUMER 1
-/* Return whether this edge may reach the single mouse/EXTRA output state. */
+/* Return whether this edge may reach the single mouse/EXTRA output state.
+ * Mouse release restores a surviving opposed direction before the engine
+ * retires its displaced code, preserving the live gesture's acceleration. */
 bool action_output_mouse_update(uint8_t code, bool pressed);
 bool action_output_usage_update(uint8_t page, uint16_t usage, uint16_t current, bool pressed);
 #ifdef ERA_MACRO_ENABLE

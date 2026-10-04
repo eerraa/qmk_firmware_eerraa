@@ -226,6 +226,11 @@ extern uint8_t mk_wheel_delta;
 void           mousekey_task(void);
 void           mousekey_on(uint8_t code);
 void           mousekey_off(uint8_t code);
+#if defined(ERA_TAP_DANCE_ENABLE) || defined(ERA_MACRO_ENABLE)
+/* Restore surviving direction intent before the displaced code is released.
+ * Preserve the gesture's acceleration and cadence; never resend a packet. */
+void           mousekey_restore_direction(uint8_t code);
+#endif
 void           mousekey_clear(void);
 void           mousekey_send(void);
 report_mouse_t mousekey_get_report(void);

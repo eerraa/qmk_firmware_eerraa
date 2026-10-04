@@ -709,6 +709,33 @@ void mousekey_off(uint8_t code) {
 
 #endif /* #ifndef MK_3_SPEED */
 
+#if defined(ERA_TAP_DANCE_ENABLE) || defined(ERA_MACRO_ENABLE)
+void mousekey_restore_direction(uint8_t code) {
+    /* This is a continuation, not a new press. Touch only the affected axis,
+     * keeping repeat counters, start times, acceleration and other axes. */
+#    if defined(MOUSEKEY_INERTIA) && !defined(MK_3_SPEED)
+    if (code == QK_MOUSE_CURSOR_UP || code == QK_MOUSE_CURSOR_DOWN) {
+        const int8_t direction = code == QK_MOUSE_CURSOR_UP ? -1 : 1;
+        if (mousekey_y_dir == -direction) {
+            mousekey_y_dir = direction;
+            if (mousekey_frame < 2) mouse_report.y = move_unit(1);
+        }
+    } else if (code == QK_MOUSE_CURSOR_LEFT || code == QK_MOUSE_CURSOR_RIGHT) {
+        const int8_t direction = code == QK_MOUSE_CURSOR_LEFT ? -1 : 1;
+        if (mousekey_x_dir == -direction) {
+            mousekey_x_dir = direction;
+            if (mousekey_frame < 2) mouse_report.x = move_unit(0);
+        }
+    }
+#    else
+    if ((code == QK_MOUSE_CURSOR_UP && mouse_report.y > 0) || (code == QK_MOUSE_CURSOR_DOWN && mouse_report.y < 0)) mouse_report.y = -mouse_report.y;
+    if ((code == QK_MOUSE_CURSOR_LEFT && mouse_report.x > 0) || (code == QK_MOUSE_CURSOR_RIGHT && mouse_report.x < 0)) mouse_report.x = -mouse_report.x;
+#    endif
+    if ((code == QK_MOUSE_WHEEL_UP && mouse_report.v < 0) || (code == QK_MOUSE_WHEEL_DOWN && mouse_report.v > 0)) mouse_report.v = -mouse_report.v;
+    if ((code == QK_MOUSE_WHEEL_LEFT && mouse_report.h > 0) || (code == QK_MOUSE_WHEEL_RIGHT && mouse_report.h < 0)) mouse_report.h = -mouse_report.h;
+}
+#endif
+
 void mousekey_send(void) {
     mousekey_debug();
     uint16_t time = timer_read();

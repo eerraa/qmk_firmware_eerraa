@@ -150,7 +150,21 @@ bool action_output_mouse_update(uint8_t code, bool pressed) {
     } else {
         regular_mouse = pressed ? regular_mouse | bit : regular_mouse & ~bit;
     }
-    return pressed || (!output_mouse_counts[i] && !(regular_mouse & bit));
+    if (pressed) return true;
+    if (output_mouse_counts[i] || (regular_mouse & bit)) return false;
+#    ifdef MOUSEKEY_ENABLE
+    if (IS_MOUSEKEY_MOVE(code) || IS_MOUSEKEY_WHEEL(code)) {
+        /* Direction pairs are adjacent in the QMK keycode range. Restore only
+         * an axis with a scoped participant; ordinary QMK keeps its release
+         * semantics. Do this before mousekey_off can end the live gesture. */
+        const uint8_t  opposite = i ^ 1;
+        const uint32_t other    = 1UL << opposite;
+        if ((output_owner < ACTION_OUTPUT_OWNERS || output_mouse_counts[opposite]) && (output_mouse_counts[opposite] || (regular_mouse & other))) {
+            mousekey_restore_direction((uint8_t)(QK_MOUSE_CURSOR_UP + opposite));
+        }
+    }
+#    endif
+    return true;
 }
 
 /* Scanned only while some synthetic owner holds a usage on this page. */

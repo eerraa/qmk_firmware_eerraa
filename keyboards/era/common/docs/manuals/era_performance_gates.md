@@ -87,6 +87,13 @@ against unchanged objects and counts only when it compiles and its named
 runtime assertion then fails. They prove host behaviour, not GPIO timing, board
 geometry or an `era-build` gate.
 
+An opposed mouse ownership change also runs
+`python3 tests/era_macro/mouse_ownership_selftest.py` after the native
+`era_macro` target. The Python discovery above exercises the complete mouse
+engine's direction restoration and its acceleration/clock boundaries; the
+ownership control removes the production restoration call from an isolated
+object and requires the physical-input regression to fail at runtime.
+
 ### Cooperative macro device gate
 
 Use the manifest-selected VIA standard image, NKRO off and on. During a
