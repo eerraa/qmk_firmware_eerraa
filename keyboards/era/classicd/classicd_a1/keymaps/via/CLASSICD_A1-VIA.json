@@ -13,7 +13,7 @@
     { "name": "TD6", "title": "Tap Dance 6", "shortName": "TD6" },
     { "name": "TD7", "title": "Tap Dance 7", "shortName": "TD7" }
   ],
-  "keycodes": ["qmk_lighting"],
+  "keycodes": ["qmk_backlight_keycodes"],
   "menus": [
     {
       "label": "Lighting",
