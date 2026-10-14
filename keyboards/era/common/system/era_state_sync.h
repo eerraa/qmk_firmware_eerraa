@@ -6,9 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* GET_KEYBOARD_VALUE (0x02) selector. Collision audit: 0x01-0x04 GET, 0x05 SET
-   only, 0x06 unused in this tree. G1 approved 2026-08-21. */
-#define ERA_STATE_SYNC_KEYBOARD_VALUE 0x06U
+/* Private GET_KEYBOARD_VALUE (0x02) selector; upstream 0x06 is keycodes version. */
+#define ERA_STATE_SYNC_KEYBOARD_VALUE 0x80U
 #define ERA_STATE_SYNC_ENVELOPE_VERSION 0x01U
 #define ERA_STATE_SYNC_STATUS_OK 0x00U
 #define ERA_STATE_SYNC_STATUS_UNSUPPORTED_VERSION 0x01U

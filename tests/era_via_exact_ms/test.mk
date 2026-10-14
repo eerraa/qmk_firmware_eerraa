@@ -1,7 +1,7 @@
 # Copyright 2026 Hyojin Bak (@eerraa)
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Host proof of exact-ms VIA get/set, GET_KEYBOARD_VALUE 0x06, and the system
+# Host proof of exact-ms VIA get/set, GET_KEYBOARD_VALUE 0x80, and the system
 # Jump-to-BOOT terminal lifecycle against the shipped ERA tapping / tap-dance,
 # State Sync and VIA system units. Production ERA NVM/QMK integration is covered
 # by tests/era_nvm_qmk_driver.

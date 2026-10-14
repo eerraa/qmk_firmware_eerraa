@@ -163,7 +163,7 @@ static bool era_via_system_boot_fallback_due(void) {
 /* QMK declares this hook nowhere: via.c defines it weak and calls it at the top
  * of raw_hid_receive() for every report, taking `true` as "fully handled,
  * response already sent". This override stamps the arrival and fully handles
- * only GET_KEYBOARD_VALUE selector 0x06 (state-sync revisions). Every other
+ * only GET_KEYBOARD_VALUE selector 0x80 (state-sync revisions). Every other
  * report returns false so the VIA dispatcher keeps ownership.
  *
  * "Raw HID" is exact. The stamp is taken in via_command_kb(), the first call

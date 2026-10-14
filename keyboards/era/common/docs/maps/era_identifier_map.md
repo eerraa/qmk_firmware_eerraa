@@ -46,6 +46,7 @@ Cross-build non-reuse and the unresolved mode 5/6 question are owned by
 
 | Responsibility | First source file / symbol | Contract / check |
 | --- | --- | --- |
+| upstream keycodes-version selector | `quantum/via.h` — `id_keycodes_version`; `quantum/keycodes.h` — `QMK_KEYCODES_VERSION_BCD` | upstream VIA protocol; `tests/era_persistence_failures/` |
 | State Sync polling selector | `system/era_state_sync.h` — `ERA_STATE_SYNC_KEYBOARD_VALUE` | `contracts/era_host_peer_storage_contract.md`; `tests/era_via_exact_ms/` |
 
 ## VIA Feature Channels

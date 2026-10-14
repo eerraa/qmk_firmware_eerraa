@@ -49,12 +49,11 @@ write('stub/quantum.h',r'''
 #include <stdbool.h>
 #include <stddef.h>
 #include "eeprom.h"
+#include "quantum/keycodes.h"
 typedef struct { struct { bool pressed; uint32_t time; } event; } keyrecord_t;
 typedef struct { uint8_t count; } tap_dance_state_t;
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define MAX(a,b) ((a)>(b)?(a):(b))
-#define KC_NO 0
-#define KC_TRANSPARENT 1
 uint16_t timer_read(void);
 uint16_t timer_elapsed(uint16_t t);
 uint32_t timer_read32(void);
@@ -196,6 +195,7 @@ tapdance_timing.version=1; tapdance_timing.signature=ERA_TAP_DANCE_TIMING_SIGNAT
 write('td_owner.c',tdunit)
 
 RAW='quantum/via.c'
+record('quantum/keycodes.h', mode='direct header include')
 rawunit='''#include <stdint.h>
 #include <stdbool.h>
 #include "quantum.h"
@@ -335,6 +335,18 @@ int main(int argc,char **argv) {
     }
     return 0;
   }
+  fresh();
+  cmd(0x01,0,0,0,0);
+  assert(response[0]==0x01 && response[1]==0x00 && response[2]==0x0D);
+  cmd(0x02,0x06,0,0,0);
+  assert(response[0]==0x02 && response[1]==0x06);
+  assert(response[2]==0x00 && response[3]==0x00 && response[4]==0x00 && response[5]==0x08);
+  cmd(0x02,0x80,0x01,0,0xAB);
+  assert(response[0]==0x02 && response[1]==0x80 && response[2]==0x01 && response[3]==0x00);
+  assert(response[4]==0xAB && response[5]==0x00 && response[6]==0x07 && response[7]==0x00);
+  for(unsigned i=8;i<20;i++) assert(response[i]==((i%4)==3 ? 1 : 0));
+  for(unsigned i=20;i<32;i++) assert(response[i]==0);
+  puts("PASS VIA protocol 13: core keycodes version 0x06 and ERA State Sync 0x80");
   fresh();fixture_td_defaults();era_tapdance_save_config();assert(eeprom_persistence_ok());
   era_state_sync_set_revisions_for_testing(1,1,1);
   uint16_t durable=eeprom_read_word((const uint16_t *)(ERA_EEPROM_CONFIG_ADDR+8));

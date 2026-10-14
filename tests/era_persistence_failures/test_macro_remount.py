@@ -54,12 +54,11 @@ def build(out, geometry, mutation=None):
     write('stub/util.h', '#pragma once\n#define PACKED __attribute__((packed))\n')
     write('stub/eeprom.h', '#pragma once\n#include "platforms/eeprom.h"\n')
     write('stub/compiler_support.h', '#pragma once\n#define STATIC_ASSERT _Static_assert\n#define PACKED __attribute__((packed))\n')
-    write('stub/keycodes.h', '#pragma once\n#define KC_NO 0\n')
     write('stub/keycode_config.h', '#pragma once\n#include <stdint.h>\ntypedef struct { uint16_t raw; } keymap_config_t;\n')
     write('stub/eeconfig.h', '#pragma once\n#include "quantum.h"\n#define EECONFIG_KB_DATA_SIZE 0\n#define EECONFIG_USER_DATA_SIZE 0\n')
     write('stub/raw_hid.h', '#pragma once\n#include <stdint.h>\nvoid raw_hid_send(uint8_t *,uint8_t);\n')
     write('stub/matrix.h', '#pragma once\n#include <stdint.h>\ntypedef uint16_t matrix_row_t;\n')
-    for path in ['quantum/via.h', 'quantum/dynamic_keymap.h']:
+    for path in ['quantum/via.h', 'quantum/dynamic_keymap.h', 'quantum/keycodes.h']:
         raw = (ROOT / path).read_bytes()
         (stub / Path(path).name).write_bytes(raw)
         receipts.append(dict(path=path, sha256=hashlib.sha256(raw).hexdigest(), scope='exact production header copy'))
@@ -70,7 +69,7 @@ def build(out, geometry, mutation=None):
     for function in 'dynamic_keymap_get_layer_count dynamic_keymap_get_keycode dynamic_keymap_set_keycode dynamic_keymap_reset dynamic_keymap_get_buffer dynamic_keymap_set_buffer dynamic_keymap_macro_get_count dynamic_keymap_macro_get_buffer_size dynamic_keymap_macro_get_buffer dynamic_keymap_macro_set_buffer dynamic_keymap_macro_reset'.split():
         dynamic += extract(ROOT / 'quantum/dynamic_keymap.c', function, receipts)
     write('dynamic-owner.inc', dynamic)
-    via = '#include "keyboards/era/common/storage/era_via_magic.h"\n'
+    via = '#include "keycodes.h"\n#include "keyboards/era/common/storage/era_via_magic.h"\n'
     for function in 'via_eeprom_is_valid via_eeprom_set_valid via_get_layout_options via_set_layout_options_kb via_set_layout_options via_custom_value_command raw_hid_receive'.split():
         via += extract(ROOT / 'quantum/via.c', function, receipts)
     write('via-owner.inc', via)

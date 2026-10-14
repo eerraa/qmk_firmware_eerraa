@@ -3,7 +3,7 @@
 Genre: contract
 Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the seven-domain
 cross-half storage protocol, replacement Apply, dynamic-macro durability, the
-`GET_KEYBOARD_VALUE` `0x06` State Sync envelope, EEPROM CLEAN, storage
+`GET_KEYBOARD_VALUE` `0x80` State Sync envelope, EEPROM CLEAN, storage
 arbitration and recovery
 
 ## Scope And Authority
@@ -504,24 +504,25 @@ surface, not an H7S implementation plan. The source owner is
 `system/era_state_sync.[ch]`, compiled only under `VIA_ENABLE`.
 
 The envelope reuses `id_get_keyboard_value` `0x02` with
-`ERA_STATE_SYNC_KEYBOARD_VALUE` `0x06`; SET selector `0x06` remains unclaimed.
+`ERA_STATE_SYNC_KEYBOARD_VALUE` `0x80`; SET selector `0x80` remains unclaimed.
 `ERA_STATE_SYNC_ENVELOPE_VERSION` is `0x01`. No new command id, report,
 transaction id, capability bit, or `BUSY` status is added.
-`VIA_PROTOCOL_VERSION` remains `0x000C` and is a separate protocol version. A
+`VIA_PROTOCOL_VERSION` is `0x000D` and is a separate protocol version. A
 handled envelope is 32 bytes and reports RAM revisions only; the GET path does
 not read EEPROM, CRC, or NVM.
 
-QMK VIA protocol 13 (QMK release 2026-05-31) gives `id_get_keyboard_value`
-`0x06` to `id_keycodes_version`, which official VIA reads from protocol-13
-boards before remapping. `via_command_kb` runs before the QMK core, so this
-envelope would shadow it. Keep `0x000C` until the envelope moves to a new
-selector together with the app
-(`the-via-eerraa/docs/adr/0001-state-sync-protocol.md`); a QMK merge that
-brings protocol 13 must not land before that. Shipped firmware keeps `0x06`.
+QMK VIA protocol 13 gives `id_get_keyboard_value` `0x06` to
+`id_keycodes_version`, which official VIA reads before remapping.
+`via_command_kb` runs before the QMK core and must leave this selector
+unhandled so the core returns `QMK_KEYCODES_VERSION_BCD` as BE32.
+State Sync consumers must use `0x80`; the former `0x06` State Sync request
+is no longer supported. The consumer compatibility boundary is
+`the-via-eerraa/docs/adr/0001-state-sync-protocol.md`; no legacy alias may
+shadow the core keycodes-version response.
 
 ### Envelope v1
 
-`id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x06`) +
+`id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x80`) +
 `ERA_STATE_SYNC_ENVELOPE_VERSION` (`0x01`). Integers on the wire are big-endian.
 
 Request (`system/era_state_sync.c`; names in `system/era_state_sync.h`):
@@ -529,7 +530,7 @@ Request (`system/era_state_sync.c`; names in `system/era_state_sync.h`):
 | Byte | Meaning |
 | ---: | --- |
 | `0` | `id_get_keyboard_value` `0x02` |
-| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` `0x06` |
+| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` `0x80` |
 | `2` | request envelope version |
 | `3` | must be `0` |
 | `4..5` | opaque tag; copied back unchanged; this tree does not interpret them as an integer |
@@ -541,7 +542,7 @@ restores the tag:
 | Byte | Meaning |
 | ---: | --- |
 | `0` | `0x02` |
-| `1` | `0x06` |
+| `1` | `0x80` |
 | `2` | `ERA_STATE_SYNC_ENVELOPE_VERSION` `0x01` (firmware writes this, not the request version byte) |
 | `3` | `ERA_STATE_SYNC_STATUS_OK` `0x00`, `ERA_STATE_SYNC_STATUS_UNSUPPORTED_VERSION` `0x01`, or `ERA_STATE_SYNC_STATUS_INVALID` `0x02` |
 | `4..5` | echoed tag |
@@ -565,7 +566,7 @@ not bump any revision.
 
 > **REFUSED:** `BUSY`, extra status codes, a second report shape, a transaction
 > id, a capability bit, or a new command id on this selector.
-> **WHY:** v1 is GET `0x02` selector `0x06`, statuses `0`/`1`/`2`, one 32-byte
+> **WHY:** v1 is GET `0x02` selector `0x80`, statuses `0`/`1`/`2`, one 32-byte
 > layout; a second shape would be another protocol.
 > **REOPENS:** a new envelope version, approved on this tree.
 

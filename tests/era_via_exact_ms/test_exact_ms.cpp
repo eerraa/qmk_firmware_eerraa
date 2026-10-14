@@ -435,6 +435,16 @@ TEST(EraExactMs, TapDanceSlotsIndependent) {
     EXPECT_EQ(era_tapdance_get_slot_term_ms(1), 137);
 }
 
+TEST(EraExactMs, StateSyncLeavesCoreKeycodesVersionUnhandled) {
+    uint8_t report[32] = {0x02, 0x06};
+    uint8_t original[32];
+    memcpy(original, report, sizeof(report));
+    g_send_count = 0;
+    EXPECT_FALSE(via_command_kb(report, sizeof(report)));
+    EXPECT_EQ(memcmp(report, original, sizeof(report)), 0);
+    EXPECT_EQ(g_send_count, 0U);
+}
+
 TEST(EraExactMs, StateSyncGetEnvelope) {
     uint8_t report[32];
     zero_report(report);
@@ -446,6 +456,7 @@ TEST(EraExactMs, StateSyncGetEnvelope) {
     uint32_t before = era_state_sync_config_revision();
     ASSERT_TRUE(era_state_sync_via_command(report, 32));
     EXPECT_EQ(g_last_send[0], id_get_keyboard_value);
+    EXPECT_EQ(g_last_send[1], 0x80);
     EXPECT_EQ(g_last_send[1], ERA_STATE_SYNC_KEYBOARD_VALUE);
     EXPECT_EQ(g_last_send[2], ERA_STATE_SYNC_ENVELOPE_VERSION);
     EXPECT_EQ(g_last_send[3], ERA_STATE_SYNC_STATUS_OK);
