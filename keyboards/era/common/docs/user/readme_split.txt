@@ -8,6 +8,10 @@ Split Firmware Guide
 
 ■ 펌웨어 업데이트
 
+V261015R1은 VIA 프로토콜 13을 지원합니다. 이 배포본의 JSON을 공식
+VIA(usevia.app)에서 쓰면 키코드 경고 없이 조명 키가 표시됩니다. 저장 형식은
+V261005R1과 같아 키맵·매크로·설정을 유지합니다.
+
 V261004R1은 MOUSE 정밀 설정을 위해 EEPROM 형식을 변경합니다. 이전 버전에서
 업데이트하면 키맵·매크로·모든 설정이 초기화됩니다. 먼저 백업하십시오.
 
@@ -67,6 +71,10 @@ English
 ----------------------------------------------------------------------
 
 ■ Firmware Update
+
+V261015R1 supports VIA protocol 13. With the JSON in this package, official
+VIA (usevia.app) shows the lighting keys without a keycode warning. The storage
+format is the same as V261005R1, so keymaps, macros and settings are kept.
 
 V261004R1 changes the MOUSE storage format. Updating from an older version
 resets all keymaps, macros and settings. Back up first.
