@@ -100,7 +100,7 @@ class AllocationTests(unittest.TestCase):
                 budget.parse_sections(output)
 
 
-@unittest.skipUnless(shutil.which("arm-none-eabi-as") and shutil.which("bash"), "run in the configured WSL ARM toolchain")
+@unittest.skipUnless(shutil.which("arm-none-eabi-as") and shutil.which("bash"), "run in the validated era_build.py backend's ARM toolchain")
 class LinkedGateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

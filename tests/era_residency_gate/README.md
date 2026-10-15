@@ -1,6 +1,6 @@
 # SRAM allocation gate regression
 
-Run in the configured WSL ARM toolchain:
+Run in the validated backend's ARM toolchain after `era_build.py sync`:
 
 ```sh
 python3 tests/era_residency_gate/test_residency_gate.py

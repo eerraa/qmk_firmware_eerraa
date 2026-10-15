@@ -1,7 +1,7 @@
 # LINK SPEED production-boundary tests
 
-Run `make test:era_split_link_lifecycle` in the officially synchronized WSL
-build tree. Run `python3 tests/era_split_link_lifecycle/test_source_contracts.py`
+Run `make test:era_split_link_lifecycle` in the Linux local-filesystem build tree
+synchronized by `era_build.py`. Run `python3 tests/era_split_link_lifecycle/test_source_contracts.py`
 from the repository to check the adjacent hardware-dispatch wiring.
 
 The C fixture includes production VIA LINK handling, LINK lifecycle, restart
@@ -81,7 +81,7 @@ checks convergence without extra rate transitions, writes or presentation;
 it is not a PIO/IRQ, CPU utilization or electrical-noise measurement. The
 source checks keep listener work off the scan path and pin the bounded faster
 no-peer sender cadence and unchanged parked RX waits. Run
-`python3 tests/era_split_link_lifecycle/test_discovery_cadence.py` in the WSL
+`python3 tests/era_split_link_lifecycle/test_discovery_cadence.py` in that build
 tree: it compiles the actual sender period, due, reset and completion functions
 against controlled time, exercising the initial miss threshold, success,
 failed/unsent requests, timer wrap, stale revalidation and the steady rate cap.

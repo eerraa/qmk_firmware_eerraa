@@ -1,6 +1,6 @@
 # ERA local release gate host fixture
 
-Run from the synchronized, root-owned WSL test snapshot:
+Run from the root-owned Linux test snapshot synchronized by `era_build.py`:
 
 ```sh
 make test:era_local_release_gate

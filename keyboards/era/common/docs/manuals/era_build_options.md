@@ -133,7 +133,7 @@ ships.
 
 The supported inspection command is:
 
-    era-build --show-options <board>:<keymap>
+    python keyboards/era/common/tools/era_build.py build <board>:<keymap> --show-options
 
 It prints the resolved ERA options with make origin information. Build artifact
 identity is checked by `tools/era_qmk_build.sh` against the make-reported

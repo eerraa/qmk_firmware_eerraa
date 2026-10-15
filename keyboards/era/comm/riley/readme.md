@@ -17,5 +17,5 @@ Build examples:
     qmk compile -kb era/comm/riley -km default
     qmk compile -kb era/comm/riley -km via
 
-For ERA evidence builds, use the repository's `era-build` workflow rather than
+For ERA evidence builds, use `keyboards/era/common/tools/era_build.py` rather than
 invoking QMK directly.

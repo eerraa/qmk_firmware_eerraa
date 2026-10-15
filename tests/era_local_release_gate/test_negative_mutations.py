@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Root-run WSL fixture controls: rebuild real QMK, then restore exact source.
+"""Root-run Linux fixture controls: rebuild real QMK, then restore exact source.
 
-Run only in the official locked test snapshot with no concurrent build. Each
+Run only in the era_build.py-synchronized locked test snapshot with no concurrent build. Each
 mutation must reach gtest runtime; a compiler failure is never a negative pass.
 The final build/test uses the restored production source, including an isolated
 HP closure case so failure cannot be attributed to another test's cleanup.
@@ -27,7 +27,7 @@ def run(filter_name):
 
 def main():
     if os.name != 'posix':
-        raise SystemExit('Run only in the official root-owned locked WSL snapshot.')
+        raise SystemExit('Run only in the root-owned locked Linux snapshot synchronized by era_build.py.')
     original = SOURCE.read_bytes()
     assert original.count(CLAUSE) == 1
     prefix = 'EraLocalReleaseGate.'

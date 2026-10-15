@@ -190,6 +190,6 @@ each keymap offered as evidence and the residency/vector checks required by
 `manuals/era_performance_gates.md`. For the known non-split decode path, the
 existing direct smoke command remains:
 
-    era-build era/newone/odessey60s:via
+    python keyboards/era/common/tools/era_build.py build era/newone/odessey60s:via
 
 A successful non-split smoke must not link peer/HOST-PEER symbols.

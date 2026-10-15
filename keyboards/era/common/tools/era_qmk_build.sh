@@ -7,7 +7,7 @@ usage() {
     cat <<'EOF'
 Usage: era_qmk_build.sh TARGET [VARIANT] [OPTIONS]
 
-Internal launcher used by the configured host-side `era-build` automation.
+Internal launcher used by the host-side era_build.py frontend.
 TARGET is explicit and has the form keyboard:keymap, for example:
 
   era/sirind/tomak:via
@@ -83,9 +83,11 @@ variant_args=(-e "ERA_BUILD_VARIANT=$variant" -e ERA_BUILD_IDENTITY_REPORT=yes)
 # A successful host adapter sync is the entry condition. This prevents the
 # internal launcher from silently becoming a second, stale-tree build route.
 [[ ${ERA_BUILD_TREE_SYNCED:-} == yes ]] ||
-    fail "invoke this launcher through the configured era-build automation" 1
-[[ -n ${ERA_EDIT_TREE:-} ]] ||
-    fail "ERA_EDIT_TREE is unset; the edit tree cannot be verified" 1
+    fail "invoke this launcher through keyboards/era/common/tools/era_build.py" 1
+[[ -n ${ERA_EDIT_HEAD:-} ]] ||
+    fail "ERA_EDIT_HEAD is unset; invoke era_build.py to verify the edit tree" 1
+[[ -n ${ERA_BUILD_ENVIRONMENT:-} ]] ||
+    fail "ERA_BUILD_ENVIRONMENT is unset; invoke era_build.py with a validated profile" 1
 
 for command_name in qmk git make awk grep sed sort stat tee tr cp mv rm mktemp arm-none-eabi-gcc arm-none-eabi-size arm-none-eabi-nm arm-none-eabi-objcopy od sha256sum; do
     command -v "$command_name" >/dev/null 2>&1 ||
@@ -93,13 +95,13 @@ for command_name in qmk git make awk grep sed sort stat tee tr cp mv rm mktemp a
 done
 
 if [[ "$(uname -o 2>/dev/null)" == Msys ]]; then
-    fail "MSYS2 is not supported; use the configured WSL automation" 1
+    fail "MSYS2 is not supported; use era_build.py with a validated Linux backend" 1
 fi
 
 repo_fs="$(stat -f -c %T "$repo_root" 2>/dev/null || echo unknown)"
 case "$repo_fs" in
     v9fs|9p|drvfs|cifs|smb2|smb3)
-        fail "build tree is on a $repo_fs mount, not the WSL local filesystem: $repo_root" 1
+        fail "build tree is on a $repo_fs mount, not a local Linux filesystem: $repo_root; use era_build.py" 1
         ;;
 esac
 
@@ -109,8 +111,7 @@ cd "$repo_root"
 
 head="$(git rev-parse HEAD)"
 short_head="$(git rev-parse --short=10 HEAD)"
-edit_head="$(git -C "$ERA_EDIT_TREE" rev-parse HEAD 2>/dev/null)" ||
-    fail "ERA_EDIT_TREE is not a Git tree: $ERA_EDIT_TREE" 1
+edit_head="$ERA_EDIT_HEAD"
 if [[ "$edit_head" != "$head" ]]; then
     fail "build tree $head is stale against edit tree $edit_head" 1
 fi
@@ -121,7 +122,7 @@ if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then
     dirty="yes"
     dirty_suffix="_dirty"
 fi
-edit_tree_check="matched by era-sync"
+edit_tree_check="matched by era_build.py"
 
 target_stem="${keyboard//\//_}_${keymap//\//_}"
 build_log_tmp="$(mktemp "$artifact_dir/.${target_stem}_${variant}_${short_head}.build.XXXXXX.log")"
@@ -247,7 +248,7 @@ make_version="$(make --version | sed -n '1p')"
     printf 'git_head=%s\n' "$head"
     printf 'worktree_dirty=%s\n' "$dirty"
     printf 'edit_tree_check=%s\n' "$edit_tree_check"
-    printf 'build_environment=WSL local filesystem\n'
+    printf 'build_environment=%s\n' "$ERA_BUILD_ENVIRONMENT"
     printf 'build_date=%s\n' "$(sed -n 's/^#define QMK_BUILDDATE "\(.*\)"$/\1/p' "$repo_root/keyboards/era/common/storage/era_via_magic.h")"
     printf 'qmk_cli_version=%s\n' "$qmk_cli_version"
     if [[ -n "$qmk_firmware_version" ]]; then

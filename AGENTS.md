@@ -46,8 +46,10 @@ ERA 전용 QMK fork에서 모든 에이전트가 따르는 로컬 작업 규칙�
 - 완료 이력, 측정 일지, 세션 인계, 닫힌 계획, 평행 archive를 활성 문서로
   누적하지 않는다.
 - `.claude/rules/`는 도구 adapter다. 공통 제품 규칙과 계약을
-  복사하지 않고 이 진입과 해당 작업 행으로만 연결한다. 환경·설치 메커니즘은
-  adapter에 둘 수 있다.
+  복사하지 않고 이 진입과 해당 작업 행으로만 연결한다.
+- 빌드는 `keyboards/era/common/tools/era_build.py`를 현재 편집 worktree에서
+  실행한다. 저장소 밖 machine profile과 검증된 Linux backend가 환경을
+  소유한다. 설정·동기화·반환 절차는 `manuals/era_build_and_flash.md`를 따른다.
 - 커밋 시점 검사는 `hooks/pre-commit` → `hooks/era_commit_check.py`다.
   문서 포인터 검사는
   `keyboards/era/common/tools/era_doc_refs.py`가 소유한다.

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compile isolated TD mutations using the official native build's flags/objects.
 
-Run after era-sync, in the WSL-local tree. Firmware builds still use era-build.
+Run after era_build.py sync, in the Linux local-filesystem build tree.
+Firmware builds still use era_build.py build.
 Only ignored copies and outputs are changed; a compile failure is never a
 successful runtime control. The initial and relinked baselines run every test.
 """
@@ -99,7 +100,7 @@ def digest(path: Path) -> str:
 
 def main() -> None:
     if os.name != "posix" or str(ROOT).startswith("/mnt/"):
-        raise SystemExit("Run after era-sync in the configured WSL-local tree, not the Windows edit tree.")
+        raise SystemExit("Run after era_build.py sync in the validated Linux local-filesystem build tree, not a mounted edit tree.")
     os.chdir(ROOT)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     out = ROOT / ".era-artifacts" / "td-ownership-controls" / stamp

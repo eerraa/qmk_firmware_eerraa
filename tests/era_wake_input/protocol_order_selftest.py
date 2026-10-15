@@ -155,7 +155,7 @@ def main():
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     root = parser.parse_args().root.resolve()
     if os.name != 'posix' or str(root).startswith('/mnt/'):
-        raise SystemExit('Use the synchronized WSL-local root and native build objects.')
+        raise SystemExit('Use the Linux local-filesystem root synchronized by era_build.py and its native build objects.')
     out = root / '.era-artifacts/improvement-V261004R2/usb/protocol' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     out.mkdir(parents=True)
     commands = []

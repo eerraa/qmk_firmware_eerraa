@@ -11,7 +11,7 @@ Build-variant definitions and diagnostic-axis defaults are source-owned by
 `keyboards/era/era_build_options.mk`; selection rules are in
 `era_build_options.md`. `standard` is the release image with the diagnostic
 axes off. Diagnostic variants are measurement fixtures, not a second
-implementation path, and are built through `era-build` only when their gate
+implementation path, and are built through `era_build.py` only when their gate
 calls for them, as described in `era_build_and_flash.md`.
 
 The shipped TOMAK capture fixture is source-owned by
@@ -30,7 +30,7 @@ of it — saying so is the verification statement.
 
 | The change… | owes |
 | --- | --- |
-| touches any source | a build through `era-build keyboard:keymap`, whose first step synchronises the WSL local build tree to the change |
+| touches any source | a build through `python keyboards/era/common/tools/era_build.py build keyboard:keymap`, whose first step synchronises the profile's Linux local-filesystem build tree to the edit worktree |
 | claims to touch no behaviour | the **Refactor Self-Check** tier its binary earns |
 | touches a closed surface, a retired path, or a QMK core matrix file | the **Source Gate** |
 | touches RAM placement or the load image | the **Layout Checks**, per board |
@@ -48,7 +48,7 @@ of it — saying so is the verification statement.
 | changes common build-variant rules or the launcher identity | `tests/era_build_variant_rules/test_variant_rules.sh`, all six canonical variants on one representative split target, and Brick65 `standard`; each UF2 manifest must carry equal resolved/compiled tuples |
 | would move a **Fixed Baseline** | an instrument, first |
 
-The build itself — what WSL must provide, the automated command, and its
+The build itself — what the validated backend must provide, the automated command, and its
 refusals as stop conditions — is `era_build_and_flash.md`'s.
 
 ### Focused host tests
@@ -62,7 +62,7 @@ runtime assertions fail. They model hardware; no device result follows from them
 The test and fixture source owns the target inventory and exact assertions.
 ERA host tests live under `tests/`; QMK wear-level tests live under
 `quantum/wear_leveling/tests/`. Run the target or source-contract script named
-by **What A Change Owes** from the synchronized WSL-local tree. `make test:<target>`
+by **What A Change Owes** from the synchronized Linux local-filesystem build tree. `make test:<target>`
 is the QMK host-test entry; referenced Python or shell source-contract checks
 run directly from their test directory.
 
@@ -82,11 +82,11 @@ evidence.
 
 A Tap Dance ownership or Caps feedback change also runs `python3` on
 `tests/era_backlight_pulse/td_ownership_selftest.py` and
-`tests/era_backlight_pulse/caps_feedback_selftest.py` after `era-sync`. Each
+`tests/era_backlight_pulse/caps_feedback_selftest.py` after `era_build.py sync`. Each
 control recompiles one isolated source mutation with the native build's flags
 against unchanged objects and counts only when it compiles and its named
 runtime assertion then fails. They prove host behaviour, not GPIO timing, board
-geometry or an `era-build` gate.
+geometry or an `era_build.py` gate.
 
 An opposed mouse ownership change also runs
 `python3 tests/era_macro/mouse_ownership_selftest.py` after the native
@@ -316,7 +316,7 @@ Capacity semantics: `era_sram_residency_contract.md` **Verification**. Main-SRAM
 free space cannot substitute for either core's separately reserved stack
 headroom. The gate's parser/boundary fixtures and real ARM ELF positive/negative
 checks run with `python3 tests/era_residency_gate/test_residency_gate.py` in the
-configured WSL toolchain; rerun them when changing the gate.
+validated backend's ARM toolchain; rerun them when changing the gate.
 
 Every ERA split link emits a `.map`. Review `linker stubs`, not a `veneer`
 name grep: two expected 16-byte stubs in `.flash_startup` serve the

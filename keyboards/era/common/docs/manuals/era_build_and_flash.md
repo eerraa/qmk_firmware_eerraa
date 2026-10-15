@@ -1,26 +1,27 @@
 # ERA Build And Flash
 
 Genre: manual
-Canonical for: what the configured WSL automation must provide to build this
+Canonical for: what the configured Linux backend must provide to build this
 firmware, its one build-and-gate entry point, how a built image reaches a
 keyboard, and the short TOMAK_TKL hardware-acceptance handoff
 
-**Agent and evidence builds use the configured WSL local-build automation.**
-From the Windows edit tree the entry point is the host adapter's explicit
-`era-build keyboard:keymap` command, invoked through WSL as shown below. It
-synchronises into the WSL local filesystem before it builds. Installation and
-literal machine paths are owned by `.claude/tools/era-sync.sh` and
-`.claude/tools/era-build.sh`; the mandatory automated sequence lives here.
+**Evidence requires a Linux local-filesystem build tree reached through
+`keyboards/era/common/tools/era_build.py` with a validated machine profile.**
+Run the frontend with the host's Python and Git, from the edit worktree to
+build. It selects that worktree's HEAD and uncommitted delta, regardless of
+where the frontend itself lives. Windows with WSL and native Linux use the
+same route; the profile alone chooses the execution environment.
 
-> **REFUSED:** run `qmk` on Windows, build on the `/mnt/` edit tree, invoke the
-> internal launcher by hand, retry an unresolved automation refusal, bypass `era-build`
-> with a direct compile, or substitute a different host to get past a refusal
+> **REFUSED:** run `qmk` on Windows, build on a mounted edit tree, invoke the
+> internal launcher by hand, retry an unresolved profile/backend/sync/gate
+> refusal, bypass `era_build.py` with a direct compile, or substitute a
+> different host to get past a refusal
 > **WHY:** a figure from a different host or an unsynchronised tree is void, and
 > the automation's refusals are stop conditions.
-> **REOPENS:** a supported environment is restored, or the reported source/gate
+> **REOPENS:** the profile/backend passes `doctor`, or the reported source/gate
 > defect is identified and corrected within the authorised task. Re-run through
-> the same configured automation after validating the correction; do not bypass
-> a refusal by changing host or disabling a check.
+> the frontend after validating the correction; do not bypass a refusal by
+> changing host or disabling a check.
 
 On a refusal, report its cause and stop builds that depend on the unresolved
 condition. Investigation and authorised repair may continue. A capacity policy
@@ -30,17 +31,82 @@ is not a correction.
 
 ## What The Build Needs
 
-The supported evidence path is WSL2 Ubuntu on the WSL local filesystem. Before
-trusting a build, the environment must provide `qmk`, GNU make, Python 3, the
-QMK ARM toolchain, and initialised submodules. `arm-none-eabi-gcc`,
-`arm-none-eabi-size`, and `arm-none-eabi-nm` must resolve from the intended
-toolchain; otherwise the gate figure is void.
+The host needs Python 3 and Git. The backend needs Linux, a local Linux build
+filesystem, `qmk`, GNU make, Python 3, Git, rsync, and the QMK ARM toolchain.
+`doctor` checks reachability, the internal launcher's command list plus Python,
+Git and rsync, and the filesystem at the build root (or its nearest existing
+ancestor). Missing tools and network/Windows mounts are refusals, not reasons
+to fall back to the edit tree. Submodules are initialised during sync.
 
-Machine paths and Windows-to-WSL synchronization are owned by
-`.claude/tools/era-sync.sh`; the callable wrapper is
-`.claude/tools/era-build.sh`. Both refuse a missing or moved environment rather
-than falling back to a Windows or `/mnt/` build. The internal compiler/gate
-entry is `keyboards/era/common/tools/era_qmk_build.sh`.
+### Machine profile
+
+The JSON profile is outside the repository. `ERA_BUILD_PROFILE` overrides its
+location; otherwise Windows uses `%APPDATA%\era-build\profile.json`, and Linux
+uses `${XDG_CONFIG_HOME:-~/.config}/era-build/profile.json`. `profile show`
+prints the selected path and validated values. Missing profiles, unknown keys
+and invalid values name the path, field and repair command; no path is guessed.
+
+Schema 1 has `schema`, `backend`, and exactly the matching backend object:
+`wsl` contains `distro` and `buildRoot`; `local` contains `buildRoot`.
+The build root is an absolute POSIX path on the backend's local filesystem.
+Choose it explicitly; commands below intentionally use a placeholder.
+
+Windows / PowerShell:
+
+```powershell
+python keyboards/era/common/tools/era_build.py profile init --backend wsl --distro Ubuntu --build-root POSIX_PATH
+python keyboards/era/common/tools/era_build.py doctor
+python keyboards/era/common/tools/era_build.py profile show
+```
+
+Native Linux:
+
+```sh
+python3 keyboards/era/common/tools/era_build.py profile init --backend local --build-root POSIX_PATH
+python3 keyboards/era/common/tools/era_build.py doctor
+```
+
+Moving to another machine or backend means `profile init` followed by `doctor`,
+not source edits, shell-profile edits or installing wrapper symlinks. Commands
+run with explicit argv, cwd and environment, never a login shell. The tool PATH
+contains the backend user's `.local/bin` and `bin`, then the standard Linux
+system directories; it does not inherit shell-profile PATH additions.
+
+### Backend and worktree contract
+
+The frontend's module docstring defines the backend interface: `connect()`
+establishes the explicit Linux environment; `host_path(path)` maps a host path;
+`run(argv, cwd, env, input, check)` executes without a shell and returns byte
+streams; `describe()` supplies manifest environment identity. WSL translates
+paths with `wslpath` and identifies itself as `wsl:DISTRO`; native Linux uses
+identity paths and `local:HOSTNAME`. Each implementation also owns its
+`profile_keys`, `validate_section()` and `profile_section()` for profile
+validation and initialization. Adding a backend means adding and registering
+one implementation, not changing sync, build or artifact-return logic.
+
+One build tree per repository per profile lives beneath the configured build
+root, named after the main checkout that owns the common Git directory. All
+linked edit worktrees share it. An exclusive lock inside its artifact directory
+refuses concurrent use. An interrupted run may leave the lock: confirm that no
+build is running before removing that exact lock. Do not delete caches or
+artifacts to work around a held lock.
+
+An absent build tree is cloned from the common Git directory. Each sync fetches
+branch refs from that directory without a persistent remote, checks that edit
+HEAD is available, checks out that commit detached, initialises submodules and
+resets/cleans the disposable tree while preserving `.build` and `.era-artifacts`.
+Host Git enumerates the edit delta once; rsync replays only that delta without
+copying drvfs executable modes or unchanged CRLF files. Effective statuses must
+match (index staging and rename representations are normalised), or the build
+is refused. `sync` alone prints the backend build-tree path for selftests:
+
+```sh
+python3 keyboards/era/common/tools/era_build.py sync
+```
+
+Run backend selftests in that returned tree with its validated tool environment,
+not on a mounted edit tree. `sync` does not retain a lock after it exits; fixture
+runs needing exclusive access must arrange that separately.
 
 Board and keymap inventory is source-owned. Use
 `qmk list-keyboards | grep '^era/'` and the selected board's keymap directory
@@ -51,32 +117,41 @@ do not maintain a second board list here.
 ## Building
 
 Every invocation names the intended keyboard and keymap explicitly. For
-TOMAK_TKL, run this from Windows:
+TOMAK_TKL, run this from the Windows edit worktree:
 
 ```powershell
-wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via'
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak:via
+```
+
+From a native Linux edit worktree:
+
+```sh
+python3 keyboards/era/common/tools/era_build.py build era/sirind/tomak:via
 ```
 
 Omitting the variant means `standard` on every keyboard. Diagnostic names are
 board-independent; make preconditions refuse an incompatible selection:
 
 ```powershell
-wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak:via cause'
-wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via wire'
-wsl -d Ubuntu -e bash -lc 'era-build era/sirind/tomak79h:via standard wire qwin cause'
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak:via cause
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak79h:via wire
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak79h:via standard wire qwin cause --show-options
 ```
 
-`.claude/tools/era-build.sh` owns synchronization and the handoff back to the
-Windows edit tree. `keyboards/era/common/tools/era_qmk_build.sh` owns the
+The frontend owns synchronization and artifact return to the selected edit
+worktree. `keyboards/era/common/tools/era_qmk_build.sh` owns the
 compile invocation, manifest identity, hashes, output paths, and the call to
 `keyboards/era/common/tools/era_residency_gate.sh`. This manual does not
 duplicate those paths or filename formulas.
 
-Treat the `Manifest:` line emitted by `era-build` as the authority for the
-firmware, ELF, map/logs, and hashes produced by that invocation. Never select
-an artifact by modification time or by a remembered directory. A compile that
-did not pass through the configured `era-build` synchronization is not ERA
-evidence.
+The frontend takes the manifest from the launcher's `Manifest:` line, never a
+glob, and returns that manifest plus exactly its named firmware, ELF, map and
+logs to the edit worktree's `.era-artifacts` after each variant. It prints
+`Returned manifest:` and `Returned firmware:` with host-native paths and the
+dirty/edit-tree/RAM summary. The copied manifest retains backend-origin paths;
+its named files are returned beside it. Treat it as the authority for identity
+and hashes, never modification time or a remembered directory. A compile that
+did not pass through `era_build.py` synchronization is not ERA evidence.
 
 Build selectors and prerequisites are canonical in `era_build_options.md`.
 Gate semantics and additional validation owed by a change are in
@@ -113,7 +188,7 @@ only when the stored layout must be intentionally discarded. Its device gate is
 
 ## TOMAK_TKL Hardware Acceptance Route
 
-Build the current working tree through `era-build`, use the manifest and
+Build the current working tree through `era_build.py`, use the manifest and
 SHA-256 produced by that run, and record those exact identifiers with the
 device evidence. This route names no frozen commit, hash or historical
 artifact.

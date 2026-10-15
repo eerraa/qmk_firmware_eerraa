@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Execute production discovery period/due/completion functions with fake time.
 
-Run in the synchronized WSL build tree. Extracted function bodies are production
+Run in the Linux build tree synchronized by era_build.py. Extracted function bodies are production
 source, not a second scheduler implementation. Registers, queue handoff and
 physical timings are outside this test; the firmware build checks their wiring.
 """

@@ -10,7 +10,9 @@ QUANTUM = ROOT / 'src/ap/modules/qmk/quantum'
 if not QUANTUM.exists():
     ROOT = Path(__file__).resolve().parents[4]
     QUANTUM = ROOT / 'quantum'
-gcc = shutil.which('gcc') or r'D:\baram-fw-tools_exe\arm_toolchain\mingw_gcc\bin\gcc.exe'
+gcc = shutil.which('gcc')
+if gcc is None:
+    raise SystemExit('test_mouse_runtime.py: host gcc was not found on PATH')
 with tempfile.TemporaryDirectory(prefix='era-mouse-runtime-') as directory:
     out = Path(directory)
     for name in ('mousekey.c', 'mousekey.h', 'era_mousekey_precision.h'):
