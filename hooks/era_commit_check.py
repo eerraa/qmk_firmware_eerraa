@@ -22,6 +22,8 @@ DOC_REFS_REL = "keyboards/era/common/tools/era_doc_refs.py"
 DOC_REFS = REPO / DOC_REFS_REL
 STORAGE_KEY_REL = "keyboards/era/common/tools/era_storage_key.py"
 STORAGE_KEY = REPO / STORAGE_KEY_REL
+STOCK_VIA_REL = "keyboards/era/common/tools/era_stock_via.py"
+STOCK_VIA = REPO / STOCK_VIA_REL
 STAGED_PYTHON_RUNNER = (
     "import sys\n"
     "path = sys.argv[1]\n"
@@ -263,6 +265,36 @@ def check_storage_layer(problems, notes):
         )
 
 
+def stock_via_layer_armed(changed):
+    return any(
+        path.startswith("keyboards/era/")
+        or path in ("lib/python/qmk/info.py", "tmk_core/protocol/usb_descriptor.c")
+        or path.startswith("lib/python/qmk/cli/generate/")
+        for path in changed
+    )
+
+
+def check_stock_via_layer(problems, notes):
+    staged = subprocess.run(
+        ["git", "show", f":{STOCK_VIA_REL}"], cwd=str(REPO),
+        capture_output=True,
+    )
+    if staged.returncode != 0:
+        problems.append("the staged index does not contain `" + STOCK_VIA_REL + "`")
+        return
+    proc = subprocess.run(
+        [sys.executable, "-c", STAGED_PYTHON_RUNNER, str(STOCK_VIA), "--index"],
+        cwd=str(REPO), input=staged.stdout, capture_output=True,
+    )
+    output = ((proc.stdout or b"") + (proc.stderr or b"")).decode(
+        "utf-8", errors="replace"
+    ).strip()
+    if proc.returncode:
+        problems.append("STOCK VIA fails on the staged index:\n" + output)
+    else:
+        notes.append(output)
+
+
 def main():
     changed = name_only("diff", "--cached", "--name-only")
     if not changed:
@@ -277,6 +309,8 @@ def main():
         check_doc_layer(problems, notes)
     if any(path.startswith(STORAGE_LAYER) for path in changed):
         check_storage_layer(problems, notes)
+    if stock_via_layer_armed(changed):
+        check_stock_via_layer(problems, notes)
     for note in notes:
         print("note: " + note)
     if problems:

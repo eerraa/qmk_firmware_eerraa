@@ -155,6 +155,25 @@ such as `sirind/`: it would reach every board below it, the ATmega32U4
 `sirind/brick65` included. `tests/era_firmware_version/test_definitions.py`
 checks both.
 
+The STOCK definition contract is checked locally by
+`keyboards/era/common/tools/era_stock_via.py` (run with Python; `--index` checks
+staged blobs). It covers every VIA-keymap JSON and shared maker STOCK JSON:
+valid JSON, no qmk_lighting, exactly the lighting keycode module implied by
+firmware features, firmware USB ids, and full firmware matrix dimensions.
+Backlight, rgblight, both together, and RGB Matrix select their respective
+QMK keycode modules; no user-controllable engine selects none. Other engine
+combinations fail closed with the board name.
+
+The tool's INDICATOR_ONLY declaration owns the exceptions and their source
+evidence. Indicator supplies do not expose backlight keycodes; BRICK65S's
+two-LED RGB Matrix is itself indicator-only. Split product ids come from the
+board's left/right macros in config.h, selected by
+`split/era_split_usb_identity.c`; pin-derived split rows double as in
+`lib/python/qmk/info.py`, while explicit matrix sizes already include both
+halves. The commit hook checks the staged configuration and definitions on
+ERA-board/configuration changes. Positive inventory and deliberate negative
+fixtures run with `python tests/era_stock_via/test_stock_via.py`.
+
 The local Draft Definition is paired with the app-owned
 `the-via-eerraa/era-definitions/custom/v3` source; the `FEATURE_COVERAGE`
 fixture in `the-via-eerraa/tests/era-definition.test.ts` exercises the

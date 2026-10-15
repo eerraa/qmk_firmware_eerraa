@@ -244,6 +244,12 @@ def test_end_to_end():
             encoding="utf-8",
         )
         _git(root, "config", "core.hooksPath", "hooks")
+        (doc_tool.parent / "era_stock_via.py").write_text(
+            "import sys\n"
+            "assert sys.argv[1:] == ['--index']\n"
+            "print('temporary STOCK VIA ok')\n",
+            encoding="utf-8",
+        )
 
         dirty = root / "dirty.txt"
         dirty.write_text("hello \n", encoding="utf-8")
@@ -260,6 +266,8 @@ def test_end_to_end():
         _git(root, "add", "dirty.txt")
         accepted = _git(root, "commit", "-m", "clean")
         check("end-to-end clean commit rc", accepted.returncode == 0)
+        check("STOCK VIA staged checker ran",
+              "temporary STOCK VIA ok" in accepted.stdout + accepted.stderr)
 
         partial = root / "AGENTS.md"
         partial.write_text("staged\n", encoding="utf-8")
