@@ -19,7 +19,7 @@
 
 #define ERA_TAP_DANCE_SIGNATURE       0x4E414454UL
 #define ERA_TAP_DANCE_VERSION         1U
-#define ERA_TAP_DANCE_MODE_TAG        0xD2U
+#define ERA_TAP_DANCE_MODE_TAG        ERA_WIRE_TAPDANCE_MARKERS_MODE
 #define ERA_TAP_DANCE_TERM_MIN_MS        100U
 #define ERA_TAP_DANCE_TERM_MAX_MS        500U
 #define ERA_TAP_DANCE_TERM_EXACT_MIN_MS  1U
@@ -131,7 +131,7 @@ bool era_tapdance_set_hold_term(uint8_t slot, uint16_t term) {
 }
 
 bool era_tapdance_set_hold_other(uint8_t slot, uint8_t enabled) {
-    if (slot >= ERA_TAP_DANCE_SLOT_COUNT || enabled > 1U) return false;
+    if (slot >= ERA_TAP_DANCE_SLOT_COUNT || enabled > ERA_WIRE_TAPDANCE_HOLD_OTHER_ENABLED) return false;
     uint8_t mask = 1U << slot;
     uint8_t next = enabled ? tapdance_timing.hold_on_other | mask : tapdance_timing.hold_on_other & ~mask;
     if (next != tapdance_timing.hold_on_other) {
@@ -183,7 +183,7 @@ static bool era_tapdance_storage_is_valid(void) {
         (tapdance_storage.reserved[0] != 0U || tapdance_storage.reserved[1] != 0U || tapdance_storage.reserved[2] != 0U)) return false;
     for (uint8_t slot = 0; slot < ERA_TAP_DANCE_SLOT_COUNT; ++slot) {
         uint8_t mode = era_tapdance_get_mode(slot);
-        if (mode == 3U || (mode == 2U && tapdance_storage.slots[slot].actions[1] != KC_TRANSPARENT)) return false;
+        if (mode > ERA_WIRE_TAPDANCE_MODES_ON_PRESS || (mode == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && tapdance_storage.slots[slot].actions[1] != KC_TRANSPARENT)) return false;
     }
     return true;
 }
@@ -274,7 +274,7 @@ bool tap_dance_finish_on_release(const tap_dance_action_t *action, const tap_dan
     if (!user || user->slot_index >= ERA_TAP_DANCE_SLOT_COUNT) {
         return false;
     }
-    if (state->runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[state->runtime_index].mode != 0U) {
+    if (state->runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[state->runtime_index].mode != ERA_WIRE_TAPDANCE_MODES_LEGACY) {
         const era_tapdance_runtime_t *runtime = &tapdance_runtime[state->runtime_index];
         return state->count == 2U || (state->count == 1U && !era_tapdance_has_override(runtime, 2) && !era_tapdance_has_override(runtime, 3));
     }
@@ -291,8 +291,8 @@ static void era_tapdance_note_runtime_change(void) {
 }
 
 bool era_tapdance_set_mode(uint8_t slot, uint8_t mode) {
-    if (slot >= ERA_TAP_DANCE_SLOT_COUNT || mode > 2U ||
-        (mode == 2U && tapdance_state[slot].actions[1] != KC_TRANSPARENT)) return false;
+    if (slot >= ERA_TAP_DANCE_SLOT_COUNT || mode > ERA_WIRE_TAPDANCE_MODES_ON_PRESS ||
+        (mode == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && tapdance_state[slot].actions[1] != KC_TRANSPARENT)) return false;
     if (era_tapdance_get_mode(slot) == mode) return true;
     if (tapdance_storage.reserved[1] != ERA_TAP_DANCE_MODE_TAG) memset(tapdance_storage.reserved, 0, sizeof(tapdance_storage.reserved));
     tapdance_storage.reserved[1] = ERA_TAP_DANCE_MODE_TAG;
@@ -307,7 +307,7 @@ bool era_tapdance_set_action(uint8_t slot_index, uint8_t action_index, uint16_t 
     if (slot_index >= ERA_TAP_DANCE_SLOT_COUNT || action_index >= ERA_TAP_DANCE_ACTION_COUNT) {
         return false;
     }
-    if (action_index == 1U && era_tapdance_get_mode(slot_index) == 2U && keycode != KC_TRANSPARENT) return false;
+    if (action_index == 1U && era_tapdance_get_mode(slot_index) == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && keycode != KC_TRANSPARENT) return false;
     if (tapdance_storage.slots[slot_index].actions[action_index] == keycode) {
         return true;
     }
@@ -459,7 +459,7 @@ static uint8_t era_tapdance_step(const tap_dance_state_t *state) {
 }
 
 uint16_t tap_dance_get_decision_term(const tap_dance_state_t *state) {
-    if (state->runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[state->runtime_index].mode != 0U) {
+    if (state->runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[state->runtime_index].mode != ERA_WIRE_TAPDANCE_MODES_LEGACY) {
         const era_tapdance_runtime_t *runtime = &tapdance_runtime[state->runtime_index];
         return state->pressed ? runtime->hold_ms : runtime->term_ms;
     }
@@ -469,7 +469,7 @@ uint16_t tap_dance_get_decision_term(const tap_dance_state_t *state) {
 bool tap_dance_hold_on_interrupt(const tap_dance_state_t *state) {
     if (!state->pressed || state->runtime_index >= TAP_DANCE_MAX_SIMULTANEOUS) return false;
     const era_tapdance_runtime_t *runtime = &tapdance_runtime[state->runtime_index];
-    if (runtime->mode == 0U || !runtime->hold_on_other) return false;
+    if (runtime->mode == ERA_WIRE_TAPDANCE_MODES_LEGACY || !runtime->hold_on_other) return false;
     if (state->count == 1U) return !runtime->direct && era_tapdance_has_override(runtime, 1);
     return state->count == 2U && (era_tapdance_has_override(runtime, 3) || era_tapdance_has_override(runtime, 1));
 }
@@ -505,7 +505,7 @@ void era_tapdance_on_each_tap(tap_dance_state_t *state, void *user_data) {
         if (!runtime->hold_ms) runtime->hold_ms = runtime->term_ms;
         runtime->hold_on_other = era_tapdance_get_hold_other(user->slot_index);
         memcpy(runtime->actions, tapdance_state[user->slot_index].actions, sizeof(runtime->actions));
-        runtime->direct = runtime->mode == 2U || (runtime->mode == 1U &&
+        runtime->direct = runtime->mode == ERA_WIRE_TAPDANCE_MODES_ON_PRESS || (runtime->mode == ERA_WIRE_TAPDANCE_MODES_AFTER_DECISION &&
             !era_tapdance_has_override(runtime, 1) && !era_tapdance_has_override(runtime, 2) && !era_tapdance_has_override(runtime, 3));
     }
     if (runtime->direct) {
@@ -547,7 +547,7 @@ void era_tapdance_on_dance_finished(tap_dance_state_t *state, void *user_data) {
         return;
     }
     era_tapdance_runtime_t *runtime = &tapdance_runtime[state->runtime_index];
-    if (runtime->mode != 0U)
+    if (runtime->mode != ERA_WIRE_TAPDANCE_MODES_LEGACY)
     {
       /* Immediate mode has already emitted the first physical press. All
        * other decisions use the captured actions, including explicit KC_NO. */
@@ -679,7 +679,7 @@ void era_tapdance_on_reset(tap_dance_state_t *state, void *user_data) {
     }
     runtime->active_keycode = KC_NO;
     runtime->active_is_tap  = false;
-    runtime->mode = 0;
+    runtime->mode = ERA_WIRE_TAPDANCE_MODES_LEGACY;
     runtime->direct = false;
 }
 

@@ -16,7 +16,8 @@
  * `era_identifier_map.md` locates the competing owner sources; the non-reuse
  * rule is `era_invariants.md` **Identifier Compatibility**. 5 collides with
  * neither in the current source set. */
-#define ERA_VIA_NKRO_ENABLE_VALUE_ID 5
+#include "../system/era_wire.h"
+#define ERA_VIA_NKRO_ENABLE_VALUE_ID ERA_WIRE_KEYBOARD_EERRAA_NKRO_ENABLE
 
 bool era_nkro_via_is_value_id(uint8_t value_id);
 bool era_nkro_via_handle_via_command(uint8_t *data, uint8_t length);

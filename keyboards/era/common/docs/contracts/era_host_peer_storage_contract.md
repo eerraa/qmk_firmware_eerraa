@@ -247,10 +247,13 @@ is an independent hold threshold. The original 88-byte action/term record stays
 at offset 0. The larger block requires a full reset; no old-layout reader exists.
 Both halves must run the matching schema-3 image.
 
-Channel 0 values 88..95 encode hold time as BE16, with response byte 2 `0xD3`;
-96..103 encode the boolean interruption policy, with response byte 1 `0xD3`.
-Mode replies retain byte 1 `0xD2` and advertise advanced timing in byte 2
-`0xD3`. Existing GET/SET/SAVE, Custom-app controls, State Sync CONFIG publication,
+The hold-time and hold-other banks are TAPDANCE_EERRAA allocations in
+`the-via-eerraa/config/era-wire.json`, consumed through `system/era_wire.h`.
+Hold time is BE16 with the timing marker in response byte 2; the boolean
+interruption policy has that marker in byte 1. Mode replies retain the mode
+marker in byte 1 and advertise advanced timing in byte 2. The marker values
+are TAPDANCE_MARKERS allocations, not a second table in this contract.
+Existing GET/SET/SAVE, Custom-app controls, State Sync CONFIG publication,
 and ERA_CONFIG replacement/reload cover both records. The official VIA definition
 omits these advanced timing controls under the stock support policy in
 `era_invariants.md` **Official VIA Definitions**; the wire and stored records
@@ -268,8 +271,9 @@ mode 0 retains all legacy decisions and ignores advanced timing.
 
 ### Tap Dance input modes
 
-Keyboard channel 0 values 80..87 add one mode byte per TD0..TD7 through
-existing Custom Value GET/SET/SAVE. GET/SET echo appends support marker `0xD2`.
+The registered keyboard-channel mode bank adds one mode byte per TD0..TD7
+through existing Custom Value GET/SET/SAVE. GET/SET echo appends the registered
+mode support marker.
 The Custom app edits these modes. Official V3 definitions retain each mode only
 as a hidden read-only label GET: mode 0 exposes the existing action and Term
 controls; modes 1/2 and unknown values expose status plus usekb.cc guidance.
@@ -280,8 +284,9 @@ the runtime exposes a different setting.
 
 Tap Dance retains the 88-byte version-1 record, slot addresses, signature and
 all action/term offsets. Reserved byte 1 tags the input-mode extension with
-`0xD2`; bytes 0 and 2 hold two bits per TD0..TD3 and TD4..TD7 respectively,
-lowest slot first. Values 0/1/2 mean legacy, after-decision and on-press.
+the generated mode marker; bytes 0 and 2 hold two bits per TD0..TD3 and
+TD4..TD7 respectively, lowest slot first. TAPDANCE_MODES owns the Legacy,
+after-decision and on-press encodings.
 All-zero reserved bytes remain valid mode 0 of the same format. An unknown
 tag, nonzero untagged bits, mode 3, or on-press with a non-transparent first
 hold is invalid. The mode bits themselves keep the same record format.
@@ -503,59 +508,61 @@ This is the QMK/ERA producer contract for the existing 32-byte VIA RAW HID
 surface, not an H7S implementation plan. The source owner is
 `system/era_state_sync.[ch]`, compiled only under `VIA_ENABLE`.
 
-The envelope reuses `id_get_keyboard_value` `0x02` with
-`ERA_STATE_SYNC_KEYBOARD_VALUE` `0x80`; SET selector `0x80` remains unclaimed.
-`ERA_STATE_SYNC_ENVELOPE_VERSION` is `0x01`. No new command id, report,
-transaction id, capability bit, or `BUSY` status is added.
-`VIA_PROTOCOL_VERSION` is `0x000D` and is a separate protocol version. A
+The envelope reuses `id_get_keyboard_value` with
+`ERA_STATE_SYNC_KEYBOARD_VALUE`; SET on this selector remains unclaimed.
+Allocations, versions, statuses and domains are owned by
+`the-via-eerraa/config/era-wire.json` under
+`the-via-eerraa/docs/adr/0005-era-wire-registry.md`, consumed through
+`system/era_wire.h`. No new command id, report, transaction id, capability bit,
+or `BUSY` status is added. VIA protocol and envelope versions remain separate. A
 handled envelope is 32 bytes and reports RAM revisions only; the GET path does
 not read EEPROM, CRC, or NVM.
 
-QMK VIA protocol 13 gives `id_get_keyboard_value` `0x06` to
-`id_keycodes_version`, which official VIA reads before remapping.
+The registered official keyboard-value table owns `id_keycodes_version`,
+which official VIA reads before remapping.
 `via_command_kb` runs before the QMK core and must leave this selector
 unhandled so the core returns `QMK_KEYCODES_VERSION_BCD` as BE32.
-State Sync consumers must use `0x80`; the former `0x06` State Sync request
-is no longer supported. The consumer compatibility boundary is
+State Sync consumers must use the registry's current selector; its legacy
+selector is no longer supported by this firmware. The consumer compatibility boundary is
 `the-via-eerraa/docs/adr/0001-state-sync-protocol.md`; no legacy alias may
 shadow the core keycodes-version response.
 
 ### Envelope v1
 
-`id_get_keyboard_value` (`0x02`) + `ERA_STATE_SYNC_KEYBOARD_VALUE` (`0x80`) +
-`ERA_STATE_SYNC_ENVELOPE_VERSION` (`0x01`). Integers on the wire are big-endian.
+`id_get_keyboard_value` + `ERA_STATE_SYNC_KEYBOARD_VALUE` +
+`ERA_STATE_SYNC_ENVELOPE_VERSION`. Integers on the wire are big-endian.
 
 Request (`system/era_state_sync.c`; names in `system/era_state_sync.h`):
 
 | Byte | Meaning |
 | ---: | --- |
-| `0` | `id_get_keyboard_value` `0x02` |
-| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` `0x80` |
+| `0` | `id_get_keyboard_value` |
+| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` |
 | `2` | request envelope version |
 | `3` | must be `0` |
 | `4..5` | opaque tag; copied back unchanged; this tree does not interpret them as an integer |
 | `6..31` | must be `0` |
 
-Response after the handler zeros bytes `2..31`, writes version `0x01`, and
+Response after the handler zeros bytes `2..31`, writes the registered version, and
 restores the tag:
 
 | Byte | Meaning |
 | ---: | --- |
-| `0` | `0x02` |
-| `1` | `0x80` |
-| `2` | `ERA_STATE_SYNC_ENVELOPE_VERSION` `0x01` (firmware writes this, not the request version byte) |
-| `3` | `ERA_STATE_SYNC_STATUS_OK` `0x00`, `ERA_STATE_SYNC_STATUS_UNSUPPORTED_VERSION` `0x01`, or `ERA_STATE_SYNC_STATUS_INVALID` `0x02` |
+| `0` | `id_get_keyboard_value` |
+| `1` | `ERA_STATE_SYNC_KEYBOARD_VALUE` |
+| `2` | `ERA_STATE_SYNC_ENVELOPE_VERSION` (firmware writes this, not the request version byte) |
+| `3` | `ERA_STATE_SYNC_STATUS_OK`, `ERA_STATE_SYNC_STATUS_UNSUPPORTED_VERSION`, or `ERA_STATE_SYNC_STATUS_INVALID` |
 | `4..5` | echoed tag |
-| `6` | OK writes `ERA_STATE_SYNC_DOMAIN_MASK_INITIAL` (`0x07`); error leaves the byte zero |
+| `6` | OK writes `ERA_STATE_SYNC_DOMAIN_MASK_INITIAL`; error leaves the byte zero |
 | `7` | `0` |
 | `8..11` | OK only: KEYMAP revision, BE32 |
 | `12..15` | OK only: MACRO revision, BE32 |
 | `16..19` | OK only: CONFIG revision, BE32 |
 | `20..31` | `0` |
 
-Domain bits: `ERA_STATE_SYNC_DOMAIN_KEYMAP` `0x01`,
-`ERA_STATE_SYNC_DOMAIN_MACRO` `0x02`, `ERA_STATE_SYNC_DOMAIN_CONFIG` `0x04`.
-Version is checked before reserved bytes. A request version other than `0x01`
+Domain bits: `ERA_STATE_SYNC_DOMAIN_KEYMAP`,
+`ERA_STATE_SYNC_DOMAIN_MACRO`, `ERA_STATE_SYNC_DOMAIN_CONFIG`.
+Version is checked before reserved bytes. A request version other than the registered version
 is `UNSUPPORTED_VERSION` even if reserved bytes are also nonzero. A matching
 version with a nonzero reserved byte (`3` or `6..31`) is `INVALID`. On both
 error statuses the tag is still echoed and revisions are not filled. GET does
@@ -566,7 +573,7 @@ not bump any revision.
 
 > **REFUSED:** `BUSY`, extra status codes, a second report shape, a transaction
 > id, a capability bit, or a new command id on this selector.
-> **WHY:** v1 is GET `0x02` selector `0x80`, statuses `0`/`1`/`2`, one 32-byte
+> **WHY:** v1 is the registered GET selector and status set, with one fixed-size
 > layout; a second shape would be another protocol.
 > **REOPENS:** a new envelope version, approved on this tree.
 

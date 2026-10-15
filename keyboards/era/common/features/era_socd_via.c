@@ -9,10 +9,10 @@
 #include "via.h"
 
 enum {
-    ERA_SOCD_VIA_VALUE_ENABLE    = 1,
-    ERA_SOCD_VIA_VALUE_KEYCODE_0 = 2,
-    ERA_SOCD_VIA_VALUE_KEYCODE_1 = 3,
-    ERA_SOCD_VIA_VALUE_MODE      = 4,
+    ERA_SOCD_VIA_VALUE_ENABLE    = ERA_WIRE_SOCD_ENABLE,
+    ERA_SOCD_VIA_VALUE_KEYCODE_0 = ERA_WIRE_SOCD_KEYCODE_0,
+    ERA_SOCD_VIA_VALUE_KEYCODE_1 = ERA_WIRE_SOCD_KEYCODE_1,
+    ERA_SOCD_VIA_VALUE_MODE      = ERA_WIRE_SOCD_MODE,
 };
 
 static uint8_t era_socd_via_pair_from_channel(uint8_t channel_id) {

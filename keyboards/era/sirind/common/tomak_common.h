@@ -4,6 +4,7 @@
 #pragma once
 
 #include "quantum.h"
+#include "../../common/system/era_wire.h"
 
 /* The tomak family's whole board content, owned once for `tomak`, `tomak79h`
    and `tomak79s`. **None of the three keeps a `.c` file**, and the reason that
@@ -63,10 +64,10 @@
    one `SRC` line in each board's `post_rules.mk`. */
 
 enum tomak_indicator_mode {
-    TOMAK_INDICATOR_OFF = 0,
-    TOMAK_INDICATOR_CAPS_LOCK,
-    TOMAK_INDICATOR_SCROLL_LOCK,
-    TOMAK_INDICATOR_NUM_LOCK
+    TOMAK_INDICATOR_OFF = ERA_WIRE_INDICATOR_SOURCES_OFF,
+    TOMAK_INDICATOR_CAPS_LOCK = ERA_WIRE_INDICATOR_SOURCES_CAPS_LOCK,
+    TOMAK_INDICATOR_SCROLL_LOCK = ERA_WIRE_INDICATOR_SOURCES_SCROLL_LOCK,
+    TOMAK_INDICATOR_NUM_LOCK = ERA_WIRE_INDICATOR_SOURCES_NUM_LOCK
 };
 
 /* The shape tomak79h carried, which is the one that had no union around it.
@@ -112,10 +113,10 @@ enum tomak_keycodes {
 #ifdef VIA_ENABLE
 // via value id declaration
 enum tomak_custom_value_id {
-    id_custom_indicator_toggle = 0,
-    id_custom_indicator_override,
-    id_custom_indicator_brightness,
-    id_custom_indicator_color,
-    id_custom_badge_only
+    id_custom_indicator_toggle = ERA_WIRE_TOMAK_INDICATOR_TOGGLE,
+    id_custom_indicator_override = ERA_WIRE_TOMAK_INDICATOR_OVERRIDE,
+    id_custom_indicator_brightness = ERA_WIRE_TOMAK_INDICATOR_BRIGHTNESS,
+    id_custom_indicator_color = ERA_WIRE_TOMAK_INDICATOR_COLOR,
+    id_custom_badge_only = ERA_WIRE_TOMAK_BADGE_ONLY
 };
 #endif

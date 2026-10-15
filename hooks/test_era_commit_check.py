@@ -250,6 +250,10 @@ def test_end_to_end():
             "print('temporary STOCK VIA ok')\n",
             encoding="utf-8",
         )
+        (doc_tool.parent / "era_wire_contract.py").write_text(
+            "import sys\nassert sys.argv[1:] == ['--index']\n"
+            "print('temporary wire contract ok')\n", encoding="utf-8",
+        )
 
         dirty = root / "dirty.txt"
         dirty.write_text("hello \n", encoding="utf-8")
@@ -336,7 +340,8 @@ def test_live_tree():
         "live tree rc matches cached whitespace",
         check_proc.returncode == expected,
     )
-    ledger = gate.LEDGER.read_text(encoding="utf-8")
+    # The live check compares the staged candidate, not an unstaged ledger edit.
+    ledger = _git(REPO, "show", f":{gate.LEDGER_REL}").stdout
     snapshot = gate.pristine_snapshot(ledger)
     check("live ledger names pristine snapshot", snapshot is not None)
     exists = subprocess.run(

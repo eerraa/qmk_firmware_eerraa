@@ -311,12 +311,33 @@ def main():
         check_storage_layer(problems, notes)
     if stock_via_layer_armed(changed):
         check_stock_via_layer(problems, notes)
+    if any(path.startswith("keyboards/era/") or path in ("quantum/via.h", "quantum/keycodes.h") for path in changed):
+        check_wire_layer(problems, notes)
     for note in notes:
         print("note: " + note)
     if problems:
         sys.stderr.write("\n\n".join(problems) + "\n")
         return 1
     return 0
+
+
+def check_wire_layer(problems, notes):
+    rel = "keyboards/era/common/tools/era_wire_contract.py"
+    staged = subprocess.run(
+        ["git", "show", f":{rel}"], cwd=str(REPO), capture_output=True,
+    )
+    if staged.returncode:
+        problems.append("the staged index does not contain `" + rel + "`")
+        return
+    proc = subprocess.run(
+        [sys.executable, "-c", STAGED_PYTHON_RUNNER, str(REPO / rel), "--index"],
+        cwd=str(REPO), input=staged.stdout, capture_output=True,
+    )
+    output = (proc.stdout + proc.stderr).decode("utf-8", errors="replace").strip()
+    if proc.returncode:
+        problems.append("ERA wire contract fails on the staged index:\n" + output)
+    else:
+        notes.append(output)
 
 
 if __name__ == "__main__":

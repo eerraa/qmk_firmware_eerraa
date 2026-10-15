@@ -4,6 +4,7 @@
 #pragma once
 
 #include "quantum.h"
+#include "../../common/system/era_wire.h"
 
 /* The odessey family's shared types, extracted from the two board headers on
    2026-08-13 with the board content itself. `odessey60h.h` and `odessey60s.h`
@@ -12,10 +13,10 @@
    which is per board by convention even where the values agree. */
 
 enum odessey_indicator_mode {
-    ODESSEY_INDICATOR_OFF = 0,
-    ODESSEY_INDICATOR_CAPS_LOCK,
-    ODESSEY_INDICATOR_SCROLL_LOCK,
-    ODESSEY_INDICATOR_NUM_LOCK
+    ODESSEY_INDICATOR_OFF = ERA_WIRE_INDICATOR_SOURCES_OFF,
+    ODESSEY_INDICATOR_CAPS_LOCK = ERA_WIRE_INDICATOR_SOURCES_CAPS_LOCK,
+    ODESSEY_INDICATOR_SCROLL_LOCK = ERA_WIRE_INDICATOR_SOURCES_SCROLL_LOCK,
+    ODESSEY_INDICATOR_NUM_LOCK = ERA_WIRE_INDICATOR_SOURCES_NUM_LOCK
 };
 
 typedef union {
@@ -33,9 +34,9 @@ extern odessey_config_t g_odessey_config;
 
 #ifdef VIA_ENABLE
 enum odessey_custom_value_id {
-    id_custom_indicator_select = 1,
-    id_custom_indicator_brightness,
-    id_custom_indicator_color,
-    id_custom_velocikey_enable
+    id_custom_indicator_select = ERA_WIRE_ODESSEY_INDICATOR_SELECT,
+    id_custom_indicator_brightness = ERA_WIRE_ODESSEY_INDICATOR_BRIGHTNESS,
+    id_custom_indicator_color = ERA_WIRE_ODESSEY_INDICATOR_COLOR,
+    id_custom_velocikey_enable = ERA_WIRE_ODESSEY_VELOCIKEY_ENABLE
 };
 #endif

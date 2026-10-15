@@ -1,6 +1,7 @@
 // Copyright 2026 Hyojin Bak (@eerraa)
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "era_mousekey.h"
+#include "../system/era_wire.h"
 #include <stddef.h>
 #include <string.h>
 #include "mousekey.h"
@@ -94,45 +95,45 @@ static uint8_t legacy_get(uint8_t id) {
     static const uint16_t cursor_interval[] = {5,8,10,16,20};
     static const uint16_t wheel_interval[] = {20,40,80,160};
     switch (id) {
-        case 1: return cfg.cursor_ramp_ms ? nearest(cfg.move_delta,start,(sizeof(start) / sizeof(start[0]))) : nearest(cfg.move_delta,constant,(sizeof(constant) / sizeof(constant[0])));
-        case 2: return nearest(cfg.max_speed,top,(sizeof(top) / sizeof(top[0])));
-        case 3: return cfg.cursor_ramp_ms ? nearest(cfg.cursor_ramp_ms,ramp,(sizeof(ramp) / sizeof(ramp[0]))) / 50U : 0;
-        case 4: return nearest(cfg.interval,cursor_interval,(sizeof(cursor_interval) / sizeof(cursor_interval[0])));
-        case 5: return nearest(cfg.wheel_interval,wheel_interval,(sizeof(wheel_interval) / sizeof(wheel_interval[0])));
-        case 6: return cfg.wheel_ramp_ms == 0 ? 0 : cfg.wheel_max_speed <= (4 + MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED) / 2 ? 1 : 2;
+        case ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED: return cfg.cursor_ramp_ms ? nearest(cfg.move_delta,start,(sizeof(start) / sizeof(start[0]))) : nearest(cfg.move_delta,constant,(sizeof(constant) / sizeof(constant[0])));
+        case ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED: return nearest(cfg.max_speed,top,(sizeof(top) / sizeof(top[0])));
+        case ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION: return cfg.cursor_ramp_ms ? nearest(cfg.cursor_ramp_ms,ramp,(sizeof(ramp) / sizeof(ramp[0]))) / 50U : 0;
+        case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL: return nearest(cfg.interval,cursor_interval,(sizeof(cursor_interval) / sizeof(cursor_interval[0])));
+        case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL: return nearest(cfg.wheel_interval,wheel_interval,(sizeof(wheel_interval) / sizeof(wheel_interval[0])));
+        case ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION: return cfg.wheel_ramp_ms == 0 ? 0 : cfg.wheel_max_speed <= (4 + MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED) / 2 ? 1 : 2;
         default: return 0;
     }
 }
 static uint16_t exact_get(uint8_t id) {
     switch (id) {
-        case 8: return cfg.move_delta;
-        case 9: return cfg.max_speed;
-        case 10: return cfg.cursor_ramp_ms;
-        case 11: return cfg.interval;
-        case 12: return cfg.wheel_interval;
-        case 13: return cfg.wheel_max_speed;
-        case 14: return cfg.wheel_ramp_ms;
+        case ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT: return cfg.move_delta;
+        case ERA_WIRE_MOUSEKEY_CURSOR_TARGET_EXACT: return cfg.max_speed;
+        case ERA_WIRE_MOUSEKEY_CURSOR_RAMP_EXACT: return cfg.cursor_ramp_ms;
+        case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL_EXACT: return cfg.interval;
+        case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL_EXACT: return cfg.wheel_interval;
+        case ERA_WIRE_MOUSEKEY_WHEEL_TARGET_EXACT: return cfg.wheel_max_speed;
+        case ERA_WIRE_MOUSEKEY_WHEEL_RAMP_EXACT: return cfg.wheel_ramp_ms;
         default: return 0;
     }
 }
 static bool assign(uint8_t id, uint16_t value) {
     switch (id) {
-        case 1: cfg.move_delta = clamp_byte(value, MOUSEKEY_MOVE_MAX); break;
-        case 2: cfg.max_speed = clamp_byte(value, MOUSEKEY_MOVE_MAX); break;
-        case 3: cfg.cursor_ramp_ms = value * 50U; break;
-        case 4: cfg.interval = clamp_byte(value, 255); break;
-        case 5: cfg.wheel_interval = clamp_byte(value, 255); break;
-        case 6:
+        case ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED: cfg.move_delta = clamp_byte(value, MOUSEKEY_MOVE_MAX); break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED: cfg.max_speed = clamp_byte(value, MOUSEKEY_MOVE_MAX); break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION: cfg.cursor_ramp_ms = value * 50U; break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL: cfg.interval = clamp_byte(value, 255); break;
+        case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL: cfg.wheel_interval = clamp_byte(value, 255); break;
+        case ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION:
             cfg.wheel_max_speed = value == 0 ? cfg.wheel_delta : value == 1 ? 4 : MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED;
             cfg.wheel_ramp_ms = value == 0 ? 0 : MOUSEKEY_WHEEL_TIME_TO_MAX * cfg.wheel_interval;
             break;
-        case 8: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.move_delta = value; break;
-        case 9: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.max_speed = value; break;
-        case 10: cfg.cursor_ramp_ms = value; break;
-        case 11: if (value < 1 || value > 255) return false; cfg.interval = value; break;
-        case 12: if (value < 1 || value > 255) return false; cfg.wheel_interval = value; break;
-        case 13: if (value < 1 || value > MOUSEKEY_WHEEL_MAX) return false; cfg.wheel_max_speed = value; break;
-        case 14: cfg.wheel_ramp_ms = value; break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.move_delta = value; break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_TARGET_EXACT: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.max_speed = value; break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_RAMP_EXACT: cfg.cursor_ramp_ms = value; break;
+        case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL_EXACT: if (value < 1 || value > 255) return false; cfg.interval = value; break;
+        case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL_EXACT: if (value < 1 || value > 255) return false; cfg.wheel_interval = value; break;
+        case ERA_WIRE_MOUSEKEY_WHEEL_TARGET_EXACT: if (value < 1 || value > MOUSEKEY_WHEEL_MAX) return false; cfg.wheel_max_speed = value; break;
+        case ERA_WIRE_MOUSEKEY_WHEEL_RAMP_EXACT: cfg.wheel_ramp_ms = value; break;
         default: return false;
     }
     return true;
@@ -166,17 +167,17 @@ static void load(bool persist) {
 }
 void era_mousekey_init(void) { load(true); }
 void era_mousekey_reload_from_eeprom(void) { load(false); }
-bool era_mousekey_set_exact(uint8_t id, uint16_t value) { return id >= 8 && id <= 14 && set_value(id,value); }
+bool era_mousekey_set_exact(uint8_t id, uint16_t value) { return id >= ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT && id <= ERA_WIRE_MOUSEKEY_WHEEL_RAMP_EXACT && set_value(id,value); }
 uint16_t era_mousekey_get_exact(uint8_t id) { return exact_get(id); }
-void era_mousekey_set_cursor_min_speed(uint8_t value) { set_value(1,value); }
-uint8_t era_mousekey_get_cursor_min_speed(void) { return legacy_get(1); }
-void era_mousekey_set_cursor_max_speed(uint8_t value) { set_value(2,value); }
-uint8_t era_mousekey_get_cursor_max_speed(void) { return legacy_get(2); }
-void era_mousekey_set_cursor_acceleration(uint8_t value) { set_value(3,value); }
-uint8_t era_mousekey_get_cursor_acceleration(void) { return legacy_get(3); }
-void era_mousekey_set_cursor_interval_ms(uint8_t value) { set_value(4,value); }
-uint8_t era_mousekey_get_cursor_interval_ms(void) { return legacy_get(4); }
-void era_mousekey_set_wheel_interval_ms(uint8_t value) { set_value(5,value); }
-uint8_t era_mousekey_get_wheel_interval_ms(void) { return legacy_get(5); }
-void era_mousekey_set_wheel_acceleration(uint8_t value) { set_value(6,value); }
-uint8_t era_mousekey_get_wheel_acceleration(void) { return legacy_get(6); }
+void era_mousekey_set_cursor_min_speed(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED,value); }
+uint8_t era_mousekey_get_cursor_min_speed(void) { return legacy_get(ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED); }
+void era_mousekey_set_cursor_max_speed(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED,value); }
+uint8_t era_mousekey_get_cursor_max_speed(void) { return legacy_get(ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED); }
+void era_mousekey_set_cursor_acceleration(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION,value); }
+uint8_t era_mousekey_get_cursor_acceleration(void) { return legacy_get(ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION); }
+void era_mousekey_set_cursor_interval_ms(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL,value); }
+uint8_t era_mousekey_get_cursor_interval_ms(void) { return legacy_get(ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL); }
+void era_mousekey_set_wheel_interval_ms(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL,value); }
+uint8_t era_mousekey_get_wheel_interval_ms(void) { return legacy_get(ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL); }
+void era_mousekey_set_wheel_acceleration(uint8_t value) { set_value(ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION,value); }
+uint8_t era_mousekey_get_wheel_acceleration(void) { return legacy_get(ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION); }

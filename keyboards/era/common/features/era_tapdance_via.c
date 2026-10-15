@@ -11,13 +11,13 @@
 #if defined(ERA_TAP_DANCE_ENABLE)
 
 enum {
-    ERA_TAP_DANCE_VIA_VALUE_ID_BASE       = 32,
-    ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE     = 5,
-    ERA_TAP_DANCE_FIELD_TERM              = 4,
-    ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE = 72,
-    ERA_TAP_DANCE_VIA_VALUE_ID_MODE_BASE = 80,
-    ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_TERM_BASE = 88,
-    ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_OTHER_BASE = 96,
+    ERA_TAP_DANCE_VIA_VALUE_ID_BASE       = ERA_WIRE_TAPDANCE_EERRAA_TAP_1,
+    ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE     = ERA_WIRE_TAPDANCE_EERRAA_TAP_2 - ERA_WIRE_TAPDANCE_EERRAA_TAP_1,
+    ERA_TAP_DANCE_FIELD_TERM              = ERA_WIRE_TAPDANCE_EERRAA_TERM_1 - ERA_WIRE_TAPDANCE_EERRAA_TAP_1,
+    ERA_TAP_DANCE_VIA_VALUE_ID_EXACT_BASE = ERA_WIRE_TAPDANCE_EERRAA_TERM_EXACT_1,
+    ERA_TAP_DANCE_VIA_VALUE_ID_MODE_BASE = ERA_WIRE_TAPDANCE_EERRAA_MODE_1,
+    ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_TERM_BASE = ERA_WIRE_TAPDANCE_EERRAA_HOLD_TERM_1,
+    ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_OTHER_BASE = ERA_WIRE_TAPDANCE_EERRAA_HOLD_OTHER_1,
 };
 
 #define ERA_TAP_DANCE_VIA_VALUE_ID_MAX (ERA_TAP_DANCE_VIA_VALUE_ID_BASE + (ERA_TAP_DANCE_SLOT_COUNT * ERA_TAP_DANCE_VIA_VALUE_ID_STRIDE) - 1)
@@ -71,17 +71,17 @@ static bool era_tapdance_via_set_value(uint8_t channel_id, uint8_t value_id, uin
     if (era_tapdance_is_timing_id(value_id)) {
         if (value_id < ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_OTHER_BASE) {
             if (length < 5U || !era_tapdance_set_hold_term(slot_index, era_common_via_get_u16_be(value_data))) return false;
-            if (length >= 6U) value_data[2] = 0xD3;
+            if (length >= 6U) value_data[2] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         } else {
             if (length < 4U || !era_tapdance_set_hold_other(slot_index, value_data[0])) return false;
-            if (length >= 5U) value_data[1] = 0xD3;
+            if (length >= 5U) value_data[1] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         }
         return true;
     }
     if (era_tapdance_is_mode_id(value_id)) {
         if (length < 4U || !era_tapdance_set_mode(slot_index, value_data[0])) return false;
-        if (length >= 5U) value_data[1] = 0xD2;
-        if (length >= 6U) value_data[2] = 0xD3;
+        if (length >= 5U) value_data[1] = ERA_WIRE_TAPDANCE_MARKERS_MODE;
+        if (length >= 6U) value_data[2] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         return true;
     }
     if (length < 5U) return false;
@@ -113,17 +113,17 @@ static bool era_tapdance_via_get_value(uint8_t channel_id, uint8_t value_id, uin
         if (value_id < ERA_TAP_DANCE_VIA_VALUE_ID_HOLD_OTHER_BASE) {
             if (length < 5U) return false;
             era_common_via_put_u16_be(value_data, era_tapdance_get_hold_term(slot_index));
-            if (length >= 6U) value_data[2] = 0xD3;
+            if (length >= 6U) value_data[2] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         } else {
             value_data[0] = era_tapdance_get_hold_other(slot_index);
-            if (length >= 5U) value_data[1] = 0xD3;
+            if (length >= 5U) value_data[1] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         }
         return true;
     }
     if (era_tapdance_is_mode_id(value_id)) {
         value_data[0] = era_tapdance_get_mode(slot_index);
-        if (length >= 5U) value_data[1] = 0xD2;
-        if (length >= 6U) value_data[2] = 0xD3;
+        if (length >= 5U) value_data[1] = ERA_WIRE_TAPDANCE_MARKERS_MODE;
+        if (length >= 6U) value_data[2] = ERA_WIRE_TAPDANCE_MARKERS_TIMING;
         return true;
     }
     if (era_tapdance_is_exact_term_id(value_id)) {

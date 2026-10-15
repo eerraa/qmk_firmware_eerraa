@@ -4,8 +4,17 @@ Genre: map
 Canonical for: identifier-namespace lookup to the first source owner and the
 compatibility contract or decoding check that governs allocation
 
-This map does not own numeric values. Live enum values, channel/value ids, wire
-ids, and diagnostic field names come from the named source/header/definition.
+This map does not own numeric values. ERA VIA allocations are owned by
+`the-via-eerraa/config/era-wire.json` under
+`the-via-eerraa/docs/adr/0005-era-wire-registry.md` and consumed through
+`system/era_wire.h`. Firmware enum/macro names are aliases, not allocation
+owners. Split-wire ids and diagnostic field names remain in their named owners.
+`keyboards/era/common/tools/era_wire_contract.py` checks official VIA name/value
+sets, versions and literal redefinitions of ERA aliases; `quantum/via.h`
+also expands the generated official tables as compile-time assertions.
+Run `python tests/era_wire_contract/test_wire_contract.py` for its positive
+inventory and deliberate negative fixtures. The commit hook checks staged blobs
+when ERA sources, the generated header, via.h or keycodes.h change.
 Cross-build non-reuse and the unresolved mode 5/6 question are owned by
 `contracts/era_invariants.md` **Identifier Compatibility**.
 

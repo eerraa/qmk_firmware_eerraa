@@ -4,12 +4,13 @@
 #pragma once
 
 #include "quantum.h"
+#include "../../common/system/era_wire.h"
 
 enum riley_indicator_mode {
-    RILEY_INDICATOR_RGB_EFFECT = 0,
-    RILEY_INDICATOR_CAPS_LOCK,
-    RILEY_INDICATOR_SCROLL_LOCK,
-    RILEY_INDICATOR_NUM_LOCK,
+    RILEY_INDICATOR_RGB_EFFECT = ERA_WIRE_INDICATOR_SOURCES_OFF,
+    RILEY_INDICATOR_CAPS_LOCK = ERA_WIRE_INDICATOR_SOURCES_CAPS_LOCK,
+    RILEY_INDICATOR_SCROLL_LOCK = ERA_WIRE_INDICATOR_SOURCES_SCROLL_LOCK,
+    RILEY_INDICATOR_NUM_LOCK = ERA_WIRE_INDICATOR_SOURCES_NUM_LOCK,
 };
 
 enum riley_indicator_slot {
@@ -28,17 +29,17 @@ extern riley_config_t g_riley_config;
 
 #ifdef VIA_ENABLE
 enum riley_custom_value_id {
-    id_custom_riley_ind1_mode = 13,
-    id_custom_riley_ind1_brightness,
-    id_custom_riley_ind1_color,
-    id_custom_riley_ind2_mode,
-    id_custom_riley_ind2_brightness,
-    id_custom_riley_ind2_color,
-    id_custom_riley_ind3_mode,
-    id_custom_riley_ind3_brightness,
-    id_custom_riley_ind3_color,
-    id_custom_riley_indicator_only,
-    id_custom_riley_velocikey_enable,
+    id_custom_riley_ind1_mode = ERA_WIRE_RILEY_INDICATOR_1_MODE,
+    id_custom_riley_ind1_brightness = ERA_WIRE_RILEY_INDICATOR_1_BRIGHTNESS,
+    id_custom_riley_ind1_color = ERA_WIRE_RILEY_INDICATOR_1_COLOR,
+    id_custom_riley_ind2_mode = ERA_WIRE_RILEY_INDICATOR_2_MODE,
+    id_custom_riley_ind2_brightness = ERA_WIRE_RILEY_INDICATOR_2_BRIGHTNESS,
+    id_custom_riley_ind2_color = ERA_WIRE_RILEY_INDICATOR_2_COLOR,
+    id_custom_riley_ind3_mode = ERA_WIRE_RILEY_INDICATOR_3_MODE,
+    id_custom_riley_ind3_brightness = ERA_WIRE_RILEY_INDICATOR_3_BRIGHTNESS,
+    id_custom_riley_ind3_color = ERA_WIRE_RILEY_INDICATOR_3_COLOR,
+    id_custom_riley_indicator_only = ERA_WIRE_RILEY_INDICATOR_ONLY,
+    id_custom_riley_velocikey_enable = ERA_WIRE_RILEY_VELOCIKEY_ENABLE,
 };
 #endif
 

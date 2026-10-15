@@ -3,7 +3,7 @@
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
     "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "Move unchanged dynamic-keymap geometry definitions to a shared header for exact macro snapshot sizing; stored addresses, sizes and reset keys are unchanged.",
+  "reason": "ERA wire registry aliases only: resolved channel, link-level and version values, keycodes, EEPROM offsets, sizes, signatures and stored meaning are unchanged; no reset required.",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "7b3087dc2c54e525",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -63,7 +63,7 @@
     "board keyboards/era/sirind/tomak79h/keyboard.json": "a62a375e84fc91b4",
     "board keyboards/era/sirind/tomak79s/config.h": "0c2900fec6c6c9d8",
     "board keyboards/era/sirind/tomak79s/keyboard.json": "a62a375e84fc91b4",
-    "define keyboards/era/common/storage/era_eeprom_layout.h": "b8bb403b84bb2661",
+    "define keyboards/era/common/storage/era_eeprom_layout.h": "22c1ccf835450600",
     "define keyboards/era/common/storage/era_storage_adoption.h": "bf78c3a1ff61f02e",
     "define keyboards/era/common/storage/era_storage_layout.h": "82abd1bd909064df",
     "define quantum/eeconfig.h": "cc9b96f5fc2428a8",
@@ -90,7 +90,7 @@
     "keycodes keyboards/era/sirind/divine/divine.h": "ce9aac65e0d285a8",
     "keycodes keyboards/era/sirind/klein_hs/klein_hs.h": "8be985c0ce0203c3",
     "keycodes keyboards/era/sirind/klein_sd/klein_sd.h": "820c114ced17d3e2",
-    "order quantum/keycodes.h": "8193d2f809162abd",
+    "order quantum/keycodes.h": "b7acf7255653ceaf",
     "order quantum/rgb_matrix/animations/rgb_matrix_effects.inc": "478ccac09c9f3ff7",
     "order quantum/rgblight/rgblight_modes.h": "98a2ece92cf3a71d",
     "type backlight_config_t": "f65d556ee0397922",

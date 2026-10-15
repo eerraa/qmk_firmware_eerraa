@@ -6,9 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "quantum.h"
+#include "../system/era_wire.h"
 
 enum {
-    ERA_KKUK_MODE_REPORT_PULSE = 1,
+    ERA_KKUK_MODE_REPORT_PULSE = ERA_WIRE_KKUK_MODES_REPORT_PULSE,
 };
 
 void era_kkuk_init(void);

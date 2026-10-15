@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "quantum.h"
+#include "../system/era_wire.h"
 
 /* Lock indicators on named RGB Matrix LEDs: one or two slots, each a lock
  * source, a brightness and a colour, all configurable from VIA.
@@ -39,10 +40,10 @@
  */
 
 enum era_rgb_indicator_source {
-    ERA_RGB_INDICATOR_SOURCE_OFF = 0,
-    ERA_RGB_INDICATOR_SOURCE_CAPS_LOCK,
-    ERA_RGB_INDICATOR_SOURCE_SCROLL_LOCK,
-    ERA_RGB_INDICATOR_SOURCE_NUM_LOCK,
+    ERA_RGB_INDICATOR_SOURCE_OFF = ERA_WIRE_INDICATOR_SOURCES_OFF,
+    ERA_RGB_INDICATOR_SOURCE_CAPS_LOCK = ERA_WIRE_INDICATOR_SOURCES_CAPS_LOCK,
+    ERA_RGB_INDICATOR_SOURCE_SCROLL_LOCK = ERA_WIRE_INDICATOR_SOURCES_SCROLL_LOCK,
+    ERA_RGB_INDICATOR_SOURCE_NUM_LOCK = ERA_WIRE_INDICATOR_SOURCES_NUM_LOCK,
     ERA_RGB_INDICATOR_SOURCE_COUNT
 };
 

@@ -303,7 +303,7 @@ bool era_state_sync_via_command(uint8_t *data, uint8_t length) {
     if (!data || length < 2 || data[0] != id_get_keyboard_value || data[1] != ERA_STATE_SYNC_KEYBOARD_VALUE) {
         return false;
     }
-    if (length < 32) {
+    if (length < ERA_WIRE_VIA_REPORT_SIZE) {
         return false;
     }
 

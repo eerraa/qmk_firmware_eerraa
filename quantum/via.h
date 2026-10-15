@@ -17,6 +17,7 @@
 #pragma once
 
 #include "action.h"
+#include "keycodes.h"
 
 // Changing the layout options size after release will invalidate EEPROM,
 // but this is something that should be set correctly on initial implementation.
@@ -39,7 +40,7 @@
 
 // This is changed only when the command IDs change,
 // so VIA Configurator can detect compatible firmware.
-#define VIA_PROTOCOL_VERSION 0x000D
+#define VIA_PROTOCOL_VERSION ERA_WIRE_VIA_PROTOCOL_VERSION
 
 // This is a version number for the firmware for the keyboard.
 // It can be used to ensure the VIA keyboard definition and the firmware
@@ -93,6 +94,20 @@ enum via_channel_id {
     id_qmk_audio_channel      = 4,
     id_qmk_led_matrix_channel = 5,
 };
+
+#ifdef __cplusplus
+#    define ERA_WIRE_ASSERT(condition, message) static_assert(condition, message)
+#else
+#    define ERA_WIRE_ASSERT(condition, message) _Static_assert(condition, message)
+#endif
+#define ERA_WIRE_ASSERT_OFFICIAL(name, value) ERA_WIRE_ASSERT(name == value, #name " differs from the ERA wire registry");
+ERA_WIRE_VIA_OFFICIAL_COMMANDS(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_VIA_OFFICIAL_KEYBOARD_VALUES(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_VIA_OFFICIAL_CHANNELS(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_ASSERT(VIA_PROTOCOL_VERSION == ERA_WIRE_VIA_PROTOCOL_VERSION, "VIA protocol version differs from the registry");
+ERA_WIRE_ASSERT(QMK_KEYCODES_VERSION_BCD == ERA_WIRE_VIA_KEYCODES_VERSION, "VIA keycodes version differs from the registry");
+#undef ERA_WIRE_ASSERT_OFFICIAL
+#undef ERA_WIRE_ASSERT
 
 enum via_qmk_backlight_value {
     id_qmk_backlight_brightness = 1,

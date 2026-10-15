@@ -10,7 +10,7 @@ SRC += keyboards/era/common/features/era_tapping.c
 SRC += keyboards/era/common/features/era_mousekey.c
 SRC += keyboards/era/common/features/era_mousekey_via.c
 MOUSEKEY_ENABLE = yes
-OPT_DEFS += -DERA_MOUSEKEY_RUNTIME_DELTA -DERA_VIA_MOUSEKEY_CHANNEL=13
+OPT_DEFS += -DERA_MOUSEKEY_RUNTIME_DELTA -DERA_VIA_MOUSEKEY_CHANNEL=ERA_WIRE_CHANNELS_EERRAA_MOUSEKEY
 SRC += keyboards/era/common/features/era_tapping_via.c
 SRC += keyboards/era/common/features/era_tapdance.c
 SRC += keyboards/era/common/features/era_tapdance_via.c

@@ -21,10 +21,11 @@
  * handler of its own and a PWM backlight, and `ERA_BACKLIGHT_EFFECT_ENABLE` is
  * what keeps that true: a board that grew both would have to choose.
  */
-#define ERA_VIA_BACKLIGHT_BRIGHTNESS_VALUE_ID 0
-#define ERA_VIA_BACKLIGHT_EFFECT_VALUE_ID 1
-#define ERA_VIA_BACKLIGHT_BREATHING_PERIOD_VALUE_ID 2
-#define ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID 3
+#include "../system/era_wire.h"
+#define ERA_VIA_BACKLIGHT_BRIGHTNESS_VALUE_ID ERA_WIRE_BACKLIGHT_BRIGHTNESS
+#define ERA_VIA_BACKLIGHT_EFFECT_VALUE_ID ERA_WIRE_BACKLIGHT_EFFECT
+#define ERA_VIA_BACKLIGHT_BREATHING_PERIOD_VALUE_ID ERA_WIRE_BACKLIGHT_BREATHING_PERIOD
+#define ERA_VIA_BACKLIGHT_PULSE_SPEED_VALUE_ID ERA_WIRE_BACKLIGHT_PULSE_SPEED
 
 bool era_backlight_via_is_value_id(uint8_t value_id);
 bool era_backlight_via_handle_via_command(uint8_t *data, uint8_t length);

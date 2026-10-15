@@ -14,12 +14,12 @@
    wrong channels, and a 256-wide namespace with seven claimants has no scarcity
    to relieve. */
 enum {
-    ERA_MOUSEKEY_VIA_VALUE_CURSOR_MIN_SPEED = 1,
-    ERA_MOUSEKEY_VIA_VALUE_CURSOR_MAX_SPEED,
-    ERA_MOUSEKEY_VIA_VALUE_CURSOR_ACCELERATION,
-    ERA_MOUSEKEY_VIA_VALUE_CURSOR_INTERVAL,
-    ERA_MOUSEKEY_VIA_VALUE_WHEEL_INTERVAL,
-    ERA_MOUSEKEY_VIA_VALUE_WHEEL_ACCELERATION,
+    ERA_MOUSEKEY_VIA_VALUE_CURSOR_MIN_SPEED = ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED,
+    ERA_MOUSEKEY_VIA_VALUE_CURSOR_MAX_SPEED = ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED,
+    ERA_MOUSEKEY_VIA_VALUE_CURSOR_ACCELERATION = ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION,
+    ERA_MOUSEKEY_VIA_VALUE_CURSOR_INTERVAL = ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL,
+    ERA_MOUSEKEY_VIA_VALUE_WHEEL_INTERVAL = ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL,
+    ERA_MOUSEKEY_VIA_VALUE_WHEEL_ACCELERATION = ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION,
 };
 
 static bool era_mousekey_via_save(uint8_t channel_id) {
@@ -29,7 +29,7 @@ static bool era_mousekey_via_save(uint8_t channel_id) {
 
 static bool era_mousekey_via_set_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
-    if (value_id >= 8 && value_id <= 14) {
+    if (value_id >= ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT && value_id <= ERA_WIRE_MOUSEKEY_WHEEL_RAMP_EXACT) {
         return length >= 5 && era_mousekey_set_exact(value_id, ((uint16_t)value_data[0] << 8) | value_data[1]);
     }
     switch (value_id) {
@@ -58,14 +58,14 @@ static bool era_mousekey_via_set_value(uint8_t channel_id, uint8_t value_id, uin
 
 static bool era_mousekey_via_get_value(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {
     (void)channel_id;
-    if (value_id == 7) {
+    if (value_id == ERA_WIRE_MOUSEKEY_PRECISION) {
         if (length < 5) return false;
-        value_data[0] = 0xE4; value_data[1] = 1; return true;
+        value_data[0] = ERA_WIRE_MOUSEKEY_CAPABILITY_MARKER; value_data[1] = ERA_WIRE_MOUSEKEY_VERSION_PRECISION; return true;
     }
-    if (value_id >= 8 && value_id <= 14) {
+    if (value_id >= ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT && value_id <= ERA_WIRE_MOUSEKEY_WHEEL_RAMP_EXACT) {
         if (length < 6) return false;
         uint16_t value = era_mousekey_get_exact(value_id);
-        value_data[0] = value >> 8; value_data[1] = value & 0xFF; value_data[2] = 0xE4; return true;
+        value_data[0] = value >> 8; value_data[1] = value & 0xFF; value_data[2] = ERA_WIRE_MOUSEKEY_CAPABILITY_MARKER; return true;
     }
     value_data[0] = 0;
 
