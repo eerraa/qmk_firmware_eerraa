@@ -100,7 +100,10 @@ static uint8_t legacy_get(uint8_t id) {
         case ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION: return cfg.cursor_ramp_ms ? nearest(cfg.cursor_ramp_ms,ramp,(sizeof(ramp) / sizeof(ramp[0]))) / 50U : 0;
         case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL: return nearest(cfg.interval,cursor_interval,(sizeof(cursor_interval) / sizeof(cursor_interval[0])));
         case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL: return nearest(cfg.wheel_interval,wheel_interval,(sizeof(wheel_interval) / sizeof(wheel_interval[0])));
-        case ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION: return cfg.wheel_ramp_ms == 0 ? 0 : cfg.wheel_max_speed <= (4 + MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED) / 2 ? 1 : 2;
+        case ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION:
+            return cfg.wheel_ramp_ms == 0 ? ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_OFF :
+                   cfg.wheel_max_speed <= (4 + MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED) / 2 ? ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_MILD :
+                   ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_STRONG;
         default: return 0;
     }
 }
@@ -124,8 +127,9 @@ static bool assign(uint8_t id, uint16_t value) {
         case ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL: cfg.interval = clamp_byte(value, 255); break;
         case ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL: cfg.wheel_interval = clamp_byte(value, 255); break;
         case ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION:
-            cfg.wheel_max_speed = value == 0 ? cfg.wheel_delta : value == 1 ? 4 : MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED;
-            cfg.wheel_ramp_ms = value == 0 ? 0 : MOUSEKEY_WHEEL_TIME_TO_MAX * cfg.wheel_interval;
+            cfg.wheel_max_speed = value == ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_OFF ? cfg.wheel_delta :
+                                  value == ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_MILD ? 4 : MOUSEKEY_WHEEL_DELTA * MOUSEKEY_WHEEL_MAX_SPEED;
+            cfg.wheel_ramp_ms = value == ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION_LEVELS_OFF ? 0 : MOUSEKEY_WHEEL_TIME_TO_MAX * cfg.wheel_interval;
             break;
         case ERA_WIRE_MOUSEKEY_CURSOR_START_EXACT: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.move_delta = value; break;
         case ERA_WIRE_MOUSEKEY_CURSOR_TARGET_EXACT: if (value < 1 || value > MOUSEKEY_MOVE_MAX) return false; cfg.max_speed = value; break;
