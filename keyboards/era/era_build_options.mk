@@ -103,7 +103,7 @@ ERA_RP2040_MATRIX_ENABLE ?= yes
 # settle, in PIO cycles at the CPU clock. Every RP2040 board inherits the
 # family default; device grounds and the conditions for changing it live in
 # era_performance_gates.md, Fixed Baselines.
-ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY ?= 256
+ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY ?= 128
 
 # --- Keyboard features -----------------------------------------------------
 # SOCD resolution and its VIA page.

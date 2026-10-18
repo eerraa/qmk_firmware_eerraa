@@ -217,3 +217,35 @@ TEST(EraMatrixPioFrame, LatestCompleteFrameForEveryWritePosition) {
        one word short of finishing its own frame needs 2*FW+2 words to reach
        the copied one), which costs a rare needless retry and never a miss. */
 }
+
+TEST(EraMatrixPioFrame, SelectionMustBeInsideTheCopyCounterWindow) {
+    constexpr uint32_t words = 8, frames = 4;
+    /* At writer slot 0, the previous complete frame starts at word 24.
+       A preemption before the old count_before read can overwrite its first
+       word, even though the subsequent copy observes no DMA progress. */
+    constexpr uint32_t moved_before_old_counter = 25;
+    constexpr uint32_t moved_during_copy = 0;
+    EXPECT_GT(moved_before_old_counter, (frames - 1) * words);
+    EXPECT_FALSE(era_rp2040_matrix_pio_copy_torn(moved_during_copy, words, frames));
+    EXPECT_TRUE(era_rp2040_matrix_pio_copy_torn(
+        moved_before_old_counter + moved_during_copy, words, frames));
+
+    /* Exhaust every word phase and bounded DMA advance around selection.
+       Any accepted counter window must leave the selected frame untouched.
+       Advances before selection are deliberately included conservatively. */
+    constexpr uint32_t base = 0x20000000u;
+    for (uint32_t phase = 0; phase < frames * words; ++phase) {
+        for (uint32_t before = 0; before <= frames * words; ++before) {
+            uint32_t writer = phase + before;
+            uint32_t offset = era_rp2040_matrix_pio_latest_complete_frame_offset(
+                base + (writer % (frames * words)) * 4, base, 5, frames - 1, 3);
+            for (uint32_t during = 0; during <= frames * words; ++during) {
+                if (era_rp2040_matrix_pio_copy_torn(before + during, words, frames)) continue;
+                for (uint32_t moved = 0; moved < during; ++moved) {
+                    uint32_t written = (writer + moved) % (frames * words);
+                    EXPECT_FALSE(written >= offset && written < offset + words);
+                }
+            }
+        }
+    }
+}

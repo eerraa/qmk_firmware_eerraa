@@ -77,7 +77,7 @@
    The family default and device grounds are in era_performance_gates.md,
    Fixed Baselines. Keep this fallback equal to era_build_options.mk. */
 #ifndef ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY
-#    define ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY 256
+#    define ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY 128
 #endif
 
 /* Cycles every row is released (all HIGH) between one row's sample and the
@@ -113,6 +113,7 @@
 
 #define ERA_RP2040_MATRIX_PIO_ROW_T matrix_row_t
 #include "era_rp2040_matrix_pio_frame.h"
+#include "era_rp2040_matrix_pio_recovery.h"
 
 /* Frame geometry, all compile-time. FRAME_WORDS is the smallest power of two
    holding one slot per row so the sample ring's frame boundaries sit on the
@@ -248,9 +249,11 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
     /* Column masks and their row bits, then the decode tables. */
     uint32_t     col_masks[MATRIX_COLS];
     matrix_row_t col_bits[MATRIX_COLS];
+    uint32_t recovery_pins = state->all_row_mask;
     matrix_row_t bit = MATRIX_ROW_SHIFTER;
     for (uint8_t col = 0; col < MATRIX_COLS; col++, bit <<= 1) {
         col_masks[col] = era_rp2040_matrix_pio_pin_mask(col_pins[col]);
+        recovery_pins |= col_masks[col];
         col_bits[col]  = bit;
     }
     era_rp2040_matrix_pio_decode_tables_build(era_rp2040_matrix_pio_decode_tables, col_masks, col_bits, MATRIX_COLS, MATRIX_INPUT_PRESSED_STATE);
@@ -262,7 +265,7 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
     hal_lld_peripheral_unreset(RESETS_ALLREG_PIO1);
 
     uint16_t program_words[ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS];
-    size_t   program_len = era_rp2040_matrix_pio_program_encode(program_words, ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS, ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY, ERA_RP2040_MATRIX_PIO_ROW_RELEASE_CYCLES);
+    size_t program_len = era_rp2040_matrix_pio_recovery_encode(program_words, ERA_RP2040_MATRIX_PIO_PROGRAM_MAX_INSTRUCTIONS, ERA_RP2040_MATRIX_GPIO_INPUT_PIN_DELAY, ERA_RP2040_MATRIX_PIO_ROW_RELEASE_CYCLES, recovery_pins);
     if (program_len == 0) {
         return false;
     }
@@ -286,7 +289,7 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
     sm_config_set_wrap(&config, offset, offset + (uint)program_len - 1U);
     sm_config_set_out_pins(&config, 0, ERA_RP2040_MATRIX_PIO_PIN_COUNT);
     sm_config_set_in_pins(&config, 0);
-    sm_config_set_out_shift(&config, true, true, 32);
+    sm_config_set_out_shift(&config, true, false, 32);
     sm_config_set_in_shift(&config, true, true, 32);
     sm_config_set_clkdiv_int_frac(&config, 1, 0);
     pio_sm_init(pio1, sm, offset, &config);
@@ -390,25 +393,30 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
     const uint32_t             words_shift = era_rp2040_matrix_pio_log2(ERA_RP2040_MATRIX_PIO_FRAME_WORDS);
 
     uint32_t samples[MATRIX_ROWS_PER_HAND];
-    uint32_t write_addr = sample->WRITE_ADDR;
+    uint32_t write_addr = 0;
+    bool     frame_valid = false;
     for (uint8_t attempt = 0; attempt < 2; attempt++) {
         uint32_t        count_before = sample->TRANS_COUNT;
+        /* Cover selection as well as copying: an interrupt between the
+           pointer read and this counter must not age an unchecked frame. */
+        write_addr                  = sample->WRITE_ADDR;
         uint32_t        offset       = era_rp2040_matrix_pio_latest_complete_frame_offset(write_addr, base, frame_shift, ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES - 1U, words_shift);
-        const uint32_t *frame        = &era_rp2040_matrix_pio_sample_ring[offset];
+        /* DMA owns these words. Keep each SRAM load ordered with the
+           volatile peripheral reads bracketing this attempt. */
+        const volatile uint32_t *frame = &era_rp2040_matrix_pio_sample_ring[offset];
         ERA_RP2040_MATRIX_PIO_UNROLL(MATRIX_ROWS_PER_HAND)
         for (uint8_t row = 0; row < MATRIX_ROWS_PER_HAND; row++) {
             samples[row] = frame[row];
         }
         uint32_t count_after = sample->TRANS_COUNT;
         if (!era_rp2040_matrix_pio_copy_torn(count_before - count_after, ERA_RP2040_MATRIX_PIO_FRAME_WORDS, ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES)) {
+            frame_valid = true;
             break;
         }
         /* The writer moved far enough during the copy to have reached the
-           copied frame; take it again from where the writer is now. A second
-           tear is accepted -- the debounce absorbs one pass -- and counted
-           either way. */
+           copied frame. Retry once with a fresh, fully bracketed selection;
+           never publish a second torn copy as if it were a complete scan. */
         state->torn_retry_count++;
-        write_addr = sample->WRITE_ADDR;
     }
 
     /* A write pointer that has not moved since the last pass is a stalled
@@ -426,6 +434,9 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
         }
     }
     state->last_write_addr = write_addr;
+    if (!frame_valid) {
+        return false;
+    }
 
     bool changed = false;
     ERA_RP2040_MATRIX_PIO_UNROLL(MATRIX_ROWS_PER_HAND)
