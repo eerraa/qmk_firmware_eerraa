@@ -1,0 +1,22 @@
+#!/bin/sh
+# ERA pre-commit: the static checks a commit owes (whitespace, QMK fork
+# ledger, agent-document references). Activated once per clone with
+#   git config core.hooksPath qmk_firmware_eerraa/hooks
+# Never bypass with --no-verify; fix the finding.
+# A command name is not enough on Windows: the WindowsApps Store alias is
+# discoverable as python3 but exits before running a script. Probe the
+# interpreter, then fall back to the other conventional name.
+# Hooks in linked worktrees inherit GIT_DIR. Preserve the actual worktree root
+# when the Python checker changes cwd into the firmware component.
+GIT_WORK_TREE=$(git rev-parse --show-toplevel) || exit 1
+export GIT_WORK_TREE
+if command -v python3 >/dev/null 2>&1 &&
+   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+  exec python3 "$(git rev-parse --show-toplevel)/qmk_firmware_eerraa/hooks/era_commit_check.py"
+fi
+if command -v python >/dev/null 2>&1 &&
+   python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+  exec python "$(git rev-parse --show-toplevel)/qmk_firmware_eerraa/hooks/era_commit_check.py"
+fi
+echo "ERA pre-commit: no runnable Python 3.8+ interpreter found as python3 or python." >&2
+exit 1

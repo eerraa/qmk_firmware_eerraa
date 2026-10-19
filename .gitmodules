@@ -1,27 +1,27 @@
 [submodule "lib/chibios"]
-	path = lib/chibios
+	path = qmk_firmware_eerraa/lib/chibios
 	url = https://github.com/eerraa/ChibiOS.git
 	branch = custom/qmk-rp-usb
 [submodule "lib/chibios-contrib"]
-	path = lib/chibios-contrib
+	path = qmk_firmware_eerraa/lib/chibios-contrib
 	url = https://github.com/eerraa/ChibiOS-Contrib.git
 	branch = custom/qmk-rp-usb
 [submodule "lib/googletest"]
-	path = lib/googletest
+	path = qmk_firmware_eerraa/lib/googletest
 	url = https://github.com/qmk/googletest
 [submodule "lib/lufa"]
-	path = lib/lufa
+	path = qmk_firmware_eerraa/lib/lufa
 	url = https://github.com/qmk/lufa
 [submodule "lib/vusb"]
-	path = lib/vusb
+	path = qmk_firmware_eerraa/lib/vusb
 	url = https://github.com/qmk/v-usb
 [submodule "lib/printf"]
-	path = lib/printf
+	path = qmk_firmware_eerraa/lib/printf
 	url = https://github.com/qmk/printf
 [submodule "lib/pico-sdk"]
-	path = lib/pico-sdk
+	path = qmk_firmware_eerraa/lib/pico-sdk
 	url = https://github.com/qmk/pico-sdk.git
 [submodule "lib/lvgl"]
-	path = lib/lvgl
+	path = qmk_firmware_eerraa/lib/lvgl
 	url = https://github.com/qmk/lvgl.git
 	branch = release/v8.2

@@ -1,82 +1,37 @@
-# ERA 에이전트 진입
+# EERRAA QMK — 공통 작업 진입점
 
-ERA 전용 QMK fork에서 모든 에이전트가 따르는 로컬 작업 규칙과 문서 라우팅
-진입점이다. 구현 요약, 세션 기록, 과거 조사 결과는 두지 않는다.
+이 폴더가 통합 Git 루트다. Git 관리는 루트에서, 빌드·검사는 `qmk_firmware_eerraa/`에서 실행한다.
+제품 계약·작업별 검증은 하위 AGENTS가 소유하며, 그 문서의 경로·명령은 펌웨어 컴포넌트 기준이다.
 
-## 시작과 작업 라우팅
+## 필수 시작 순서
 
-- 시작할 때 실제 저장소 root, branch, HEAD, `git status`와 작업 관련 diff를
-  확인하고 기존 사용자 변경을 보존한다.
-- ERA 작업은
-  `keyboards/era/common/docs/era_active_index.md`에서 해당 작업 행을 고른다.
-  편집 전에는 **Change** 열만 읽고, **Locate**는 소유 위치를 찾을 때,
-  **Verify**는 실제 검증·판정을 할 때만 읽는다.
-- `contracts/era_overview.md`와 `contracts/era_invariants.md`는 상시 선독이
-  아니다. 색인의 해당 작업 행이 요구할 때만 읽는다.
-- 일반 개발에는 중앙 `eerraa-agent-docs` 접근이 필요하지 않다. 중앙 규약은
-  문서체계 변경·채택 검토 때만 조회한다.
-- 현재 소스·설정·스키마가 구현 사실을 소유하고, 제품 요구·안전·호환 경계와
-  미구현 목표는 해당 계약이 소유한다. 둘이 어긋나면 테스트를 통과시키려고 계약을
-  완화하지 말고, 구현 결함·의도 변경·낡은 문서 중 무엇인지 판단한다. 이 세션의
-  권한 밖이면 불일치를 보고한다.
+1. 먼저 작업을 분류한다. 불명확하면 분류에 필요한 최소 경로만 확인한다.
+2. 실제 작업 워크트리의 이 문서와 아래 관련 AGENTS를 반드시 읽은 뒤 조사·수정·검증한다. 범위가 넓어지면 해당 범위의 AGENTS도 먼저 읽으며, 필수 문서를 읽을 수 없으면 차단 사유를 보고한다.
 
-## 로컬 작업 규칙
+| 작업 | 필독 |
+| --- | --- |
+| 펌웨어·도구·컴포넌트 문서·설정 | [펌웨어 AGENTS](qmk_firmware_eerraa/AGENTS.md); 이어서 해당 작업 색인 |
+| 루트 공통 정책·Git·워크트리·핸드오버 | 이 문서; 컴포넌트 영향이 있으면 하위 AGENTS도 필독 |
+| 외부 H7S·VIA와의 호환 | 내부 생산자·계약 작업은 펌웨어 AGENTS; 외부 구현을 조사·수정할 때 상대 AGENTS도 필독. 정확성 판단에 필요한 외부 계약은 확인하고, 외부 수정은 승인 범위에서만 |
 
-- 공유 스플릿 동작은 `keyboards/era/common/split/`을 우선한다.
-- 스캔 바운드 핫 패스의 결정은 실용적인 한 O(1)로 둔다. 활성 계약이 비용을
-  명시적으로 수락하지 않는 한 할당, 넓은 소스 스캔, CRC 구성,
-  EEPROM/RGB/INPUT 신선도 계산, 진단 스냅샷 구성을 그 경로에 넣지 않는다.
-- 진단 전용 상태는 릴리스 핫 패스 밖에 둔다.
-- 실제 기기 증거와 소스 추론이 충돌하면 관찰된 증거를 우선한다. 실기기 미측정,
-  skip, unknown을 PASS로 바꾸지 않는다.
-- 생 기기 로그와 생 EEPROM 바이트를 활성 문서나 커밋 메시지에 복사하지 않는다.
-  증거 형식과 최소 기록은 해당 매뉴얼이 소유한다.
-- `docs/`는 upstream QMK 문서다. `keyboards/era/**/readme.md`와
-  `keyboards/era/common/docs/user/`도 독자가 다르므로 해당 작업이 직접
-  요구할 때만 수정한다.
+## 승인과 Git
 
-## 문서와 도구 계층
+- 실제 root·branch·HEAD·status·관련 diff를 확인하고 사용자 변경과 ignored 입력을 보존한다.
+- 현재 branch를 임의로 전환하지 않는다. 과거 커밋·태그는 이전 구조이므로 별도 워크트리에서 조회한다.
+- commit·push·merge·rebase·tag·release·배포·의존성 변경·실기기 조작은 사용자가 명시한 범위에서만 수행한다.
+- commit은 검증된 관심사별로 자신의 변경과 승인된 사용자 변경만 포함한다. 사용자 삭제를 자동 복원하지 않는다.
+- hook 설정은 `git config core.hooksPath qmk_firmware_eerraa/hooks`다. 루트 `.gitmodules`가 Git submodule 경로를 소유하며, 컴포넌트 `.gitmodules`는 QMK 도구용 상대 경로 목록이다.
+- 검증은 로컬 명령과 Git hook으로 실행한다. 컴포넌트 내부의 upstream workflow는 원본 보존용이며 GitHub Actions가 실행하지 않는다.
+- 기존 폴더 경로와 컴포넌트 ignore·개행 정책을 보존한다. 백업 bundle을 자동 복원하지 않는다.
 
-- 도구 중립 문서 진입은 이 파일과 `era_active_index.md`다. 활성 ERA 에이전트
-  문서는 `keyboards/era/common/docs/contracts/`, `maps/`, `manuals/`에
-  두며, 실제 열린 상태가 필요할 때만 state 역할을 둔다.
-- 같은 구현 사실을 문서에 다시 설명하지 않는다. 단순 검색으로 복원되는 값은
-  첫 소유 경로·심볼을 가리킨다. wire/storage/safety 수치, 호환 의무, 미구현
-  요구처럼 문서가 요구 자체를 소유하는 내용은 해당 계약에 보존한다.
-- 완료 이력, 측정 일지, 세션 인계, 닫힌 계획, 평행 archive를 활성 문서로
-  누적하지 않는다.
-- `.claude/rules/`는 도구 adapter다. 공통 제품 규칙과 계약을
-  복사하지 않고 이 진입과 해당 작업 행으로만 연결한다.
-- 빌드는 `keyboards/era/common/tools/era_build.py`를 현재 편집 worktree에서
-  실행한다. 저장소 밖 machine profile과 검증된 Linux backend가 환경을
-  소유한다. 설정·동기화·반환 절차는 `manuals/era_build_and_flash.md`를 따른다.
-- 커밋 시점 검사는 `hooks/pre-commit` → `hooks/era_commit_check.py`다.
-  문서 포인터 검사는
-  `keyboards/era/common/tools/era_doc_refs.py`가 소유한다.
-- 문서 구조나 라우팅을 바꾸면 이 파일, `era_active_index.md`, 해당 adapter와
-  검사 포인터를 같은 관심사 변경에서 정렬한다. 문서 줄 삭제 시
-  `python keyboards/era/common/tools/era_doc_refs.py --homeless`로 사라진 식별자를
-  검토할 수 있다. 출력 자체는 보존 의무가 아니며, 고유 제품 요구·안전·호환
-  제약만 실제 소유 위치에 남기고 소스 소유 식별자나 폐기명은 새 집을 만들지 않는다.
+## 워크트리와 핸드오버
 
-이 집합은 `eerraa-agent-docs` v2의 commit
-`4bd84f45dd3e970bf25505059431058efbe7680a` 고정본을 따른다. 문서 규약은
-[AGENT_DOCS_CONVENTION.md](https://github.com/eerraa/eerraa-agent-docs/blob/4bd84f45dd3e970bf25505059431058efbe7680a/AGENT_DOCS_CONVENTION.md),
-채택 판단 기준은 같은 고정본의
-[ADOPTION.md](https://github.com/eerraa/eerraa-agent-docs/blob/4bd84f45dd3e970bf25505059431058efbe7680a/ADOPTION.md)다.
-장르별 디렉터리, 별도 진입 라우터(`era_active_index.md`), Genre 헤더와
-진입 한국어/본문 영어는 로컬 표현 선택이며 중앙 규약의 의미상 예외가 아니다.
+- `qmk_firmware_eerraa_worktrees/`는 추가 워크트리 공간이다. 경로·등록·잠금·변경·ignored·submodule 상태를 확인하고 실제 병합 또는 테스트 종료가 확인된 경우만 `git worktree remove`로 제거한다. 자료 보존 없이 삭제하거나 junction을 재귀 삭제하지 않는다.
+- `qmk_firmware_eerraa_handover/`는 사용자 저장 지시에만 쓰는 Git 비추적 공간이다. 테스트 펌웨어 저장 시 일반 빌드와 구분되는 파일명·경로를 제공한다. 자동 기록·stage·활성 계약의 정본 취급은 금지한다.
+- 복구 백업은 핸드오버 아래 `backups/`에 보존한다. `.mixdog/`도 Git 비추적 로컬 도구 공간이다.
 
-## 검증과 종료
+## 검증과 언어
 
-- 문서만 바꾼 작업은 관련 문서 검사, 필요한 삭제 안전망, `git diff --check`와
-  최종 diff 검토가 기본이다. 제품 전체 빌드나 HIL을 요구하지 않는다.
-- 문서 검사기나 관련 검사를 바꿨다면 정상 입력과 의도적으로 깨진 음성 fixture를
-  함께 실행한다.
-- 제품 소스를 바꾼 작업의 검증 범위는
-  `keyboards/era/common/docs/manuals/era_performance_gates.md`가 소유한다.
-- 커밋은 관심사별로 나누고 관련 없는 사용자 변경을 섞지 않는다. 문서 삭제
-  커밋은 제거한 것이 중복·이력인지, 고유 제약이 어디에 남는지를 설명한다.
-- 사용자가 명시적으로 요청하지 않으면 push하지 않는다.
-- 최종 보고에는 바뀐 범위, 실행한 검증, 미검증·기존 실패, commit을 구분해
-  적는다.
+- 저장소 AGENTS와 해당 작업의 Verify가 지정한 최소 검사를 실행한다. 소스 변경 없는 안내 작업에 전체 빌드·HIL을 요구하지 않는다.
+- 실제 실행과 소스 추론을 구분하고 미실행·미측정을 PASS로 보고하지 않는다.
+- 대화·공통 진입점은 한국어로 쓰고, 저장소 내부 문서·소스는 해당 로컬 규칙을 따른다.
