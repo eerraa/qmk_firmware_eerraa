@@ -9,6 +9,9 @@
 #undef ATOMIC_BLOCK_RESTORESTATE
 #define ATOMIC_BLOCK_RESTORESTATE for (bool once = true; once; once = false)
 #define SPLIT_KEYBOARD
+// Exercise the linked RGB sleep features without a physical renderer.
+#define ERA_RGB_SLEEP_MASTER_ENABLE
+#define ERA_LIGHTING_SLEEP_ENABLE
 #include "keyboards/era/common/split/era_split_keyboard.c"
 #include "lighting_under_test.h"
 

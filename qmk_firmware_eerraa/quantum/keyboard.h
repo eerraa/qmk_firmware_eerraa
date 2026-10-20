@@ -132,6 +132,8 @@ uint32_t last_input_activity_elapsed(void); // Number of milliseconds since the 
 
 uint32_t last_matrix_activity_time(void);    // Timestamp of the last matrix activity
 uint32_t last_matrix_activity_elapsed(void); // Number of milliseconds since the last matrix activity
+/* Local duration is independent of split shared-clock source/corrections. */
+uint32_t last_matrix_activity_local_elapsed(void);
 
 uint32_t last_encoder_activity_time(void);    // Timestamp of the last encoder activity
 uint32_t last_encoder_activity_elapsed(void); // Number of milliseconds since the last encoder activity

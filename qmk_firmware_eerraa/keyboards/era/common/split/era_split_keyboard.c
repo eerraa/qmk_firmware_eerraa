@@ -74,6 +74,7 @@ static uint16_t era_split_keyboard_lighting_sleep_true_count;
 static uint32_t era_split_keyboard_lighting_sleep_true_ms;
 
 static bool era_split_keyboard_local_sleep_state(void) {
+#if defined(ERA_RGB_SLEEP_MASTER_ENABLE) && defined(ERA_LIGHTING_SLEEP_ENABLE)
     // Three reasons, one master-gated RGB decision: the USB stack's explicit
     // suspend, loss of USB frames, and the board's configured input-idle
     // timeout. RGB Sleep OFF suppresses all three. Gating this on
@@ -99,7 +100,10 @@ static bool era_split_keyboard_local_sleep_state(void) {
                                                era_usb_session_frames_lost(),
                                                era_rgb_sleep_enabled(),
                                                era_lighting_sleep_rgb_timeout_seconds(),
-                                               last_matrix_activity_elapsed());
+                                               last_matrix_activity_local_elapsed());
+#else
+    return false;
+#endif
 }
 
 static void era_split_keyboard_mark_authority_sample_due(void) {

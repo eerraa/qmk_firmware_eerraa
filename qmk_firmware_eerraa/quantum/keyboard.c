@@ -161,14 +161,19 @@ uint32_t last_input_activity_elapsed(void) {
 }
 
 static uint32_t last_matrix_modification_time = 0;
+static uint32_t last_matrix_local_modification_time = 0;
 uint32_t        last_matrix_activity_time(void) {
     return last_matrix_modification_time;
 }
 uint32_t last_matrix_activity_elapsed(void) {
     return sync_timer_elapsed32(last_matrix_modification_time);
 }
+uint32_t last_matrix_activity_local_elapsed(void) {
+    return timer_elapsed32(last_matrix_local_modification_time);
+}
 void last_matrix_activity_trigger(void) {
     last_matrix_modification_time = last_input_modification_time = sync_timer_read32();
+    last_matrix_local_modification_time = timer_read32();
 }
 
 static uint32_t last_encoder_modification_time = 0;
