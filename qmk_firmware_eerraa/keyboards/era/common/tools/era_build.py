@@ -483,7 +483,7 @@ def sync_tree(backend, repository, tree):
     git("checkout", "--quiet", "--force", ".")
     # No -x: ignored .build and .era-artifacts survive. Explicit exclusions also
     # protect the build cache, artifacts and lock if ignore rules change.
-    git("clean", "--quiet", "-fd", "-e", ".build", "-e", ".era-artifacts")
+    git("clean", "--quiet", "-ffd", "-e", ".build", "-e", ".era-artifacts")
 
     copy, gone = set(), set()
     for status, path, old in records:

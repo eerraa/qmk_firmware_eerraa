@@ -1,6 +1,8 @@
 # Local tool state, including component-local directories.
 .mixdog/
 __pycache__/
+/.build/
+/.era-artifacts/
 
 # Local worktrees, user-directed handover storage, and recovery backups.
 /qmk_firmware_eerraa_worktrees/
