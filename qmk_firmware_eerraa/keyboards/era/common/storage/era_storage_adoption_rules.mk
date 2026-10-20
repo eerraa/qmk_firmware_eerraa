@@ -34,6 +34,10 @@ CONFIG_H += keyboards/era/common/storage/era_storage_adoption.h
 # existing QMK EEPROM geometry rather than silently acquiring a new layout.
 EEPROM_DRIVER = custom
 SRC += keyboards/era/common/storage/era_eeprom_driver.c
+ifeq ($(strip $(VIA_ENABLE)),yes)
+    SRC += keyboards/era/common/system/era_macro_replace.c
+    OPT_DEFS += -DERA_MACRO_REPLACE_ENABLE
+endif
 
 # Read by split/era_split_qmk_rules.mk. The board includes this file above the
 # ERA fragment that checks the marker, the same ordering era_common_qmk_rules.mk

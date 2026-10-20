@@ -206,6 +206,12 @@ void     eeconfig_init_user_datablock(void);
     }
 
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
+#    ifdef ERA_TOMAK_SYNC_ENABLE
+bool era_tomak_sync_runtime_protected(void);
+#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() era_tomak_sync_runtime_protected()
+#    else
+#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() false
+#    endif
 /* Consume the current approval before writing; a failed durability receipt
  * re-arms it. A later approval must not be cleared by the old flush. */
 // clang-format off
@@ -234,6 +240,7 @@ void     eeconfig_init_user_datablock(void);
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name(bool force) {             \
+            if (!force && EECONFIG_DEFERRED_OUTPUT_PROTECTED()) return;     \
             if (force || (dirty_##name && eeconfig_deferred_ready_##name())) { \
                 dirty_##name = false;                                      \
                 deferred_##name = false;                                   \

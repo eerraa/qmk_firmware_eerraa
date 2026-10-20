@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_eeprom_driver.h"
+#ifdef ERA_TOMAK_SYNC_TIMING
+#    include "../split/era_sync_timing.h"
+#    include "timer.h"
+#endif
 
 #include <stdint.h>
 #include <string.h>
@@ -76,8 +80,11 @@ static bool era_eeprom_driver_range_touches_macro(uint32_t address, size_t lengt
 #endif
 }
 
+static uint32_t macro_serial;
+uint32_t era_eeprom_driver_macro_serial(void) { return macro_serial; }
 static void era_eeprom_driver_note_public_macro(void *context) {
     (void)context;
+    macro_serial++;
 #ifdef VIA_ENABLE
     era_state_sync_note_macro_public_change();
 #endif
@@ -85,6 +92,13 @@ static void era_eeprom_driver_note_public_macro(void *context) {
 
 static void era_eeprom_driver_note_commit(void *context, uint32_t address, uint32_t length, era_nvm_origin_t origin) {
     (void)context;
+    if (era_eeprom_driver_range_touches_macro(address, length)) macro_serial++;
+#ifdef ERA_TOMAK_SYNC_TIMING
+    if (origin == ERA_NVM_ORIGIN_LOCAL_QMK || origin == ERA_NVM_ORIGIN_MACRO_TRANSACTION ||
+        origin == ERA_NVM_ORIGIN_REMOTE_APPLY) {
+        era_sync_timing_commit(length, origin == ERA_NVM_ORIGIN_REMOTE_APPLY);
+    }
+#endif
 
     /* REMOTE_APPLY owns convergence publication explicitly. CLEAN/FORMAT are
      * retiring content, not local edits. Ordinary QMK writes and a completed
@@ -116,6 +130,7 @@ static void era_eeprom_driver_note_commit(void *context, uint32_t address, uint3
 
 void eeprom_driver_init(void) {
     era_nvm_flash_t flash;
+    macro_serial++;
     memset(&s_era_eeprom_nvm, 0, sizeof(s_era_eeprom_nvm));
     s_era_eeprom_ready = false;
     s_edit_completing = false;
@@ -193,6 +208,10 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
         return;
     }
 
+#ifdef ERA_TOMAK_SYNC_TIMING
+    era_sync_timing_write_begin(len);
+    uint32_t timing_start = timer_read32();
+#endif
     /* Preserve macro writes byte-for-byte as stock QMK issued them. In
      * particular RESET is recognized by the exact sequential 16-byte
      * eeprom_update_block transcript, so changed-span coalescing must never
@@ -211,6 +230,9 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
         }
         if (first == len) {
             s_era_eeprom_write_ok = true;
+#ifdef ERA_TOMAK_SYNC_TIMING
+            era_sync_timing_write_end(timer_read32() - timing_start);
+#endif
             return;
         }
         size_t last = len;
@@ -243,7 +265,22 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
             (void)first;
         }
     }
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    bool legacy_macro_open = s_era_eeprom_nvm.macro_mode == ERA_NVM_MACRO_WRITE_OPEN;
+#endif
     era_nvm_result_t result = era_nvm_qmk_write(&s_era_eeprom_nvm, address, source, len);
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    /* The stock VIA final marker is an explicit boundary too, but only after
+     * a successful durable close. RESET has its own mode and retains its
+     * independent publication and ordinary quiet period. */
+    if (legacy_macro_open && result == ERA_NVM_RESULT_OK &&
+        s_era_eeprom_nvm.macro_mode == ERA_NVM_MACRO_IDLE) {
+        era_host_peer_storage_note_macro_commit_ready();
+    }
+#endif
+#ifdef ERA_TOMAK_SYNC_TIMING
+    era_sync_timing_write_end(timer_read32() - timing_start);
+#endif
     s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
     if (!s_era_eeprom_write_ok) s_era_eeprom_nvm.edit_failed = true;
 }
@@ -293,11 +330,40 @@ bool era_eeprom_driver_ready(void) {
     return s_era_eeprom_ready && era_nvm_state(&s_era_eeprom_nvm) == ERA_NVM_STATE_READY;
 }
 
+era_nvm_result_t era_eeprom_driver_macro_begin(uint32_t length) {
+    return era_nvm_macro_replace_begin(&s_era_eeprom_nvm, length);
+}
+era_nvm_result_t era_eeprom_driver_macro_data(uint32_t offset, const void *data, size_t length) {
+    return era_nvm_macro_replace_data(&s_era_eeprom_nvm, offset, data, length);
+}
+era_nvm_result_t era_eeprom_driver_macro_commit(uint32_t crc32) {
+    era_nvm_result_t result = era_nvm_macro_replace_commit(&s_era_eeprom_nvm, crc32);
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (result == ERA_NVM_RESULT_OK) era_host_peer_storage_note_macro_commit_ready();
+#endif
+    return result;
+}
+era_nvm_result_t era_eeprom_driver_macro_abort(void) {
+    return era_nvm_macro_replace_abort(&s_era_eeprom_nvm);
+}
+bool era_eeprom_driver_macro_replace_open(void) {
+    return s_era_eeprom_nvm.macro_mode == ERA_NVM_MACRO_REPLACE_OPEN;
+}
+
 era_nvm_result_t era_eeprom_driver_replace(uint32_t address, const void *data, size_t length, era_nvm_origin_t origin) {
     if (!era_eeprom_driver_ready()) {
         return ERA_NVM_RESULT_NOT_READY;
     }
-    return era_nvm_replace(&s_era_eeprom_nvm, address, data, length, origin);
+#ifdef ERA_TOMAK_SYNC_TIMING
+    uint32_t timing_start = timer_read32();
+#endif
+    era_nvm_result_t result = era_nvm_replace(&s_era_eeprom_nvm, address, data, length, origin);
+#ifdef ERA_TOMAK_SYNC_TIMING
+    if (origin == ERA_NVM_ORIGIN_REMOTE_APPLY) {
+        era_sync_timing_apply_end(timer_read32() - timing_start);
+    }
+#endif
+    return result;
 }
 
 era_nvm_result_t era_eeprom_driver_write_storage_metadata(uint32_t address, const void *data, size_t length) {
@@ -342,3 +408,6 @@ bool era_eeprom_driver_macro_transaction_open(void) {
 void era_eeprom_driver_get_nvm_diagnostics(era_nvm_diagnostics_t *diagnostics) {
     era_nvm_get_diagnostics(&s_era_eeprom_nvm, diagnostics);
 }
+#ifdef ERA_TOMAK_SYNC_TIMING
+uint32_t era_eeprom_driver_timing_generation(void) { return era_nvm_generation(&s_era_eeprom_nvm); }
+#endif

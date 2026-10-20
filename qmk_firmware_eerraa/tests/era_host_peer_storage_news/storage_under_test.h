@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 void era_test_news_reset(void);
+void era_test_news_result_due(bool due);
+void era_test_news_execution(bool active);
+bool era_test_news_execution_pending(void);
+void era_test_news_macro_open(bool open);
+uint32_t era_test_news_retry_delay(void);
 void era_test_news_receive(uint8_t news);
 void era_test_news_begin_audit(void);
 void era_test_news_rotate_relation(void);

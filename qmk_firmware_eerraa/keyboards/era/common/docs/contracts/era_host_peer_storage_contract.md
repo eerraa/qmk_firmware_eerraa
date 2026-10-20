@@ -454,6 +454,22 @@ changed or discarded.
 
 ## Dynamic Macro Transaction
 
+The versioned VIA replacement path is `CAPABILITIES -> BEGIN -> DATA ->
+COMMIT`; `ABORT` cancels staging and `STATUS` resolves the nonce's durable
+receipt. Owners: `system/era_macro_replace.c`, `storage/era_eeprom_driver.c`,
+`storage/era_nvm.c`. BEGIN and DATA change RAM only; COMMIT validates
+received length/CRC, obtains space and publishes one
+whole-domain record. Local durability is distinct from peer convergence.
+
+The 16384-B macro domain consumes a 16436-B record (36-B header, 16-B trailer)
+even for a shorter upload; two fit in the 40448-B journal. Explicit COMMIT and
+Remote Apply supply complete candidates: an insufficient-space commit includes
+the replacement directly in the new bank snapshot. Legacy marker-open/RESET
+headroom handling remains separate. Rotation belongs to each
+unit's NVM capacity/recovery, not HOST-PEER transport. Counts establish work,
+not elapsed time; attribute latency by phase and rotation state, not payload
+length alone.
+
 An open macro's RAM staging bytes are not a durable snapshot source. The
 16-KiB domain's final byte is the marker: nonzero means the transaction is open
 and QMK must not execute the staged image. Staging may mutate the one 24-KiB
@@ -866,7 +882,22 @@ Healthy device acceptance requires `program_failure_count == 0` and
 ## Inactive-Bank Maintenance And Rotation
 
 Background maintenance may erase at most one inactive 4-KiB sector per call
-and must yield while the board presentation refresh is active. If rotation is
+and must yield while the board presentation refresh is active. The single
+optional-maintenance policy owner, `era_common_features_maintenance_task()`,
+also yields to any open EEPROM edit
+scope or macro transaction, using existing NVM state rather than a second busy
+flag. Successful commit or rollback naturally restores eligibility; a failed
+close that remains open retains this preference, not exclusive NVM ownership.
+An indefinitely paused upload may defer optional maintenance indefinitely.
+An admitted split episode or a published dedicated-lane result also takes
+precedence until retirement/consumption. The storage owner derives this from
+existing execution state; idle relationships, queued work and indicator
+obligations alone do not defer maintenance. No new busy latch is introduced.
+The driver only adapts readiness and results; it carries no scheduling policy.
+Mandatory
+rotation must still complete required erasure during an unrelated staged macro.
+Standalone VIA RESET retains its own independent durable completion.
+If rotation is
 required before maintenance finishes, ERA NVM synchronously completes the
 remaining sectors and constructs the inactive bank; correctness is bounded by
 the finite 16-sector bank, but wall time is device evidence and must not be

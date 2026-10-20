@@ -10,6 +10,9 @@
 #include "../era_split_transaction_types.h"
 #include "../era_split_wire_protocol.h"
 #include "../era_split_input.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "../era_tomak_sync_wire.h"
+#endif
 
 typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_RX_WAIT_MODE_NONE                 = 0,
@@ -29,6 +32,9 @@ typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_INVALID = 0,
     ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS,
     ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH,
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC,
+#endif
     ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_COUNT,
 } era_split_communication_core_initiator_lane_t;
 
@@ -55,6 +61,9 @@ typedef struct {
     union {
         era_split_wire_session_status_t                    session_status;
         era_split_communication_core_source_push_semantic_t source_push;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        era_tomak_sync_wire_t sync;
+#endif
     } semantic;
 } era_split_communication_core_initiator_request_t;
 
@@ -91,6 +100,9 @@ typedef struct {
     union {
         era_split_communication_core_session_result_t session;
         era_host_peer_transaction_result_t            host_peer;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        era_tomak_sync_wire_t sync;
+#endif
     } decoded;
 } era_split_communication_core_initiator_result_t;
 

@@ -212,10 +212,10 @@ wire/storage diagnostics; record wall-clock operation time separately.
 Exercise both storage directions and both physical roles under the scheduler
 gate's relation matrix. At minimum take normal-journal and rotation timing on
 High after both directions pass; repeat at Low where the scheduler gate
-requires the storage workload. A rotation-triggering macro upload may use the
-more expensive open-then-append shape currently implemented. Do not optimize
-or normalize that measurement away: it is the evidence required before
-deciding whether to fold the candidate into the rotating snapshot.
+requires the storage workload. Explicit replacement BEGIN/DATA must be RAM-only;
+COMMIT folds a rotation-triggering candidate into the new snapshot. Measure
+COMMIT append and rotation separately; legacy marker-open headroom is a separate
+path. Do not normalize away remaining erase/construction cost.
 
 ### EEPROM CLEAN agreement device gate
 

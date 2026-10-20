@@ -3,6 +3,9 @@
 
 #include "era_split_wire_payload.h"
 #include "era_split_input.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "era_tomak_sync_wire.h"
+#endif
 
 #include <string.h>
 
@@ -317,7 +320,13 @@ static bool era_split_wire_layout_walk(const uint8_t *payload, uint16_t payload_
 }
 
 static bool era_split_wire_validate_session_status_payload(const uint8_t *payload, uint16_t payload_len) {
-    if (payload_len != 9 || payload[1] != ERA_INPUT_SESSION) {
+    bool valid_length = payload_len == 9;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (payload_len == 13 && era_split_wire_get16(payload + 9) != 0 && era_split_wire_get16(payload + 11) != 0) {
+        valid_length = true;
+    }
+#endif
+    if (!valid_length || payload[1] != ERA_INPUT_SESSION) {
         return false;
     }
 
@@ -627,6 +636,16 @@ bool era_split_wire_classify_payload(const uint8_t *payload, uint16_t payload_le
     uint8_t op  = payload[1];
     uint8_t cls = op & 0xF0;
     era_split_wire_section_layout_t layout;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (cls == 0x30) {
+        era_tomak_sync_wire_t transition;
+        if (!era_tomak_sync_wire_decode(payload, payload_len, &transition)) {
+            return false;
+        }
+        *kind = ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC;
+        return true;
+    }
+#endif
     switch (cls) {
         case 0x10:
             if (!era_split_wire_validate_session_status_payload(payload, payload_len)) {
@@ -687,6 +706,16 @@ bool era_split_wire_encode_session_status(uint8_t control, const era_split_wire_
     era_split_wire_put16(&payload[5], status->host_open_generation);
     era_split_wire_put16(&payload[7], status->host_close_generation);
     *payload_len = 9;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (status->sync_owner_epoch || status->sync_relation_generation) {
+        if (!status->sync_owner_epoch || !status->sync_relation_generation) {
+            return false;
+        }
+        era_split_wire_put16(payload + 9, status->sync_owner_epoch);
+        era_split_wire_put16(payload + 11, status->sync_relation_generation);
+        *payload_len = 13;
+    }
+#endif
     return true;
 }
 
@@ -714,5 +743,9 @@ bool era_split_wire_decode_session_status(const era_split_wire_frame_t *frame, e
     status->usb_epoch                 = era_split_wire_get16(&frame->payload[3]);
     status->host_open_generation      = era_split_wire_get16(&frame->payload[5]);
     status->host_close_generation     = era_split_wire_get16(&frame->payload[7]);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    status->sync_owner_epoch = frame->payload_len == 13 ? era_split_wire_get16(frame->payload + 9) : 0;
+    status->sync_relation_generation = frame->payload_len == 13 ? era_split_wire_get16(frame->payload + 11) : 0;
+#endif
     return true;
 }

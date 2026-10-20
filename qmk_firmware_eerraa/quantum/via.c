@@ -322,11 +322,8 @@ void era_via_macro_diagnostics_response_end(void);
 #endif
 
 void raw_hid_receive(uint8_t *data, uint8_t length) {
-    uint8_t *command_id   = &(data[0]);
-    uint8_t *command_data = &(data[1]);
-
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    era_via_macro_diagnostics_receive(*command_id);
+    era_via_macro_diagnostics_receive(data[0]);
 #endif
 
     // If via_command_kb() returns true, the command was fully
@@ -334,6 +331,23 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
     if (via_command_kb(data, length)) {
         return;
     }
+
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    /* The board owns at most one bounded deferred mutation and its response. */
+    extern bool era_tomak_sync_via_admit(uint8_t *request, uint8_t length);
+    if (era_tomak_sync_via_admit(data, length)) {
+        return;
+    }
+#endif
+    via_command_execute(data, length);
+}
+
+/* Dispatch an already admitted request. A deferred keyboard hook uses this
+ * entry once, never raw_hid_receive(), so it cannot capture its own request
+ * again or manufacture a second receive event. Replies retain their owners. */
+void via_command_execute(uint8_t *data, uint8_t length) {
+    uint8_t *command_id   = &(data[0]);
+    uint8_t *command_data = &(data[1]);
 
     switch (*command_id) {
         case id_get_protocol_version: {

@@ -173,3 +173,18 @@ TEST_F(EraSplitStandingLifecycle, HpPressureSubstitutesTheTenMillisecondStanding
     EXPECT_EQ(era_test_standing_last_length(),2U); EXPECT_EQ(era_test_standing_last_op(),0x2fU);
     EXPECT_EQ(era_test_standing_transactions(),2U);
 }
+TEST_F(EraSplitStandingLifecycle, ControlWaitKeepsBareLivenessWithoutCompletingInputBind) {
+    era_test_standing_mode(true, 10);
+    era_test_standing_control_wait();
+    ASSERT_TRUE(era_test_standing_control_active());
+    for (unsigned i = 0; i < 40; ++i) {
+        ASSERT_TRUE(era_test_standing_at(i * 50000));
+        EXPECT_EQ(era_test_standing_last_length(), 1U);
+        EXPECT_EQ(era_test_standing_last_sections(), 0U);
+        EXPECT_TRUE(era_test_standing_control_active());
+        EXPECT_FALSE(era_test_standing_at(i * 50000 + 49999));
+    }
+    EXPECT_EQ(era_test_standing_transactions(), 40U);
+    era_test_standing_revoke();
+    EXPECT_FALSE(era_test_standing_at(2000000));
+}

@@ -696,6 +696,16 @@ static void rgb_task_render(uint8_t effect) {
 }
 
 static void rgb_task_flush(uint8_t effect) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    int8_t output = rgb_matrix_sync_output_gate_kb(rgb_render_frame_flags);
+    if (output <= 0) {
+        if (output < 0) {
+            rgb_render_frame_flags = 0;
+            rgb_task_state = STARTING;
+        }
+        return;
+    }
+#endif
     // update last trackers after the first full render so we can init over several frames
     rgb_last_effect = effect;
     rgb_last_enable = rgb_matrix_config.enable;

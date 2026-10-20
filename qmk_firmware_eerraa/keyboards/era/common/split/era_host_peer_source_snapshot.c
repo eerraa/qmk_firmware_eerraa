@@ -32,6 +32,7 @@ bool era_host_peer_source_snapshot_capture_rgb_state(era_host_peer_rgb_state_t *
         return false;
     }
 
+#if defined(RGB_MATRIX_ENABLE)
     rgb_config_t config = rgb_matrix_config;
     state->enabled      = config.enable != 0;
     /* Zero at capture in DUAL-HOST (Slice 12): the sleep bit is a fact about
@@ -52,6 +53,10 @@ bool era_host_peer_source_snapshot_capture_rgb_state(era_host_peer_rgb_state_t *
     state->speed        = config.speed;
     state->flags        = config.flags;
     return true;
+#else
+    (void)include_sleep;
+    return false;
+#endif
 }
 
 bool era_host_peer_source_snapshot_publish_rgb_state(bool include_sleep) {

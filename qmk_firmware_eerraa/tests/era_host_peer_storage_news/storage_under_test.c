@@ -24,9 +24,23 @@
 #undef _Static_assert
 #include "storage_under_test.h"
 
-bool era_eeprom_driver_macro_transaction_open(void) { return false; }
+static bool macro_open;
+static bool storage_result_due;
+bool era_split_communication_core_storage_result_due(void) { return storage_result_due; }
+void era_test_news_result_due(bool due) { storage_result_due = due; }
+void era_test_news_execution(bool active) { g_era_host_peer_storage_relation.active_due = active; }
+bool era_test_news_execution_pending(void) { return era_host_peer_storage_execution_pending(); }
+bool era_eeprom_driver_macro_transaction_open(void) { return macro_open; }
+void era_test_news_macro_open(bool open) { macro_open = open; }
+uint32_t era_test_news_retry_delay(void) {
+    g_era_host_peer_storage_runtime.retry_count = 0;
+    era_host_peer_storage_peer_retry_or_abort(timer_read32(), false);
+    return g_era_host_peer_storage_runtime.retry_deadline_ms - timer_read32();
+}
 
 void era_test_news_reset(void) {
+    storage_result_due = false;
+    macro_open = false;
     memset(&g_era_host_peer_storage_local, 0, sizeof(g_era_host_peer_storage_local));
     memset(&g_era_host_peer_storage_relation, 0, sizeof(g_era_host_peer_storage_relation));
     memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));

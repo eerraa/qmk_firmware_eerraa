@@ -160,9 +160,11 @@ revalidation; it does not by itself declare the peer stale. A stop during
 durable Apply is a relation-recovery event, not a persistence rollback. Core1
 never retries around this handshake on its own.
 
-The matching SESSION acknowledgement also releases input admission when
-FENCE/BIND holds standing traffic closed. Input recovery must not require a
-standing exchange that is itself waiting for FENCE/BIND to finish. A responder
+The matching SESSION acknowledgement also releases input admission after a
+standing stop. FENCE/BIND closes runtime sections, not bare standing liveness;
+capacity/rebind hints received during that barrier cannot restart the input
+incarnation already being installed. Input recovery must not require a standing
+exchange that is itself waiting for FENCE/BIND to finish. A responder
 must install its input gate before publishing a snapshot that advertises matrix
 admission; the next matrix scan is not a prerequisite for accepting the first
 FENCE.
@@ -227,10 +229,11 @@ revision change cancels the episode.
 Storage arbitration is change-triggered, never a periodic patrol. Its triggers
 are relation establishment/re-establishment, a newly settled local capture,
 and responder-changed news. News is consumed as an edge, never as a level.
-After an exclusive HOST-PEER transfer closes or aborts, relation recovery runs
-through SESSION_STATUS before normal traffic resumes; a MATCH that never entered
-exclusive transfer does not force that recovery. There is one storage lane
-shared by both admitted relations.
+Storage close refreshes responder state without retiring input endpoints or
+their history. A requested revalidation runs through SESSION_STATUS; a transfer
+alone does not create a new input incarnation. Actual owner/relation retirement
+still closes both endpoints. There is one storage lane shared by both admitted
+relations.
 
 Protocol details and durable completion are owned by
 `era_host_peer_storage_contract.md`. Source anchors:
@@ -332,6 +335,13 @@ baseline belongs on the due path. Source anchor:
 The responder-silence bound is 100 ms. Standing periods must remain comfortably
 inside that bound; a configurable session-stale override must not widen the
 Core1 responsiveness bound.
+
+A known-peer SESSION revalidation retains its owner/relation while retrying.
+The recovery deadline is anchored once, using the existing 100 ms responder
+silence bound; retries do not renew it. Only a matching successful SESSION
+acknowledgement clears recovery. Expiry retires the peer, and owner/relation
+changes discard the old recovery lease rather than transferring its authority.
+Malformed responses never update peer facts or certify completion.
 
 Local HOST close invalidates both-hosted facts and returns discovery to
 peer-unknown bootstrap. A transport failure marks dirty/due state; cable loss

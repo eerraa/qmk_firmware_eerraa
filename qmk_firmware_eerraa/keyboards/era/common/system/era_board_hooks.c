@@ -101,6 +101,12 @@ static void era_board_keyboard_channel_save_commit(void) {
 }
 
 static void era_board_keyboard_channel_save_task(void) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    extern bool era_tomak_sync_runtime_protected(void);
+    if (era_tomak_sync_runtime_protected()) {
+        return; /* Retain the approved dirty save across the output edge. */
+    }
+#endif
     if (!era_board_keyboard_save_pending || timer_elapsed(era_board_keyboard_save_timer) <= ERA_STORAGE_QUIET_DEFER_MS) {
         return;
     }

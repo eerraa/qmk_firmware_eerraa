@@ -7,9 +7,14 @@ extern "C" {
 #include "eeprom.h"
 #include "eeprom_driver.h"
 #include "keyboards/era/common/storage/era_eeprom_driver.h"
+#include "keyboards/era/common/system/era_macro_replace.h"
+#include "keyboards/era/common/system/era_common_via.h"
+#include "keyboards/era/common/system/era_common_features.h"
+#include "keyboards/era/common/system/era_wire.h"
 #define _Static_assert static_assert
 #include "keyboards/era/common/storage/era_eeprom_layout.h"
 #include "keyboards/era/common/split/era_split_sync_storage.h"
+#include "keyboards/era/common/split/era_host_peer_storage.h"
 #undef _Static_assert
 #include "keyboards/era/common/storage/era_nvm_rp2040.h"
 #include "nvm_dynamic_keymap.h"
@@ -101,10 +106,14 @@ uint16_t g_notify_offset;
 uint16_t g_notify_length;
 uint8_t g_response_command;
 unsigned g_response_count;
+std::array<uint8_t, 32> g_response;
 
 unsigned g_public_macro_notify_count;
+unsigned g_macro_ready_count;
+bool g_split_execution_pending;
 
 void reset_notifications() {
+    g_macro_ready_count = 0;
     g_public_macro_notify_count = 0;
     g_notify_count  = 0;
     g_notify_offset = 0;
@@ -114,10 +123,32 @@ void reset_notifications() {
 class EraNvmQmkDriver : public ::testing::Test {
    protected:
     void SetUp() override {
+        g_split_execution_pending = false;
         g_flash = FakeNor{};
         reset_notifications();
         eeprom_driver_init();
         ASSERT_TRUE(era_eeprom_driver_ready());
+    }
+    void SeedRetiredBank() {
+        std::array<uint8_t, ERA_NVM_LOGICAL_SIZE_BYTES> image{};
+        for (uint8_t value : {0x31, 0x32}) {
+            image.fill(value);
+            image[kMacroMarker] = 0;
+            ASSERT_EQ(era_eeprom_driver_replace(0, image.data(), image.size(), ERA_NVM_ORIGIN_LOCAL_QMK),
+                      ERA_NVM_RESULT_OK);
+        }
+    }
+    void ExpectMaintenanceHeld() {
+        auto erases = g_flash.erase_calls;
+        for (unsigned i = 0; i < 20; ++i) {
+            era_common_features_maintenance_task();
+        }
+        EXPECT_EQ(g_flash.erase_calls, erases);
+    }
+    void ExpectOneMaintenanceSector() {
+        auto erases = g_flash.erase_calls;
+        era_common_features_maintenance_task();
+        EXPECT_EQ(g_flash.erase_calls, erases + 1);
     }
 };
 
@@ -138,6 +169,9 @@ extern "C" bool era_nvm_rp2040_flash_bind(era_nvm_flash_t *flash) {
 }
 
 extern "C" void era_state_sync_note_macro_public_change(void) { ++g_public_macro_notify_count; }
+// USB-less fixture: execute real common maintenance policy without USB hardware.
+extern "C" void era_usb_session_task(void) {}
+extern "C" bool era_host_peer_storage_execution_pending(void) { return g_split_execution_pending; }
 
 extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     g_notify_count++;
@@ -149,8 +183,227 @@ extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length
 // and revision semantics execute in era_persistence_failures.
 extern "C" uint32_t era_state_sync_eeprom_span_mask(uint16_t, uint16_t length) { return length ? 1U : 0U; }
 extern "C" void era_state_sync_note_eeprom_mask(uint32_t mask) { if (mask) g_notify_count++; }
+extern "C" void era_host_peer_storage_note_eeprom_commit(uint32_t address, uint32_t length) {
+    era_state_sync_note_eeprom_span(address, length);
+}
+extern "C" uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t, uint32_t length) { return length ? 1U : 0U; }
+extern "C" void era_host_peer_storage_note_eeprom_mask(uint8_t) {}
+extern "C" void era_host_peer_storage_note_macro_commit_ready(void) { ++g_macro_ready_count; }
 
-extern "C" void raw_hid_send(uint8_t *data, uint8_t) { g_response_command=data[0]; ++g_response_count; }
+extern "C" void raw_hid_send(uint8_t *data, uint8_t) {
+    g_response_command=data[0]; ++g_response_count;
+    std::memcpy(g_response.data(), data, g_response.size());
+}
+extern "C" void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
+    if (!era_common_via_handle_command(data, length)) data[0] = id_unhandled;
+}
+
+TEST_F(EraNvmQmkDriver, RawViaEndpointSeparatesLocalReceiptPeerProofAndSessionLoss) {
+    std::array<uint8_t, 32> request{};
+    request[0] = id_custom_get_value;
+    request[1] = ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2] = ERA_WIRE_MACRO_REPLACE_CAPABILITIES;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[0], id_custom_get_value);
+    EXPECT_EQ(std::memcmp(g_response.data() + 7, "EMR1", 4), 0);
+    request.fill(0);
+    request[0] = id_custom_set_value;
+    request[1] = ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2] = ERA_WIRE_MACRO_REPLACE_BEGIN;
+    request[3] = 0x81; // Empty payload has the independently known CRC zero.
+    auto begin = request;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    request = begin; request[2] = ERA_WIRE_MACRO_REPLACE_COMMIT;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_EQ(g_response[30], 2);
+    EXPECT_EQ(g_macro_ready_count, 1U);
+    EXPECT_EQ(g_response[23], 0);
+    era_macro_replace_note_converged();
+    request = begin; request[0] = id_custom_get_value; request[2] = ERA_WIRE_MACRO_REPLACE_STATUS;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_response[30], 2);
+    EXPECT_EQ(g_response[23], 1);
+    auto programs = g_flash.program_calls;
+    era_macro_replace_session_lost();
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_STALE);
+    EXPECT_EQ(g_flash.program_calls, programs);
+    eeprom_driver_init();
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroMarker)), 0);
+}
+
+TEST_F(EraNvmQmkDriver, OptionalMaintenanceYieldsToReplacementAndResumesAfterCommitOrAbort) {
+    for (bool commit : {false, true}) {
+        SetUp();
+        SeedRetiredBank();
+        ASSERT_EQ(era_eeprom_driver_macro_begin(9), ERA_NVM_RESULT_OK);
+        ExpectMaintenanceHeld();
+        ASSERT_EQ(era_eeprom_driver_macro_data(0, "123456789", 9), ERA_NVM_RESULT_STAGED);
+        ExpectMaintenanceHeld();
+        EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), '1');
+        if (commit) {
+            ASSERT_EQ(era_eeprom_driver_macro_commit(0xcbf43926), ERA_NVM_RESULT_OK);
+        } else {
+            ASSERT_EQ(era_eeprom_driver_macro_abort(), ERA_NVM_RESULT_OK);
+        }
+        ExpectOneMaintenanceSector();
+        eeprom_driver_init();
+        EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), commit ? '1' : 0x32);
+    }
+}
+
+TEST_F(EraNvmQmkDriver, OptionalMaintenanceYieldsUntilSplitExecutionRetires) {
+    SeedRetiredBank();
+    ASSERT_EQ(era_eeprom_driver_macro_begin(0), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_eeprom_driver_macro_commit(0), ERA_NVM_RESULT_OK);
+    ASSERT_FALSE(era_eeprom_driver_macro_transaction_open());
+    g_split_execution_pending = true;
+    ExpectMaintenanceHeld();
+    g_split_execution_pending = false;
+    ExpectOneMaintenanceSector();
+}
+
+TEST_F(EraNvmQmkDriver, OptionalMaintenanceRetainsOwnerAfterFailedCloseOrAbort) {
+    SeedRetiredBank();
+    ASSERT_EQ(era_eeprom_driver_macro_begin(9), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_eeprom_driver_macro_data(0, "123456789", 9), ERA_NVM_RESULT_STAGED);
+    g_flash.reject_programs = true;
+    EXPECT_EQ(era_eeprom_driver_macro_commit(0xcbf43926), ERA_NVM_RESULT_IO_ERROR);
+    ExpectMaintenanceHeld();
+    g_flash.fail_read_call = g_flash.read_calls + 1;
+    EXPECT_EQ(era_eeprom_driver_macro_abort(), ERA_NVM_RESULT_IO_ERROR);
+    ExpectMaintenanceHeld();
+    g_flash.fail_read_call = 0;
+    g_flash.reject_programs = false;
+    ASSERT_EQ(era_eeprom_driver_macro_abort(), ERA_NVM_RESULT_OK);
+    ExpectOneMaintenanceSector();
+}
+
+TEST_F(EraNvmQmkDriver, OptionalMaintenanceYieldsToLegacyAndNestedEditNotStandaloneReset) {
+    SeedRetiredBank();
+    uint8_t marker = 0xff, payload = 0x61;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1, 1, &marker);
+    nvm_dynamic_keymap_macro_update_buffer(0, 1, &payload);
+    ExpectMaintenanceHeld();
+    marker = 0;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1, 1, &marker);
+    ASSERT_FALSE(era_eeprom_driver_macro_transaction_open());
+    ExpectOneMaintenanceSector();
+    ASSERT_TRUE(eeprom_begin_transaction());
+    ASSERT_TRUE(eeprom_begin_transaction());
+    eeprom_update_byte(reinterpret_cast<uint8_t *>(100U), 0x71);
+    ExpectMaintenanceHeld();
+    ASSERT_TRUE(eeprom_end_transaction());
+    ExpectMaintenanceHeld();
+    ASSERT_TRUE(eeprom_end_transaction());
+    ExpectOneMaintenanceSector();
+    dynamic_keymap_macro_reset();
+    ASSERT_FALSE(era_eeprom_driver_macro_transaction_open());
+    ExpectOneMaintenanceSector();
+}
+
+TEST_F(EraNvmQmkDriver, InterruptedReplacementRestoresOldImageAndAllowsNewJob) {
+    dynamic_keymap_macro_reset();
+    std::array<uint8_t, 32> request{};
+    request[0] = id_custom_set_value;
+    request[1] = ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2] = ERA_WIRE_MACRO_REPLACE_BEGIN;
+    request[3] = 0x82; request[12] = 9;
+    auto begin = request;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    request = begin; request[2] = ERA_WIRE_MACRO_REPLACE_DATA; request[13] = 9;
+    request[11] = request[12] = 0;
+    std::memcpy(request.data() + 14, "123456789", 9);
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    const auto programs = g_flash.program_calls;
+    era_macro_replace_session_lost();
+    EXPECT_FALSE(era_eeprom_driver_macro_replace_open());
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), 0);
+    EXPECT_EQ(g_flash.program_calls, programs);
+    request = begin; request[2] = ERA_WIRE_MACRO_REPLACE_COMMIT;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_STALE);
+    request = begin; request[3]++;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_response[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    era_macro_replace_session_lost();
+}
+
+TEST_F(EraNvmQmkDriver, ExplicitViaReplacementEchoesDataAndAcknowledgesOnlyDurableCommit) {
+    std::array<uint8_t,32> request{};
+    request[0] = id_custom_get_value;
+    request[1] = ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2] = ERA_WIRE_MACRO_REPLACE_CAPABILITIES;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    EXPECT_EQ(request[3], ERA_WIRE_MACRO_REPLACE_VERSION_CURRENT);
+    request.fill(0);
+    request[0] = id_custom_set_value; request[1] = ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2] = ERA_WIRE_MACRO_REPLACE_BEGIN; request[3] = 0x39;
+    request[12] = 9;
+    request[13]=0xCB; request[14]=0xF4; request[15]=0x39; request[16]=0x26;
+    auto begin = request;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    ASSERT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_EQ(request[30],1);
+    const auto before = g_flash.program_calls;
+    request.fill(0); request[0]=id_custom_set_value;
+    request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE; request[2]=ERA_WIRE_MACRO_REPLACE_DATA;
+    request[3]=0x39; request[13]=9;
+    std::memcpy(request.data()+14,"123456789",9);
+    auto data = request;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    EXPECT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_EQ(std::memcmp(request.data(),data.data(),31),0);
+    EXPECT_EQ(g_flash.program_calls,before);
+    // A retry is not another receipt or another physical mutation.
+    request = data;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    EXPECT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    request = begin; request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    ASSERT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_EQ(request[30],2);
+    const auto committed = g_flash.program_calls;
+    EXPECT_GT(committed,before);
+    request = begin; request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_EQ(g_flash.program_calls,committed);
+    uint8_t actual[9]{};
+    ASSERT_EQ(era_eeprom_driver_replay_read(kMacroAddress,actual,9),ERA_NVM_RESULT_OK);
+    EXPECT_EQ(std::memcmp(actual,"123456789",9),0);
+    // A different legacy edit invalidates this operation's completion receipt.
+    dynamic_keymap_macro_reset();
+    request=begin; request[0]=id_custom_get_value; request[2]=ERA_WIRE_MACRO_REPLACE_STATUS;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_STALE);
+}
+
+TEST_F(EraNvmQmkDriver, ExplicitViaReplacementRejectsForeignIncompleteAndOversizedData) {
+    std::array<uint8_t,32> request{};
+    request[0]=id_custom_set_value; request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2]=ERA_WIRE_MACRO_REPLACE_BEGIN; request[3]=0x71; request[12]=9;
+    auto begin=request;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    ASSERT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    request=begin; request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT; request[3]++;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_STALE);
+    request=begin; request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_INVALID);
+    request=begin; request[2]=ERA_WIRE_MACRO_REPLACE_DATA; request[13]=18;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_INVALID);
+    request=begin; request[2]=ERA_WIRE_MACRO_REPLACE_ABORT;
+    ASSERT_TRUE(era_macro_replace_handle_via(request.data(),request.size()));
+    EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    EXPECT_FALSE(era_eeprom_driver_macro_replace_open());
+}
 
 TEST_F(EraNvmQmkDriver, StockReadWriteUpdateUsesReplayableEraNvmAndExactChangedEnvelope) {
     uint8_t initial[4] = {0x11, 0x22, 0x33, 0x44};
@@ -273,6 +526,7 @@ TEST_F(EraNvmQmkDriver, StockMacroResetLoopIsOneDurableTransactionAndPublishesOn
     EXPECT_EQ(g_notify_offset, kMacroAddress);
     EXPECT_EQ(g_notify_length, kMacroSize);
     EXPECT_GT(after.program_count, before.program_count);
+    EXPECT_EQ(g_macro_ready_count, 0U);
 
     uint8_t zero = 0xFF;
     ASSERT_EQ(era_eeprom_driver_replay_read(kMacroAddress + 31U, &zero, 1U), ERA_NVM_RESULT_OK);
@@ -310,6 +564,10 @@ TEST_F(EraNvmQmkDriver, StagedMacroAllowsDeferredRgbStyleWriteAndPersistsItAcros
 }
 
 TEST_F(EraNvmQmkDriver, StockMacroStagingSurvivesUnrelatedRotationWithoutPublishingOrReplacingCommittedBytes) {
+    // Retired bank is programmed, not a virgin already-erased bank. Rotation
+    // must exercise mandatory erase even while optional maintenance is held.
+    SeedRetiredBank();
+    dynamic_keymap_macro_reset();
     uint8_t invalid = 0xFF;
     uint8_t valid = 0U;
     uint8_t old_payload = 0x31;
@@ -327,6 +585,8 @@ TEST_F(EraNvmQmkDriver, StockMacroStagingSurvivesUnrelatedRotationWithoutPublish
     std::array<uint8_t, 8> rgb{};
     // More than a complete journal of real QMK RGB-sized updates. The macro
     // starts at an unaligned address, so both boundary pages have neighbours.
+    const auto erases_before_rotation = g_flash.erase_calls;
+    ExpectMaintenanceHeld();
     for (uint32_t i = 0U; i < 800U; ++i) {
         rgb.fill(static_cast<uint8_t>(i + 1U));
         eeprom_update_block(rgb.data(), reinterpret_cast<void *>(23U), rgb.size());
@@ -334,6 +594,8 @@ TEST_F(EraNvmQmkDriver, StockMacroStagingSurvivesUnrelatedRotationWithoutPublish
         ASSERT_EQ(g_notify_offset, 23U);
         ASSERT_EQ(g_notify_length, rgb.size());
     }
+    EXPECT_GT(g_flash.erase_calls, erases_before_rotation);
+    ExpectMaintenanceHeld();
     ASSERT_TRUE(era_eeprom_driver_macro_transaction_open());
     EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), staged);
     EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroMarker)), invalid);
@@ -376,11 +638,13 @@ TEST_F(EraNvmQmkDriver, MacroStagingPrecedesDurableSemanticPublication) {
     nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &invalid);
     ASSERT_TRUE(era_eeprom_driver_macro_transaction_open());
     EXPECT_EQ(g_notify_count, 0U);
+    EXPECT_EQ(g_macro_ready_count, 0U);
 
     uint8_t payload = 0x5CU;
     nvm_dynamic_keymap_macro_update_buffer(0U, 1U, &payload);
     ASSERT_TRUE(era_eeprom_driver_macro_transaction_open());
     EXPECT_EQ(g_notify_count, 0U);
+    EXPECT_EQ(g_macro_ready_count, 0U);
 
     uint8_t valid = 0U;
     nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
@@ -388,6 +652,48 @@ TEST_F(EraNvmQmkDriver, MacroStagingPrecedesDurableSemanticPublication) {
     EXPECT_EQ(g_notify_count, 1U);
     EXPECT_EQ(g_notify_offset, kMacroAddress);
     EXPECT_EQ(g_notify_length, kMacroSize);
+    EXPECT_EQ(g_macro_ready_count, 1U);
+    // Repeated idle marker writes are not a new completed upload.
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
+    EXPECT_EQ(g_macro_ready_count, 1U);
+}
+
+TEST_F(EraNvmQmkDriver, StockViaEndpointReadiesOnlySuccessfulUploadNotStandaloneReset) {
+    std::array<uint8_t, 32> request{};
+    request[0] = id_dynamic_keymap_macro_reset;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[0], id_dynamic_keymap_macro_reset);
+    EXPECT_EQ(g_macro_ready_count, 0U);
+    request.fill(0);
+    request[0] = id_dynamic_keymap_macro_set_buffer;
+    request[1] = (kMacroSize - 1U) >> 8;
+    request[2] = (kMacroSize - 1U) & 0xFF;
+    request[3] = 1; request[4] = 0xFF;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_macro_ready_count, 0U);
+    request.fill(0);
+    request[0] = id_dynamic_keymap_macro_set_buffer;
+    request[3] = 2; request[4] = 'A'; request[5] = 0;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_macro_ready_count, 0U);
+    request.fill(0);
+    request[0] = id_dynamic_keymap_macro_set_buffer;
+    request[1] = (kMacroSize - 1U) >> 8;
+    request[2] = (kMacroSize - 1U) & 0xFF;
+    request[3] = 1;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[0], id_dynamic_keymap_macro_set_buffer);
+    EXPECT_EQ(g_macro_ready_count, 1U);
+    eeprom_driver_init();
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), 'A');
+    reset_notifications();
+    request.fill(0); request[0] = id_dynamic_keymap_macro_reset;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response[0], id_dynamic_keymap_macro_reset);
+    EXPECT_EQ(g_notify_count, 1U);
+    EXPECT_EQ(g_macro_ready_count, 0U);
+    eeprom_driver_init();
+    EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), 0);
 }
 
 TEST_F(EraNvmQmkDriver, MacroTouchingReplacementIsRefusedWhileStaged) {
@@ -414,9 +720,14 @@ TEST_F(EraNvmQmkDriver, FailedMacroCloseLeavesMarkerNonzeroAndNoMacroPublication
 
     EXPECT_TRUE(era_eeprom_driver_macro_transaction_open());
     EXPECT_EQ(g_notify_count, 0U);
+    EXPECT_EQ(g_macro_ready_count, 0U);
     uint8_t marker = 0;
     eeprom_read_block(&marker, reinterpret_cast<const void *>(kMacroMarker), 1U);
     EXPECT_NE(marker, 0U);
+    g_flash.fail_program_call = 0;
+    nvm_dynamic_keymap_macro_update_buffer(kMacroSize - 1U, 1U, &valid);
+    EXPECT_FALSE(era_eeprom_driver_macro_transaction_open());
+    EXPECT_EQ(g_macro_ready_count, 1U);
 }
 
 TEST_F(EraNvmQmkDriver, DriverEraseFormatsWholeStoreAndReplayParserSeesFreshZeros) {

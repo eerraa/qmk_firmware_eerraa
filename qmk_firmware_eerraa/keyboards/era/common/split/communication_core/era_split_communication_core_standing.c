@@ -380,6 +380,13 @@ static bool era_split_communication_core_standing_due(uint32_t now_us) {
     return (int32_t)(now_us - g_era_split_communication_core_standing_private.next_due_us) >= 0;
 }
 
+#ifdef ERA_TOMAK_SYNC_DIAG
+static volatile uint32_t tomak_sync_control_beats;
+static volatile uint32_t tomak_sync_standing_fault;
+uint32_t era_tomak_sync_control_keepalive_count(void) { return tomak_sync_control_beats; }
+uint32_t era_tomak_sync_standing_fault(void) { return tomak_sync_standing_fault; }
+#endif
+
 bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     era_split_communication_core_standing_plan_t plan;
     if (!era_split_communication_core_read_standing_plan(&plan)) {
@@ -403,7 +410,10 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     }
     bool cadence_granted = plan.enabled != 0;
     bool hp_input = (plan.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_MATRIX) != 0;
-    if (hp_input && era_split_input_source_control_active()) return false;
+    bool hp_control = hp_input && era_split_input_source_control_active();
+    /* The control barrier owns input admission, not relation liveness.
+       The stop-generation handshake below still gates all origination. */
+    if (hp_control) cadence_granted = false;
     /* Defensive, not a supported plan value: the single publisher either leaves
      * the record memset -- caught by the generation tests above -- or writes the
      * scheduler's constant, which a _Static_assert holds above zero. This term
@@ -645,6 +655,11 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
                                                             &response,
                                                             NULL,
                                                             &failure);
+#ifdef ERA_TOMAK_SYNC_DIAG
+    if (hp_control && result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
+        tomak_sync_control_beats++;
+    }
+#endif
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
     era_split_transaction_engine_timing_end_route();
 #endif
@@ -670,6 +685,10 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     state.relation_generation = plan.relation_generation;
 
     if (result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
+#ifdef ERA_TOMAK_SYNC_DIAG
+        tomak_sync_standing_fault = (uint32_t)result | ((uint32_t)failure << 8) |
+            (hp_control ? 0x10000U : 0U) | (cadence_granted ? 0x20000U : 0U);
+#endif
         /* A non-OK exchange does not confirm the request, but neither does it
          * prove that the request missed the peer. RESTART_ARM is destructive
          * state: if the peer accepted this body and the plan later returns to
@@ -694,7 +713,9 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     }
 
     if (response.kind == ERA_SPLIT_WIRE_PAYLOAD_FLOW_RSP) {
-        era_split_input_source_flow(response.payload[1], flow_generation);
+        /* A recovery heartbeat cannot restart the FENCE/BIND already owning
+           this incarnation, nor apply a pre-bind capacity hint to it. */
+        if (!hp_control) era_split_input_source_flow(response.payload[1], flow_generation);
         if (response.payload_len == 2) { response.kind = ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK; response.payload_len = 1; }
         else { response.kind = ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP; response.payload[1] = ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP; }
         __SEV();

@@ -169,3 +169,13 @@ void era_test_standing_input_pressure(void) {
     }
     for (unsigned i=0;i<19;++i) { rows[0]=i&1?1:2; era_split_input_source_snapshot(rows, i); }
 }
+void era_test_standing_control_wait(void) {
+    test_core = 0;
+    era_split_input_source_gate(true, 7, 9);
+    era_split_communication_core_standing_plan_t plan;
+    (void)era_split_communication_core_read_standing_plan(&plan);
+    plan.eligible_push_sections |= ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING;
+    plan.storage_pending = 1;
+    (void)era_split_communication_core_publish_standing_plan(&plan);
+}
+bool era_test_standing_control_active(void) { return era_split_input_source_control_active(); }

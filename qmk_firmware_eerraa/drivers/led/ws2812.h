@@ -94,4 +94,17 @@ void ws2812_set_color(int index, uint8_t red, uint8_t green, uint8_t blue);
 void ws2812_set_color_all(uint8_t red, uint8_t green, uint8_t blue);
 void ws2812_flush(void);
 
+#ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
+typedef enum {
+    WS2812_TRANSFER_IDLE,
+    WS2812_TRANSFER_BUSY,
+    WS2812_TRANSFER_COMPLETE,
+    WS2812_TRANSFER_FAILED,
+} ws2812_transfer_status_t;
+
+/* Observation only: never consumes the driver's transfer semaphore.
+ * COMPLETE includes the PIO tail and reset-low interval, not optical feedback. */
+ws2812_transfer_status_t ws2812_transfer_status(void);
+#endif
+
 void ws2812_rgb_to_rgbw(ws2812_led_t *led);

@@ -137,6 +137,7 @@ typedef enum {
     ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP = 15,
     /* Transaction expectation only; never produced by the wire classifier. */
     ERA_SPLIT_WIRE_PAYLOAD_HP_STANDING_RSP = 16,
+    ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC = 17,
 } era_split_wire_payload_kind_t;
 
 #define ERA_SPLIT_WIRE_HOST_PEER_CLASS 0x20
@@ -949,6 +950,12 @@ typedef struct {
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    /* Established only by SESSION, not inferred from a later presentation
+     * request. These are opaque peer identifiers, not local epoch values. */
+    uint16_t sync_owner_epoch;
+    uint16_t sync_relation_generation;
+#endif
 } era_split_wire_session_status_t;
 
 typedef struct {

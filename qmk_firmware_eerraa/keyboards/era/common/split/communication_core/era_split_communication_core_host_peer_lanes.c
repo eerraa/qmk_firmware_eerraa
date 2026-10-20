@@ -41,11 +41,23 @@ static era_split_transaction_failure_t era_split_communication_core_initiator_ac
 
 static bool era_split_communication_core_initiator_request_valid(const era_split_communication_core_initiator_request_t *request) {
     if (request == NULL || request->owner_epoch == 0 || request->relation_generation == 0 || request->request_generation == 0 ||
-        request->lane <= ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_INVALID || request->lane > ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH ||
+        request->lane <= ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_INVALID || request->lane >= ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_COUNT ||
         request->request_direction > ERA_SPLIT_WIRE_DIRECTION_SECONDARY_TO_PRIMARY || request->expected_kind == ERA_SPLIT_WIRE_PAYLOAD_INVALID ||
         request->response_window_ms == 0) {
         return false;
     }
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC) {
+        const era_tomak_sync_wire_t *sync = &request->semantic.sync;
+        uint8_t payload[ERA_TOMAK_SYNC_WIRE_BYTES];
+        return (sync->operation == ERA_TOMAK_SYNC_WIRE_OFFER || sync->operation == ERA_TOMAK_SYNC_WIRE_ARM ||
+                sync->operation == ERA_TOMAK_SYNC_WIRE_APPLIED) &&
+               sync->owner_epoch == request->owner_epoch && sync->relation_generation == request->relation_generation &&
+               request->expected_kind == ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC &&
+               request->alternate_expected_kind == ERA_SPLIT_WIRE_PAYLOAD_INVALID &&
+               era_tomak_sync_wire_encode(sync, 1, payload);
+    }
+#endif
     if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
         const era_split_input_request_t *input = &request->semantic.source_push.input;
         if (!input->generation || !input->epoch) return false;
@@ -72,8 +84,22 @@ static bool era_split_communication_core_initiator_encode(const era_split_commun
     }
 
     switch ((era_split_communication_core_initiator_lane_t)request->lane) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        case ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC:
+            *payload_len = ERA_TOMAK_SYNC_WIRE_BYTES;
+            return era_tomak_sync_wire_encode(&request->semantic.sync, control, payload);
+#endif
         case ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS:
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        {
+            era_split_wire_session_status_t status = request->semantic.session_status;
+            status.sync_owner_epoch = request->owner_epoch;
+            status.sync_relation_generation = request->relation_generation;
+            return era_split_wire_encode_session_status(control, &status, payload, payload_len);
+        }
+#else
             return era_split_wire_encode_session_status(control, &request->semantic.session_status, payload, payload_len);
+#endif
         case ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH: {
             const era_split_input_request_t *input = &request->semantic.source_push.input;
             if (input->op == ERA_INPUT_FENCE || input->op == ERA_INPUT_BIND) {
@@ -180,6 +206,25 @@ static void era_split_communication_core_initiator_note_transaction(uint8_t lane
 }
 
 static bool era_split_communication_core_initiator_decode(const era_split_communication_core_initiator_request_t *request, const era_split_wire_frame_t *response, era_split_communication_core_initiator_result_t *result) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC) {
+        if (response->kind != ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC ||
+            !era_tomak_sync_wire_decode(response->payload, response->payload_len, &result->decoded.sync)) {
+            return false;
+        }
+        const era_tomak_sync_wire_t *reply = &result->decoded.sync;
+        bool operation = reply->operation == ERA_TOMAK_SYNC_WIRE_REJECT ||
+                         reply->operation == ERA_TOMAK_SYNC_WIRE_PENDING ||
+                         (request->semantic.sync.operation == ERA_TOMAK_SYNC_WIRE_OFFER &&
+                          reply->operation == ERA_TOMAK_SYNC_WIRE_INSTALLED) ||
+                         (request->semantic.sync.operation == ERA_TOMAK_SYNC_WIRE_ARM &&
+                          (reply->operation == ERA_TOMAK_SYNC_WIRE_ARMED ||
+                           reply->operation == ERA_TOMAK_SYNC_WIRE_APPLIED)) ||
+                         (request->semantic.sync.operation == ERA_TOMAK_SYNC_WIRE_APPLIED &&
+                          reply->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY);
+        return operation && era_tomak_sync_wire_matches(&request->semantic.sync, reply, reply->operation);
+    }
+#endif
     if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS) {
         result->decoded.session.valid = era_split_wire_decode_session_status(response, &result->decoded.session.status) ? 1 : 0;
         return result->decoded.session.valid != 0;

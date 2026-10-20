@@ -9,6 +9,9 @@
 #include "atomic_util.h"
 #include "era_split_link.h"
 #include "era_split_scheduler_events.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "era_split_transport_scheduler.h"
+#endif
 
 typedef struct {
     bool     valid;
@@ -23,6 +26,10 @@ typedef struct {
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    uint16_t sync_owner_epoch;
+    uint16_t sync_relation_generation;
+#endif
 } era_split_scheduler_status_cache_t;
 
 typedef struct {
@@ -37,6 +44,20 @@ typedef struct {
 } era_split_scheduler_session_state_t;
 
 static era_split_scheduler_session_state_t g_era_split_scheduler_session;
+
+#ifdef ERA_TOMAK_SYNC_ENABLE
+bool era_split_scheduler_session_sync_peer_channel(uint16_t *owner_epoch, uint16_t *relation_generation) {
+    bool ready;
+    ATOMIC_BLOCK_RESTORESTATE {
+        ready = g_era_split_scheduler_session.peer_known &&
+                g_era_split_scheduler_session.peer.sync_owner_epoch != 0 &&
+                g_era_split_scheduler_session.peer.sync_relation_generation != 0;
+        *owner_epoch = ready ? g_era_split_scheduler_session.peer.sync_owner_epoch : 0;
+        *relation_generation = ready ? g_era_split_scheduler_session.peer.sync_relation_generation : 0;
+    }
+    return ready;
+}
+#endif
 
 static uint16_t era_split_scheduler_session_next_generation(uint16_t generation) {
     generation++;
@@ -172,6 +193,13 @@ void era_split_scheduler_session_note_peer_status(const era_split_wire_session_s
     bool peer_mode_status_changed = false;
     ATOMIC_BLOCK_RESTORESTATE {
         bool generation_changed = era_split_scheduler_session_peer_generation_changed_locked(status->usb_epoch, status->host_open_generation, status->host_close_generation);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        /* A channel replacement fences presentation, not USB authority.
+         * Turning it into peer_generation_changed would rotate both channels
+         * in response to each other indefinitely. */
+        g_era_split_scheduler_session.peer.sync_owner_epoch = status->sync_owner_epoch;
+        g_era_split_scheduler_session.peer.sync_relation_generation = status->sync_relation_generation;
+#endif
 
         g_era_split_scheduler_session.peer.accepted_host_open    = status->accepted_host_open;
         g_era_split_scheduler_session.peer.accepted_no_host      = status->accepted_no_host;
@@ -250,6 +278,13 @@ bool era_split_scheduler_session_note_peer_authority(const era_split_wire_author
                          g_era_split_scheduler_session.peer.host_open_generation != authority->host_open_generation ||
                          g_era_split_scheduler_session.peer.host_close_generation != authority->host_close_generation;
         bool generation_changed = era_split_scheduler_session_peer_generation_changed_locked(authority->usb_epoch, authority->host_open_generation, authority->host_close_generation);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        if (generation_changed) {
+            /* AUTHORITY can revoke an established channel, never discover one. */
+            g_era_split_scheduler_session.peer.sync_owner_epoch = 0;
+            g_era_split_scheduler_session.peer.sync_relation_generation = 0;
+        }
+#endif
 
         g_era_split_scheduler_session.peer.accepted_host_open    = authority->accepted_host_open;
         g_era_split_scheduler_session.peer.accepted_no_host      = authority->accepted_no_host;
@@ -281,6 +316,9 @@ bool era_split_scheduler_session_note_peer_authority(const era_split_wire_author
         peer_mode_status_changed = generation_changed;
     }
     if (peer_mode_status_changed) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+        era_split_transport_scheduler_request_sync_session();
+#endif
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_SESSION);
     }
     return record_changed;

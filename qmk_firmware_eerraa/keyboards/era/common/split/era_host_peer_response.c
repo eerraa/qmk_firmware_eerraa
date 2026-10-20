@@ -33,6 +33,7 @@ extern void set_split_host_keyboard_leds(uint8_t led_state);
 static bool    g_era_host_peer_transaction_peer_visual_baseline_valid;
 static uint8_t g_era_host_peer_transaction_peer_visual_baseline[ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES];
 
+#if defined(RGB_MATRIX_ENABLE)
 static bool era_host_peer_transaction_visual_baseline_bit(const uint8_t baseline[ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES], uint8_t bit) {
     return (baseline[bit >> 3] & (uint8_t)(1U << (bit & 0x07))) != 0;
 }
@@ -53,6 +54,7 @@ static bool era_host_peer_transaction_visual_reason_replays_pressed(uint8_t reas
     return reason == ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_REASON_RELATION_OPEN ||
            reason == ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_REASON_TICK_GAP;
 }
+#endif
 
 bool era_host_peer_transaction_encode_rgb_state_body(const era_host_peer_rgb_state_t *state, uint8_t payload[ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_RGB_STATE_BYTES]) {
     if (state == NULL || payload == NULL) {

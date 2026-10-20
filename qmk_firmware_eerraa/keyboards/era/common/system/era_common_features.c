@@ -5,6 +5,10 @@
 #include "era_common_features.h"
 
 #include "era_usb_session.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "era_tomak_sync_via.h"
+#    include "../split/era_tomak_sync_runtime.h"
+#endif
 #ifdef ERA_MACRO_ENABLE
 #    include "era_macro.h"
 #endif
@@ -15,7 +19,11 @@
 #    include "../split/era_split_restart_agreement.h"
 #endif
 #ifdef EEPROM_CUSTOM
+#    include "eeprom.h"
 #    include "../storage/era_eeprom_driver.h"
+#endif
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+#    include "../split/era_host_peer_storage.h"
 #endif
 
 #ifdef ERA_TAP_DANCE_ENABLE
@@ -146,6 +154,9 @@ void era_common_features_task(void) {
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    era_tomak_sync_via_task();
+#endif
 #ifdef ERA_MACRO_ENABLE
     era_macro_task();
 #endif
@@ -165,6 +176,11 @@ void era_common_features_task(void) {
 }
 
 void era_common_features_maintenance_task(void) {
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    if (era_tomak_sync_runtime_protected()) {
+        return;
+    }
+#endif
 #ifdef EEPROM_CUSTOM
 #    ifdef SPLIT_KEYBOARD
     /* Opportunistic erase has no deadline; a split transition does. */
@@ -184,12 +200,24 @@ void era_common_features_maintenance_task(void) {
         return;
     }
 #    endif
+    /* Optional maintenance preference is owned here, alongside restart and
+     * presentation scheduling. Existing NVM transaction state is sufficient;
+     * staging does not forbid unrelated mandatory durable writes/rotation. */
+    if (eeprom_transaction_active() || era_eeprom_driver_macro_transaction_open()) {
+        return;
+    }
+#    ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    /* A completed local commit is not retirement of the admitted split
+     * episode. Core0 must drain its result slots before optional flash work. */
+    if (era_host_peer_storage_execution_pending()) {
+        return;
+    }
+#    endif
     /* Background A/B hygiene: at most one inactive 4-KiB sector per top-level
        housekeeping call. No callback from the NVM layer runs keyboard/wire
        work, so each successful erase returns all the way to the normal loop
        before another sector is considered. */
-    bool nvm_maintenance_did_work = false;
-    (void)era_eeprom_driver_maintenance_task(&nvm_maintenance_did_work);
+    (void)era_eeprom_driver_maintenance_task(NULL);
 #endif
 }
 

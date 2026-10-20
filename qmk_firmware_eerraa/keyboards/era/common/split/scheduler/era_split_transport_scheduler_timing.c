@@ -425,7 +425,7 @@ bool era_split_transport_scheduler_sample_authority(uint32_t now_ms, bool mark_d
 }
 
 bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now_ms) {
-    bool maintenance_performed = false;
+    bool maintenance_performed = era_split_transport_scheduler_check_revalidation(now_ms);
 
     if (era_split_transport_scheduler_authority_poll_due(now_ms)) {
         era_split_transport_scheduler_mark_maintenance_due(ERA_SPLIT_SCHEDULER_MAINT_DUE_AUTHORITY_SAMPLE);
@@ -434,6 +434,9 @@ bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now_ms) {
     uint32_t stale_deadline_ms = 0;
     if (era_split_transport_scheduler_responder_stale_deadline(now_ms, &stale_deadline_ms) && era_split_transport_scheduler_deadline_elapsed(now_ms, stale_deadline_ms)) {
         if (era_split_transport_scheduler_responder_silence_stale(era_split_scheduler_session_peer_known())) {
+#ifdef ERA_TOMAK_SYNC_DIAG
+            era_tomak_sync_note_stale(2);
+#endif
             g_era_split_transport_scheduler.peer_session_stale = true;
             era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE);
             maintenance_performed = true;
@@ -446,6 +449,9 @@ bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now_ms) {
        dirty flag, same downstream: the planner's stale arm replans and the
        transfer meets R7's judgment. */
     if (era_split_transport_scheduler_initiator_silence_stale(era_split_scheduler_session_peer_known())) {
+#ifdef ERA_TOMAK_SYNC_DIAG
+        era_tomak_sync_note_stale(3);
+#endif
         g_era_split_transport_scheduler.peer_session_stale = true;
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE);
         maintenance_performed = true;
@@ -490,6 +496,10 @@ void era_split_transport_scheduler_update_next_deadline(void) {
 
     uint32_t authority_deadline_ms = g_era_split_transport_scheduler.authority_poll_deadline_valid ? g_era_split_transport_scheduler.authority_poll_deadline_ms : now_ms;
     era_split_transport_scheduler_include_deadline(&valid, &deadline_ms, authority_deadline_ms);
+    if (g_era_split_transport_scheduler.revalidation_active) {
+        era_split_transport_scheduler_include_deadline(&valid, &deadline_ms,
+            g_era_split_transport_scheduler.revalidation_deadline_ms);
+    }
 
     uint32_t route_deadline_ms = 0;
     if (era_split_transport_scheduler_attach_status_deadline(now_ms, &route_deadline_ms)) {

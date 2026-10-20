@@ -559,6 +559,9 @@ void era_host_peer_storage_note_local_pending_sent(bool pending);
  * relation-open audit clears that shadow and waits for the raise
  * (`era_split_link_runtime_settled()`), so waiting on it deadlocks CLEAN. */
 bool era_host_peer_storage_restart_should_wait(void);
+/* Executable work only: an admitted episode or a published lane result.
+ * Queued work, idle relations and presentation obligations are not owners. */
+bool era_host_peer_storage_execution_pending(void);
 /* CLEAN-only barrier after storage quarantine. It waits for an admitted
  * runtime episode to reach its coherent teardown boundary, then permanently
  * retires the dedicated Core1 request/snapshot publications and their result
@@ -578,6 +581,8 @@ void era_host_peer_storage_note_peer_pending(bool pending);
  * adapter. Remote Apply bypasses this path so convergence never re-dirties
  * itself as a local edit. */
 void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length);
+/* A validated explicit COMMIT is a boundary, not an inferred quiet period. */
+void era_host_peer_storage_note_macro_commit_ready(void);
 uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t offset, uint32_t length);
 void era_host_peer_storage_note_eeprom_mask(uint8_t mask);
 /* Diagnostics-only view of the indicator fact's arms: bit0 local arm, bit1

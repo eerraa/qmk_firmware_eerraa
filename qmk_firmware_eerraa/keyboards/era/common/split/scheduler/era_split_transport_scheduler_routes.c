@@ -23,6 +23,9 @@
 #include "../era_split_transport_scheduler.h"
 #include "../era_split_scheduler_events.h"
 #include "../era_split_scheduler_session.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "../era_tomak_sync_runtime.h"
+#endif
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
 #include "timer.h"
@@ -72,6 +75,9 @@ uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void) {
    so the two callers were choosing between clearing a field with no reader and
    not clearing it. */
 static void era_split_transport_scheduler_mark_peer_stale_revalidation(void) {
+#ifdef ERA_TOMAK_SYNC_DIAG
+    era_tomak_sync_note_stale(1);
+#endif
     g_era_split_transport_scheduler.peer_session_stale          = true;
     g_era_split_transport_scheduler.local_status_pending        = true;
     g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
@@ -79,7 +85,35 @@ static void era_split_transport_scheduler_mark_peer_stale_revalidation(void) {
     era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
 }
 
-static void era_split_transport_scheduler_note_attach_status_request_attempt(era_split_transaction_engine_result_t result, bool request_sent, bool stale_on_no_response) {
+void era_split_transport_scheduler_begin_revalidation(uint32_t now_ms) {
+    uint16_t owner = era_split_communication_core_owner_epoch();
+    uint16_t relation = g_era_split_transport_scheduler.core1_initiator_relation_generation;
+    if (!owner || !relation || !era_split_scheduler_session_peer_known()) return;
+    if (g_era_split_transport_scheduler.revalidation_active &&
+        g_era_split_transport_scheduler.revalidation_owner == owner &&
+        g_era_split_transport_scheduler.revalidation_relation == relation) return;
+    g_era_split_transport_scheduler.revalidation_active = true;
+    g_era_split_transport_scheduler.revalidation_owner = owner;
+    g_era_split_transport_scheduler.revalidation_relation = relation;
+    g_era_split_transport_scheduler.revalidation_deadline_ms = now_ms + ERA_SPLIT_RESPONDER_SILENCE_MS;
+    g_era_split_transport_scheduler.next_scheduler_deadline_valid = false;
+}
+
+bool era_split_transport_scheduler_check_revalidation(uint32_t now_ms) {
+    if (!g_era_split_transport_scheduler.revalidation_active) return false;
+    if (!era_split_scheduler_session_peer_known() ||
+        g_era_split_transport_scheduler.revalidation_owner != era_split_communication_core_owner_epoch() ||
+        g_era_split_transport_scheduler.revalidation_relation != g_era_split_transport_scheduler.core1_initiator_relation_generation) {
+        g_era_split_transport_scheduler.revalidation_active = false;
+        return false;
+    }
+    if ((int32_t)(now_ms - g_era_split_transport_scheduler.revalidation_deadline_ms) < 0) return false;
+    g_era_split_transport_scheduler.revalidation_active = false;
+    era_split_transport_scheduler_mark_peer_stale_revalidation();
+    return true;
+}
+
+static void era_split_transport_scheduler_note_attach_status_request_attempt(era_split_transaction_engine_result_t result, bool request_sent, bool known_peer) {
     if (request_sent) {
         era_split_scheduler_session_note_local_status_sent();
     }
@@ -91,20 +125,11 @@ static void era_split_transport_scheduler_note_attach_status_request_attempt(era
     } else if (g_era_split_transport_scheduler.attach_status_miss_streak < UINT8_MAX) {
         g_era_split_transport_scheduler.attach_status_miss_streak++;
     }
-    /* No softening here since Slice 11.7, and its removal is the point rather
-     * than a simplification. There used to be one for the apply-window
-     * keepalive -- a periodic frame core0 sent from inside its own flash write,
-     * where a miss meant nothing -- and that frame is gone: core1's liveness
-     * beat holds the relation through the write instead.
-     *
-     * What is left on this path is discovery and revalidation only, and a miss
-     * on either is decisive by construction. Revalidation is sent because this
-     * half already doubts the relation, and the relation's own lane is what
-     * carries it the rest of the time; a frame this half sends *because* it
-     * needs an answer, that gets none, is exactly the peer-stale evidence the
-     * route contract names here. */
-    if (stale_on_no_response && request_sent && result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
-        era_split_transport_scheduler_mark_peer_stale_revalidation();
+    /* A bad exchange is not an identity change. Keep mandatory SESSION
+       recovery pending; its identity-bound deadline and the wire watches
+       still retire an unresponsive peer. Retries cannot renew that deadline. */
+    if (known_peer && request_sent && result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
+        era_split_transport_scheduler_begin_revalidation(timer_read32());
     }
 }
 
@@ -212,6 +237,27 @@ static bool era_split_transport_scheduler_submit_core1_request(const era_split_c
     return true;
 }
 
+#ifdef ERA_TOMAK_SYNC_DIAG
+static uint32_t tomak_session_submit, tomak_session_fail_ms, tomak_session_fail_detail;
+void era_tomak_sync_session_tx_diag(uint32_t *ms, uint32_t *detail) {
+    *ms = tomak_session_fail_ms; *detail = tomak_session_fail_detail;
+}
+#endif
+#ifdef ERA_TOMAK_SYNC_ENABLE
+bool era_split_transport_scheduler_submit_sync(const era_tomak_sync_wire_t *message) {
+    if (!message || era_split_transport_scheduler_core1_initiator_pending() ||
+        !era_split_scheduler_session_peer_known()) {
+        return false;
+    }
+    era_split_communication_core_initiator_request_t request;
+    era_split_transport_scheduler_init_core1_request(&request,
+        ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC, ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC,
+        ERA_SPLIT_WIRE_PAYLOAD_INVALID, ERA_SPLIT_PEER_RESPONSE_WINDOW_MS);
+    request.semantic.sync = *message;
+    return era_split_transport_scheduler_submit_core1_request(&request, true);
+}
+#endif
+
 static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
     era_split_wire_session_status_t local_status;
     if (!era_split_scheduler_session_build_local_status(true, &local_status)) {
@@ -228,6 +274,18 @@ static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
                                                      response_window_ms);
     request.semantic.session_status = local_status;
     bool submitted = era_split_transport_scheduler_submit_core1_request(&request, peer_known_before_request);
+    if (submitted && peer_known_before_request) {
+        era_split_transport_scheduler_begin_revalidation(timer_read32());
+    }
+#ifdef ERA_TOMAK_SYNC_DIAG
+    if (submitted) {
+        /* Freeze request provenance, not the state after its result arrives. */
+        tomak_session_submit = (peer_known_before_request ? 1U : 0U) |
+            (g_era_split_transport_scheduler.standing_stopped ? 2U : 0U) |
+            (g_era_split_transport_scheduler.local_status_pending ? 4U : 0U) |
+            ((uint32_t)g_era_split_transport_scheduler.mode << 8);
+    }
+#endif
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     if (submitted) {
         era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_SUBMIT,
@@ -300,6 +358,14 @@ static void era_split_transport_scheduler_apply_core1_session_result(const era_s
     if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_OK && !result->decoded.session.valid) {
         transaction_result = ERA_SPLIT_TRANSACTION_RESULT_BAD;
     }
+#ifdef ERA_TOMAK_SYNC_DIAG
+    if (transaction_result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
+        tomak_session_fail_ms = timer_read32();
+        tomak_session_fail_detail = (uint32_t)transaction_result |
+            ((uint32_t)result->failure << 8) | (request_sent ? 0x10000U : 0U) |
+            ((tomak_session_submit & 7U) << 17) | ((tomak_session_submit >> 8) << 24);
+    }
+#endif
     era_split_transport_scheduler_note_attach_status_request_attempt(transaction_result,
                                                                     request_sent,
                                                                     g_era_split_transport_scheduler.core1_initiator_peer_known_before_request);
@@ -313,6 +379,8 @@ static void era_split_transport_scheduler_apply_core1_session_result(const era_s
             g_era_split_transport_scheduler.local_status_pending = true;
             g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
             era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
+        } else {
+            g_era_split_transport_scheduler.revalidation_active = false;
         }
     }
 }
@@ -331,11 +399,10 @@ static void era_split_transport_scheduler_apply_core1_host_peer_result(const era
         if (result->input_status == ERA_INPUT_ACCEPTED || result->input_status == ERA_INPUT_ACCEPTED_STOP)
             era_host_peer_matrix_link_note_source_push_accepted(result->matrix_seq);
         g_era_split_transport_scheduler.attach_status_miss_streak = 0;
-    } else if (result->request_sent && (result->input.op == ERA_INPUT_FENCE || result->input.op == ERA_INPUT_BIND)) {
-        /* A/B installs a new incarnation; ordinary typed input misses never
-         * revoke a relation or restart its storage audit. */
-        era_split_transport_scheduler_mark_peer_stale_revalidation();
     }
+    /* A missed input/control receipt keeps the immutable request pending.
+       Retry it inside this relation; SESSION and the existing wire-liveness
+       watches, not an individual FENCE/BIND miss, own relation retirement. */
     if (era_split_input_source_due(era_split_input_clock()))
         era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_HOST_PEER_SOURCE_PUSH);
 }
@@ -379,6 +446,13 @@ bool era_split_transport_scheduler_poll_core1_initiator(void) {
 
     if (result.lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS) {
         era_split_transport_scheduler_apply_core1_session_result(&result);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    } else if (result.lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC) {
+        era_tomak_sync_runtime_bind(result.owner_epoch, result.relation_generation);
+        if (result.result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
+            era_tomak_sync_runtime_reply(&result.decoded.sync);
+        }
+#endif
     } else {
         era_split_transport_scheduler_apply_core1_host_peer_result(&result);
     }

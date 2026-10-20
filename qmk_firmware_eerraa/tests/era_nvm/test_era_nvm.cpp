@@ -273,6 +273,186 @@ TEST(EraNvm, BlankFlashFormatsFreshBankAndReplayUsesSameImage) {
     rig.expect_geometry_clean();
 }
 
+TEST(EraNvm, ExplicitMacroReplacementStagesWithoutResetAndCommitsOnce) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    auto old = make_large(0x31);
+    old.back() = 0;
+    ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, old.data(), old.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+    const uint32_t cursor = active_cursor(rig.nvm);
+    const std::array<uint8_t, 9> payload{'1','2','3','4','5','6','7','8','9'};
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, payload.size()), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload.data(), 4), ERA_NVM_RESULT_STAGED);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 4, payload.data() + 4, 5), ERA_NVM_RESULT_STAGED);
+    EXPECT_EQ(active_cursor(rig.nvm), cursor);
+    std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> durable{};
+    ASSERT_EQ(era_nvm_replay_read(&rig.nvm, kMacroBase, durable.data(), durable.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(durable, old);
+    // IEEE CRC32 for the independently specified check vector "123456789".
+    ASSERT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0xCBF43926U), ERA_NVM_RESULT_OK);
+    EXPECT_GT(active_cursor(rig.nvm), cursor);
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, durable.data(), durable.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(std::memcmp(durable.data(), payload.data(), payload.size()), 0);
+    for (size_t i = payload.size(); i < durable.size(); ++i) EXPECT_EQ(durable[i], 0);
+    rig.expect_geometry_clean();
+}
+
+TEST(EraNvm, ExplicitMacroReplacementRejectsGapsIncompleteAndWrongChecksum) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    const std::array<uint8_t, 9> payload{'1','2','3','4','5','6','7','8','9'};
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, payload.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(era_nvm_macro_replace_data(&rig.nvm, 1, payload.data(), 4), ERA_NVM_RESULT_PROTOCOL);
+    EXPECT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0xCBF43926U), ERA_NVM_RESULT_PROTOCOL);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload.data(), payload.size()), ERA_NVM_RESULT_STAGED);
+    EXPECT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0), ERA_NVM_RESULT_PROTOCOL);
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    uint8_t first = 0xFF;
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, &first, 1), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(first, 0);
+}
+
+TEST(EraNvm, ExplicitReplacementDefersExhaustedJournalRotationUntilCommit) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    fill_two_large_records(rig);
+    const uint32_t generation = era_nvm_generation(&rig.nvm);
+    const uint64_t mutations = rig.flash.mutation_calls;
+    const std::array<uint8_t, 9> payload{'1','2','3','4','5','6','7','8','9'};
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, payload.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(rig.flash.mutation_calls, mutations);
+    EXPECT_EQ(era_nvm_generation(&rig.nvm), generation);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload.data(), payload.size()), ERA_NVM_RESULT_STAGED);
+    ASSERT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0xCBF43926U), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(era_nvm_generation(&rig.nvm), generation + 1);
+    EXPECT_EQ(era_nvm_journal_free_bytes(&rig.nvm), ERA_NVM_BANK_JOURNAL_BYTES);
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> actual{};
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, actual.data(), actual.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(std::memcmp(actual.data(), payload.data(), payload.size()), 0);
+    EXPECT_TRUE(std::all_of(actual.begin()+payload.size(), actual.end(), [](uint8_t b) { return b==0; }));
+    rig.expect_geometry_clean();
+}
+
+TEST(EraNvm, ExplicitStagingSurvivesUnrelatedRotationsAndAbortRestoresDurableMacro) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    auto old = make_large(0x52); old.back() = 0;
+    ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, old.data(), old.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+    rig.nvm.tail_sealed = true; // A prior torn append needs repair at the next durable write.
+    const uint64_t before = rig.flash.mutation_calls;
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, 9), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(rig.flash.mutation_calls, before);
+    const uint8_t payload[] = {'1','2','3','4','5','6','7','8','9'};
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload, sizeof(payload)), ERA_NVM_RESULT_STAGED);
+    std::array<uint8_t, kMacroBase> unrelated{};
+    for (unsigned i=0; i<12; ++i) {
+        unrelated.fill(static_cast<uint8_t>(i+1));
+        ASSERT_EQ(era_nvm_replace(&rig.nvm, 0, unrelated.data(), unrelated.size(), ERA_NVM_ORIGIN_LOCAL_QMK), ERA_NVM_RESULT_OK);
+        std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> replay{};
+        ASSERT_EQ(era_nvm_replay_read(&rig.nvm, kMacroBase, replay.data(), replay.size()), ERA_NVM_RESULT_OK);
+        EXPECT_EQ(replay, old);
+        EXPECT_EQ(std::memcmp(rig.nvm.image+kMacroBase, payload, sizeof(payload)), 0);
+    }
+    ASSERT_GT(era_nvm_generation(&rig.nvm), 2U);
+    ASSERT_EQ(era_nvm_macro_replace_abort(&rig.nvm), ERA_NVM_RESULT_OK);
+    EXPECT_TRUE(std::equal(old.begin(), old.end(), rig.nvm.image+kMacroBase));
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    EXPECT_TRUE(std::equal(old.begin(), old.end(), rig.nvm.image+kMacroBase));
+    EXPECT_TRUE(std::equal(unrelated.begin(), unrelated.end(), rig.nvm.image));
+    rig.expect_geometry_clean();
+}
+
+TEST(EraNvm, ExplicitRotatingCommitFaultsRecoverOnlyCompleteOldOrNew) {
+    Rig base;
+    ASSERT_EQ(base.mount(), ERA_NVM_RESULT_OK);
+    fill_two_large_records(base);
+    const auto old = make_large(0x42);
+    const uint8_t payload[] = {'1','2','3','4','5','6','7','8','9'};
+    std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> wanted{};
+    std::copy(std::begin(payload), std::end(payload), wanted.begin());
+    auto prepare = [&](Rig &rig) {
+        rig.flash = base.flash;
+        // Model a previously used inactive bank before mount inspects it.
+        rig.flash.bytes[ERA_NVM_BANK_SIZE_BYTES] = 0;
+        ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+        ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, sizeof(payload)), ERA_NVM_RESULT_OK);
+        ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload, sizeof(payload)), ERA_NVM_RESULT_STAGED);
+    };
+    Rig successful;
+    prepare(successful);
+    uint64_t start = successful.flash.mutation_calls;
+    ASSERT_EQ(era_nvm_macro_replace_commit(&successful.nvm, 0xCBF43926U), ERA_NVM_RESULT_OK);
+    uint64_t phases = successful.flash.mutation_calls-start;
+    ASSERT_GT(phases, 1U);
+    for (uint64_t cut=1; cut<=phases; ++cut) {
+        for (auto mode : {FaultMode::FailBefore, FaultMode::FailPartial, FaultMode::FailAfter,
+                          FaultMode::ReportSuccessNoEffect, FaultMode::ReportSuccessMismatch}) {
+            Rig attempt;
+            prepare(attempt);
+            attempt.flash.fail_mutation_call=attempt.flash.mutation_calls+cut;
+            attempt.flash.mutation_fault=mode;
+            auto result=era_nvm_macro_replace_commit(&attempt.nvm, 0xCBF43926U);
+            ASSERT_TRUE(result==ERA_NVM_RESULT_OK || result==ERA_NVM_RESULT_IO_ERROR);
+            attempt.flash.clear_faults();
+            ASSERT_EQ(attempt.mount(), ERA_NVM_RESULT_OK);
+            std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> recovered{};
+            ASSERT_EQ(era_nvm_read(&attempt.nvm, kMacroBase, recovered.data(), recovered.size()), ERA_NVM_RESULT_OK);
+            ASSERT_TRUE(recovered==old || recovered==wanted) << cut << "/" << static_cast<int>(mode);
+            if (result==ERA_NVM_RESULT_OK) EXPECT_EQ(recovered,wanted);
+            attempt.expect_geometry_clean();
+        }
+    }
+}
+
+TEST(EraNvm, ExplicitMacroReplacementRetriesDataButRejectsLegacyCloseAndConflictingData) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    const uint8_t payload[] = {'1','2','3','4','5','6','7','8','9'};
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, sizeof(payload)), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload, 4), ERA_NVM_RESULT_STAGED);
+    EXPECT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, payload, 4), ERA_NVM_RESULT_STAGED);
+    uint8_t conflicting = 'X', close = 0;
+    EXPECT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, &conflicting, 1), ERA_NVM_RESULT_PROTOCOL);
+    EXPECT_EQ(era_nvm_qmk_write(&rig.nvm, kMacroBase + ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES - 1, &close, 1), ERA_NVM_RESULT_BUSY);
+    EXPECT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0xCBF43926U), ERA_NVM_RESULT_PROTOCOL);
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 4, payload + 4, 5), ERA_NVM_RESULT_STAGED);
+    ASSERT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0xCBF43926U), ERA_NVM_RESULT_OK);
+}
+
+TEST(EraNvm, ExplicitMacroReplacementAbortRestoresOldMacroAndEmptyCommitClearsTail) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    auto old = make_large(0x52); old.back() = 0;
+    ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, old.data(), old.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, 9), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_abort(&rig.nvm), ERA_NVM_RESULT_OK);
+    std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> actual{};
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, actual.data(), actual.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(actual, old);
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, 0), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_commit(&rig.nvm, 0), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, actual.data(), actual.size()), ERA_NVM_RESULT_OK);
+    for (auto byte : actual) EXPECT_EQ(byte, 0);
+}
+
+TEST(EraNvm, ExplicitMacroReplacementInterruptedUploadKeepsPreviousDurableImage) {
+    Rig rig;
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    auto old = make_large(0x52);
+    old.back() = 0;
+    ASSERT_EQ(era_nvm_replace(&rig.nvm, kMacroBase, old.data(), old.size(), ERA_NVM_ORIGIN_REMOTE_APPLY), ERA_NVM_RESULT_OK);
+    ASSERT_EQ(era_nvm_macro_replace_begin(&rig.nvm, 9), ERA_NVM_RESULT_OK);
+    const uint8_t partial[] = {'1','2','3'};
+    ASSERT_EQ(era_nvm_macro_replace_data(&rig.nvm, 0, partial, sizeof(partial)), ERA_NVM_RESULT_STAGED);
+    ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);
+    std::array<uint8_t, ERA_NVM_DYNAMIC_MACRO_SIZE_BYTES> actual{};
+    ASSERT_EQ(era_nvm_read(&rig.nvm, kMacroBase, actual.data(), actual.size()), ERA_NVM_RESULT_OK);
+    EXPECT_EQ(actual, old);
+}
+
 TEST(EraNvm, NewestValidBankWinsAfterRotation) {
     Rig rig;
     ASSERT_EQ(rig.mount(), ERA_NVM_RESULT_OK);

@@ -66,6 +66,11 @@ bool era_split_scheduler_session_note_peer_authority(const era_split_wire_author
 
 void era_split_scheduler_session_consume_peer_mode_session(era_split_mode_peer_session_t *peer_session, bool *generation_changed);
 bool era_split_scheduler_session_peer_known(void);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+/* Only a validated SESSION can establish these opaque peer values.
+ * AUTHORITY generation changes and peer-forget revoke the binding. */
+bool era_split_scheduler_session_sync_peer_channel(uint16_t *owner_epoch, uint16_t *relation_generation);
+#endif
 bool era_split_scheduler_session_host_peer_host_matrix_admitted(void);
 
 void era_split_scheduler_session_get_diagnostics_snapshot(era_split_scheduler_session_diagnostics_t *snapshot);

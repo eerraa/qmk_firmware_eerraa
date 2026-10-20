@@ -4,6 +4,7 @@
 #pragma once
 
 #include "quantum.h"
+#include "color.h"
 #include "../../common/system/era_wire.h"
 
 /* The tomak family's whole board content, owned once for `tomak`, `tomak79h`

@@ -40,6 +40,37 @@ TEST_F(EraHostPeerStorageNews, NewsReceivedBeforeAuditMustNotReplayAfterAudit) {
     EXPECT_FALSE(era_test_news_visible());
 }
 
+TEST_F(EraHostPeerStorageNews, OpenUploadIsPendingBeforeAnyCommitOrDirtyPublication) {
+    EXPECT_FALSE(era_test_news_pending());
+    era_test_news_macro_open(true);
+    EXPECT_TRUE(era_test_news_pending());
+    EXPECT_TRUE(era_test_news_visible());
+    wait_ms(100);
+    EXPECT_TRUE(era_test_news_pending());
+    era_test_news_macro_open(false);
+    EXPECT_FALSE(era_test_news_pending());
+}
+
+TEST_F(EraHostPeerStorageNews, OnlyAdmittedExecutionOrUnconsumedResultDefersMaintenance) {
+    EXPECT_FALSE(era_test_news_execution_pending());
+    era_test_news_seed_pair_obligations();
+    era_test_news_seed_direction();
+    EXPECT_FALSE(era_test_news_execution_pending());
+    era_test_news_execution(true);
+    EXPECT_TRUE(era_test_news_execution_pending());
+    era_test_news_close_indicator_gate();
+    EXPECT_TRUE(era_test_news_execution_pending());
+    era_test_news_execution(false);
+    era_test_news_result_due(true);
+    EXPECT_TRUE(era_test_news_execution_pending());
+    era_test_news_result_due(false);
+    EXPECT_FALSE(era_test_news_execution_pending());
+}
+
+TEST_F(EraHostPeerStorageNews, NonTimeoutRetryUsesTwentyFiveMillisecondGate) {
+    EXPECT_EQ(era_test_news_retry_delay(), 25U);
+}
+
 TEST_F(EraHostPeerStorageNews, NewsReceivedDuringAuditRemainsDeduplicated) {
     era_test_news_begin_audit();
     era_test_news_receive(7);

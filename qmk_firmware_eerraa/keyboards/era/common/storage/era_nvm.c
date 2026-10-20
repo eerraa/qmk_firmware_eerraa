@@ -1143,7 +1143,8 @@ era_nvm_result_t era_nvm_read(const era_nvm_t *nvm, uint32_t address, void *data
 
 era_nvm_result_t era_nvm_qmk_read(era_nvm_t *nvm, uint32_t address, void *data, size_t length) {
     era_nvm_result_t result = era_nvm_read(nvm, address, data, length);
-    if (result != ERA_NVM_RESULT_OK || nvm->config.macro_size == 0U || nvm->edit_depth != 0U) {
+    if (result != ERA_NVM_RESULT_OK || nvm->config.macro_size == 0U || nvm->edit_depth != 0U ||
+        nvm->macro_mode == ERA_NVM_MACRO_REPLACE_OPEN) {
         return result;
     }
 
@@ -1272,6 +1273,71 @@ era_nvm_result_t era_nvm_format(era_nvm_t *nvm) {
     return ERA_NVM_RESULT_OK;
 }
 
+era_nvm_result_t era_nvm_macro_replace_begin(era_nvm_t *nvm, uint32_t length) {
+    if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
+    if (!nvm->config.macro_size || length >= nvm->config.macro_size) return ERA_NVM_RESULT_INVALID_ARGUMENT;
+    if (nvm->edit_depth || nvm->macro_mode != ERA_NVM_MACRO_IDLE) return ERA_NVM_RESULT_BUSY;
+    /* Explicit replacement is RAM-only until COMMIT. The complete candidate
+     * can be folded into a rotating bank then; unrelated writes during
+     * staging still reconstruct the previous durable macro from flash. */
+    nvm->macro_mode = ERA_NVM_MACRO_REPLACE_OPEN;
+    nvm->macro_empty_reset = false;
+    nvm->macro_payload_seen = false;
+    nvm->macro_replace_length = length;
+    nvm->macro_replace_received = 0;
+    era_nvm_macro_reset_tracking_clear(nvm);
+    /* Only the canonical RAM image is staged. The replay parser continues
+       to own the previous durable image through unrelated bank rotation. */
+    memset(nvm->image + nvm->config.macro_address, 0, nvm->config.macro_size);
+    nvm->image[nvm->config.macro_address + nvm->config.macro_size - 1U] = ERA_NVM_ERASED_BYTE;
+    era_nvm_macro_public_changed(nvm);
+    return ERA_NVM_RESULT_OK;
+}
+
+era_nvm_result_t era_nvm_macro_replace_data(era_nvm_t *nvm, uint32_t offset, const void *data, size_t length) {
+    if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
+    if (nvm->macro_mode != ERA_NVM_MACRO_REPLACE_OPEN) return ERA_NVM_RESULT_PROTOCOL;
+    if (nvm->edit_depth) return ERA_NVM_RESULT_BUSY;
+    if (!length || !data || offset > nvm->macro_replace_length ||
+        length > nvm->macro_replace_length - offset) return ERA_NVM_RESULT_INVALID_ARGUMENT;
+    if (offset < nvm->macro_replace_received) {
+        if (length <= nvm->macro_replace_received - offset &&
+            !memcmp(nvm->image + nvm->config.macro_address + offset, data, length)) return ERA_NVM_RESULT_STAGED;
+        return ERA_NVM_RESULT_PROTOCOL;
+    }
+    if (offset != nvm->macro_replace_received) return ERA_NVM_RESULT_PROTOCOL;
+    era_nvm_macro_stage_write(nvm, nvm->config.macro_address + offset, data, length, false);
+    nvm->macro_replace_received += length;
+    return ERA_NVM_RESULT_STAGED;
+}
+
+era_nvm_result_t era_nvm_macro_replace_commit(era_nvm_t *nvm, uint32_t crc32) {
+    if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
+    if (nvm->macro_mode != ERA_NVM_MACRO_REPLACE_OPEN) return ERA_NVM_RESULT_PROTOCOL;
+    if (nvm->edit_depth) return ERA_NVM_RESULT_BUSY;
+    if (nvm->macro_replace_received != nvm->macro_replace_length ||
+        era_nvm_crc32(nvm->image + nvm->config.macro_address, nvm->macro_replace_length) != crc32)
+        return ERA_NVM_RESULT_PROTOCOL;
+    return era_nvm_macro_finish_write(nvm);
+}
+
+era_nvm_result_t era_nvm_macro_replace_abort(era_nvm_t *nvm) {
+    if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
+    if (nvm->macro_mode != ERA_NVM_MACRO_REPLACE_OPEN) return ERA_NVM_RESULT_PROTOCOL;
+    if (nvm->edit_depth) return ERA_NVM_RESULT_BUSY;
+    era_nvm_result_t result = era_nvm_replay_read(nvm, nvm->config.macro_address,
+        nvm->image + nvm->config.macro_address, nvm->config.macro_size);
+    if (result != ERA_NVM_RESULT_OK) {
+        era_nvm_macro_set_marker(nvm, ERA_NVM_ERASED_BYTE);
+        return result;
+    }
+    nvm->macro_mode = ERA_NVM_MACRO_IDLE;
+    nvm->macro_payload_seen = nvm->macro_empty_reset = false;
+    era_nvm_macro_reset_tracking_clear(nvm);
+    era_nvm_macro_public_changed(nvm);
+    return ERA_NVM_RESULT_OK;
+}
+
 era_nvm_result_t era_nvm_qmk_write(era_nvm_t *nvm, uint32_t address, const void *data, size_t length) {
     if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) {
         return ERA_NVM_RESULT_NOT_READY;
@@ -1300,6 +1366,7 @@ era_nvm_result_t era_nvm_qmk_write(era_nvm_t *nvm, uint32_t address, const void 
     }
     uint32_t length32 = (uint32_t)length;
     bool overlaps_macro = era_nvm_macro_range_overlaps(nvm, address, length32);
+    if (overlaps_macro && nvm->macro_mode == ERA_NVM_MACRO_REPLACE_OPEN) return ERA_NVM_RESULT_BUSY;
     if (!overlaps_macro) {
         era_nvm_macro_reset_abort_scan(nvm);
         /* era_nvm_replace() owns the one exclusivity test; a range outside the

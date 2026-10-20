@@ -9,6 +9,9 @@
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_types.h"
 #include "../era_split_wire_protocol.h"
+#ifdef ERA_TOMAK_SYNC_ENABLE
+#    include "../era_tomak_sync_receiver.h"
+#endif
 
 typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_INVALID = 0,
@@ -22,6 +25,9 @@ typedef enum {
        invariant under a frame shape where the op alone no longer identifies a
        matrix. */
     ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_RUNTIME_PUSH,
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_TOMAK_SYNC,
+#endif
 } era_split_communication_core_responder_result_kind_t;
 
 typedef struct {
@@ -89,6 +95,10 @@ typedef struct {
     /* This half's tap-hold activity (FA-2 S2), the same copied-value rule. */
     era_split_wire_activity_section_t activity;
     uint8_t                   response_section_mask;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    era_tomak_sync_binding_t sync_binding;
+    era_tomak_sync_wire_t sync_proof;
+#endif
 } era_split_communication_core_responder_snapshot_t;
 
 typedef struct {
@@ -148,6 +158,10 @@ typedef struct {
        result is one arrival. */
     uint8_t peer_visual_valid;
     era_host_peer_visual_snapshot_t peer_visual_snapshot;
+#ifdef ERA_TOMAK_SYNC_ENABLE
+    era_tomak_sync_binding_t sync_binding;
+    era_tomak_sync_wire_t sync_request;
+#endif
 } era_split_communication_core_responder_result_t;
 
 /* Core1-only aggregation for HEARTBEAT replies whose duplicate Core0 result

@@ -43,6 +43,7 @@ typedef enum {
     ERA_NVM_MACRO_IDLE = 0,
     ERA_NVM_MACRO_WRITE_OPEN,
     ERA_NVM_MACRO_RESET_OPEN,
+    ERA_NVM_MACRO_REPLACE_OPEN,
 } era_nvm_macro_mode_t;
 
 typedef struct {
@@ -103,6 +104,8 @@ typedef struct {
     bool                 macro_reset_scan_complete;
     era_nvm_macro_mode_t macro_reset_prior_mode;
     uint8_t              macro_reset_saved_marker;
+    uint32_t             macro_replace_length;
+    uint32_t             macro_replace_received;
 
     /* Physical command evidence. Counts live with the engine because only the
      * verified wrapper can distinguish a command that returned from one whose
@@ -163,6 +166,16 @@ era_nvm_result_t era_nvm_format(era_nvm_t *nvm);
  * durable replacements. Writes inside it recognize stock QMK's marker
  * transaction and, together with era_nvm_qmk_read(), macro RESET. */
 era_nvm_result_t era_nvm_qmk_write(era_nvm_t *nvm, uint32_t address, const void *data, size_t length);
+
+/* Explicit whole-macro replacement; no standalone RESET commit. The payload
+ * is sequential, the unused tail is zero, and the final marker is engine-owned.
+ * CRC is IEEE CRC32 over exactly the declared payload, not the zero tail.
+ * Repeated identical DATA is idempotent; incomplete/foreign transcripts cannot
+ * close this transaction through the ordinary QMK marker API. */
+era_nvm_result_t era_nvm_macro_replace_begin(era_nvm_t *nvm, uint32_t length);
+era_nvm_result_t era_nvm_macro_replace_data(era_nvm_t *nvm, uint32_t offset, const void *data, size_t length);
+era_nvm_result_t era_nvm_macro_replace_commit(era_nvm_t *nvm, uint32_t crc32);
+era_nvm_result_t era_nvm_macro_replace_abort(era_nvm_t *nvm);
 
 /* Read a range exactly as a fresh production mount would recover it, without
  * mutating the current public image. CLEAN uses this after its durable write so

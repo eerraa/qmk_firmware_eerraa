@@ -187,6 +187,11 @@ typedef struct {
     bool     local_status_pending;
     uint8_t  attach_status_miss_streak;
     bool     peer_session_stale;
+    /* A known identity may recover a failed exchange without being retired.
+       Bound the whole recovery, not each retry, by the existing silence bound. */
+    bool     revalidation_active;
+    uint16_t revalidation_owner, revalidation_relation;
+    uint32_t revalidation_deadline_ms;
     bool     responder_relation_rx_observed;
     uint32_t responder_relation_rx_observed_count;
     uint32_t responder_accepted_rx_observed_count;

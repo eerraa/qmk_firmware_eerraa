@@ -153,6 +153,10 @@ void via_eeprom_set_valid(bool valid);
 void eeconfig_init_via(void);
 void via_init(void);
 
+/* Executes an admitted request, including its original response. Does not
+ * invoke the receive/admission hook. */
+void via_command_execute(uint8_t *data, uint8_t length);
+
 // Used by VIA to store and retrieve the layout options.
 uint32_t via_get_layout_options(void);
 void     via_set_layout_options(uint32_t value);

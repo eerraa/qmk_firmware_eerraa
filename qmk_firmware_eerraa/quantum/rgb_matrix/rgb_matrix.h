@@ -215,6 +215,11 @@ void rgb_matrix_set_color_all(uint8_t red, uint8_t green, uint8_t blue);
 void rgb_matrix_handle_key_event(uint8_t row, uint8_t col, bool pressed);
 
 void rgb_matrix_task(void);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+/* The board owns an agreed output edge; the RGB task still owns its buffer
+ * and state. Negative discards, zero holds, positive submits this frame. */
+int8_t rgb_matrix_sync_output_gate_kb(uint8_t frame_flags);
+#endif
 
 // This runs after another backlight effect and replaces
 // colors already set

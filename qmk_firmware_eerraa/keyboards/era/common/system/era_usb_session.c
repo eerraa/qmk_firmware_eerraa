@@ -63,6 +63,9 @@
  */
 
 #include "era_usb_session.h"
+#ifdef ERA_MACRO_REPLACE_ENABLE
+#    include "era_macro_replace.h"
+#endif
 #ifdef ERA_MACRO_ENABLE
 #    include "era_macro.h"
 #endif
@@ -372,6 +375,12 @@ static void era_usb_session_apply(void) {
 #endif
 
 void era_usb_session_task(void) {
+#ifdef ERA_MACRO_REPLACE_ENABLE
+    /* A suspended/disconnected host cannot retain an uncommitted RAM writer.
+     * Restoring the durable image does not publish a new local edit. */
+    if (era_usb_session_configure_state() != USB_DEVICE_STATE_CONFIGURED)
+        era_macro_replace_session_lost();
+#endif
 #if ERA_USB_SESSION_HAS_SOF_SAMPLE
     /* The warm-keeping call, at the rate the answers can change rather than
        the rate the loop runs: if any reader sampled inside this millisecond

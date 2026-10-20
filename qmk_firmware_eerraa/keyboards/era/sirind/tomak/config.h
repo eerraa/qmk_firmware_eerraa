@@ -32,6 +32,9 @@
    refuses a board that does not state it.  */
 #define TOMAK_BADGE_LED_MIN 96
 
+/* Only TOMAK's agreed SYNC output consumes the RP2040 completion observation. */
+#define ERA_TOMAK_SYNC_OUTPUT_ENABLE
+
 /* The tap-dance slot keycodes start at this board's first custom keycode.
    A board fact, so it is stated here and not in make -- and stated in config.h
    rather than the board header, because a config.h is force-included into every

@@ -21,6 +21,9 @@ bool era_split_transport_scheduler_apply_link_level(uint8_t level);
  * wire-scale standing response window plus the bounded handoff/TX margin; the
  * publisher, not the request builder, applies it to the hardware clock. */
 uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void);
+#ifdef ERA_TOMAK_SYNC_ENABLE
+void era_split_transport_scheduler_request_sync_session(void);
+#endif
 // Returns true when this task reduces a changed local authority snapshot.
 bool era_split_transport_scheduler_task(void);
 // The scan path's transport step - one body for every half; role lives in the
@@ -34,6 +37,34 @@ void era_split_transport_scheduler_mark_host_peer_rgb_state_due(void);
    gate. Every other relation, including the HOST-PEER HOST, owns it locally.
    The rule is canonical in era_authority_contract.md. */
 bool era_split_transport_scheduler_lighting_sleep_owner_is_wire(void);
+#ifdef ERA_TOMAK_SYNC_DIAG
+typedef struct {
+    uint32_t recovery_count;
+    uint32_t recovery_ms;
+    uint32_t first_link_ms;
+    uint32_t loss_count;
+    uint32_t return_count;
+    uint32_t loss_ms;
+    uint32_t loss_reason;
+    uint32_t control_beats;
+    uint32_t session_fail_ms, session_fail_detail;
+    uint32_t session_rx, session_sent, session_rx_fault_ms, session_rx_fault;
+    uint32_t standing_fault;
+    uint32_t return_ms;
+    uint16_t relation;
+    uint8_t mode;
+    uint8_t flags;
+    uint8_t misses;
+} era_tomak_sync_relation_diag_t;
+void era_tomak_sync_relation_diag(era_tomak_sync_relation_diag_t *out);
+/* First writer of the current sticky stale claim: 1 SESSION response,
+ * 2 responder silence, 3 initiator progress, 4 queued request watchdog. */
+void era_tomak_sync_note_stale(uint8_t source);
+uint32_t era_tomak_sync_control_keepalive_count(void);
+uint32_t era_tomak_sync_standing_fault(void);
+void era_tomak_sync_session_tx_diag(uint32_t *ms, uint32_t *detail);
+void era_tomak_sync_session_rx_diag(uint32_t *rx, uint32_t *sent, uint32_t *ms, uint32_t *fault);
+#endif
 /* The local layer edge: the one runtime section that is due immediately and
    the whole runtime producer since Slice 11.5. layer_state changes in
    keyboard_task(), not on the scan path, so its producer is the layer hook
