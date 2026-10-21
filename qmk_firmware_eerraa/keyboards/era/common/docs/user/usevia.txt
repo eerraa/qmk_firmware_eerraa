@@ -34,7 +34,7 @@ CONFIGURE -> SYSTEM -> VERSION은 이 키보드의 펌웨어 버전을 YYMMDDRn 
 
 ■ MATRIX TEST
 
-VIA 펌웨어��� VIA의 Matrix Test에서 물리 매트릭스 눌림을
+VIA 펌웨어는 VIA의 Matrix Test에서 물리 매트릭스 눌림을
 표시합니다. 이 기능을 위해 VIA Raw HID를 사용할 수 있는 호스트 프로그램은 현재
 눌린 매트릭스 위치를 조회할 수 있습니다. 신뢰할 수 있는 PC에서 사용하십시오.
 
