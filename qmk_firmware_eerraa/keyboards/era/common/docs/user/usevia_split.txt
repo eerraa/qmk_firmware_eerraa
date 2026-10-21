@@ -37,7 +37,7 @@ VIA에서 수정할 수 없습니다. 양쪽 유닛은 같은 버전을 사용�
 
 ■ MATRIX TEST
 
-260916R1 이후의 VIA 펌웨어는 VIA의 Matrix Test에서 현재 USB 유닛이 구성한
+VIA 펌웨어는 VIA의 Matrix Test에서 현재 USB 유닛이 구성한
 물리 매트릭스 눌림을 표시합니다. 이 기능을 위해 VIA Raw HID를 사용할 수 있는
 호스트 프로그램은 현재 눌린 매트릭스 위치를 조회할 수 있습니다. 신뢰할 수 있는
 PC에서 사용하십시오.
@@ -118,7 +118,7 @@ CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap/Layer-Tap의 탭·홀드 판정을
 
 ■ MOUSE
 
-V261004R1부터 정수 단위 정밀 입력은 usekb.cc의 고급 설정에서 제공합니다.
+정수 단위 정밀 입력은 usekb.cc의 고급 설정에서 제공합니다.
 스톡 VIA는 가장 가까운 프리셋을 표시하며 조회만으로 정밀 값을 바꾸지 않습니다.
 휠 가속은 시간이 0이면 Off, 나머지는 목표 속도 기준으로 Mild/Strong을 표시합니다.
 프리셋을 선택하면 그 설정으로 변경됩니다.
@@ -241,7 +241,7 @@ from the unit and cannot be changed in VIA. Both units must run the same version
 
 ■ MATRIX TEST
 
-VIA firmware from 260916R1 onward reports the physical matrix composed by the
+VIA firmware reports the physical matrix composed by the
 currently USB-connected unit to VIA Matrix Test. A host program with access to
 VIA Raw HID can therefore query currently pressed matrix positions. Use the
 keyboard with trusted host software.
@@ -323,7 +323,7 @@ arrive later.
 
 ■ MOUSE
 
-From V261004R1, integer precision is available through Advanced settings at usekb.cc.
+Integer precision is available through Advanced settings at usekb.cc.
 Stock VIA displays the nearest preset; reads never change precise settings.
 Wheel acceleration shows Off for zero ramp, otherwise Mild/Strong by the nearest
 target speed, ignoring duration (ties choose Mild). Selecting a preset writes it.

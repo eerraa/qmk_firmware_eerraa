@@ -8,24 +8,10 @@ Split Firmware Guide
 
 ■ 펌웨어 업데이트
 
-V261019R1은 행 전환 시 GPIO 복귀 확인을 추가하고 매트릭스 타이밍을
-128/64사이클로 조정합니다. 저장 형식은 V261015R1과 같아 설정을 유지합니다.
-
-V261015R1은 VIA 프로토콜 13을 지원합니다. 이 배포본의 JSON을 공식
-VIA(usevia.app)에서 쓰면 키코드 경고 없이 조명 키가 표시됩니다. 저장 형식은
-V261005R1과 같아 키맵·매크로·설정을 유지합니다.
-
-V261004R1은 MOUSE 정밀 설정을 위해 EEPROM 형식을 변경합니다. 이전 버전에서
-업데이트하면 키맵·매크로·모든 설정이 초기화됩니다. 먼저 백업하십시오.
-
-V260916R1 및 그 이전 배포본에서 V260929R1 이후 버전으로 처음 업데이트하면 저장 형식
-변경으로 키맵·매크로·설정이 초기화됩니다. 먼저 공식 VIA의 SAVE + LOAD로
-키맵·매크로를 백업하고, 이 백업에 포함되지 않는 기능 설정과 탭댄스는 따로
-기록하십시오.
-이 배포본은 레이어 6개(0–5)를 지원합니다. usekb.cc에서 예전 4레이어 백업을
+메이커와 보드 이름이 모두 일치하는 ZIP을 사용하고, 업데이트 후 브라우저에서
+기기 연결을 다시 허용하십시오.
+이 펌웨어는 레이어 6개(0–5)를 지원합니다. usekb.cc에서 예전 4레이어 백업을
 불러오면 파일에 없는 레이어 4·5는 현재 키보드의 값을 유지합니다.
-V260929R1부터 메이커별 USB 식별자를 사용합니다. 메이커와 보드 이름이 모두
-일치하는 ZIP을 사용하고, 업데이트 후 브라우저에서 기기 연결을 다시 허용하십시오.
 
 분리형 키보드는 왼쪽과 오른쪽 유닛에 반드시 같은 .uf2 파일을 플래시하십시오.
 서로 다른 펌웨어 버전으로 남겨 둔 조합은 지원하지 않습니다.
@@ -75,24 +61,10 @@ English
 
 ■ Firmware Update
 
-V261019R1 adds GPIO recovery checks between matrix rows and uses 128/64-cycle
-timing. The storage format is unchanged from V261015R1; settings are retained.
-
-V261015R1 supports VIA protocol 13. With the JSON in this package, official
-VIA (usevia.app) shows the lighting keys without a keycode warning. The storage
-format is the same as V261005R1, so keymaps, macros and settings are kept.
-
-V261004R1 changes the MOUSE storage format. Updating from an older version
-resets all keymaps, macros and settings. Back up first.
-
-The first upgrade from V260916R1 or earlier to V260929R1 or later resets
-keymaps, macros and settings because the stored format changed. First back up
-keymaps and macros with official VIA SAVE + LOAD; separately record feature
-settings and Tap Dance actions, which that backup does not include.
-This release supports six layers (0–5). When usekb.cc imports an older four-layer
-backup, layers 4 and 5 keep their current values on the keyboard.
-Since V260929R1, releases use maker-specific USB identities. Choose the ZIP matching both
-the maker and board, then authorize the keyboard again in the browser.
+Choose the ZIP matching both the maker and board, then authorize the keyboard
+again in the browser after updating.
+This firmware supports six layers (0–5). When usekb.cc imports an older
+four-layer backup, layers 4 and 5 keep their current values on the keyboard.
 
 On a split keyboard, flash the exact same .uf2 file to both the left and right
 units. A pair left on different firmware versions is not supported.
