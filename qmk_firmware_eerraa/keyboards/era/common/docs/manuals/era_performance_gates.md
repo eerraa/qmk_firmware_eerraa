@@ -26,7 +26,8 @@ constrain later changes.
 ## What A Change Owes
 
 Scoped by what the change touched. A change that touches no source owes none
-of it — saying so is the verification statement.
+of it — saying so is the verification statement. A device gate is owed only
+when the user asks for it; one not run is reported unverified.
 
 | The change… | owes |
 | --- | --- |

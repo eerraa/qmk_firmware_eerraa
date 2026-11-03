@@ -84,9 +84,8 @@ contract explicitly admits it.
 gate for what actually changed rather than treating a successful build as proof
 of wire, storage, timing, or device behavior.
 
-For document-only routing changes, use the document checks named by
-`AGENTS.md`. For a behavior change, run the focused unit/source/device gate
-the task row names. A skipped or unavailable device measurement remains
+Which checks finish a change is owned by the done-criteria section of the
+Git-root AGENTS.md; a skipped or unavailable device measurement remains
 unverified.
 
 The order above is intentional: requirement -> source boundary -> build
