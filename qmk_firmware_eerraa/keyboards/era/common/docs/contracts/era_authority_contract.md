@@ -101,7 +101,7 @@ storage.
 | 200 | 24 | local sync-policy block |
 | 224 | 4 | link config |
 | 228 | 16 | reset guard |
-| 244 | 32 | storage-recency baseline |
+| 244 | 32 | retired seven-domain baseline seats, reserved |
 | 276 | 4 | protected reserve |
 
 The local sync-policy block is a storage compatibility contract:
@@ -113,15 +113,18 @@ The local sync-policy block is a storage compatibility contract:
 | `+6` | EEPROM-policy generation only |
 | `+8` | `ERA_SPLIT_SYNC_POLICY_STORAGE_VERSION` 5, the only accepted version |
 | `+9` | requested flag mask `0x07`, all three default on |
-| `+10..+23` | seven 16-bit LE divergence counters; ordinary preference persistence does not rewrite them |
+| `+10..+23` | retired seven-domain counter seats, reserved; ordinary preference persistence does not rewrite them |
 
 There is no in-place upgrade of an earlier valid block. Invalid signature, mask,
 zero generation, or version rewrites the whole 24-byte block to the current
-format; ordinary reset-to-defaults writes only the preference prefix so counters
-survive. Accepting an older version and partially rewriting it is forbidden
-because foreign counter bytes could remain under a valid signature. A future
-converter must rewrite the whole block, including counters, under a new version.
+format; ordinary reset-to-defaults writes only the preference prefix.
+Accepting an older version and partially rewriting it is forbidden.
+A future converter must rewrite the whole block under a new version.
 A changed default therefore rides the version byte.
+
+Eight-domain recency lives in the half-local record after macro options;
+the storage contract owns its independent validity guard and conservative
+initial audit. The policy prefix and version remain unchanged.
 
 Domain inventory, recency arbitration, EEPROM CLEAN, and durable replacement are
 owned by `era_host_peer_storage_contract.md`. Layout constants are first anchored

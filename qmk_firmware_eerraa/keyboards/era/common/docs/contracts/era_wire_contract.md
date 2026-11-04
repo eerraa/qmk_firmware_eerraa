@@ -127,7 +127,7 @@ state latency; this contract makes no average-performance claim.
 
 ## HOST-PEER Replacement Storage Class
 
-Body layout of the seven domains, state machine, capacity, retry, durable apply, and stored-data compatibility: `era_host_peer_storage_contract.md`. Status ids are source-owned by `split/era_split_eeprom_sync.h`. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
+Body layout of the eight domains, state machine, capacity, retry, durable apply, and stored-data compatibility: `era_host_peer_storage_contract.md`. Status ids are source-owned by `split/era_split_eeprom_sync.h`. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
 
 ```text
 ERA_SPLIT_EEPROM_SYNC_CLASS = 0xE0   (split/era_split_eeprom_sync.h)
@@ -172,7 +172,7 @@ Remainder of the compact 15 (`split/communication_core/era_split_communication_c
 | `APPLY_REQ`, `COMPLETE_REQ` | 6..9 source revision, nonzero; 10..13 image CRC32; 14 zero |
 | `APPLY_RSP`, `CLOSE_RSP`, `PUSH_RSP` | 6 status; 7..10 source revision; 11..14 image CRC32. `PUSH_RSP` is this shape for every push request |
 | `ABORT_REQ`, `ABORT_RSP` | 6..9 source revision; 10 status; 11..14 reserved zero |
-| `SYNC_STATUS_REQ` / `RSP`, domain `ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE` 255 (`0xFF`) | 6 changed mask, bit7 clear; 7 baseline validity 0 or 1; 8..14 reserved zero. Summary RSP bytes 8..11 are the relation time-anchor seat: the validator REQUIRES them **permanently** zero. `TIME_ANCHOR` is the anchor's one carrier |
+| `SYNC_STATUS_REQ` / `RSP`, domain `ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE` 255 (`0xFF`) | 6 eight-domain changed mask (bit7 is MACRO_OPTIONS under schema 4); 7 baseline validity 0 or 1; 8..14 reserved zero. Summary RSP bytes 8..11 are the relation time-anchor seat: the validator REQUIRES them **permanently** zero. `TIME_ANCHOR` is the anchor's one carrier |
 | `SYNC_STATUS_REQ` / `RSP`, real domain | 6 changed flag 0 or 1; 7 baseline validity 0 or 1; 8..9 16-bit divergence counter; 10..14 reserved zero |
 | `PUSH_CTL_REQ` | 6 phase (`OPEN` 0 / `APPLY` 1 / `COMPLETE` 2 / `ABORT` 3); 7..10 source revision, nonzero. Abort: 11 abort-reason status, 12..14 zero. Else 11..14 full-image CRC32 |
 

@@ -256,8 +256,8 @@ enum {
 
 #define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
 
-_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT == 7U,
-               "ERA storage domain masks require exactly seven domains.");
+_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT == 8U,
+               "ERA storage domain masks require exactly eight domains.");
 
 /* The news value's range, and it is the wire section's range rather than a
  * choice made here: bit 7 of the same body byte carries the responder's
@@ -394,7 +394,7 @@ _Static_assert((uintptr_t)EECONFIG_RGB_MATRIX == 23U, "ERA storage schema RGB Ma
 _Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 320U, "ERA storage schema VIA layout-options address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 321U, "ERA storage schema dynamic keymap address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR == ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema v1: the macro domain no longer sits immediately after the keymap domain.");
-/* The seven size asserts below are also the core-boundary binding. Each
+/* The domain size asserts below are also the core-boundary binding. Each
  * compares a layout expression only core0 can evaluate against the shared
  * macro core1's codec table reads, so the two tables cannot drift: a layout
  * change fails here, and correcting the macro carries core1 with it. They
@@ -408,6 +408,8 @@ _Static_assert(sizeof(rgb_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATR
 _Static_assert(sizeof(keymap_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES, "ERA storage schema keymap config size changed.");
 _Static_assert(sizeof(uint8_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES, "ERA storage schema default-layer size changed.");
 _Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES, "ERA storage schema ERA config size changed.");
+_Static_assert(ERA_STORAGE_MACRO_OPTIONS_BYTES == ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES, "ERA storage schema macro options size changed.");
+_Static_assert(ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_BYTES <= TOTAL_EEPROM_BYTE_COUNT, "ERA storage recency exceeds logical EEPROM.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR + ERA_HOST_PEER_STORAGE_IMAGE_BYTES <= TOTAL_EEPROM_BYTE_COUNT,
                "ERA storage schema exceeds logical EEPROM.");
 /* Later state changes are narrated at ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES.
@@ -461,6 +463,11 @@ static const era_host_peer_storage_domain_descriptor_t g_era_host_peer_storage_d
     [ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS] = {
         .address = ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR,
         .size    = VIA_EEPROM_LAYOUT_OPTIONS_SIZE,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
+    },
+    [ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS] = {
+        .address = ERA_STORAGE_MACRO_OPTIONS_ADDR,
+        .size    = ERA_STORAGE_MACRO_OPTIONS_BYTES,
         .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
 };
@@ -846,9 +853,8 @@ static void era_host_peer_storage_refresh_next_dirty_deadline(uint32_t now_ms) {
 
 /* ---- Recency layer (Slice 10) ----------------------------------------
  * Persisted per-domain sync baselines (the last converged content's CRC32,
- * in the protected reserved record at ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET)
- * and divergence counters (settled edits since that baseline, in the
- * sync-policy block's counter bytes). Both live in sync-excluded local
+ * in ERA_STORAGE_RECENCY_BASELINE_ADDR) and divergence counters (settled edits
+ * since that baseline, at ERA_STORAGE_RECENCY_ADDR). Both live in sync-excluded local
  * EEPROM outside every domain range, so a recency write can never re-dirty
  * a domain. There is no separate recency RAM copy: every reader and writer
  * uses the custom EEPROM/NVM boundary from the cold task. Baselines move only
@@ -861,12 +867,11 @@ typedef struct {
     uint32_t guard;
 } era_host_peer_storage_baseline_record_t;
 
-_Static_assert(sizeof(era_host_peer_storage_baseline_record_t) == ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE,
+_Static_assert(sizeof(era_host_peer_storage_baseline_record_t) == ERA_STORAGE_RECENCY_BASELINE_BYTES,
                "ERA sync baseline record must fill the reserved range exactly.");
-_Static_assert(ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
-                       ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
-                   ERA_EEPROM_LOCAL_POLICY_CONFIG_SIZE,
-               "ERA divergence counters must fill the sync-policy counter bytes exactly.");
+_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
+                   ERA_STORAGE_RECENCY_COUNTER_BYTES,
+               "ERA divergence counters must fill the recency counter bytes exactly.");
 
 static uint32_t era_host_peer_storage_baseline_guard(const era_host_peer_storage_baseline_record_t *record) {
     return era_split_wire_crc32((const uint8_t *)record->baseline_crc32, sizeof(record->baseline_crc32)) ^
@@ -874,9 +879,8 @@ static uint32_t era_host_peer_storage_baseline_guard(const era_host_peer_storage
 }
 
 static bool era_host_peer_storage_read_baseline_record(era_host_peer_storage_baseline_record_t *record) {
-    if (era_eeprom_read_config(record, ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET, sizeof(*record)) != sizeof(*record)) {
-        return false;
-    }
+    if (!era_eeprom_driver_ready()) return false;
+    eeprom_read_block(record, (const void *)(uintptr_t)ERA_STORAGE_RECENCY_BASELINE_ADDR, sizeof(*record));
     return record->guard == era_host_peer_storage_baseline_guard(record);
 }
 
@@ -885,40 +889,36 @@ static bool era_host_peer_storage_metadata_result_ok(era_nvm_result_t result) {
 }
 
 static uint32_t era_host_peer_storage_counter_config_offset(era_split_eeprom_sync_domain_t domain) {
-    return ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
+    return ERA_STORAGE_RECENCY_ADDR - ERA_EEPROM_CONFIG_ADDR +
            (uint32_t)domain * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES;
 }
 
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET \
-    (ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET)
+    (ERA_STORAGE_RECENCY_ADDR - ERA_EEPROM_CONFIG_ADDR)
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END \
-    (ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET + ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE)
+    (ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_BYTES - ERA_EEPROM_CONFIG_ADDR)
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE \
     (ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET)
 
 _Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET +
                        ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
-                   ERA_EEPROM_LINK_CONFIG_OFFSET,
-               "ERA recency counters must end where the preserved protected metadata span begins.");
-_Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END == ERA_EEPROM_PROTECTED_RESERVED_OFFSET,
-               "ERA convergence metadata transaction must end at the protected reserve.");
+                   ERA_STORAGE_RECENCY_BASELINE_ADDR - ERA_EEPROM_CONFIG_ADDR,
+               "ERA recency counters must end where the baseline begins.");
 
 /* A convergence close changes two durable recency facts together: the agreed
  * baseline and that domain's divergence counter returning to zero. They are
- * disjoint in the protected config layout, so the smallest existing ERA NVM
- * atomicity boundary is one contiguous metadata publication covering the
- * counters through the baseline record. Link/reset bytes and the other domain
- * counters inside that envelope are copied unchanged. Core0 owns all EEPROM
+ * adjacent in the local recency record, so one ERA NVM metadata publication
+ * covers the counters through the baseline. Other domain facts are copied
+ * unchanged. Core0 owns all EEPROM
  * writers and ERA NVM forbids recursive writes, so nothing can mutate those
  * preserved bytes between this logical read and the synchronous replacement. */
 static bool era_host_peer_storage_write_convergence_metadata(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
     uint8_t metadata[ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE];
-    if (era_eeprom_read_config(metadata, ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET, sizeof(metadata)) != sizeof(metadata)) {
-        return false;
-    }
+    if (!era_eeprom_driver_ready()) return false;
+    eeprom_read_block(metadata, (const void *)(uintptr_t)ERA_STORAGE_RECENCY_ADDR, sizeof(metadata));
 
     era_host_peer_storage_baseline_record_t record;
-    const uint32_t baseline_index = ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET;
+    const uint32_t baseline_index = ERA_STORAGE_RECENCY_COUNTER_BYTES;
     memcpy(&record, &metadata[baseline_index], sizeof(record));
     if (record.guard != era_host_peer_storage_baseline_guard(&record)) {
         /* Unknown neighbours stay zero under the fresh guard: they read as
@@ -949,9 +949,8 @@ static bool era_host_peer_storage_write_convergence_metadata(era_split_eeprom_sy
    accessor, at the arbitration read further down. */
 static uint16_t era_host_peer_storage_read_divergence_counter(era_split_eeprom_sync_domain_t domain) {
     uint8_t bytes[ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES];
-    if (era_eeprom_read_config(bytes, era_host_peer_storage_counter_config_offset(domain), sizeof(bytes)) != sizeof(bytes)) {
-        return 0;
-    }
+    if (!era_eeprom_driver_ready()) return 0;
+    eeprom_read_block(bytes, (const void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + era_host_peer_storage_counter_config_offset(domain)), sizeof(bytes));
     return (uint16_t)((uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8));
 }
 
@@ -1399,7 +1398,7 @@ void era_host_peer_storage_init(void) {
 
     {
         /* Recency boot pass over the fresh captures. One record read serves
-         * all seven domains; an ordinary boot with content at its baselines
+         * all portable domains; an ordinary boot with content at its baselines
          * writes nothing. An invalid record seeds the changed shadow
          * all-set — the same conservative degradation the recency snapshot
          * reports. Successfully captured domains also retain display-only

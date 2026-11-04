@@ -307,6 +307,7 @@ bool pre_process_record_quantum(keyrecord_t *record) {
     /* The genuine edge, before any handler consumes it or the tapping queue
      * defers it: macro stop judgment, and the provenance the record keeps. */
     record->era_macro_origin = era_macro_input(record->event.key.row, record->event.key.col, record->event.pressed, keycode, &record->era_macro_press);
+    if (record->era_macro_origin & ERA_MACRO_ORIGIN_BLOCKED) return false;
 #endif
     return pre_process_record_modules(keycode, record) && pre_process_record_kb(get_record_keycode(record, true), record) &&
 #ifdef COMBO_ENABLE

@@ -287,6 +287,7 @@ void era_state_sync_note_storage_domain(uint8_t domain) {
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG:
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER:
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS:
+        case ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS:
             era_state_sync_bump_config();
             break;
         default:

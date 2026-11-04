@@ -19,21 +19,22 @@
  * (the-via-eerraa/config/era-wire.json); only its numbers are generated. */
 #define ERA_MACRO_OPTIONS_SUPPORTED                                                                                    \
     (ERA_WIRE_MACRO_OPTIONS_FLAGS_RETAP | ERA_WIRE_MACRO_OPTIONS_FLAGS_HOLD | ERA_WIRE_MACRO_OPTIONS_FLAGS_RELEASE |    \
-     ERA_WIRE_MACRO_OPTIONS_FLAGS_OTHER | ERA_WIRE_MACRO_OPTIONS_FLAGS_REPEAT | ERA_WIRE_MACRO_OPTIONS_FLAGS_IGNORE_MODS)
+     ERA_WIRE_MACRO_OPTIONS_FLAGS_OTHER | ERA_WIRE_MACRO_OPTIONS_FLAGS_BLOCK_OTHERS | ERA_WIRE_MACRO_OPTIONS_FLAGS_IGNORE_MODS)
 #define ERA_MACRO_OPTIONS_HOLD_DEFAULT_MS 1000U
 /* State Sync names CONFIG spans relative to the ERA block base; the table
  * lies above it, so the same accounting covers it without the 280-byte
  * config accessor, which cannot reach it. */
 #define ERA_MACRO_OPTIONS_CONFIG_OFFSET (ERA_STORAGE_MACRO_OPTIONS_ADDR - ERA_EEPROM_CONFIG_ADDR)
 
-_Static_assert(ERA_STORAGE_MACRO_OPTIONS_ADDR + ERA_STORAGE_MACRO_OPTIONS_BYTES <= TOTAL_EEPROM_BYTE_COUNT,
-               "The macro playback options table must end inside the logical EEPROM.");
+_Static_assert(ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_BYTES <= TOTAL_EEPROM_BYTE_COUNT,
+               "The options table and split recency tail must fit the logical EEPROM on every board.");
 _Static_assert(DYNAMIC_KEYMAP_MACRO_COUNT <= 32U, "One unsaved bit per macro.");
 _Static_assert(!(ERA_MACRO_OPTIONS_SUPPORTED & ERA_WIRE_MACRO_OPTIONS_FLAGS_RESERVED_MASK),
                "Reserved option bits are never supported.");
 
 typedef struct {
     uint8_t  flags;
+    uint8_t  repeat_count;
     uint16_t hold_ms;
 } era_macro_options_t;
 
@@ -47,6 +48,7 @@ static bool     stored_header;
 static void era_macro_options_defaults(void) {
     for (uint8_t i = 0; i < DYNAMIC_KEYMAP_MACRO_COUNT; ++i) {
         options[i].flags   = 0;
+        options[i].repeat_count = 1;
         options[i].hold_ms = ERA_MACRO_OPTIONS_HOLD_DEFAULT_MS;
     }
     unsaved       = 0;
@@ -69,6 +71,7 @@ void era_macro_options_init(void) {
         if ((record[0] & ~ERA_MACRO_OPTIONS_SUPPORTED) || !hold) continue;
         options[i].flags   = record[0];
         options[i].hold_ms = hold;
+        options[i].repeat_count = record[3];
     }
 }
 
@@ -88,6 +91,10 @@ uint16_t era_macro_options_hold_ms(uint8_t id) {
     return id < DYNAMIC_KEYMAP_MACRO_COUNT ? options[id].hold_ms : ERA_MACRO_OPTIONS_HOLD_DEFAULT_MS;
 }
 
+uint8_t era_macro_options_repeat_count(uint8_t id) {
+    return id < DYNAMIC_KEYMAP_MACRO_COUNT ? options[id].repeat_count : 1;
+}
+
 static bool era_macro_options_persist(void) {
     if (!unsaved) return true;
     const uint32_t records = stored_header ? unsaved : UINT32_MAX;
@@ -95,7 +102,7 @@ static bool era_macro_options_persist(void) {
     era_state_sync_config_persist_begin(ERA_MACRO_OPTIONS_CONFIG_OFFSET, ERA_STORAGE_MACRO_OPTIONS_BYTES);
     for (uint8_t i = 0; i < DYNAMIC_KEYMAP_MACRO_COUNT; ++i) {
         if (!(records & (1UL << i))) continue;
-        const uint8_t record[ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES] = {options[i].flags, (uint8_t)options[i].hold_ms, (uint8_t)(options[i].hold_ms >> 8)};
+        const uint8_t record[ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES] = {options[i].flags, (uint8_t)options[i].hold_ms, (uint8_t)(options[i].hold_ms >> 8), options[i].repeat_count};
         eeprom_update_block(record, (void *)(uintptr_t)(ERA_STORAGE_MACRO_OPTIONS_ADDR + ERA_STORAGE_MACRO_OPTIONS_HEADER_BYTES + i * ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES), sizeof(record));
     }
     if (!stored_header) {
@@ -137,10 +144,13 @@ static bool era_macro_options_via_set(uint8_t channel_id, uint8_t value_id, uint
             next.hold_ms = era_common_via_get_u16_be(&value_data[1]);
             if (!next.hold_ms) return false;
             break;
+        case ERA_WIRE_MACRO_OPTIONS_REPEAT_COUNT:
+            next.repeat_count = value_data[1];
+            break;
         default: /* CAPABILITIES is GET only. */
             return false;
     }
-    if (next.flags == options[index].flags && next.hold_ms == options[index].hold_ms) return true;
+    if (next.flags == options[index].flags && next.hold_ms == options[index].hold_ms && next.repeat_count == options[index].repeat_count) return true;
     options[index] = next;
     unsaved |= 1UL << index;
     era_state_sync_note_config_semantic_commit(ERA_MACRO_OPTIONS_CONFIG_OFFSET, ERA_STORAGE_MACRO_OPTIONS_BYTES);
@@ -167,6 +177,9 @@ static bool era_macro_options_via_get(uint8_t channel_id, uint8_t value_id, uint
             return true;
         case ERA_WIRE_MACRO_OPTIONS_HOLD_MS:
             era_common_via_put_u16_be(&value_data[1], options[index].hold_ms);
+            return true;
+        case ERA_WIRE_MACRO_OPTIONS_REPEAT_COUNT:
+            value_data[1] = options[index].repeat_count;
             return true;
         default:
             return false;

@@ -53,6 +53,21 @@ class EraSplitStoragePublicationRetire : public ::testing::Test {
 
 } // namespace
 
+TEST_F(EraSplitStoragePublicationRetire, OptionsDomainTravelsInSummaryAndProbe) {
+    uint8_t frame[15] = {0x41, 0xea, 0xff, 4, 1, 0, 0x80, 1};
+    EXPECT_TRUE(era_test_storage_compact_valid(frame, sizeof(frame)));
+    frame[1] = 0xeb;
+    EXPECT_TRUE(era_test_storage_compact_valid(frame, sizeof(frame)));
+    frame[8] = 1; // The reserved time-anchor seat stays closed.
+    EXPECT_FALSE(era_test_storage_compact_valid(frame, sizeof(frame)));
+
+    auto request = request_for();
+    request.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS;
+    request.image_size = 72;
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    EXPECT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+}
+
 TEST_F(EraSplitStoragePublicationRetire, IdleRetirementIsTerminalAcrossCapacityReset) {
     ASSERT_TRUE(era_split_communication_core_storage_retire_publications());
     EXPECT_TRUE(era_split_communication_core_storage_retire_publications());

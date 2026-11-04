@@ -153,6 +153,10 @@ uint32_t era_test_storage_initiator_publication_seq(void) {
     return g_era_split_communication_core_storage_initiator_request.publication_seq;
 }
 
+bool era_test_storage_compact_valid(const uint8_t *payload, uint16_t length) {
+    return era_split_communication_core_storage_compact_payload_valid(payload, length);
+}
+
 uint32_t era_test_storage_responder_publication_seq(void) {
     return g_era_split_communication_core_storage_responder_snapshot.publication_seq;
 }

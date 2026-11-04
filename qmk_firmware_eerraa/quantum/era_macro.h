@@ -7,6 +7,7 @@
  * quantum/action.h). Zero, which every record built without it keeps, never
  * starts a macro. */
 #define ERA_MACRO_ORIGIN_START 0x01U /* begun with no macro admitted: it may start one */
+#define ERA_MACRO_ORIGIN_BLOCKED 0x02U /* ingress drops this edge before any action */
 /* Admission of one macro; refused, never queued, while another is admitted.
  * An API start has no starting key, so Stop on release does not apply to it. */
 bool era_macro_request(uint8_t id);
@@ -31,6 +32,7 @@ bool era_macro_session_current(uint32_t generation);
  * macros, restores their defaults (the macro RESET command does not). */
 uint8_t  era_macro_options_flags(uint8_t id);
 uint16_t era_macro_options_hold_ms(uint8_t id);
+uint8_t  era_macro_options_repeat_count(uint8_t id);
 void     era_macro_options_reset_defaults(void);
 #endif
 #ifdef ERA_MACRO_ENABLE

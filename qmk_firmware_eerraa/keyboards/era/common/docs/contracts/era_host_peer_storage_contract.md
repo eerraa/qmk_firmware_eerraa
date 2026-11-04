@@ -1,7 +1,7 @@
 # ERA Replacement Storage Contract
 
 Genre: contract
-Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the seven-domain
+Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the eight-domain
 cross-half storage protocol, replacement Apply, dynamic-macro durability, the
 `GET_KEYBOARD_VALUE` `0x80` State Sync envelope, EEPROM CLEAN, storage
 arbitration and recovery
@@ -350,17 +350,18 @@ must run the same image; the app cannot claim peer durability from a local SET.
 
 ## Current Storage Inventory
 
-Seven portable domains. Table `g_era_host_peer_storage_domains` in
+Eight portable domains. Table `g_era_host_peer_storage_domains` in
 `split/era_host_peer_storage.c`; ids `era_split_eeprom_sync_domain_t` in
 `split/era_split_eeprom_sync.h`; sizes bound across cores by
 `ERA_HOST_PEER_STORAGE_DOMAIN_*` in `split/era_host_peer_storage.h` and the
 matching `_Static_assert`s in that `.c`. Addresses from
 `storage/era_storage_layout.h` and `storage/era_eeprom_layout.h`. Semantic
 logical ranges only — never NVM banks, journal, or local metadata.
-`ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
-`ERA_HOST_PEER_STORAGE_SCHEMA` 3 on every row. The six-layer keymap is unchanged;
-schema 3 adds 24 bytes of Tap Dance timing, relocates the protected block and
-VIA/keymap/macro bases together, and advances the full-reset key to `0x45524108`. Probe/proof refuses a
+`ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 8. Schema
+`ERA_HOST_PEER_STORAGE_SCHEMA` 4 on every row. Schema 4 adds macro options
+without relocating any existing domain, the options table or the final macro
+marker. The six-layer keymap and the 16-KiB macro region are unchanged.
+Probe/proof refuses a
 schema or size mismatch before content moves. Both halves of a pair run one
 identical image; mixed versions are unsupported (**Stored-Data Compatibility**).
 
@@ -378,6 +379,7 @@ QMK reads the public EEPROM image.
 | 4 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG` | `ERA_STORAGE_EECONFIG_KEYMAP_ADDR` 4 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES` 2 (`sizeof(keymap_config_t)`) | `keymap_config` |
 | 5 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER` | `ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR` 3 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES` 1 | default-layer apply |
 | 6 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS` | `ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR` 320 | `ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES` 1 (`VIA_EEPROM_LAYOUT_OPTIONS_SIZE`) | VIA layout-options apply |
+| 7 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS` | `ERA_STORAGE_MACRO_OPTIONS_ADDR` (immediately after macro) | `ERA_STORAGE_MACRO_OPTIONS_BYTES` / `ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES` 72 | `era_macro_options_init()`; immediate runtime table reload |
 
 QMK prefix `ERA_EEPROM_QMK_CONFIG_SIZE` 37. Portable seats in it are domains
 3–5; the rest of that prefix is not a domain. `VIA_EEPROM_MAGIC_ADDR` is
@@ -390,21 +392,52 @@ Keymap bytes = `ERA_STORAGE_DYNAMIC_KEYMAP_BYTES`. Macro starts at
 keymap-base + keymap-bytes. No encoder map sits between them
 (`storage/era_storage_layout.h`; `ERA_HOST_PEER_STORAGE_DYNAMIC_ENCODER_ADDR`
 in `split/era_host_peer_storage.c` is defined and unused). Every other
-domain address and size is geometry-independent.
+domain address and size except the following options/local-recency tail is geometry-independent.
 
 | Board | Matrix | Keymap | Macro | Macro options |
 | --- | --- | --- | --- | --- |
-| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` | `18001..18056` |
-| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` | `18289..18344` |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` | `18001..18072` |
+| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` | `18289..18360` |
 
 The per-macro playback options table (`ERA_STORAGE_MACRO_OPTIONS_*` in
 `storage/era_storage_layout.h`, owner `system/era_macro_options.c`) starts
 where the macro domain ends: an 8-byte header (signature, version, record
-count, two zero bytes), then `[flags, hold_ms LE16]` per macro, 56 bytes for 16
-macros. It is no sync domain, so each half keeps its own table and no Apply,
-reconciliation or CLEAN agreement reads or writes it. A missing, erased or
-foreign header means every default and a bad record defaults alone, so the
-table was added in unwritten space without moving either storage key.
+count, two zero bytes), then `[flags, hold_ms LE16, repeat_count]` per macro,
+72 bytes for 16 macros. Table version 2 rejects the unreleased v1 table.
+A missing, erased, v1 or foreign header means every default; reserved or
+unsupported flags or zero hold time default that record alone. Every count
+byte is valid. These same decoding rules apply after remote replacement:
+an invalid stored record represents defaults, never executable unsupported
+flags. The portable image retains the exact stored bytes, including cleared
+headers, so CRC equality and reboot/runtime interpretation agree.
+
+SAVE's durable span dirties domain 7 through the descriptor-based write
+classifier. SET remains local RAM intent, not a peer durability receipt.
+The existing summary/arbitration, immutable capture, size/schema/CRC checks,
+ADMIT, result-bearing replacement and convergence bookkeeping apply unchanged.
+After durable success, receiving CONFIG advances and the runtime table reloads
+immediately; failed Apply publishes neither. An admitted macro retains its
+admission snapshot. Table validity is interpreted by the shared loader rather
+than rejecting cleared/default storage as an unsynchronizable domain.
+
+### Macro playback options v2
+
+The registry `the-via-eerraa/config/era-wire.json` owns channel/value numbers,
+flag allocations and the unchanged `EMO1` capability marker; the generated
+`system/era_wire.h` binds this image to that registry. `REPEAT_COUNT` is one
+byte: 1 (default) plays once, 2..255 plays N times, and 0 repeats until stopped.
+At admission, 0 without a usable stop condition becomes one play. A repeat
+boundary releases both macro output scopes; normal completion of the last
+play retains an explicit DOWN. Stops/cancellation release every macro-held key.
+
+BLOCK_OTHERS rejects a genuine non-macro-bound press begun during playback
+before handlers, Tap Dance or the tapping queue. One bit per matrix position
+retains that decision until release, even after playback ends. Already-held
+keys and keys bound to the playing macro remain admitted. Stop judgments see
+the rejected edge first, so OTHER can stop playback without that key's action.
+Synthesized records retain the existing provenance rules and are not new
+physical ingress; a blocked Tap Dance press never creates a dance. The added
+per-input work is constant. The old REPEAT flag is reserved, not reinterpreted.
 
 ERA config block: `ERA_EEPROM_CONFIG_SIZE` 280 at `ERA_EEPROM_CONFIG_ADDR`
 37, ending at `ERA_EEPROM_CONFIG_END` 317. Interior owner map:
@@ -446,13 +479,12 @@ Not portable payload, and not in `g_era_host_peer_storage_domains`:
 | Span | Content | Home |
 | --- | --- | --- |
 | rest of the QMK prefix inside `ERA_EEPROM_QMK_CONFIG_SIZE` 37 | magic, debug, and the eeconfig fields that are not domains 3–5 | QMK eeconfig; `storage/era_storage_layout.h` names only the three portable seats |
-| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
-| `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`244..275`) | **Recency Layer** |
+| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 / size 80 | local-policy, link, reset guard, retired seven-domain recency seats, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
+| `ERA_STORAGE_RECENCY_ADDR` / `ERA_STORAGE_RECENCY_BYTES` | eight-domain half-local recency, 52 bytes immediately after options | **Recency Layer** |
 | `ERA_EEPROM_LINK_CONFIG_OFFSET` 224 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
 | `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 228 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
 | `VIA_EEPROM_MAGIC_ADDR` 317, three bytes | VIA magic | QMK VIA |
-| `ERA_STORAGE_MACRO_OPTIONS_ADDR`, directly after macro / `ERA_STORAGE_MACRO_OPTIONS_BYTES` 56 | per-macro playback options, each half's own table | `system/era_macro_options.c`; layout above |
-| after the macro options table to `EEPROM_SIZE` 24576 | unused logical | — |
+| after the recency record to `EEPROM_SIZE` 24576 | unused logical | — |
 | ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |
 | runtime transaction generations, route state, diagnostics | not EEPROM | `split/era_host_peer_storage.c` |
 
@@ -695,10 +727,16 @@ claim that every existing app upload was displayed incorrectly.
 
 | Record | Home |
 | --- | --- |
-| per-domain baseline CRC32 + guard | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 (`244..275`). Struct `era_host_peer_storage_baseline_record_t` in `split/era_host_peer_storage.c`: seven CRC32 then a guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
-| 16-bit LE divergence counters | local-policy `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10, seven × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2; layout `era_authority_contract.md` **Persisted Sync Policy** |
+| per-domain baseline CRC32 + guard | `ERA_STORAGE_RECENCY_BASELINE_ADDR` / `ERA_STORAGE_RECENCY_BASELINE_BYTES` 36. Struct `era_host_peer_storage_baseline_record_t`: eight CRC32 then guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
+| 16-bit LE divergence counters | `ERA_STORAGE_RECENCY_ADDR`, eight × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2 |
 
-They never cross as portable domain bytes.
+They never cross as portable domain bytes. Schema 4 allocates one contiguous
+52-byte local record immediately after the v2 options table. The old policy
+counter seats and old baseline region stay reserved and are not imported.
+This avoids enlarging the 280-byte ERA block or moving keymap/macro/options.
+The new guard rejects stale metadata; the first audit is conservative.
+No full-reset key or VIA date change is needed. Geometry assertions cover the
+complete options/local-recency tail inside the 24-KiB logical image.
 
 | Settled-capture compare | Result |
 | --- | --- |
@@ -709,11 +747,9 @@ They never cross as portable domain bytes.
 An invalid baseline remains conservative across boot: every domain reads as
 changed until the relation proves it, so a standalone or unilateral CLEAN is a
 real local divergence. Confirmed convergence is one result-bearing replacement
-over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 200 +
-`ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10 through
-`ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 276 exclusive (`210..275`) via
+over the complete `ERA_STORAGE_RECENCY_ADDR` / `ERA_STORAGE_RECENCY_BYTES` record via
 `era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`
-(agreed CRC and a zero counter; intervening link/reset bytes copied unchanged). I/O failure leaves both old facts public. First MATCH
+(agreed CRC and a zero counter; other domains copied unchanged). I/O failure leaves both old facts public. First MATCH
 after an invalid record keeps unknown neighbour CRC seats at zero. The NVM
 origin is internal storage metadata, not `LOCAL_QMK`: no State Sync revision
 and no portable dirty-domain notification. MATCH-only relation-open work is
@@ -1051,10 +1087,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 144 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18528 |
-| Core0 storage state | 144 bytes; includes an independent 4-byte relation/policy audit receipt. Local news uses existing local-state padding |
-| cause-instrumented storage aggregate | 20144 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 148 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18548 |
+| Core0 storage state | 148 bytes; includes the independent relation/policy audit receipt and eighth domain's dirty deadline |
+| cause-instrumented storage aggregate | 20164 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never

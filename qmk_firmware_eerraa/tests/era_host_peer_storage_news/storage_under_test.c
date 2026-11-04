@@ -153,3 +153,7 @@ bool era_test_news_restart_wait(void) { return era_host_peer_storage_restart_sho
 void era_test_news_close_indicator_gate(void) {
     g_era_host_peer_storage_relation.indicator_bits &= (uint8_t)~ERA_HOST_PEER_STORAGE_INDICATOR_GATE;
 }
+
+uint8_t era_test_options_write_domain(void) {
+    return era_host_peer_storage_eeprom_domain_mask(ERA_STORAGE_MACRO_OPTIONS_ADDR, ERA_STORAGE_MACRO_OPTIONS_BYTES);
+}

@@ -50,6 +50,7 @@ static uint16_t after_tap_interval;
  * playback. */
 #define FLAG(name) ERA_WIRE_MACRO_OPTIONS_FLAGS_##name
 static uint8_t playback, serial, macro_id, flags;
+static uint8_t plays_left;
 static uint16_t hold_ms;
 /* Ingress's view of every matrix position, kept while idle too: whether it is
  * down, and the identity of its latest press (never 0). A record names the
@@ -58,6 +59,8 @@ static uint16_t hold_ms;
 #define POSITIONS (MATRIX_ROWS * MATRIX_COLS)
 static uint8_t press_serial[POSITIONS];
 static uint8_t down[(POSITIONS + 7) / 8];
+/* A blocked press owns its release even after stop/cancel/completion. */
+static uint8_t blocked[(POSITIONS + 7) / 8];
 /* Stop on release follows the starting press until ingress sees it end. Stop
  * candidates -- presses of a key bound to the playing macro begun during
  * playback -- are at most one per position, so every one is kept, each with
@@ -169,17 +172,20 @@ static bool admit(uint8_t id, bool keyed, uint16_t slot, uint8_t press) {
     era_macro_platform_sync();
     if (!valid || playback || id >= dynamic_keymap_macro_get_count()) return false;
     uint8_t options = 0;
+    uint8_t count = 1;
     uint16_t hold = 0;
 #ifdef ERA_MACRO_OPTIONS_ENABLE
     options = era_macro_options_flags(id);
     hold = era_macro_options_hold_ms(id);
+    count = era_macro_options_repeat_count(id);
 #endif
     /* With Stop on release one release rule decides; without a starting press
      * that ingress follows (an API start, a position outside the matrix) it
-     * has nothing to judge; Repeat with no stop condition left plays once. */
+     * has nothing to judge; until-stopped with no stop condition plays once. */
     if (options & FLAG(RELEASE)) options &= (uint8_t)~(FLAG(RETAP) | FLAG(HOLD));
     if (!keyed) options &= (uint8_t)~FLAG(RELEASE);
-    if (!(options & (FLAG(RELEASE) | FLAG(RETAP) | FLAG(HOLD) | FLAG(OTHER)))) options &= (uint8_t)~FLAG(REPEAT);
+    if (!count && !(options & (FLAG(RELEASE) | FLAG(RETAP) | FLAG(HOLD) | FLAG(OTHER)))) count = 1;
+    plays_left = count;
     flags = options;
     hold_ms = hold;
     macro_id = id;
@@ -240,11 +246,16 @@ static bool candidate_end(uint16_t slot) {
 uint8_t era_macro_input(uint8_t row, uint8_t col, bool pressed, uint16_t keycode, uint8_t *press) {
     /* Taken before any judgment below can end the playback, so a press that
      * stops a macro still never starts one. */
-    const uint8_t origin = playback ? 0U : ERA_MACRO_ORIGIN_START;
+    uint8_t origin = playback ? 0U : ERA_MACRO_ORIGIN_START;
     uint16_t slot = 0;
     const bool tracked = slot_at(row, col, &slot);
     *press = 0;
     if (tracked) {
+        /* Decide before a stop can retire playback. A release uses the press's
+         * decision, never the current flags or the release-time key mapping. */
+        const bool drop = pressed ? playback && (flags & FLAG(BLOCK_OTHERS)) && keycode != QK_MACRO + macro_id : bit_test(blocked, slot);
+        bit_put(blocked, slot, pressed && drop);
+        if (drop) origin = ERA_MACRO_ORIGIN_BLOCKED;
         if (pressed) press_serial[slot] = (uint8_t)(press_serial[slot] % 255U + 1U);
         bit_put(down, slot, pressed);
         *press = press_serial[slot];
@@ -361,13 +372,14 @@ void era_macro_task(void) {
         switch (phase) {
             case READ: {
                 uint8_t ascii = read_byte();
-                if (!ascii && (flags & FLAG(REPEAT))) {
+                if (!ascii && plays_left != 1) {
                     /* A repeat boundary releases every macro-held key and
                      * publishes, then replays the same snapshot next pass. */
                     macro_clear(true);
                     macro_clear(false);
                     send_keyboard_report();
                     cursor = origin;
+                    if (plays_left) --plays_left;
                     return;
                 }
                 if (!ascii) { finish(false); break; }

@@ -131,7 +131,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
 /* V260909R1: the independent Core0 relation audit receipt adds four bytes. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20144U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20164U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -150,7 +150,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20
    route context. ERA NVM removes the 40-byte slice/raw-facade state and the
    8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
 /* V260909R1: the same receipt, without cause instrumentation. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18528U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18548U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif
@@ -247,6 +247,7 @@ static uint16_t era_split_communication_core_storage_domain_size(uint8_t domain)
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG]  = ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES,
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER]  = ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES,
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS] = ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES,
+        [ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS] = ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES,
     };
     return domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT ? domain_sizes[domain] : 0;
 }
@@ -295,7 +296,7 @@ static bool era_split_communication_core_storage_compact_payload_valid(const uin
              * validity. Per-conflict form (real domain): changed flag +
              * 16-bit divergence counter. */
             if (payload[2] == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE) {
-                return (payload[6] & 0x80U) == 0 && payload[7] <= 1U &&
+                return payload[7] <= 1U &&
                        era_split_communication_core_storage_reserved_zero(payload, 8, 14);
             }
             return payload[2] < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT && payload[6] <= 1U && payload[7] <= 1U &&
@@ -320,7 +321,7 @@ static bool era_split_communication_core_storage_compact_payload_valid(const uin
              * the zero reading is collected as a gate leg. Arming it is
              * forbidden, not pending. */
             if (payload[2] == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE) {
-                return (payload[6] & 0x80U) == 0 && payload[7] <= 1U &&
+                return payload[7] <= 1U &&
                        era_split_communication_core_storage_reserved_zero(payload, 8, 14);
             }
             return payload[2] < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT && payload[6] <= 1U && payload[7] <= 1U &&

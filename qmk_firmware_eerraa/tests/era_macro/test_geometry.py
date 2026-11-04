@@ -174,8 +174,7 @@ def build(out, defines='', size=3863, start=233, board=None, mutation=None, feat
         rows = len(j['matrix_pins']['rows']) * (2 if board == 'sirind/tomak' else 1)
         cols = len(j['matrix_pins']['cols'])
         config += f'#undef MATRIX_ROWS\n#define MATRIX_ROWS {rows}\n#undef MATRIX_COLS\n#define MATRIX_COLS {cols}\n#undef DYNAMIC_KEYMAP_LAYER_COUNT\n#define DYNAMIC_KEYMAP_LAYER_COUNT {j["dynamic_keymap"]["layer_count"]}\n#include "keyboards/era/{board}/config.h"\n'
-        if board == 'sirind/tomak':
-            config += '#undef EEPROM_WEAR_LEVELING\n#define EEPROM_CUSTOM\n#include "keyboards/era/common/storage/era_storage_adoption.h"\n'
+        config += '#undef EEPROM_WEAR_LEVELING\n#define EEPROM_CUSTOM\n#include "keyboards/era/common/storage/era_storage_adoption.h"\n'
     config += defines + f'\n#define EXPECT_SIZE {size}\n#define EXPECT_START {start}\n#define EXPECT_CAPACITY {size if capacity is None else capacity}\n'
     write('config.h', config)
     write('common.h', COMMON)
@@ -231,7 +230,7 @@ class MacroGeometry(unittest.TestCase):
                 print(args['board'] + ': ' + result.stdout.splitlines()[0], flush=True)
 
     def test_supported_board_geometry_and_maximum_execution(self):
-        for board, size, start in [('comm/riley', 2935, 1161), ('newone/odessey60s', 2875, 1221), ('sirind/tomak', 16384, 1905)]:
+        for board, size, start in [('comm/riley', 16384, 1161), ('newone/odessey60s', 16384, 1221), ('sirind/tomak', 16384, 1905)]:
             with self.subTest(board=board):
                 self.check(board=board, size=size, start=start)
 
@@ -278,9 +277,9 @@ class MacroGeometry(unittest.TestCase):
 
     def test_negative_restored_full_eeprom_snapshot(self):
         with tempfile.TemporaryDirectory(prefix='era-macro-geometry-control-') as folder:
-            result = build(Path(folder), board='comm/riley', size=2935, start=1161, mutation='fallback')
+            result = build(Path(folder), size=3863, start=233, mutation='fallback')
         self.assertNotEqual(result.returncode, 0, 'restored whole-EEPROM capacity escaped runtime assertion')
-        self.assertIn('backend=2935 start=1161 snapshot=4096', result.stdout)
+        self.assertIn('backend=3863 start=233 snapshot=4096', result.stdout)
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@
 
 #include "era_split_eeprom_sync.h"
 
-#define ERA_HOST_PEER_STORAGE_SCHEMA 3U
+#define ERA_HOST_PEER_STORAGE_SCHEMA 4U
 #define ERA_HOST_PEER_STORAGE_IMAGE_BYTES 16384U
 
 /* Domain sizes of the current schema, defined once because both cores need them. Core0
@@ -51,6 +51,7 @@
 #define ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES 2U
 #define ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES 1U
 #define ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES 1U
+#define ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES 72U
 #define ERA_HOST_PEER_STORAGE_MANIFEST_ENTRY_BYTES 16U
 #define ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS 1000U
 #define ERA_HOST_PEER_STORAGE_CHUNK_BYTES 252U
@@ -122,7 +123,8 @@
 /* V260909R1: +4 bytes for the relation/policy audit receipt, independent of
  * an adopted transaction identity. This remains an exact accounting cap, not
  * a relaxed physical limit; the SRAM free floor and wire budgets do not move. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18528U
+/* Eighth domain: one 16-byte manifest and one 4-byte dirty deadline. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18548U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 /* The consecutive-failure abort bound is deliberately conservative. Its 1 s
@@ -155,7 +157,7 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
 /* Recency layer (Slice 10). The baseline record layout version is XORed into
  * the record guard, so changing the layout invalidates every stored guard
  * and degrades conservatively instead of misreading old baselines. */
-#define ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR 0x45524331UL
+#define ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR 0x45524332UL
 #define ERA_HOST_PEER_STORAGE_DIVERGENCE_COUNTER_MAX UINT16_MAX
 
 /* Core0 cold transaction/due state footprint, shared with the communication-core
@@ -207,7 +209,7 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
    the two retired deferred-abort/internal-read bytes plus their alignment. */
 /* V260909R1 adds the two 16-bit audit receipt generations: 140 -> 144.
    Moving the local news counter into local truth uses existing padding. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 144U
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 148U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE

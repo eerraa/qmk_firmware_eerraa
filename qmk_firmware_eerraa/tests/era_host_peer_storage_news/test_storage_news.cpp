@@ -201,7 +201,7 @@ TEST_F(EraHostPeerStorageNews, InFlightRelationAuditRemainsProvisional) {
     EXPECT_FALSE(era_test_news_pending());
     EXPECT_FALSE(era_test_news_visible());
     era_test_news_complete_summary(0, 0);
-    EXPECT_EQ(era_test_news_probe_mask(), 0x7f);
+    EXPECT_EQ(era_test_news_probe_mask(), 0xff);
     EXPECT_FALSE(era_test_news_visible());
 }
 TEST_F(EraHostPeerStorageNews, RecoverableSummaryAbortRestoresInboxRequest) {
@@ -275,4 +275,22 @@ TEST_F(EraHostPeerStorageNews, QueuedBootAuditDoesNotDeadlockLinkButAdmittedAudi
     EXPECT_TRUE(era_test_news_restart_wait());
     era_test_news_close_indicator_gate();
     EXPECT_TRUE(era_test_news_restart_wait());
+}
+
+TEST_F(EraHostPeerStorageNews, OptionsWritesEnterTheSameThreeWayArbitration) {
+    const uint8_t options = era_test_options_write_domain();
+    ASSERT_EQ(options, 0x80);
+    era_test_news_start_summary();
+    era_test_news_complete_summary(options, 0);
+    EXPECT_EQ(era_test_news_push_mask(), options);
+    EXPECT_EQ(era_test_news_probe_mask(), 0);
+    era_test_news_start_summary();
+    era_test_news_complete_summary(0, options);
+    EXPECT_EQ(era_test_news_probe_mask(), options);
+    EXPECT_EQ(era_test_news_push_mask(), 0);
+    era_test_news_start_summary();
+    era_test_news_complete_summary(options, options);
+    EXPECT_EQ(era_test_news_conflict_mask(), options);
+    EXPECT_EQ(era_test_news_probe_mask(), 0);
+    EXPECT_EQ(era_test_news_push_mask(), 0);
 }

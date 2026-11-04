@@ -42,7 +42,7 @@ constexpr uint8_t   kRetap      = ERA_WIRE_MACRO_OPTIONS_FLAGS_RETAP;
 constexpr uint8_t   kHold       = ERA_WIRE_MACRO_OPTIONS_FLAGS_HOLD;
 constexpr uint8_t   kRelease    = ERA_WIRE_MACRO_OPTIONS_FLAGS_RELEASE;
 constexpr uint8_t   kOther      = ERA_WIRE_MACRO_OPTIONS_FLAGS_OTHER;
-constexpr uint8_t   kRepeat     = ERA_WIRE_MACRO_OPTIONS_FLAGS_REPEAT;
+constexpr uint8_t   kBlock      = ERA_WIRE_MACRO_OPTIONS_FLAGS_BLOCK_OTHERS;
 constexpr uint8_t   kIgnoreMods = ERA_WIRE_MACRO_OPTIONS_FLAGS_IGNORE_MODS;
 constexpr uint8_t   kCount      = DYNAMIC_KEYMAP_MACRO_COUNT;
 constexpr uintptr_t kTable      = ERA_STORAGE_MACRO_OPTIONS_ADDR;
@@ -52,10 +52,15 @@ using Frame                     = std::array<uint8_t, 32>;
 uint32_t session = 1;
 bool     connected = true, sleeping, pressure, fail_writes;
 unsigned replies, table_writes;
+unsigned a_actions;
 Frame    reply;
 } // namespace
 
 extern "C" {
+bool process_record_user(uint16_t keycode, keyrecord_t *) {
+    if (keycode == KC_A) ++a_actions;
+    return true;
+}
 void era_macro_platform_sync(void) {
     era_macro_session(session, connected, sleeping);
 }
@@ -113,6 +118,7 @@ class EraMacroOptions : public TestFixture {
         set_keymap({m0, m0_twin, m1, m2, a, shift, mod_tap, dance, d, twins[0], twins[1], twins[2], twins[3], twins[4]});
         reports.clear();
         table_writes = 0;
+        a_actions = 0;
     }
     void TearDown() override {
         era_macro_cancel();
@@ -185,6 +191,14 @@ class EraMacroOptions : public TestFixture {
     }
     Frame set_hold(uint8_t index, uint16_t ms) {
         return via({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_HOLD_MS, index, uint8_t(ms >> 8), uint8_t(ms)});
+    }
+    Frame set_repeat(uint8_t index, uint8_t count) {
+        return via({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_REPEAT_COUNT, index, count});
+    }
+    uint8_t repeat_of(uint8_t index) {
+        const Frame r = via({id_custom_get_value, kChannel, ERA_WIRE_MACRO_OPTIONS_REPEAT_COUNT, index});
+        EXPECT_EQ(r[0], id_custom_get_value);
+        return r[4];
     }
     uint8_t flags_of(uint8_t index) {
         const Frame r = via({id_custom_get_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, index});
@@ -439,7 +453,8 @@ TEST_F(EraMacroOptions, StopOnOtherKeyStopsBeforeThatKeysActionAndStartsNoMacro)
 
 TEST_F(EraMacroOptions, RepeatReplaysUntilAStopAndReleasesHeldKeysAtEachBoundary) {
     macros({{M_DOWN(KC_X), M_DELAY('3', '0')}});
-    set_flags(0, kRepeat | kRelease);
+    set_flags(0, kRelease);
+    set_repeat(0, 0);
     press(m0);
     run(100);
     EXPECT_GE(presses(KC_X), 3U); // Each boundary released the DOWN before replaying it.
@@ -452,11 +467,11 @@ TEST_F(EraMacroOptions, RepeatReplaysUntilAStopAndReleasesHeldKeysAtEachBoundary
 
 TEST_F(EraMacroOptions, RepeatWithoutAStopConditionPlaysOnce) {
     macros({{M_TAP(KC_X), M_DELAY('2', '0')}});
-    set_flags(0, kRepeat);
+    set_repeat(0, 0);
     tap(m0);
     run(500);
     EXPECT_EQ(presses(KC_X), 1U);
-    set_flags(0, kRepeat | kIgnoreMods);
+    set_flags(0, kIgnoreMods);
     tap(m0);
     run(500);
     EXPECT_EQ(presses(KC_X), 2U);
@@ -464,7 +479,8 @@ TEST_F(EraMacroOptions, RepeatWithoutAStopConditionPlaysOnce) {
 
 TEST_F(EraMacroOptions, StopAndRepeatReleaseOnlyTheMacrosContributions) {
     macros({{M_DOWN(KC_A), M_DOWN(KC_LSFT), M_DOWN(KC_X), M_DELAY('5', '0')}});
-    set_flags(0, kRepeat | kRelease);
+    set_flags(0, kRelease);
+    set_repeat(0, 0);
     press(a);
     press(shift);
     press(m0);
@@ -580,7 +596,7 @@ TEST_F(EraMacroOptions, SetChangesRamOnlyAndSaveWritesOnlyChangedRecords) {
     set_flags(2, kRetap | kHold); // Changed back before SAVE.
     EXPECT_EQ(save()[0], id_custom_save);
     EXPECT_EQ(table_writes, 0U);
-    set_flags(5, kRepeat | kRelease);
+    set_flags(5, kRelease);
     EXPECT_EQ(save()[0], id_custom_save);
     EXPECT_EQ(table_writes, 1U); // That record alone.
 }
@@ -641,7 +657,7 @@ TEST_F(EraMacroOptions, MacroResetAndContentEditsKeepOptionsWhileAnEepromClearRe
 
 TEST_F(EraMacroOptions, RefusalsAnswerUnhandledAndChangeNothing) {
     const Frame   caps       = via({id_custom_get_value, kChannel, ERA_WIRE_MACRO_OPTIONS_CAPABILITIES});
-    const uint8_t expected[] = {0x08, 0x11, 0x01, 0x01, 0x3F, 0x45, 0x4D, 0x4F, 0x31};
+    const uint8_t expected[] = {0x08, 0x11, 0x01, 0x02, 0x6F, 0x45, 0x4D, 0x4F, 0x31};
     EXPECT_TRUE(std::equal(std::begin(expected), std::end(expected), caps.begin()));
 
     set_flags(3, kOther);
@@ -649,13 +665,13 @@ TEST_F(EraMacroOptions, RefusalsAnswerUnhandledAndChangeNothing) {
     const uint32_t config  = era_state_sync_config_revision();
     auto           refused = [this](std::initializer_list<uint8_t> frame, uint8_t length = 32) { EXPECT_EQ(via(frame, length)[0], id_unhandled); };
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_CAPABILITIES, 0x01, 0x3F}); // GET only.
-    refused({id_custom_set_value, kChannel, 0x04, 3, kRetap});
-    refused({id_custom_get_value, kChannel, 0x04, 3});
+    refused({id_custom_set_value, kChannel, 0x05, 3, kRetap});
+    refused({id_custom_get_value, kChannel, 0x05, 3});
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, kCount, kRetap});
     refused({id_custom_get_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, kCount});
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_HOLD_MS, kCount, 0x01, 0x00});
     refused({id_custom_get_value, kChannel, ERA_WIRE_MACRO_OPTIONS_HOLD_MS, 0xFF});
-    refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, 3, 0x40});
+    refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, 3, 0x10});
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, 3, kRetap | 0x80});
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_HOLD_MS, 3, 0x00, 0x00}); // Never clamped.
     refused({id_custom_set_value, kChannel, ERA_WIRE_MACRO_OPTIONS_FLAGS, 3, kRetap}, 5);    // Short frames.
@@ -686,16 +702,19 @@ TEST_F(EraMacroOptions, InvalidStorageRestoresDefaults) {
         at[0]       = flags;
         at[1]       = uint8_t(hold);
         at[2]       = uint8_t(hold >> 8);
+        at[3]       = 255;
     };
     record(0, kRetap, 300);
-    record(1, kOther | 0x40, 300); // A reserved bit defaults that record alone.
+    record(1, kOther | 0x10, 300); // A reserved bit defaults that record alone.
     record(2, kOther, 0);          // So does a zero hold.
     record(3, kIgnoreMods, 0xFFFF);
     load(table);
     EXPECT_EQ(flags_of(0), kRetap);
     EXPECT_EQ(hold_of(0), 300);
+    EXPECT_EQ(repeat_of(0), 255);
     EXPECT_EQ(flags_of(1), 0);
     EXPECT_EQ(hold_of(1), 1000);
+    EXPECT_EQ(repeat_of(1), 1);
     EXPECT_EQ(flags_of(2), 0);
     EXPECT_EQ(hold_of(2), 1000);
     EXPECT_EQ(flags_of(3), kIgnoreMods);
@@ -721,4 +740,117 @@ TEST_F(EraMacroOptions, InvalidStorageRestoresDefaults) {
     EXPECT_EQ(flags_of(6), kRelease);
     EXPECT_EQ(flags_of(0), 0);
     EXPECT_EQ(hold_of(0), 1000);
+}
+
+TEST_F(EraMacroOptions, FiniteRepeatEndsAfterNPlaysKeepingTheLastExplicitDown) {
+    macros({{M_DOWN(KC_X), M_DELAY('2', '0')}});
+    ASSERT_EQ(set_repeat(0, 3)[0], id_custom_set_value);
+    tap(m0);
+    set_repeat(0, 5); // Admission captured three, not a live setting.
+    run(200);
+    EXPECT_EQ(presses(KC_X), 3U);
+    EXPECT_TRUE(held(KC_X));
+    era_macro_cancel();
+    EXPECT_FALSE(held(KC_X));
+}
+
+TEST_F(EraMacroOptions, StopBeforeNRetiresTheRemainingPlays) {
+    macros({{M_DOWN(KC_X), M_DELAY('3', '0')}});
+    set_repeat(0, 255);
+    set_flags(0, kRelease);
+    press(m0);
+    run(40);
+    release(m0);
+    EXPECT_FALSE(held(KC_X));
+    EXPECT_EQ(presses(KC_X), 2U);
+    run(200);
+    EXPECT_EQ(presses(KC_X), 2U);
+}
+
+TEST_F(EraMacroOptions, BlockDropsPressAndItsReleaseEvenAfterPlayback) {
+    macros({{M_DOWN(KC_X), M_DELAY('5', '0'), M_UP(KC_X)}});
+    set_flags(0, kBlock);
+    tap(m0);
+    press(a);
+    EXPECT_FALSE(held(KC_A));
+    run(100);
+    release(a);
+    EXPECT_EQ(presses(KC_A), 0U);
+    EXPECT_EQ(a_actions, 0U); // Neither edge reaches user actions.
+    tap(a); // The next physical press has a new lifetime.
+    EXPECT_EQ(presses(KC_A), 1U);
+    EXPECT_EQ(a_actions, 2U);
+}
+
+TEST_F(EraMacroOptions, BlockKeepsHeldBeforeKeysWorking) {
+    macros({{M_DOWN(KC_X), M_DELAY('1', '0', '0'), M_UP(KC_X)}});
+    set_flags(0, kBlock);
+    press(a);
+    press(shift);
+    tap(m0);
+    EXPECT_TRUE(held(KC_A));
+    EXPECT_TRUE(get_mods() & MOD_BIT(KC_LSFT));
+    release(a);
+    release(shift);
+    EXPECT_FALSE(held(KC_A));
+    EXPECT_EQ(get_mods(), 0);
+}
+
+TEST_F(EraMacroOptions, BlockedOtherPressStillStopsWithoutItsOwnAction) {
+    macros({{M_DOWN(KC_X), M_DELAY('1', '0', '0'), M_UP(KC_X)}});
+    set_flags(0, kBlock | kOther);
+    tap(m0);
+    press(a);
+    EXPECT_FALSE(held(KC_X));
+    EXPECT_FALSE(held(KC_A));
+    release(a);
+    EXPECT_EQ(presses(KC_A), 0U);
+}
+
+TEST_F(EraMacroOptions, BlockNeverDropsThePlayingMacrosKeys) {
+    macros({{M_DOWN(KC_X), M_DELAY('1', '0', '0'), M_UP(KC_X)}});
+    set_flags(0, kBlock | kRetap);
+    tap(m0);
+    press(m0_twin);
+    EXPECT_TRUE(held(KC_X));
+    release(m0_twin);
+    EXPECT_FALSE(held(KC_X));
+}
+
+TEST_F(EraMacroOptions, BlockedTapDanceNeverCreatesDeferredOutput) {
+    macros({{M_DOWN(KC_X), M_DELAY('5', '0'), M_UP(KC_X)}});
+    ASSERT_TRUE(era_tapdance_set_action(0, 0, KC_Y));
+    set_flags(0, kBlock);
+    tap(m0);
+    press(dance);
+    run(100);
+    release(dance);
+    run(TAPPING_TERM);
+    EXPECT_EQ(presses(KC_Y), 0U);
+    tap(dance);
+    run(TAPPING_TERM);
+    EXPECT_EQ(presses(KC_Y), 1U);
+}
+
+TEST_F(EraMacroOptions, RepeatCountWirePersistsAllByteValuesAndRefusesBadIndices) {
+    EXPECT_EQ(repeat_of(0), 1);
+    for (uint8_t count : {0, 1, 2, 255}) {
+        EXPECT_EQ(set_repeat(0, count)[0], id_custom_set_value);
+        EXPECT_EQ(repeat_of(0), count);
+        EXPECT_EQ(save()[0], id_custom_save);
+        era_macro_options_init();
+        EXPECT_EQ(repeat_of(0), count);
+    }
+    EXPECT_EQ(set_repeat(kCount, 2)[0], id_unhandled);
+    EXPECT_EQ(via({id_custom_get_value, kChannel, 0x04, kCount})[0], id_unhandled);
+    EXPECT_EQ(repeat_of(0), 255);
+}
+
+TEST_F(EraMacroOptions, VersionOneTableLoadsDefaults) {
+    const uint8_t old[] = {'E', 'R', 'M', 'O', 1, kCount, 0, 0, kRelease, 42, 0};
+    eeprom_update_block(old, (void *)kTable, sizeof(old));
+    era_macro_options_init();
+    EXPECT_EQ(flags_of(0), 0);
+    EXPECT_EQ(hold_of(0), 1000);
+    EXPECT_EQ(repeat_of(0), 1);
 }

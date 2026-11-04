@@ -3,7 +3,7 @@
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
     "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "All ERA RP2040 boards adopt 24-KiB logical EEPROM and 16-KiB macros; the common linker relocates unchanged format-1 banks to [flash end - 264 KiB, flash end - 136 KiB), reserving the final 136 KiB for the previous ERA and wear-leveling stores. Fresh physical placement intentionally resets all 24 boards once, TOMAK included, without interpreting or migrating old bytes. Downgrade and re-upgrade resume their independent stores; Save/Load carries edits between them. Existing logical offsets, board record ownership, ERA_EEPROM_RESET_KEY and pinned QMK_BUILDDATE remain unchanged.",
+  "reason": "Macro options v2 rejects unreleased v1 through its table version; four-byte records retain the table base and macro marker. Schema 4 adds the options portable domain and allocates guarded eight-domain local recency in previously unused bytes after options. Retired seven-domain metadata is not imported; invalid new metadata forces conservative arbitration. Existing config/keymap/macro addresses, reset key and VIA date remain unchanged.",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "0c2900fec6c6c9d8",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -65,7 +65,7 @@
     "board keyboards/era/sirind/tomak79s/keyboard.json": "a62a375e84fc91b4",
     "define keyboards/era/common/storage/era_eeprom_layout.h": "22c1ccf835450600",
     "define keyboards/era/common/storage/era_storage_adoption.h": "bf78c3a1ff61f02e",
-    "define keyboards/era/common/storage/era_storage_layout.h": "0d6ff3c3d6319450",
+    "define keyboards/era/common/storage/era_storage_layout.h": "84025a5aaa061931",
     "define quantum/eeconfig.h": "cc9b96f5fc2428a8",
     "define quantum/nvm/eeprom/nvm_dynamic_keymap_geometry.h": "5e1c8be0e431db21",
     "define quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h": "7f842dc04af2c8e6",
@@ -96,7 +96,6 @@
     "type backlight_config_t": "f65d556ee0397922",
     "type debug_config_t": "7ace0d51a2e1aca7",
     "type era_backlight_config_t": "f6d0b2be2b6e0b16",
-    "type era_host_peer_storage_baseline_record_t": "77a8ac16d7c0a4d3",
     "type era_kkuk_config_t": "7a45c622c375ebd4",
     "type era_lighting_sleep_config_t": "cd28ec7cf0a4971e",
     "type era_matrix_debounce_storage_config_t": "a83d8bcd2cfa7128",
@@ -127,7 +126,6 @@
     "validity keyboards/era/common/features/era_socd.c": "e3b0c44298fc1c14",
     "validity keyboards/era/common/features/era_tapdance.c": "db6beb97b5e91743",
     "validity keyboards/era/common/features/era_tapping.c": "a824b6cb72ea9860",
-    "validity keyboards/era/common/split/era_host_peer_storage.c": "e3b0c44298fc1c14",
     "validity keyboards/era/common/split/era_split_sync_policy.c": "e3b0c44298fc1c14",
     "validity keyboards/era/common/split/era_split_sync_storage.h": "a0683e541282c342",
     "validity keyboards/era/common/storage/era_reset_guard.c": "e3b0c44298fc1c14",

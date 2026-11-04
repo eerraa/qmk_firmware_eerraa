@@ -44,9 +44,8 @@ typedef struct {
     uint16_t eeprom_policy_generation;
     uint8_t  version;
     uint8_t  flags;
-    /* Storage-engine territory, opaque here: the Slice 10 per-domain
-     * divergence counters. This module never interprets or persists these
-     * bytes outside the one fresh-block write that zeroes them. */
+    /* Retired seven-domain counter seats; reserved, never interpreted.
+     * Only the fresh-block write zeroes them. */
     uint8_t  recency_counters[14];
 } era_split_sync_policy_storage_t;
 
@@ -162,9 +161,7 @@ static bool era_split_sync_policy_storage_is_valid(const era_split_sync_policy_s
            storage->version == ERA_SPLIT_SYNC_POLICY_STORAGE_VERSION;
 }
 
-/* Ordinary persists write the policy-owned prefix only. The counter bytes
- * behind it belong to the storage recency layer, and writing the whole block
- * from this module would zero them on every policy toggle. */
+/* Ordinary persists keep the reserved tail unchanged. */
 static bool era_split_sync_policy_persist_current(void) {
     era_split_sync_policy_storage_t storage;
     ATOMIC_BLOCK_RESTORESTATE {

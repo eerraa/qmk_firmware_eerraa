@@ -36,3 +36,4 @@ bool era_test_news_request_pending(void);
 
 bool era_test_news_restart_wait(void);
 void era_test_news_close_indicator_gate(void);
+uint8_t era_test_options_write_domain(void);

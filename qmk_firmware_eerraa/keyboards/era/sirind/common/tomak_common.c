@@ -14,6 +14,9 @@
 #include "../../common/storage/era_eeprom_storage.h"
 #include "../../common/storage/era_reset_guard.h"
 #include "../../common/system/era_common_features.h"
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+#    include "../../common/system/era_macro_options.h"
+#endif
 #ifdef ERA_TOMAK_SYNC_ENABLE
 #    include "../../common/split/era_tomak_sync_runtime.h"
 #    include "ws2812.h"
@@ -275,6 +278,11 @@ void era_split_eeprom_sync_reload_domain_kb(era_split_eeprom_sync_domain_t domai
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS:
 #    ifdef VIA_ENABLE
             via_set_layout_options_kb(via_get_layout_options());
+#    endif
+            break;
+        case ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS:
+#    ifdef ERA_MACRO_OPTIONS_ENABLE
+            era_macro_options_init();
 #    endif
             break;
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP:
