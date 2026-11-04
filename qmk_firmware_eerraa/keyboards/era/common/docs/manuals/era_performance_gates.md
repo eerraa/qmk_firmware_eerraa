@@ -68,6 +68,13 @@ Linux local-filesystem build tree. This is the working directory for the display
 make, Python and shell commands unless a check explicitly states another one.
 `make test:<target>` is the QMK host-test entry.
 
+RP2040 storage adoption or physical placement changes also run
+`python3 tests/era_storage_backends/test_downgrade.py`: board make/header geometry,
+the production linker's flash collision refusal, and wear-leveling/TOMAK rollback
+after production MACRO_REPLACE. RAM-fit refusal fixtures remain
+`python3 tests/era_residency_gate/test_residency_gate.py`; every affected linked
+image still owes the actual residency gate, not only these host fixtures.
+
 Boot launch/admission, board runtime-setting initialization and the non-split
 suspend deadline bridge run
 `python3 -m unittest discover -s tests/era_boot_sequence -v`.

@@ -16,6 +16,7 @@ VELOCIKEY_ENABLE = yes
 
 SRC += keyboards/era/comm/riley/riley_common.c
 
+include keyboards/era/common/storage/era_storage_adoption_rules.mk
 include keyboards/era/common/system/era_common_qmk_rules.mk
 include keyboards/era/common/system/era_sram_resident_rules.mk
 include keyboards/era/common/features/era_tapdance_rules.mk

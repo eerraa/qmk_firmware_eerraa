@@ -17,6 +17,15 @@ ERA-owned NVM protocol, split storage, and product policy belong under
 `keyboards/era/common/`. A QMK-core departure is justified here only when the
 required seam or behavior actually remains in a QMK-owned file.
 
+All ERA RP2040 boards now use the custom EEPROM boundary, including non-split
+VIA builds with 16-KiB macros, MACRO_REPLACE and channel `0x11` playback options.
+The shared linker places the unchanged ERA banks below a protected 136-KiB
+legacy-store reserve; this is ERA placement policy, not a new QMK driver fork.
+The storage contract owns the one-time fresh-store reset and independent
+upgrade/downgrade stores. Gates: `tests/era_storage_backends/test_downgrade.py`,
+the NVM/adapter host targets, and every affected image's residency and flash
+overlap checks. AVR Brick65 remains on native EEPROM.
+
 ## Current Fork Edits
 
 | Files | Current ERA reason | Gate / scope |

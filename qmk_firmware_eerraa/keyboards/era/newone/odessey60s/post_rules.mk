@@ -28,6 +28,7 @@ VELOCIKEY_ENABLE = yes
 # a build option and has nothing to declare.
 SRC += keyboards/era/newone/common/odessey_common.c
 
+include keyboards/era/common/storage/era_storage_adoption_rules.mk
 include keyboards/era/common/system/era_common_qmk_rules.mk
 # Copy-to-RAM. Owner policy 2026-08-11: every ERA RP2040 board runs the image
 # from SRAM and XIP is retired, because performance is hard to control on it.

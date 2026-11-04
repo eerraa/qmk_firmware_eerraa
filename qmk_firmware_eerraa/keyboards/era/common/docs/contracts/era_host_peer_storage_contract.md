@@ -23,8 +23,7 @@ replacement transactions, or CLEAN replay proof.
 
 Logical EEPROM is `ERA_STORAGE_EEPROM_LOGICAL_SIZE` / `EEPROM_SIZE` 24576,
 asserted as `TOTAL_EEPROM_BYTE_COUNT` 24576 in
-`split/era_host_peer_storage.c`. The three split boards
-(`sirind/tomak`, `sirind/tomak79h`, `sirind/tomak79s`) include
+`split/era_host_peer_storage.c`. Every ERA RP2040 board includes
 `storage/era_storage_adoption_rules.mk`, which sets `EEPROM_DRIVER=custom`
 and force-includes `storage/era_storage_adoption.h`. QMK wear-leveling is
 not linked. An ordinary QMK EEPROM write has no error return. Replacement
@@ -109,7 +108,8 @@ RP2040 NOR: `storage/era_nvm_rp2040.c`. Host proofs: `tests/era_nvm`,
 | Item | Value |
 | --- | --- |
 | effective flash | 2 MiB (`flash1` default `2048k` in `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld`) |
-| ERA NVM region | final 128 KiB: `__era_nvm_region_end__ - 128k`; load-image overlap `ASSERT` |
+| ERA NVM region | `[flash end - 264 KiB, flash end - 136 KiB)` on every ERA RP2040 board; load-image overlap `ASSERT` |
+| previous-firmware reserve | final 136 KiB, never written by this firmware; contains the former ERA region (final 128 KiB) and QMK wear-leveling window (final 8 KiB) |
 | banks | `ERA_NVM_BANK_COUNT` 2 × `ERA_NVM_BANK_SIZE_BYTES` 65536 |
 | physical | `ERA_NVM_PHYSICAL_SIZE_BYTES` 131072 |
 | logical image | `ERA_NVM_LOGICAL_SIZE_BYTES` 24576; public erased byte `0x00` |
@@ -163,6 +163,39 @@ failure counters zero.
 `ERA_NVM_FORMAT_VERSION` 1 is distinct from `ERA_EEPROM_RESET_KEY`. A physical
 format change and a logical owner-map change are separate compatibility
 decisions.
+
+### Placement Upgrade And Rollback
+
+The linker owns one placement for all 24 RP2040 boards; it reserves 264 KiB
+in total without changing either bank's format, size, journal, logical capacity,
+macro domain or options-table position. Firmware must fit below that reservation.
+The RP2040 backend binds to the linker's region bounds, so format, rotation,
+maintenance erase and macro replacement cannot write the previous stores.
+
+On the first upgrade to this placement, every board, TOMAK included, starts from
+defaults in the fresh region. Back up with the app's Save/Load before upgrading.
+No old data is imported, and neither `ERA_EEPROM_RESET_KEY` nor the pinned VIA
+date changes. A downgrade reads its own untouched pre-upgrade store: QMK
+wear-leveling on the 21 newly adopted boards, the former ERA banks on TOMAK.
+It does not reset because of this upgrade. A re-upgrade resumes the new
+firmware's last ERA state. Edits made on old firmware do not carry over; use
+the app's Save/Load to carry those settings.
+
+This guarantee comes from disjoint physical ownership, not a reset-key test.
+An arbitrary macro payload can contain a valid old-format image, and a legacy
+erase can destroy overlapping new journal records even if its guard rejects
+them. `tests/era_storage_backends/test_downgrade.py` uses the production linker
+placement, ERA NVM and QMK wear-leveling to exercise both rollback lifecycles
+after MACRO_REPLACE, including the original aliasing payload.
+
+Precedent: [Zephyr settings](https://docs.zephyrproject.org/latest/services/storage/settings/index.html)
+selects an explicit settings partition, and
+[MCUboot](https://docs.mcuboot.com/design.html) keeps rollback image slots
+separate. Neither makes an application-data conversion automatically reversible.
+[QMK's EEPROM drivers](https://docs.qmk.fm/drivers/eeprom) likewise distinguish
+logical EEPROM from its physical backing location. Keeping an untouched old
+store beside a new one applies that ownership separation without a compatibility
+reader; each firmware remains authoritative only for its own store.
 
 Origins (`era_nvm_origin_t` in `storage/era_nvm.h`): `LOCAL_QMK`,
 `REMOTE_APPLY`, `MACRO_TRANSACTION`, `CLEAN_PREPARE`, `FORMAT`,

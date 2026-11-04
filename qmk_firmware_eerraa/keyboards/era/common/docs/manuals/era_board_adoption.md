@@ -13,6 +13,10 @@ inventory current boards or copy their live option values.
 ## Storage Adoption
 
 Take `storage/era_storage_adoption_rules.mk` as a bundle from `post_rules.mk`.
+Every ERA RP2040 board takes it unconditionally, above the common rules (or
+split rules that include them); common rules precede the SRAM-residency bundle.
+Remove board definitions of `VIA_EEPROM_MAGIC_ADDR` and the non-VIA
+`DYNAMIC_KEYMAP_EEPROM_ADDR`: even equivalent values conflict with bundle ownership.
 It force-includes `storage/era_storage_adoption.h` after the board's
 `config.h`. These are schema/adoption requirements, not convenient defaults:
 
@@ -34,6 +38,18 @@ Product-specific records may occupy an already-reserved ERA seat only if their
 local static assertions keep them inside the existing schema. Such use does not
 change the protected RESET KEY range, State Sync format, split wire/storage
 schema, or become a template for another board.
+
+RILEY explicitly owns its ten-byte record across the eight-byte RGB-indicator
+seat and the first two bytes of the keyboard seat. Keep the ownership exclusion
+and bounds assertions in `comm/riley/riley_common.c`; do not truncate or relocate
+it to satisfy the ordinary eight-byte keyboard-record rule. ODESSEY60H/S use the
+four-byte record bounded in `newone/common/odessey_common.c`.
+
+All RP2040 boards use the same new physical placement, including TOMAK.
+`contracts/era_host_peer_storage_contract.md` **ERA NVM Physical Contract**
+owns its reserved legacy-store region and upgrade/rollback behavior. The bundle
+keeps 24 KiB logical EEPROM and 16 KiB macros; VIA builds also link MACRO_REPLACE
+and the per-macro options table on channel `0x11`. AVR `sirind/brick65` is excluded.
 
 ## Non-Split Capability
 
@@ -134,7 +150,7 @@ A new board provides:
   `contracts/era_invariants.md` **Identifier Compatibility**;
 - `config.h` only for board facts, following `era_build_options.md` rules 2-4;
 - `post_rules.mk` with that board's explicit shipped feature choices above the
-  ERA includes that read them; EEPROM-sync boards take **Storage Adoption**;
+  ERA includes that read them; all RP2040 boards take **Storage Adoption**;
 - both `default` and `via` keymaps for every RP2040 ERA board;
 - an owner-authored `*-VIA.json` beside the VIA keymap, or for a maker target
   of a shared board body beside its `keyboard.json`. It is product content,

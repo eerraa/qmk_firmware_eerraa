@@ -18,14 +18,6 @@
 
 /* --- ERA common layer ---------------------------------------------------- */
 
-#include "../../common/storage/era_eeprom_layout.h"
-
-/* ERA-owned EEPROM storage sits before VIA/dynamic-keymap EEPROM ranges. */
-#define VIA_EEPROM_MAGIC_ADDR ERA_EEPROM_CONFIG_END
-#if !defined(VIA_ENABLE)
-#    define DYNAMIC_KEYMAP_EEPROM_ADDR ERA_EEPROM_CONFIG_END
-#endif
-
 /* The tap-dance slot keycodes start at this board's first custom keycode.
    A board fact, so it is stated here and not in make -- and stated in config.h
    rather than the board header, because a config.h is force-included into every

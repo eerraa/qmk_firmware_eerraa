@@ -15,6 +15,7 @@ ERA_VIA_BOOTLOADER_ENABLE = yes
 ERA_EEPROM_CLEAN_ENABLE = yes
 ERA_STORAGE_QUIET_DEFER_MS = 500
 
+include keyboards/era/common/storage/era_storage_adoption_rules.mk
 include keyboards/era/common/system/era_common_qmk_rules.mk
 include keyboards/era/common/system/era_sram_resident_rules.mk
 include keyboards/era/common/features/era_tapdance_rules.mk
