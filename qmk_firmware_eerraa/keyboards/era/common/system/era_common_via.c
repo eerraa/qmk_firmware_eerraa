@@ -7,6 +7,9 @@
 #ifdef ERA_MACRO_REPLACE_ENABLE
 #    include "era_macro_replace.h"
 #endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+#    include "era_macro_options.h"
+#endif
 
 #ifdef ERA_RGB_SLEEP_MASTER_ENABLE
 #    include "../features/era_rgb_sleep.h"
@@ -84,6 +87,9 @@ _Static_assert(RAW_EPSIZE >= 5, "An ERA VIA report must carry command, channel, 
 bool era_common_via_handle_system_command(uint8_t *data, uint8_t length) {
 #ifdef ERA_MACRO_REPLACE_ENABLE
     if (era_macro_replace_handle_via(data, length)) return true;
+#endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+    if (era_macro_options_handle_via(data, length)) return true;
 #endif
     if (era_firmware_version_handle_via_command(data, length)) {
         return true;

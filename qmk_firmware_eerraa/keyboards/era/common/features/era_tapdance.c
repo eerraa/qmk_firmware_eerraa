@@ -376,6 +376,13 @@ static void era_tapdance_run_action(const tap_dance_state_t *state, uint16_t key
 #if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
     record.keycode = keycode;
 #endif
+#ifdef ERA_MACRO_ENABLE
+    /* The dance's own provenance, never a genuine edge's: an output can start
+     * a macro only if every press of the dance could, and it stands for the
+     * dance's latest press, whose release Stop on release waits for. */
+    record.era_macro_origin = state->era_macro_origin;
+    record.era_macro_press  = state->era_macro_press;
+#endif
     if (action.code == ACTION_NO) {
         tap_dance_run_quantum_keycode(&record, keycode);
     } else {

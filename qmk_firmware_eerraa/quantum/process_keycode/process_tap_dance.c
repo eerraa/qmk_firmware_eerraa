@@ -22,6 +22,9 @@
 #include "timer.h"
 #include "wait.h"
 #include "keymap_introspection.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
 
 /* Only an undecided dance owns the interruption cursor. Finished actions
  * remain in the bounded pool until their own input is released. */
@@ -408,6 +411,11 @@ bool process_tap_dance(uint16_t keycode, keyrecord_t *record) {
             state->pressed = record->event.pressed;
             if (record->event.pressed) {
                 state->last_tap_time = tap_dance_event_time(record);
+#ifdef ERA_MACRO_ENABLE
+                /* Before this press's own callback can resolve the dance. */
+                state->era_macro_origin = (uint8_t)((state->count ? state->era_macro_origin : ERA_MACRO_ORIGIN_START) & record->era_macro_origin);
+                state->era_macro_press  = record->era_macro_press;
+#endif
                 process_tap_dance_action_on_each_tap(action, state);
                 active_td = state->finished || !state->in_use ? NULL : state;
             } else {

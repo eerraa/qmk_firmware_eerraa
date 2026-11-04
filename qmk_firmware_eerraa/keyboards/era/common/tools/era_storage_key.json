@@ -3,7 +3,7 @@
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
     "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "ERA wire registry aliases only: resolved channel, link-level and version values, keycodes, EEPROM offsets, sizes, signatures and stored meaning are unchanged; no reset required.",
+  "reason": "Additive per-macro playback options table (ERA_STORAGE_MACRO_OPTIONS_*) in logical EEPROM no earlier image wrote, directly after the 16-KiB macro domain: its signature, version and count header turns erased or foreign bytes into defaults, and every existing offset, size, signature and the VIA macro bytes keep their meaning; ERA_EEPROM_RESET_KEY and QMK_BUILDDATE stay, no reset required.",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "7b3087dc2c54e525",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -65,7 +65,7 @@
     "board keyboards/era/sirind/tomak79s/keyboard.json": "a62a375e84fc91b4",
     "define keyboards/era/common/storage/era_eeprom_layout.h": "22c1ccf835450600",
     "define keyboards/era/common/storage/era_storage_adoption.h": "bf78c3a1ff61f02e",
-    "define keyboards/era/common/storage/era_storage_layout.h": "82abd1bd909064df",
+    "define keyboards/era/common/storage/era_storage_layout.h": "0d6ff3c3d6319450",
     "define quantum/eeconfig.h": "cc9b96f5fc2428a8",
     "define quantum/nvm/eeprom/nvm_dynamic_keymap_geometry.h": "5e1c8be0e431db21",
     "define quantum/nvm/eeprom/nvm_eeprom_eeconfig_internal.h": "7f842dc04af2c8e6",

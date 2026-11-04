@@ -48,6 +48,13 @@ typedef struct {
     bool    in_use : 1;
     bool    cancelled : 1;
     uint8_t index;
+#ifdef ERA_MACRO_ENABLE
+    /* Macro provenance of the dance's own records (quantum/era_macro.h): its
+     * output may start a macro only if every press it consumed could, and it
+     * stands for its latest press. */
+    uint8_t era_macro_origin;
+    uint8_t era_macro_press;
+#endif
 } tap_dance_state_t;
 
 typedef void (*tap_dance_user_fn_t)(tap_dance_state_t *state, void *user_data);

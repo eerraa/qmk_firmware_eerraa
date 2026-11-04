@@ -359,10 +359,19 @@ keymap-base + keymap-bytes. No encoder map sits between them
 in `split/era_host_peer_storage.c` is defined and unused). Every other
 domain address and size is geometry-independent.
 
-| Board | Matrix | Keymap | Macro |
-| --- | --- | --- | --- |
-| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` |
-| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` |
+| Board | Matrix | Keymap | Macro | Macro options |
+| --- | --- | --- | --- | --- |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` | `18001..18056` |
+| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` | `18289..18344` |
+
+The per-macro playback options table (`ERA_STORAGE_MACRO_OPTIONS_*` in
+`storage/era_storage_layout.h`, owner `system/era_macro_options.c`) starts
+where the macro domain ends: an 8-byte header (signature, version, record
+count, two zero bytes), then `[flags, hold_ms LE16]` per macro, 56 bytes for 16
+macros. It is no sync domain, so each half keeps its own table and no Apply,
+reconciliation or CLEAN agreement reads or writes it. A missing, erased or
+foreign header means every default and a bad record defaults alone, so the
+table was added in unwritten space without moving either storage key.
 
 ERA config block: `ERA_EEPROM_CONFIG_SIZE` 280 at `ERA_EEPROM_CONFIG_ADDR`
 37, ending at `ERA_EEPROM_CONFIG_END` 317. Interior owner map:
@@ -409,7 +418,8 @@ Not portable payload, and not in `g_era_host_peer_storage_domains`:
 | `ERA_EEPROM_LINK_CONFIG_OFFSET` 224 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
 | `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 228 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
 | `VIA_EEPROM_MAGIC_ADDR` 317, three bytes | VIA magic | QMK VIA |
-| after macro to `EEPROM_SIZE` 24576 | unused logical | — |
+| `ERA_STORAGE_MACRO_OPTIONS_ADDR`, directly after macro / `ERA_STORAGE_MACRO_OPTIONS_BYTES` 56 | per-macro playback options, each half's own table | `system/era_macro_options.c`; layout above |
+| after the macro options table to `EEPROM_SIZE` 24576 | unused logical | — |
 | ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |
 | runtime transaction generations, route state, diagnostics | not EEPROM | `split/era_host_peer_storage.c` |
 

@@ -33,3 +33,15 @@
  * this formula and the wire schema must change together; the split storage
  * static assertions are the compile-time tripwire. */
 #define ERA_STORAGE_DYNAMIC_MACRO_ADDR (ERA_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_STORAGE_DYNAMIC_KEYMAP_BYTES)
+
+/* Per-macro playback options (system/era_macro_options.c), placed in logical
+ * EEPROM that no earlier image wrote: directly after the 16-KiB macro domain,
+ * outside every portable sync domain. An 8-byte header -- signature LE32,
+ * version, record count, two zero bytes -- then one [flags, hold_ms LE16]
+ * record per macro. The macro bytes themselves are unchanged. */
+#define ERA_STORAGE_MACRO_OPTIONS_ADDR (ERA_STORAGE_DYNAMIC_MACRO_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)
+#define ERA_STORAGE_MACRO_OPTIONS_SIGNATURE 0x4F4D5245UL /* "ERMO" */
+#define ERA_STORAGE_MACRO_OPTIONS_VERSION 1U
+#define ERA_STORAGE_MACRO_OPTIONS_HEADER_BYTES 8U
+#define ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES 3U
+#define ERA_STORAGE_MACRO_OPTIONS_BYTES (ERA_STORAGE_MACRO_OPTIONS_HEADER_BYTES + DYNAMIC_KEYMAP_MACRO_COUNT * ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES)

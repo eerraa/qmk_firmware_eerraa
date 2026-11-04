@@ -12,6 +12,9 @@
 #ifdef ERA_MACRO_ENABLE
 #    include "era_macro.h"
 #endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+#    include "era_macro_options.h"
+#endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
 #    include "era_hid_report_interval.h"
 #endif
@@ -69,6 +72,11 @@
 void era_common_features_init(void) {
 #ifdef ERA_MACRO_ENABLE
     era_macro_cancel();
+#endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+    /* Boot and the reinitialization after an EEPROM clear; no portable domain
+       carries the table, so domain reload does not come here. */
+    era_macro_options_init();
 #endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
     era_hid_report_interval_platform_init();

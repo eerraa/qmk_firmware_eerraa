@@ -21,6 +21,10 @@
 extern bool era_rgb_sleep_enabled(void);
 #endif
 
+#ifdef ERA_MACRO_ENABLE
+#    include "era_macro.h"
+#endif
+
 #ifdef SLEEP_LED_ENABLE
 #    include "sleep_led.h"
 #endif
@@ -298,6 +302,11 @@ bool pre_process_record_quantum(keyrecord_t *record) {
      * this record is waiting behind an LT/MT decision. */
     uint16_t candidate = tap_dance_remap_keycode(keycode);
     record->tap_dance_keycode = IS_QK_TAP_DANCE(candidate) ? candidate : KC_NO;
+#endif
+#ifdef ERA_MACRO_ENABLE
+    /* The genuine edge, before any handler consumes it or the tapping queue
+     * defers it: macro stop judgment, and the provenance the record keeps. */
+    record->era_macro_origin = era_macro_input(record->event.key.row, record->event.key.col, record->event.pressed, keycode, &record->era_macro_press);
 #endif
     return pre_process_record_modules(keycode, record) && pre_process_record_kb(get_record_keycode(record, true), record) &&
 #ifdef COMBO_ENABLE

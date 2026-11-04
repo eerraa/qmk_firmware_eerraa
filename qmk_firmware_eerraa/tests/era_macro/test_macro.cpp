@@ -153,10 +153,10 @@ TEST_F(EraMacro, MacroUpAndCancelPreservePhysicalAndTapDanceOwners) {
     action_output_clear_owner_keys(0); action_output_clear_owner_mods(0); send_keyboard_report(); EXPECT_FALSE(held(KC_A)); EXPECT_EQ(get_mods(),0);
 }
 #endif
-TEST_F(EraMacro, LongDataAndQueueAreBoundedAndSnapshotsDoNotMix) {
+TEST_F(EraMacro, LongDataIsBoundedOneMacroIsAdmittedAndSnapshotsDoNotMix) {
     storage.fill('a'); storage.back()=0;
-    for(unsigned i=0;i<ERA_MACRO_QUEUE_CAPACITY;++i) EXPECT_TRUE(era_macro_request(0));
-    EXPECT_FALSE(era_macro_request(0)); EXPECT_EQ(reads,0U);
+    EXPECT_TRUE(era_macro_request(0));
+    EXPECT_FALSE(era_macro_request(0)); EXPECT_FALSE(era_macro_request(1)); EXPECT_EQ(reads,0U);
     step(); EXPECT_EQ(reads,1U); EXPECT_LT(reports.size(),20U);
     storage.fill('b'); storage.back()=0;
     reports.clear(); step();
@@ -362,16 +362,17 @@ TEST_F(EraMacro, MouseOppositeCancelPreservesOtherAxesButtonsAndAcceleration) {
     for (uint8_t code : {MS_LEFT, MS_UP, MS_WHLU, MS_WHLL, MS_BTN1, MS_ACL1}) unregister_code(code);
 }
 
-TEST_F(EraMacro, PendingIdsSnapshotLatestValidImageOnlyWhenStarted) {
+TEST_F(EraMacro, RequestDuringPlaybackIsNotQueuedAndLaterStartsSnapshotTheCurrentImage) {
     load({SS_QMK_PREFIX,SS_DELAY_CODE,'1','0','0','|','a',0});
     dynamic_keymap_macro_send(0);step();dynamic_keymap_macro_send(0);
     load({'b',0}); reports.clear();set_time(101);step();
     EXPECT_EQ(reads,1U);
     ASSERT_EQ(reports.size(),2U);EXPECT_EQ(reports[0].keys[0],KC_A);EXPECT_EQ(reports[1].keys[0],0);
-    reports.clear();step();EXPECT_EQ(reads,2U);
+    reports.clear();step(4);EXPECT_EQ(reads,1U);EXPECT_TRUE(reports.empty()); // The refused request never plays.
+    dynamic_keymap_macro_send(0);step();EXPECT_EQ(reads,2U);
     ASSERT_EQ(reports.size(),2U);EXPECT_EQ(reports[0].keys[0],KC_B);EXPECT_EQ(reports[1].keys[0],0);
-    load({SS_QMK_PREFIX,SS_DELAY_CODE,'1','0','0','|',0});dynamic_keymap_macro_send(0);step();dynamic_keymap_macro_send(0);
-    storage.back()=255;set_time(201);step(4);reports.clear();step(4);EXPECT_TRUE(reports.empty());
+    storage.back()=255;dynamic_keymap_macro_send(0);reports.clear();step(4);EXPECT_EQ(reads,3U);EXPECT_TRUE(reports.empty());
+    EXPECT_TRUE(era_macro_request(0)); // The refused start left nothing admitted.
 }
 TEST_F(EraMacro, PersistentDownSurvivesTemporaryTapAndPhysicalRelease) {
     load({SS_QMK_PREFIX,SS_DOWN_CODE,KC_A,SS_QMK_PREFIX,SS_TAP_CODE,KC_A,0});

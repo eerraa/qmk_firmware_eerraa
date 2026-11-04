@@ -21,8 +21,10 @@
 #define ERA_STATE_SYNC_DOMAIN_MASK_INITIAL ERA_WIRE_STATE_SYNC_DOMAINS_MASK_INITIAL
 
 /* GET-visible CONFIG runtime changed. Call only when a setter actually altered
-   a value that the corresponding VIA GET can now return. The config-relative
-   span identifies which later EEPROM persist must not increment CONFIG again. */
+   a value that the corresponding VIA GET can now return. The span, relative to
+   ERA_EEPROM_CONFIG_ADDR (the macro-options table above the block is named the
+   same way), identifies which later EEPROM persist must not increment CONFIG
+   again. */
 void     era_state_sync_note_config_semantic_commit(uint16_t config_offset, uint16_t length);
 /* Bracket era_eeprom_update_config(). Retain the SET snapshot through outer
    completion; a newer SET must keep its own debt when an older write repairs. */

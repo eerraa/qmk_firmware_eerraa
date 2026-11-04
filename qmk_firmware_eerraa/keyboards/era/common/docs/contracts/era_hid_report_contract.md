@@ -247,7 +247,7 @@ retire input ownership.
 
 Producers own their execution and cancellation lifetimes. Tap Dance owns its
 runtime seats and momentary layers; macros own their persistent/temporary
-contributions, queue, snapshot and source-generation fence. None of those
+contributions, admission, snapshot and source-generation fence. None of those
 lifetimes or layer policies belongs in the shared output API. The layer uses
 bounded static registrations, without runtime allocation or a new scan-time
 walk. QMK's ordinary-modifier clear and global weak-modifier clear semantics
@@ -275,10 +275,12 @@ executor and its compile-time bounds are owned by `quantum/era_macro.c` and
 does not adopt that common runtime and retains its upstream executor; its AVR
 RAM budget is not inferred from a TOMAK build.
 
-Requests enter a finite FIFO; overload drops the newest request. Each queued
-ID resolves against the valid contents at its execution start, rather than
-the time it was queued. Starting an execution fixes its bytes, so a later
-upload or remote Apply cannot splice new commands into it. Invalid IDs,
+One macro plays at a time and there is no pending queue: while one is
+admitted, a request is refused, and a macro key pressed during playback
+neither starts nor queues its macro, even when its press is processed after
+that playback ended. An admitted ID resolves against the valid contents at its
+execution start. Starting an execution fixes its bytes, so a later upload or
+remote Apply cannot splice new commands into it. Invalid IDs,
 invalid completion markers and out-of-range starts produce no output.
 Snapshot capacity uses the configured macro region. The EEPROM backend and
 executor share its compile-time geometry; a custom backend without that geometry
@@ -296,8 +298,36 @@ usage still held by another contributor. Malformed/truncated commands abort
 the execution and clear its output contributions. Report-only empty/restore
 does not cancel inputs.
 
+Per-macro playback options follow the product rules in
+`the-via-eerraa/docs/PROJECT_DIRECTION.md` **Macro playback options**; wire
+numbers come from `the-via-eerraa/config/era-wire.json` through
+`system/era_wire.h`. Storage-adoption builds
+store them (`system/era_macro_options.c`); other builds answer the channel
+`id_unhandled` and play with every option off. Stop judgment sees genuine
+input edges before any handler or the tapping queue consumes them, and a stop,
+a Repeat boundary or a cancel releases only the two macro contributions.
+
+Only a record with start provenance starts a macro: a genuine press begun with
+no macro admitted, or a record a Tap Dance builds when every press of that
+dance began so. A record built anywhere else carries none, so no synthesized
+record can become a new eligible press. Stop on release follows the physical
+press that started the macro, which a dance's record names, and ends at that
+press's genuine release; a synthesized release is never it, and a starting
+press already released when the macro is admitted has stopped it. Every
+eligible stop-candidate press is judged, one per matrix position, without a
+capacity limit.
+
+Ignore modifiers is a report projection: while a contribution the macro added
+under it survives the report filter (ERA SOCD) into the keyboard report,
+including an explicit DOWN kept after completion, report modifiers come only
+from the macro, and no modifier source changes state, a pending one-shot
+included. A contribution the filter removed leaves the other modifiers in
+place. The check reads the outgoing report's key slots or NKRO bitmap and
+modifier byte, a cost bounded by the report format, not by matrix size, held
+keys or macro length.
+
 Suspend pauses execution and its remaining delay. Reset/unconfigure or a
-replacement USB session cancels queued/running work and macro contributions
+replacement USB session cancels admitted/running work and macro contributions
 before output can enter the new session; a keyboard clear also cancels it.
 Reinitialization must not retain an old execution. Keyboard report pressure
 may postpone execution, while ordinary input and RAW HID polling keep their

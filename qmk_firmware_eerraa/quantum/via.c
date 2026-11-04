@@ -37,6 +37,9 @@
 #include "wait.h"
 #include "version.h" // for QMK_BUILDDATE used in EEPROM magic
 #include "nvm_via.h"
+#if defined(ERA_MACRO_ENABLE) || defined(ERA_MACRO_OPTIONS_ENABLE)
+#    include "era_macro.h"
+#endif
 
 #if defined(SECURE_ENABLE)
 #    include "secure.h"
@@ -144,6 +147,11 @@ void eeconfig_init_via_defaults(void) {
     dynamic_keymap_reset();
     // This resets the macros in EEPROM to nothing.
     dynamic_keymap_macro_reset();
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+    /* Unlike the macro RESET command, this initializer clears the macros as
+     * part of an EEPROM clear, so their per-macro options return to defaults. */
+    era_macro_options_reset_defaults();
+#endif
     // Save the magic number last, in case saving was interrupted
     if (eeprom_persistence_ok()) via_eeprom_set_valid(true);
     /* For full defaults, eeconfig's own gate still holds until outer end. */
@@ -217,7 +225,12 @@ bool process_record_via(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
         if (keycode >= QK_MACRO && keycode <= QK_MACRO_MAX) {
             uint8_t id = keycode - QK_MACRO;
+#ifdef ERA_MACRO_ENABLE
+            /* The executor admits only a record whose provenance may start one. */
+            (void)era_macro_request_key(id, record->event.key.row, record->event.key.col, record->era_macro_origin, record->era_macro_press);
+#else
             dynamic_keymap_macro_send(id);
+#endif
             return false;
         }
     }
