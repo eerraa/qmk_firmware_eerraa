@@ -160,8 +160,11 @@ def run_engine(options, mutation=None):
         (out / 'print.h').write_text('\n'.join(f'#define {name}(x) ((void)(x))' for name in ['print', 'print_hex8', 'print_decs', 'print_dec']))
         (out / 'test.c').write_text(TEST)
         exe = out / 'test.exe'
+        # The copied keycodes.h names the wire registry relative to quantum/;
+        # every seam header above still precedes the production tree.
         compile_result = subprocess.run(['gcc', '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-DERA_MACRO_ENABLE',
-                                         *['-D' + option for option in options], '-I' + str(out), str(out / 'test.c'), '-o', str(exe)],
+                                         *['-D' + option for option in options], '-I' + str(out), '-I' + str(ROOT / 'quantum'),
+                                         str(out / 'test.c'), '-o', str(exe)],
                                         capture_output=True, text=True)
         if compile_result.returncode:
             raise AssertionError('Compilation failed: ' + compile_result.stdout + compile_result.stderr)

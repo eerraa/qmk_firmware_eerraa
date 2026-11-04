@@ -70,7 +70,7 @@ def build(out, geometry, mutation=None):
         dynamic += extract(ROOT / 'quantum/dynamic_keymap.c', function, receipts)
     write('dynamic-owner.inc', dynamic)
     via = '#include "keycodes.h"\n#include "keyboards/era/common/storage/era_via_magic.h"\n'
-    for function in 'via_eeprom_is_valid via_eeprom_set_valid via_get_layout_options via_set_layout_options_kb via_set_layout_options via_custom_value_command raw_hid_receive'.split():
+    for function in 'via_eeprom_is_valid via_eeprom_set_valid via_get_layout_options via_set_layout_options_kb via_set_layout_options via_custom_value_command raw_hid_receive via_command_execute'.split():
         via += extract(ROOT / 'quantum/via.c', function, receipts)
     write('via-owner.inc', via)
 

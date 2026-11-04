@@ -42,6 +42,8 @@ def write(name, text):
 via=src('quantum/via.h')
 write('stub/via.h',via)
 record('quantum/via.h',mode='exact header copy')
+# The copied via.h includes keycodes.h by its quantum/ name.
+write('stub/keycodes.h','#pragma once\n#include "quantum/keycodes.h"\n')
 write('stub/action.h','#pragma once\n#include "quantum.h"\n')
 write('stub/quantum.h',r'''
 #pragma once
@@ -211,6 +213,7 @@ bool via_command_kb(uint8_t *data, uint8_t length);
 '''
 rawunit+=extract(RAW,'via_custom_value_command')
 rawunit+=extract(RAW,'raw_hid_receive')
+rawunit+=extract(RAW,'via_command_execute')
 write('raw_owner.c',rawunit)
 
 DISPATCH='keyboards/era/common/split/era_split_keyboard.c'
