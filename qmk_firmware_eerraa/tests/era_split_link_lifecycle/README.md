@@ -84,4 +84,6 @@ no-peer sender cadence and unchanged parked RX waits. Run
 `python3 tests/era_split_link_lifecycle/test_discovery_cadence.py` in that build
 tree: it compiles the actual sender period, due, reset and completion functions
 against controlled time, exercising the initial miss threshold, success,
-failed/unsent requests, timer wrap, stale revalidation and the steady rate cap.
+failed/unsent requests, timer wrap, known-peer recovery requests and the steady rate cap.
+The due predicate also retains pending SESSION debt across responder/initiator
+and wire-availability changes without making unsendable work block storage release.

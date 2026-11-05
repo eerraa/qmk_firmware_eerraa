@@ -33,9 +33,10 @@ def production_unit():
         (TIMING, "static uint32_t era_split_transport_scheduler_bootstrap_period_ms(void)"),
         (TIMING, "static bool era_split_transport_scheduler_period_due(uint32_t period_ms)"),
         (TIMING, "static bool era_split_transport_scheduler_bootstrap_due(void)"),
+        ("split/scheduler/era_split_transport_scheduler_internal.h",
+         "static inline bool era_split_transport_scheduler_local_initiator_available(void)"),
         (TIMING, "bool era_split_transport_scheduler_local_status_revalidation_due(void)"),
-        (ROUTES, "static void era_split_transport_scheduler_mark_peer_stale_revalidation(void)"),
-        (ROUTES, "static void era_split_transport_scheduler_note_attach_status_request_attempt(era_split_transaction_engine_result_t result, bool request_sent, bool stale_on_no_response)"),
+        (ROUTES, "static void era_split_transport_scheduler_note_attach_status_request_attempt(era_split_transaction_engine_result_t result, bool request_sent, bool known_peer)"),
     ]
     functions = []
     for path, declaration in declarations:
@@ -53,18 +54,19 @@ STUBS = r'''
 typedef enum { ERA_SPLIT_TRANSACTION_RESULT_OK, TEST_TIMEOUT } era_split_transaction_engine_result_t;
 static struct {
     bool attach_status_last_tx_valid, local_status_pending, peer_session_stale;
+    bool local_wire_available, local_wire_initiator;
     uint32_t attach_status_last_tx_ms;
     uint8_t attach_status_miss_streak;
 } g_era_split_transport_scheduler;
 static uint32_t now;
-static unsigned sent, dirty, due;
+static unsigned sent, revalidations;
 static uint32_t timer_read32(void) { return now; }
 static uint32_t timer_elapsed32(uint32_t start) { return now-start; }
 static void era_split_scheduler_session_note_local_status_sent(void) { ++sent; }
-static void era_split_transport_scheduler_mark_dirty(unsigned flags) { dirty |= flags; }
-static void era_split_transport_scheduler_mark_route_due(unsigned flags) { due |= flags; }
-#define ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE 1U
-#define ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS 1U
+static void era_split_transport_scheduler_begin_revalidation(uint32_t at_ms) {
+    (void)at_ms;
+    ++revalidations;
+}
 '''
 
 CASES = r'''
@@ -72,6 +74,8 @@ CASES = r'''
 #define COMPLETE(result, transmitted, stale) era_split_transport_scheduler_note_attach_status_request_attempt(result, transmitted, stale)
 int main(void) {
     /* First ten misses retain the 25ms bootstrap and continuity boundary. */
+    g_era_split_transport_scheduler.local_wire_available = true;
+    g_era_split_transport_scheduler.local_wire_initiator = true;
     g_era_split_transport_scheduler.local_status_pending = true;
     assert(SHOULD_SEND());
     for (unsigned n=1;n<=10;++n) {
@@ -102,15 +106,20 @@ int main(void) {
     now=UINT32_MAX-50; COMPLETE(TEST_TIMEOUT,true,false);
     assert(g_era_split_transport_scheduler.attach_status_miss_streak==UINT8_MAX);
     now+=99; assert(!SHOULD_SEND()); now++; assert(SHOULD_SEND());
-    /* Known-peer failure retains the existing immediate stale revalidation. */
+    /* A known-peer miss requests recovery without declaring the peer stale
+       or bypassing the completion-owned retry interval. */
+    unsigned before_revalidation=revalidations;
     COMPLETE(TEST_TIMEOUT,true,true);
-    assert(g_era_split_transport_scheduler.peer_session_stale && dirty && due);
-    assert(SHOULD_SEND());
+    assert(revalidations==before_revalidation+1);
+    assert(!g_era_split_transport_scheduler.peer_session_stale && !SHOULD_SEND());
+    now+=100; assert(SHOULD_SEND());
     /* Long-lived NO LINK: at most ten new requests in each second after the
        initial burst, even with a 1ms task. Supplied transaction durations are
        model inputs, NOT CPU busy time. Only one transaction is in flight. */
     for (unsigned duration=2;duration<=8;duration*=2) {
         memset(&g_era_split_transport_scheduler,0,sizeof(g_era_split_transport_scheduler));
+        g_era_split_transport_scheduler.local_wire_available=true;
+        g_era_split_transport_scheduler.local_wire_initiator=true;
         g_era_split_transport_scheduler.local_status_pending=true;
         g_era_split_transport_scheduler.attach_status_miss_streak=10;
         unsigned requests=0, in_second=0;
@@ -125,7 +134,23 @@ int main(void) {
         assert(in_second<=10 && requests<=100 && requests>=90);
         printf("duration=%ums: %u probes/10s (model, not CPU utilization)\n",duration,requests);
     }
-    puts("PASS: production sender bootstrap, completion, failure, success, wrap, stale and rate limit");
+    /* A HOST responder cannot originate the SESSION that discharges this
+       latch. It must not report unsendable debt as a storage-release gate.
+       Keep the debt for a later initiator role or restored wire. */
+    g_era_split_transport_scheduler.attach_status_last_tx_valid=false;
+    g_era_split_transport_scheduler.local_wire_initiator=false;
+    assert(!SHOULD_SEND());
+    assert(g_era_split_transport_scheduler.local_status_pending);
+    g_era_split_transport_scheduler.local_wire_initiator=true;
+    assert(SHOULD_SEND());
+    g_era_split_transport_scheduler.local_wire_available=false;
+    assert(!SHOULD_SEND());
+    assert(g_era_split_transport_scheduler.local_status_pending);
+    g_era_split_transport_scheduler.local_wire_available=true;
+    assert(SHOULD_SEND());
+    COMPLETE(ERA_SPLIT_TRANSACTION_RESULT_OK,true,true);
+    assert(!SHOULD_SEND());
+    puts("PASS: production sender cadence, known-peer recovery and role-aware pending debt");
     return 0;
 }
 '''
