@@ -15,6 +15,8 @@ prefix = r'''
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#define ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+#include "keyboards/era/common/split/era_sync_timing.h"
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 #define KC_F24 115
 typedef struct { struct { bool pressed; } event; } keyrecord_t;
@@ -23,6 +25,13 @@ typedef struct { uint32_t retry_count, complete_count, abort_count; } era_host_p
 static uint32_t now, gen;
 static era_nvm_diagnostics_t nvm;
 static era_host_peer_storage_diagnostics_t storage;
+static era_sync_timing_storage_snapshot_t state_fixture;
+static bool capture_output;
+static char console[8192];
+static size_t console_size;
+const era_sync_timing_storage_snapshot_t *era_host_peer_storage_timing_snapshot(void) {
+    return state_fixture.reason ? &state_fixture : NULL;
+}
 static uint32_t timer_read32(void) { return now; }
 static uint32_t timer_elapsed32(uint32_t t) { return now-t; }
 static void era_eeprom_driver_get_nvm_diagnostics(era_nvm_diagnostics_t *p) { *p=nvm; }
@@ -32,6 +41,11 @@ static void uprintf(const char *fmt, ...) {
     char out[256]; va_list args; va_start(args,fmt);
     int length=vsnprintf(out,sizeof(out),fmt,args); va_end(args);
     assert(length > 0 && length < 64);
+    if (capture_output) {
+        assert(console_size + length < sizeof(console));
+        memcpy(console + console_size, out, length + 1);
+        console_size += length;
+    }
 }
 '''
 cases = r'''
@@ -68,9 +82,37 @@ int main(void) {
     puts("PASS boot exclusion; logical bytes; exact ms/rotation deltas; 30 spans; freeze; short paced output");
 }
 '''
+state_source = (root / 'keyboards/era/sirind/tomak/keymaps/sync_state/keymap.c').read_text()
+state_source = state_source.replace('#include "../sync_timing/keymap.c"', source)
+state_cases = r'''
+int main(void) {
+    housekeeping_task_user();
+    now=100; era_sync_timing_pending(true);
+    now=30100; era_sync_timing_pending(false);
+    memset(&state_fixture, 0xFF, sizeof(state_fixture));
+    state_fixture.reason=1; state_fixture.at_ms=30100;
+    capture_output=true;
+    keyrecord_t key={.event={.pressed=true}};
+    assert(!process_record_user(KC_F24,&key));
+    for (unsigned i=0;i<64;++i) { now+=150; housekeeping_task_user(); }
+    assert(strstr(console,"ts1 reason=1 at=30100\n"));
+    assert(strstr(console,"ts1 ctx input=255 status=255 ready=255 init=255\n"));
+    assert(strstr(console,"ts1 op=0 rem=FF prep=FF settle=FF local=FF news=FF\n"));
+    assert(strstr(console,"ts1 wr=3 token=4294967295 gen=4294967295 live=255 mask=FF\n"));
+    assert(strstr(console,"ts1 end\n"));
+    state_fixture.reason=0;
+    console_size=0; console[0]=0;
+    assert(!process_record_user(KC_F24,&key));
+    for (unsigned i=0;i<64;++i) { now+=150; housekeeping_task_user(); }
+    assert(strstr(console,"ts1 timeout=0\n"));
+    assert(strstr(console,"ts1 end\n"));
+    puts("PASS frozen pre-timeout output; complete masks/tokens; bounded console rows");
+}
+'''
 with tempfile.TemporaryDirectory(prefix='era-sync-timing-') as directory:
-    c = Path(directory) / 'timing.c'
-    exe = Path(directory) / 'timing'
-    c.write_text(prefix + source + cases)
-    subprocess.run(['cc', str(c), '-o', str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
+    for name, keymap, body in [('timing', source, cases), ('state', state_source, state_cases)]:
+        c = Path(directory) / f'{name}.c'
+        exe = Path(directory) / name
+        c.write_text(prefix + keymap + body)
+        subprocess.run(['cc', '-I', str(root), str(c), '-o', str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)

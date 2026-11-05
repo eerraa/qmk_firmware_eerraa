@@ -17,6 +17,8 @@ extern "C" {
 #include "keyboards/era/common/storage/era_storage_layout.h"
 #include "keyboards/era/common/split/era_split_sync_storage.h"
 #include "keyboards/era/common/split/era_host_peer_storage.h"
+#define ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+#include "keyboards/era/common/split/era_sync_timing.h"
 #undef _Static_assert
 #include "keyboards/era/common/storage/era_nvm_rp2040.h"
 #include "nvm_dynamic_keymap.h"
@@ -53,6 +55,7 @@ void era_test_storage_approve_then_fail_immediate(void);
 void era_test_storage_promotion_peer_begin(void);
 bool era_test_storage_promotion_peer_take_news(void);
 void era_test_storage_promotion_peer_complete_pull(uint8_t domain, void (*interleave)(void) = nullptr);
+void era_test_storage_hold_input_recovery(bool pending);
 }
 
 #include <array>
@@ -480,6 +483,40 @@ TEST_F(EraNvmQmkDriver, DeferredApprovalBudgetDoesNotStartAtFlushOrRenewOnRearm)
     EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
     EXPECT_EQ(era_test_storage_failures(),1U);
     EXPECT_EQ(g_flash.program_calls,programs);
+}
+
+TEST_F(EraNvmQmkDriver, DiagnosticSnapshotPreservesProvedButBlockedWorkBeforeTimeoutCleanup) {
+    era_test_storage_agree_baseline();
+    const auto started = timer_read32();
+    std::array<uint8_t,32> request{};
+    request[0]=id_dynamic_keymap_set_keycode;
+    raw_hid_receive(request.data(),request.size());
+    wait_ms(1000);
+    era_host_peer_storage_task(timer_read32());
+    era_test_storage_hold_equal_summary(true);
+    era_test_storage_hold_input_recovery(true);
+    era_test_storage_deliver_equal_summary();
+    ASSERT_TRUE(era_host_peer_storage_content_attempt_active());
+    ASSERT_EQ(era_host_peer_storage_timing_snapshot(),nullptr);
+    era_test_storage_deferred_approve(true);
+    wait_ms(30000U - timer_elapsed32(started));
+    era_host_peer_storage_operation_task(timer_read32());
+    const auto *snapshot = era_host_peer_storage_timing_snapshot();
+    ASSERT_NE(snapshot,nullptr);
+    const auto saved = *snapshot;
+    EXPECT_EQ(saved.reason,1);
+    EXPECT_EQ(saved.at_ms,started+30000U);
+    EXPECT_EQ(saved.operations[0].remaining_mask,0);
+    EXPECT_EQ(saved.operations[0].outcome & 3U,0); // Captured before failure.
+    EXPECT_EQ(saved.proof.retired_mask,1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP);
+    EXPECT_EQ(saved.context.input_recovery_pending,1);
+    const auto &writer = saved.contributions[ERA_STORAGE_PRODUCER_DEFERRED_RGB_MATRIX];
+    EXPECT_TRUE(writer.live);
+    EXPECT_EQ(writer.operation_generation,saved.operations[1].generation);
+    wait_ms(1000);
+    era_host_peer_storage_operation_task(timer_read32());
+    EXPECT_FALSE(era_host_peer_storage_contribution_live(writer.token));
+    EXPECT_EQ(std::memcmp(snapshot,&saved,sizeof(saved)),0);
 }
 
 TEST_F(EraNvmQmkDriver, ImmediateFailureCannotRevokeAnIndependentDeferredApproval) {

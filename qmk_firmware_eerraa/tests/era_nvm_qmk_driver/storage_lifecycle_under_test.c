@@ -2,6 +2,7 @@
 // Keep the existing storage fixture's platform substitutes, but use this
 // target's real EEPROM adapter, NVM, VIA dispatcher and keymap geometry.
 #define ERA_TEST_REAL_EEPROM
+#define ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
 #define ERA_STORAGE_QUIET_DEFER_MS 500
 #define RGB_MATRIX_LED_COUNT 1
 #define era_host_peer_storage_execution_pending era_test_storage_execution_pending
@@ -47,6 +48,11 @@ static uint16_t failed_transaction;
 static void test_runtime(void) {
     test_context.now_ms = timer_read32();
     era_host_peer_storage_runtime_task(&test_context);
+}
+
+void era_test_storage_hold_input_recovery(bool pending) {
+    test_context.input_recovery_pending = pending;
+    test_runtime();
 }
 
 void era_test_storage_agree_baseline(void) {

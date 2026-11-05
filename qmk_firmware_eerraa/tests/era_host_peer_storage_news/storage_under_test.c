@@ -88,6 +88,9 @@ uint32_t era_test_news_retry_delay(void) {
 
 void era_test_news_reset(void) {
     era_split_communication_core_storage_capacity_init();
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+    memset(&g_era_host_peer_storage_timing, 0, sizeof(g_era_host_peer_storage_timing));
+#endif
     macro_open = false;
     retirement_ready = true;
     attempt_starts = failure_receipts = 0;

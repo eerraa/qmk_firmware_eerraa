@@ -49,6 +49,18 @@ afterward. Treat the trigger and console output as instrumentation, not as an
 invisible observer. A visual state observed while capturing is therefore not a
 pure counter measurement.
 
+The TOMAK `sync_state` keymap is a single-Save diagnostic fixture, not a fix.
+It preserves the first operation/upload ceiling's accounting, last proof,
+metadata result and latest runtime-context sample before terminal cleanup.
+After the failure, F24 freezes the existing `tm9` timing spans and then prints
+the latched `ts1` state through `ts1 end`. No timeout prints `ts1 timeout=0`
+followed by the same terminator.
+Only four timing spans are retained to leave SRAM for this capture; reboot
+before the one-Save reproduction. These records contain no macro payload.
+The context timestamp identifies its sample age when another cold caller
+reaches the ceiling before the next runtime pass. The fixture does not alter
+deadlines, proof eligibility, release gates or the EEPROM/wire formats.
+
 `WIRE_DIAG_2` exercises local communication-core stop, queue reset and owner
 restoration, then captures the result. It is a recovery fault injection, not a
 passive snapshot. Its local success does not prove peer input convergence:
