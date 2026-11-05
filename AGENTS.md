@@ -17,9 +17,8 @@
 ## 승인과 Git
 
 - 실제 root·branch·HEAD·status·관련 diff를 확인하고 사용자 변경과 ignored 입력을 보존한다.
-- 개발 요청은 전용 개발 branch·관리 워크트리 준비와 검증된 논리 단위별 stage·로컬 commit의 상시 승인이다. 같은 작업의 개발 branch를 재사용하고 main에서 직접 구현하거나 다른 작업 중인 branch를 전환하지 않는다. 과거 커밋·태그는 이전 구조이므로 별도 워크트리에서 조회한다.
-- commit은 검증된 관심사별로 자신의 변경과 승인된 사용자 변경만 포함하며, 전체 작업 종료까지 미루지 않는다. 사용자 삭제를 자동 복원하지 않는다.
-- main 반영·push·merge·기존 이력 재작성·tag·release·배포·의존성 변경·실기기 조작은 별도 사용자 명시 범위에서만 수행한다.
+- commit은 검증된 관심사별로 자신의 변경과 승인된 사용자 변경만 포함한다. 사용자 삭제를 자동 복원하지 않는다.
+- push·merge·기존 이력 재작성·tag·release·배포·의존성 변경·실기기 조작은 사용자가 명시한 범위에서만 수행한다. 과거 커밋·태그는 이전 구조이므로 별도 워크트리에서 조회한다.
 - hook 설정은 `git config core.hooksPath qmk_firmware_eerraa/hooks`다. 루트 `.gitmodules`가 Git submodule 경로를 소유하며, 컴포넌트 `.gitmodules`는 QMK 도구용 상대 경로 목록이다.
 - 검증은 로컬 명령과 Git hook으로 실행한다. 컴포넌트 내부의 upstream workflow는 원본 보존용이며 GitHub Actions가 실행하지 않는다.
 - 기존 폴더 경로와 컴포넌트 ignore·개행 정책을 보존한다. 백업 bundle을 자동 복원하지 않는다.
