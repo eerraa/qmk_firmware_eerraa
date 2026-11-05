@@ -11,6 +11,7 @@ board = (root / "keyboards/era/sirind/common/tomak_common.c").read_text()
 link = (root / "keyboards/era/common/split/era_split_link.c").read_text()
 link_header = (root / "keyboards/era/common/split/era_split_link.h").read_text()
 rgb_header = (root / "quantum/rgb_matrix/rgb_matrix.h").read_text()
+sync = (root / "keyboards/era/common/split/era_split_eeprom_sync.c").read_text()
 
 
 def function(source, name):
@@ -34,14 +35,18 @@ prefix = r"""
 #define RGB_MATRIX_SLEEP
 #define ERA_TOMAK_SYNC_ENABLE
 #define ERA_SPLIT_EEPROM_SYNC_ENABLE
+#define ERA_HOST_PEER_STORAGE_V1_ENABLE
 #define RGB_MATRIX_LED_COUNT 3
 #include "keyboards/era/common/system/era_status_terminal_pulse.h"
+#include "keyboards/era/common/split/era_split_eeprom_sync.h"
 static uint32_t now;
-static bool asleep, active_content, driver_ready=true;
+static bool asleep, active_content, indicator_pending, driver_ready=true;
 static uint8_t pixels[3][3];
 static uint32_t timer_read32(void) { return now; }
 static uint32_t timer_elapsed32(uint32_t since) { return now - since; }
 static bool era_host_peer_storage_content_attempt_active(void) { return active_content; }
+static bool era_host_peer_storage_indicator_pending(void) { return indicator_pending; }
+static uint8_t era_host_peer_storage_indicator_diag(void) { return 0; }
 static void tomak_invalidate_indicator_render(void) {}
 static bool rgb_matrix_get_suspend_state(void) { return asleep; }
 static void rgb_matrix_set_color(unsigned i, uint8_t r, uint8_t g, uint8_t b) {
@@ -85,15 +90,29 @@ static void colour(unsigned r, unsigned g, unsigned b) {
     }
 }
 int main(void) {
-    /* The only blue fact is active content execution, not unresolved work. */
+    /* Preparation, upload, quiet and reconciliation share one owner span;
+       content execution alone does not describe that operation. */
     assert(!(render().flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE));
     era_tomak_sync_attempt_started_kb();
-    active_content=true;
+    now=10;
+    indicator_pending=true; /* Preparation, before any content attempt. */
     tomak_link_reconcile_success_active_cached=true;
     tomak_link_reconcile_success_on_cached=true;
     render(); colour(0,0,255);
-    active_content=false;
+    now=20; /* Upload. */
+    render(); colour(0,0,255);
+    now=30; /* Quiet interval. */
+    render(); colour(0,0,255);
+    now=40; active_content=true;
+    render(); colour(0,0,255);
+    now=50; active_content=false; /* Reconciliation still owns the span. */
+    render(); colour(0,0,255);
+    now=51; indicator_pending=false;
     render(); colour(0,255,0);
+    era_split_eeprom_sync_diagnostics_t span;
+    era_split_eeprom_sync_get_diagnostics_snapshot(&span);
+    assert(span.span_count==1 && span.span_rise_ms==10 && span.span_fall_ms==50);
+    assert(!span.visible);
     tomak_link_reconcile_success_active_cached=false;
     assert(!(render().flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE));
 
@@ -118,7 +137,7 @@ int main(void) {
     tomak_sync_error_visibility_task();
     tomak_link_apply_visibility_task();
     /* LINK expires hidden; SYNC starts only on its first eligible selection. */
-    active_content=true;
+    indicator_pending=true;
     render(); colour(255,0,0);
     uint32_t first=now;
     now=first+200;
@@ -133,7 +152,7 @@ int main(void) {
     tomak_sync_error_visibility_task();
     assert(render().flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE);
     colour(0,0,0);
-    active_content=false;
+    indicator_pending=false;
     now=first+800;
     tomak_sync_error_visibility_task();
     assert(!(render().flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE));
@@ -155,7 +174,7 @@ int main(void) {
     now+=800;
     bool on=true;
     assert(!era_split_link_apply_report_advance(NULL,&on) && !on);
-    puts("PASS active blue, audit-preserved finite/deferred failure receipt, coalesced failures, no output ACK");
+    puts("PASS operation-span blue without padding, finite/deferred failure receipt, coalesced failures, no output ACK");
 }
 """
 
@@ -168,6 +187,12 @@ with tempfile.TemporaryDirectory(prefix="tomak-status-failure-") as directory:
     status_start = board.index("static bool    tomak_status_was_active;")
     status_end = board.index("#endif", status_start)
     unit = prefix + rgb_types + link_types + fixtures
+    sync_state_start = sync.index("typedef struct {")
+    sync_state_end = sync.index("bool era_split_eeprom_sync_indicator_visible_advance", sync_state_start)
+    unit += sync[sync_state_start:sync_state_end]
+    for name in ("era_split_eeprom_sync_indicator_visible_advance",
+                 "era_split_eeprom_sync_get_diagnostics_snapshot"):
+        unit += "\n" + function(sync, name)
     unit += board[state_start:state_end] + "\n" + board[status_start:status_end]
     for name in ("era_split_link_apply_feedback_set", "era_split_link_apply_report_advance"):
         unit += "\n" + function(link, name)

@@ -39,6 +39,7 @@ void raw_hid_send(uint8_t *data, uint8_t length) { (void)data; (void)length; }
 static bool era_board_keyboard_save_pending, eeprom_reset_pending;
 static uint8_t eeprom_reset_confirm;
 static uint16_t era_board_keyboard_save_timer;
+static uint32_t era_board_keyboard_save_operation;
 static uint32_t eeprom_reset_requested_ms, eeprom_reset_retry_started_ms, now_ms, via_last_raw_hid_ms;
 static uint16_t eeprom_reset_retry_delay_ms;
 static uint16_t timer_read(void) { return 0; }
@@ -58,7 +59,9 @@ int main(void) {
             memset(physical, 0, sizeof(physical)); fault = 0; fail_erase = false; resets = 0;
             eeprom_driver_init(); eeprom_update_word(EECONFIG_MAGIC, 0xFEE7); eeprom_update_byte((uint8_t *)91, 0x5A);
             assert(eeprom_persistence_ok());
-            era_board_keyboard_save_pending = pending;
+            era_board_keyboard_save_pending = false;
+            era_board_keyboard_save_operation = 0;
+            if (pending) assert(era_board_keyboard_channel_save_arm());
             now_ms = 3000; via_last_raw_hid_ms = eeprom_reset_requested_ms = 0;
             eeprom_reset_retry_delay_ms = 0;
             fault = mode; eeprom_reset_pending = true;

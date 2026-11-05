@@ -54,6 +54,17 @@
 #define ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES 72U
 #define ERA_HOST_PEER_STORAGE_MANIFEST_ENTRY_BYTES 16U
 #define ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS 1000U
+#define ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS 5000U
+#define ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS 30000U
+#define ERA_HOST_PEER_STORAGE_OPERATION_MS 30000U
+
+uint32_t era_host_peer_storage_operation_admit(uint8_t mask, bool upload);
+bool era_host_peer_storage_operation_live(uint32_t generation);
+void era_host_peer_storage_operation_extend(uint32_t generation, uint8_t mask);
+void era_host_peer_storage_operation_committed(uint32_t generation, uint8_t mask);
+void era_host_peer_storage_operation_progress(uint32_t generation);
+void era_host_peer_storage_operation_end(uint32_t generation, bool failed);
+void era_host_peer_storage_operation_task(uint32_t now_ms);
 #define ERA_HOST_PEER_STORAGE_CHUNK_BYTES 252U
 #define ERA_HOST_PEER_STORAGE_MAX_CHUNKS 66U
 /* Raised 18432 -> 18436 at the Slice 10 relation-neutral split (four bytes
@@ -126,7 +137,8 @@
 /* Eighth domain: one 16-byte manifest and one 4-byte dirty deadline. */
 /* +16 bytes for storage-owned attempt, identity and semantic-intent state.
  * This accounting equality does not change the physical SRAM free floor. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18564U
+/* +60 bytes of actual operation/frontier state; physical SRAM floors are unchanged. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18624U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 /* The consecutive-failure abort bound is deliberately conservative. Its 1 s
@@ -212,7 +224,7 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
 /* V260909R1 adds the two 16-bit audit receipt generations: 140 -> 144.
    Moving the local news counter into local truth uses existing padding. */
 /* Cancellation pause and the failed peer obligation survive relation churn. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 164U
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 224U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -516,54 +528,12 @@ bool era_host_peer_storage_route_exclusive(void);
  * stays suppressed until COMPLETE. Storage control traffic and ordinary route
  * admission keep their existing ownership. */
 bool era_host_peer_storage_standing_suppressed(void);
-/* The EEPROM SYNC indicator's one fact (2026-08-14 redesign, baseline-
- * provenance refinement): this half knows of unfinished *visible* pair-level
- * storage work. It is the union of the local arm — dirty content inside its
- * quiet interval, non-provisional settled divergence, visible content-moving
- * cells, an in-session summary, or a visible episode span — gated on cached
- * serviceability and this half's own sync policy, with the peer's advertised
- * pending mirror
- * (the last applied value of the peer's carrier — the STORAGE_PENDING push
- * section toward a responder, STORAGE_NEWS bit7 toward an initiator). O(1)
- * RAM reads, no EEPROM, no timer: the lamp holds exactly while this returns
- * true, plus the minimum-visible floor era_split_eeprom_sync.c anchors at
- * the rise. Every term falls on a two-sided exchange or on the fact that
- * produced it, so both halves' lamps end within one poll of the initiator's
- * last close — the fixed trailing bridge this replaces stood in for the
- * mirror term. A short scheduler recovery that temporarily classifies the
- * relation LOCAL_NO_LINK does not retire that mirror: the pair operation still
- * exists and the fast bootstrap recovery is trying to re-establish its carrier.
- * If discovery reaches its backoff boundary, that continuity ends and the
- * ordinary service-leave retirement applies. A missing boot baseline remains fully conservative for
- * arbitration and restart safety but is display-provisional: MATCH-only audit
- * work stays dark, while TRANSFER or a real retry fault immediately promotes
- * the round. Doctrines preserved: an episode that moves nothing shows nothing
- * (probe, verify summary, MATCH, refusals and the relation-open audit sweep
- * stay dark), and a terminal refusal retires its domain's lamp claim. Entry
- * is synchronized in both edit directions — each half's
- * advertised fact includes its dirty phase and crosses on its own carrier,
- * so the pair rises together from either half's first write (owner rulings,
- * 2026-08-14 first and fourth sittings). */
+/* O(1) gated observation of live local ownership or the valid peer mirror.
+ * Neither retained divergence nor a sent shadow is live ownership. */
 bool era_host_peer_storage_indicator_pending(void);
-/* The advertised fact — the whole local arm above, minus only the mirror
- * (a half never echoes the peer's claim back at it). It is what the
- * initiator's standing plan carries as the STORAGE_PENDING push section and
- * what the responder's standing answer carries as STORAGE_NEWS bit7. The
- * dirty phase is included (owner UX ruling, first device sitting
- * 2026-08-14): a VIA save is a multi-second write stream, so a
- * settle-anchored advertisement put the peer seconds behind the edited
- * half's rise and dipped it dark between one domain's convergence and the
- * next one's settle. The responder-edited direction stayed settle-bound for
- * one more sitting — the response mask had no free marker — until the
- * fourth sitting's owner ruling opened the news byte's reserved bit7 as the
- * missing carrier. */
+/* Source-local ownership only; never echo the mirror or sent shadow. */
 bool era_host_peer_storage_advertised_pending(void);
-/* Local presentation handshake around the active pending carrier. The
- * initiator publishes STORAGE_PENDING; the responder publishes STORAGE_NEWS
- * bit7. The role's existing sent-state boundary reports the last successfully
- * sent level, so a peer-confirmed one keeps this panel pending until a zero is
- * likewise confirmed. This is display-only and feeds neither arbitration nor
- * restart/CLEAN safety. */
+/* Carrier diagnostics only; delivery never holds an operation or input. */
 void era_host_peer_storage_note_local_pending_sent(bool pending);
 /* True while a storage episode is in flight that a link raise would tear:
  * a dirty write stream, decided cells, an in-session summary, or a moving

@@ -35,7 +35,9 @@ static const era_host_peer_storage_domain_descriptor_t g_era_host_peer_storage_d
 static struct { uint32_t domain, owner_epoch, relation_generation, policy_generation, peer_usb_epoch,
  peer_host_open_generation, peer_host_close_generation, image_size, next_chunk, staged_bytes, expected_crc32,
  flags, last_status, state, pending_operation, retry_count, retry_deadline_ms, episode_deadline_ms; } g_era_host_peer_storage_runtime;
-static struct { bool image_stale, image_valid; } g_era_host_peer_storage_local;
+static struct { bool image_stale, image_valid;
+ uint32_t episode_operation_generation;
+ era_host_peer_storage_operation_t operation, successor; } g_era_host_peer_storage_local;
 static struct { unsigned integrity_reject_count, apply_count, timeout_count; } g_era_host_peer_storage_diagnostics;
 static uint8_t g_era_host_peer_storage_image[16384];
 static bool refuse_manifest;
@@ -54,6 +56,16 @@ static void era_host_peer_storage_note_domain_converged(unsigned domain, unsigne
  * token owner while exercising Apply's actual notification call and order. */
 #define era_state_sync_note_storage_domain(domain) ((void)(domain), era_state_sync_note_macro_public_change())
 """
+STORAGE = ROOT / 'keyboards/era/common/split/era_host_peer_storage.c'
+storage_source = STORAGE.read_text(encoding='utf-8')
+operation_end = storage_source.index('} era_host_peer_storage_operation_t;') + len('} era_host_peer_storage_operation_t;')
+operation_start = storage_source.rindex('typedef struct {', 0, operation_end)
+PRELUDE = PRELUDE.replace('#undef main\n', '#undef main\n' + storage_source[operation_start:operation_end] + '\n')
+PRELUDE += '\n'.join(extract(STORAGE, name, []) for name in (
+    'era_host_peer_storage_operation_find',
+    'era_host_peer_storage_operation_episode_expired',
+))
+
 EPILOGUE = r"""
 int main(void) {
  for (unsigned host = 0; host < 2; ++host) for (unsigned failure = 0; failure < 3; ++failure) {

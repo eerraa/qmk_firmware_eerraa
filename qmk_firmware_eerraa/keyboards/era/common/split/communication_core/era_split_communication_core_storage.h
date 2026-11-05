@@ -149,6 +149,8 @@ typedef struct {
     uint8_t  failure;
     uint8_t  response_sent;
     uint8_t  replayed;
+    uint8_t  request_detail;
+    uint8_t  request_chunk_id;
     uint32_t request_source_revision;
     uint32_t request_image_crc32;
     uint16_t request_policy_generation;

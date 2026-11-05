@@ -2,12 +2,37 @@
 // Keep the existing storage fixture's platform substitutes, but use this
 // target's real EEPROM adapter, NVM, VIA dispatcher and keymap geometry.
 #define ERA_TEST_REAL_EEPROM
+#define ERA_STORAGE_QUIET_DEFER_MS 500
 #define RGB_MATRIX_LED_COUNT 1
 #define era_host_peer_storage_execution_pending era_test_storage_execution_pending
 #define era_host_peer_storage_note_eeprom_commit era_test_storage_note_eeprom_commit
 #define era_host_peer_storage_note_eeprom_mask era_test_storage_note_eeprom_mask
 #define era_host_peer_storage_note_macro_commit_ready era_test_storage_note_macro_commit_ready
 #include "../era_host_peer_storage_news/storage_under_test.c"
+
+static rgb_config_t test_deferred_config;
+void eeconfig_read_rgb_matrix(rgb_config_t *config) {
+    eeprom_read_block(config, (const void *)(uintptr_t)ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, sizeof(*config));
+}
+void eeconfig_update_rgb_matrix(const rgb_config_t *config) {
+    eeprom_update_block(config, (void *)(uintptr_t)ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, sizeof(*config));
+}
+EECONFIG_QUIET_DEBOUNCE_HELPER(rgb_matrix, test_deferred_config);
+void era_test_storage_deferred_approve(bool first) {
+    if (first) {
+        deferred_rgb_matrix = dirty_rgb_matrix = 0;
+        deferred_operation_rgb_matrix = 0;
+        memset(&test_deferred_config, 0, sizeof(test_deferred_config));
+    }
+    eeconfig_schedule_deferred_flush_rgb_matrix();
+}
+void era_test_storage_deferred_flush(void) { eeconfig_run_deferred_flush_rgb_matrix(); }
+void era_test_storage_approve_then_fail_immediate(void) {
+    EECONFIG_SEMANTIC_BEGIN();
+    era_test_storage_deferred_approve(true);
+    eeprom_update_byte((void *)(uintptr_t)ERA_STORAGE_DYNAMIC_KEYMAP_ADDR, 1);
+    EECONFIG_SEMANTIC_END(eeprom_persistence_ok());
+}
 
 uint8_t era_test_storage_intent(void) { return g_era_host_peer_storage_local.semantic_intent_mask; }
 uint8_t era_test_storage_dirty(void) { return g_era_host_peer_storage_local.dirty_domain_mask; }
@@ -22,6 +47,114 @@ static uint16_t failed_transaction;
 static void test_runtime(void) {
     test_context.now_ms = timer_read32();
     era_host_peer_storage_runtime_task(&test_context);
+}
+
+void era_test_storage_agree_baseline(void) {
+    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; ++domain) {
+        assert(era_host_peer_storage_capture_domain(domain));
+        era_host_peer_storage_note_domain_converged(domain, g_era_host_peer_storage_manifest[domain].image_crc32);
+    }
+}
+
+static bool summary_responder;
+static era_split_communication_core_storage_initiator_request_t summary_request;
+static era_split_communication_core_storage_responder_snapshot_t summary_snapshot;
+
+void era_test_storage_hold_equal_summary(bool responder) {
+    summary_responder = responder;
+    test_context = (era_host_peer_storage_runtime_context_t){
+        .owner_epoch=1, .relation_generation=2, .policy_generation=1,
+        .peer_usb_epoch=1, .peer_host_open_generation=1, .peer_host_close_generation=1,
+        .mode=responder ? ERA_SPLIT_MODE_HOST_PEER_HOST : ERA_SPLIT_MODE_HOST_PEER_PEER,
+        .owner_ready=1, .local_initiator=!responder, .local_policy_requested=1,
+        .local_bulk_page_supported=1, .peer_known=1, .peer_host_open=!responder,
+        .peer_no_host=responder, .peer_bulk_page_supported=1,
+    };
+    g_era_host_peer_storage_relation.audit_relation_generation=2;
+    g_era_host_peer_storage_relation.audit_policy_generation=1;
+    era_host_peer_storage_task(timer_read32());
+    test_runtime();
+    if (responder) {
+        assert(era_split_communication_core_storage_claim_responder_snapshot(&summary_snapshot));
+        assert(summary_snapshot.allowed && summary_snapshot.recency_baseline_valid &&
+               summary_snapshot.recency_changed_mask == 0);
+    } else {
+        assert(era_split_communication_core_storage_claim_initiator_request(&summary_request));
+        assert(summary_request.operation == ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ);
+    }
+}
+
+static void test_deliver_summary(uint8_t peer_mask) {
+    if (summary_responder) {
+        era_split_communication_core_storage_initiator_request_t request = {
+            .owner_epoch=1, .relation_generation=2, .request_generation=1,
+            .transaction_generation=1, .policy_generation=1, .chunk_id=1, .detail=peer_mask,
+            .domain=ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE, .schema=ERA_HOST_PEER_STORAGE_SCHEMA,
+            .operation=ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ,
+        };
+        era_split_communication_core_storage_responder_result_t result;
+        assert(era_split_communication_core_storage_plan_responder(&summary_snapshot, &request, NULL, &result));
+        assert(era_split_communication_core_storage_reserve_responder_result(summary_snapshot.snapshot_generation));
+        result.response_sent=1;
+        result.result=ERA_SPLIT_TRANSACTION_RESULT_OK;
+        assert(era_split_communication_core_storage_publish_responder_result(&result));
+    } else {
+        era_split_communication_core_storage_initiator_result_t *result =
+            era_split_communication_core_storage_begin_initiator_result(summary_request.request_generation);
+        assert(result);
+        *result = (era_split_communication_core_storage_initiator_result_t){
+            .owner_epoch=summary_request.owner_epoch, .relation_generation=summary_request.relation_generation,
+            .request_generation=summary_request.request_generation, .policy_generation=summary_request.policy_generation,
+            .transaction_generation=summary_request.transaction_generation, .domain=summary_request.domain,
+            .schema=summary_request.schema, .operation=ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_RSP,
+            .result=ERA_SPLIT_TRANSACTION_RESULT_OK, .data_length=9,
+        };
+        result->data[1]=1;
+        result->data[0]=peer_mask;
+        assert(era_split_communication_core_storage_publish_initiator_result(result));
+    }
+    test_runtime();
+}
+
+void era_test_storage_deliver_equal_summary(void) { test_deliver_summary(0); }
+
+bool era_test_storage_retire_and_claim_successor(void) {
+    test_runtime();
+    era_host_peer_storage_task(timer_read32());
+    era_host_peer_storage_task(timer_read32());
+    test_runtime();
+    era_split_communication_core_storage_initiator_request_t request;
+    return era_split_communication_core_storage_claim_initiator_request(&request) &&
+           request.operation == ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ;
+}
+
+static era_split_communication_core_storage_initiator_request_t superseded_probe;
+void era_test_storage_hold_probe(void) {
+    era_test_storage_hold_equal_summary(false);
+    test_deliver_summary(1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP);
+    wait_ms(25);
+    era_host_peer_storage_task(timer_read32());
+    test_runtime();
+    assert(era_split_communication_core_storage_claim_initiator_request(&superseded_probe));
+    assert(superseded_probe.operation == ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ);
+}
+
+void era_test_storage_deliver_superseded_match(void) {
+    era_split_communication_core_storage_initiator_result_t *result =
+        era_split_communication_core_storage_begin_initiator_result(superseded_probe.request_generation);
+    assert(result);
+    *result = (era_split_communication_core_storage_initiator_result_t){
+        .owner_epoch=superseded_probe.owner_epoch, .relation_generation=superseded_probe.relation_generation,
+        .request_generation=superseded_probe.request_generation, .policy_generation=superseded_probe.policy_generation,
+        .transaction_generation=superseded_probe.transaction_generation, .domain=superseded_probe.domain,
+        .schema=superseded_probe.schema, .operation=ERA_SPLIT_EEPROM_SYNC_OP_PROOF_RSP,
+        .result=ERA_SPLIT_TRANSACTION_RESULT_OK, .status=ERA_SPLIT_EEPROM_SYNC_STATUS_MATCH,
+    };
+    assert(era_split_communication_core_storage_publish_initiator_result(result));
+    test_runtime();
+    assert(g_era_host_peer_storage_local.retiring);
+    test_runtime();
+    test_runtime();
 }
 
 void era_test_storage_prepare_apply(bool push) {
@@ -298,7 +431,7 @@ bool era_test_storage_responder_terminal(bool dual, bool left, void (*accepted_c
     test_runtime();
     assert(era_split_communication_core_storage_claim_responder_snapshot(&snapshot));
     bool pinned=snapshot.pinned && snapshot.transaction_generation==request.transaction_generation &&
-                snapshot.image_crc32==crc && !era_host_peer_storage_content_attempt_active();
+                snapshot.image_crc32==crc && era_host_peer_storage_content_attempt_active();
     era_split_communication_core_storage_release_responder_snapshot(snapshot.snapshot_generation);
     return pinned;
 }

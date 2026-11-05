@@ -328,7 +328,12 @@ body byte0: bit0 pending (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_
             bits 1..7 reserved zero, refused
 ```
 
-Composition and consumer: `era_host_peer_storage_contract.md`'s **Diagnostics**. Responder copy rides STORAGE_NEWS bit7. Invalid sent shadow forces the current value across once per relation, zero included.
+The level reports the sender's locally owned live Save/SYNC operation, not
+retained divergence or a received peer mirror. Composition and consumer:
+`era_host_peer_storage_contract.md`'s **Diagnostics**. Responder activity rides
+STORAGE_NEWS bit7. Invalid sent shadow and existing SESSION revalidation force
+the current value across, zero included. Activity grants no persistence,
+transfer admission or semantic retry authority.
 
 RESTART_ARM (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5). Carries any act; acts are `split/era_split_restart_agreement.h`'s. `era_split_restart_arm_valid()` in `split/era_split_restart_agreement.c` owns the live tuples. CLEAN `param_max` is 0 in `split/era_split_keyboard.c`; wire phases 1 and 2 are not an application argument.
 
@@ -444,7 +449,14 @@ body byte0: bits0..6 value (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NE
             bit7 pending (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING`)
 ```
 
-No reserved bits. Bit7 set dates the image at or after 2026-08-14. The retired `SETTLED_DIRTY_MASK` spelling remains only as a comment in `communication_core/era_split_communication_core_standing.h`. Meaning: `era_host_peer_storage_contract.md`'s **Storage News Value And Relation-Open Audit**.
+No reserved bits. Bit7 set dates the image at or after 2026-08-14. Bit7 now
+reports source-owned live operation activity on the same rule as push
+STORAGE_PENDING; it does not extend the low-seven-bit news value's meaning.
+Both halves run the same image; there is no mixed-version interpretation or
+new capability flag. The retired `SETTLED_DIRTY_MASK` spelling remains only
+as a comment in `communication_core/era_split_communication_core_standing.h`.
+News meaning: `era_host_peer_storage_contract.md`'s **Storage News Value And
+Relation-Open Audit**.
 
 Time anchor (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES` 4): responder sync-timer ms at snapshot publish, little-endian. Fits `3+8+4` on seven-byte half-matrix boards.
 

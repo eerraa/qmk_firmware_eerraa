@@ -158,6 +158,9 @@ void era_common_features_task(void) {
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_host_peer_storage_operation_task(timer_read32());
+#endif
 #ifdef ERA_MACRO_ENABLE
     era_macro_task();
 #endif

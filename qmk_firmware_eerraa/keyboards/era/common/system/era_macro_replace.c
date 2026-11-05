@@ -4,6 +4,10 @@
 #include "../storage/era_eeprom_driver.h"
 #include "dynamic_keymap.h"
 #include "via.h"
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+#    include "../split/era_host_peer_storage.h"
+#    include "timer.h"
+#endif
 #include <string.h>
 
 /* Reports retain the complete request prefix for VIA's echo matcher. Result
@@ -14,9 +18,19 @@
 static struct {
     uint8_t token[8], state, peer_converged;
     uint16_t length, received;
-    uint32_t crc, serial;
+    uint32_t crc, serial, generation;
 } upload;
+void era_macro_replace_expire(uint32_t generation) {
+    if (generation && upload.generation == generation && (upload.state == 1 || upload.state == 3)) {
+        upload.state = 3;
+        upload.serial = era_eeprom_driver_macro_serial();
+    }
+}
 void era_macro_replace_session_lost(void) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (upload.state && upload.serial == era_eeprom_driver_macro_serial())
+        era_host_peer_storage_operation_end(era_eeprom_driver_macro_operation_generation(), true);
+#endif
     if (era_eeprom_driver_macro_replace_open() &&
         era_eeprom_driver_macro_abort() != ERA_NVM_RESULT_OK) return;
     memset(&upload, 0, sizeof(upload));
@@ -39,6 +53,9 @@ static uint8_t result_code(era_nvm_result_t r) {
 }
 bool era_macro_replace_handle_via(uint8_t *data, uint8_t length) {
     if (length != 32 || data[1] != ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE) return false;
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_host_peer_storage_operation_task(timer_read32());
+#endif
     uint8_t op = data[2];
     if (op == ERA_WIRE_MACRO_REPLACE_CAPABILITIES && data[0] == id_custom_get_value) {
         data[3] = ERA_WIRE_MACRO_REPLACE_VERSION_CURRENT;
@@ -67,13 +84,16 @@ bool era_macro_replace_handle_via(uint8_t *data, uint8_t length) {
                 ERA_WIRE_MACRO_REPLACE_RESULT_OK : ERA_WIRE_MACRO_REPLACE_RESULT_INVALID;
         } else {
             era_nvm_result_t r = ERA_NVM_RESULT_OK;
-            if (era_eeprom_driver_macro_replace_open()) r = era_eeprom_driver_macro_abort();
+            if (era_eeprom_driver_macro_replace_open()) {
+                r = era_eeprom_driver_macro_supersede();
+            }
             if (r == ERA_NVM_RESULT_OK) r = era_eeprom_driver_macro_begin(size);
             status = result_code(r);
             if (status == ERA_WIRE_MACRO_REPLACE_RESULT_OK) {
                 memcpy(upload.token, data + 3, 8);
                 upload.length = size; upload.crc = crc; upload.received = 0; upload.state = 1;
                 upload.peer_converged = 0;
+                upload.generation = era_eeprom_driver_macro_operation_generation();
             }
         }
     } else if (same) {

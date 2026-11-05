@@ -5,6 +5,7 @@
 #include "era_board_hooks.h"
 #ifdef VIA_ENABLE
 #    include "era_common_via.h"
+#    include "../storage/era_eeprom_layout.h"
 #endif
 
 #if defined(MCU_RP)
@@ -73,8 +74,13 @@ __attribute__((weak)) void era_board_housekeeping_task(void) {}
 #    if defined(ERA_STORAGE_QUIET_DEFER_MS)
 static bool     era_board_keyboard_save_pending;
 static uint16_t era_board_keyboard_save_timer;
+static uint32_t era_board_keyboard_save_operation;
 
 static bool era_board_keyboard_channel_save_arm(void) {
+    if (!era_board_keyboard_save_pending ||
+        !EECONFIG_SEMANTIC_APPROVED_LIVE(era_board_keyboard_save_operation))
+        era_board_keyboard_save_operation = EECONFIG_SEMANTIC_APPROVE(
+            ERA_EEPROM_CONFIG_ADDR + ERA_EEPROM_SYNCABLE_CONFIG_OFFSET, ERA_EEPROM_SYNCABLE_CONFIG_SIZE);
     era_board_keyboard_save_pending = true;
     era_board_keyboard_save_timer   = timer_read();
     return true;
@@ -85,22 +91,24 @@ static bool era_board_keyboard_channel_save_arm(void) {
    recursive keyboard pass during a program/erase, so this commit cannot be
    re-entered through a flash-yield callback.
 
-   No presenter note here either, since the 2026-08-14 redesign: the write below
-   reaches that same intake, and the storage engine's pending fact is what
-   lights the SYNC lamp -- at this instant, for every domain, not just this
-   one. */
+   The approval already owns this deferred operation; retries retain its
+   identity and original ceiling. */
 static void era_board_keyboard_channel_save_commit(void) {
-    era_board_keyboard_save_pending = false;
+    if (!EECONFIG_SEMANTIC_APPROVED_LIVE(era_board_keyboard_save_operation)) return;
     if (!eeprom_begin_transaction()) {
-        era_board_keyboard_channel_save_arm();
+        era_board_keyboard_save_timer = timer_read();
         return;
     }
-    EECONFIG_SEMANTIC_BEGIN();
+    EECONFIG_SEMANTIC_APPROVED_BEGIN(era_board_keyboard_save_operation);
     era_common_via_keyboard_channel_save();
     era_board_via_save();
     bool accepted = eeprom_end_transaction();
     EECONFIG_SEMANTIC_END(accepted);
-    if (!accepted) era_board_keyboard_channel_save_arm();
+    if (!accepted) era_board_keyboard_save_timer = timer_read();
+    else {
+        era_board_keyboard_save_pending = false;
+        era_board_keyboard_save_operation = 0;
+    }
 }
 
 static void era_board_keyboard_channel_save_task(void) {

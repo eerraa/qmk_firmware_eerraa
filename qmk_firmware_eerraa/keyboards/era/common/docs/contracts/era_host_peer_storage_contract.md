@@ -502,8 +502,9 @@ semantic change set. A wear-level recovery unions its pending and current
 notifications before publishing each revision once. No QMK `nvm_*` weak hook is
 part of this boundary.
 Dynamic-macro staging has a separate public-visibility notification: the NVM transaction mode
-opens on the nonzero macro marker and the storage indicator may read that O(1)
-RAM fact immediately. **Opening or staging a macro is not a committed-span
+opens on the nonzero macro marker. Its validated upload admission joins the
+storage-owned Save/SYNC operation; the indicator observes that owner, not a
+second lifetime inferred from the marker. **Opening or staging a macro is not a committed-span
 notification**: it starts no settled-dirty recency claim and proves no durable
 content. A changed public staging byte or marker advances MACRO independently
 of that receipt. The ordinary full-domain
@@ -977,13 +978,58 @@ Retry spacing `ERA_HOST_PEER_STORAGE_RETRY_MS` 25, capped by
 Healthy device acceptance requires `program_failure_count == 0` and
 `erase_failure_count == 0`.
 
-## TOMAK Attempt Retirement And Failure Presentation
+## TOMAK Save/SYNC Operation And Failure Presentation
 
-One Core0 storage owner on each half owns admission, the nonrenewable attempt
-budget, terminal outcome, cancellation, ownership retirement and input
-recovery. Only the wire initiator originates connected transactions. A
+One Core0 storage owner on each half owns the enclosing Save/reconciliation
+operation, its admission, bounded preparation, terminal outcome, cancellation,
+ownership retirement and input recovery. Existing SUMMARY and domain
+transactions are execution steps within that operation, with their own
+immutable identities and nonrenewable attempt budgets. Only the wire
+initiator originates connected transactions. A
 presentation adapter owns output requests and honest receipts, never a
 storage-attempt failure latch, retry policy or permission to persist.
+
+Validated macro BEGIN admits preparation before DATA and local COMMIT.
+Ordinary synchronous writes join through their validated mutation owner
+before persistence; approved deferred saves join through their approval
+owner. A raw packet classification, polling, or an OK echo is not admission.
+An app click that sends no command cannot create a firmware operation.
+Preparation owns completion or safe abandonment, but grants neither transfer
+exclusivity nor authority to copy incomplete staging to the peer.
+
+Successful local publication carries the admitted work into reconciliation
+without an indication gap. Normal release requires the admitted work's
+convergence/completion and necessary ownership/input recovery, not just a
+local COMMIT or empty responder queues. Later accepted work is coalesced for
+a successor; an old completion cannot discharge that successor even when its
+content CRC is equal. Semantic identity does not fabricate a dirty byte,
+content revision, State Sync token or NVM write.
+
+Upload preparation has both a nonrenewable whole-upload limit and a
+progress-idle limit. Only new accepted transcript progress refreshes the idle
+limit; duplicate BEGIN/DATA, STATUS, replay and revalidation do not. A
+separate nonrenewable operation limit covers post-publication settling,
+handoff and reconciliation in either role. The existing per-transaction
+five-second budget starts at transaction admission, not at upload BEGIN.
+Expiry creates a terminal outcome and safe cleanup obligations, never proof
+that a live Core1 or DMA claim can be reused.
+
+The operation policy limits are:
+
+| Owned interval | Limit and anchor |
+| --- | --- |
+| upload progress-idle | 5000 ms from accepted BEGIN or the latest newly accepted transcript progress |
+| complete upload | 30000 ms from accepted BEGIN; progress cannot renew it |
+| macro reconciliation | 30000 ms from the first successful live local COMMIT |
+| ordinary or approved deferred Save | 30000 ms from validated admission/approval, including precommit quiet/retry waiting |
+| individual SUMMARY/domain transaction | the existing 5000-ms absolute admission budget, additionally limited by its enclosing operation |
+
+A coalesced successor retains the earliest applicable admission/commit anchor;
+promotion and further coalescing cannot restart its clock. These are deliberate
+safety/abandonment caps, not measurements or a promise that every maximum-size
+upload or eight-domain reconciliation completes within them. A synchronous
+write already past ADMIT resolves to its canonical outcome even when a
+deadline passes during the call; subsequent recovery remains repair-forward.
 
 Local VIA mutations follow their ordinary validated persistence path without
 waiting for a peer or LED proof. A successful local result does not claim peer
@@ -1002,7 +1048,10 @@ handoff; stale replies, rebind and pending levels do not authorize a new
 unchanged attempt. Accepted semantic work, including same-value retry, is
 distinguished through the existing notification and transaction identities.
 New work arriving during retirement is retained without renewing the failed
-attempt's budget.
+attempt's budget. SOURCE_CHANGED is non-error supersession only when it is
+causally tied to newer accepted work. It still retires the old claims before
+the successor can use them; an unexplained status or stale identity cannot
+manufacture a new admission.
 
 Read-only SUMMARY and conflict exchanges create no remote Apply obligation.
 Their failure retires locally without an exclusive ABORT. A transfer's live
@@ -1018,10 +1067,14 @@ failed full-domain transfer indefinitely. ADMIT and durable old-or-new
 publication retain their meaning: cancellation before ADMIT changes no
 domain; recovery after durable success proceeds from the canonical new image.
 
-TOMAK's existing STATUS observes execution. Blue means an active content
-attempt, not queued or unresolved data, and ends with that execution; an
-equal-content audit stays silent. The storage owner emits one terminal
-`EEPROM_SYNC_ERROR` receipt per failed attempt, never a fabricated LINK result.
+TOMAK's existing STATUS observes the operation. Blue covers admitted
+preparation, upload, local publication, reconciliation and normal safe release,
+without gaps between its domain transactions. It is not a fixed pulse or a
+minimum-visible hold. Retained unresolved data and silent automatic
+equal-content audits do not create blue. A genuinely admitted same-content
+request may enter and complete without a content transfer. The storage owner
+emits one terminal `EEPROM_SYNC_ERROR` receipt for failed owned work, never a
+fabricated LINK result.
 Sleep and launch/link failures retain priority; SYNC failure outranks ordinary
 blue and success. Reuse the existing red 640-ms ON and 160-ms tail. An
 initially hidden receipt waits for its first eligible display, then expires
@@ -1166,10 +1219,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 164 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18564 |
-| Core0 storage state | 164 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, and storage-owned attempt, identity and semantic-intent state |
-| cause-instrumented storage aggregate | 20180 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 224 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18624 |
+| Core0 storage state | 224 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, and current/successor operation, identity, budget and semantic-intent state |
+| cause-instrumented storage aggregate | 20240 bytes; exact target assertion, not a relaxation of physical SRAM or reserved-stack boundaries |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never
@@ -1207,23 +1260,31 @@ anchors are `split/era_host_peer_storage.c` and
 Protocol-visible counts and verified NVM program/erase failure totals are the
 acceptance surface; decode lives in `era_capture_reading.md`.
 
-The storage-pending indication is presentation only. It composes local visible
-work, the peer's advertised pending mirror, and the last successfully sent
-pending-one. A local fall cannot retire an indication while the peer may still
-hold that confirmed one; retirement needs confirmed zero or real service
-departure. Policy-off prevents arming a new local one but does not erase a
-peer-held confirmation. The boot-only conservative baseline remains
-provisional, and none of these indication facts may change arbitration,
-persistence, or restart/CLEAN predicates.
+The storage activity indication is presentation only. Subject to the existing
+policy/relation and warning/sleep gates, it observes locally owned live
+operation state or a valid peer activity mirror. Each endpoint advertises
+only its own activity, never the received mirror or combined lamp state.
+Neither a successfully sent one nor a minimum-duration timer holds the lamp
+after actual release. A local failure cannot erase independently live peer
+work, and receipt of peer-zero is not local completion authority.
+
+STORAGE_PENDING bit0 and STORAGE_NEWS bit7 carry this live activity level;
+their packet shapes and eligibility do not change. The low seven news bits
+retain their separate semantic-work/retry meaning. Neither activity edge
+authorizes retry or fabricates durability. Existing SESSION recovery restates
+the current level, including zero; a sent shadow is not proof of reception.
+Both halves must run the same image; mixed-version semantics are unsupported.
+No dedicated TOMAK_SYNC control lane, added polling loop, paired-blue proof
+or synchronized physical-output barrier is part of this operation.
 
 A transient `LOCAL_NO_LINK` label inside fast bootstrap recovery is not by
-itself operation completion. After clock alignment, opportunistic flash
-maintenance must not delay one panel's storage STATUS edge after the other has
-changed; presentation runs before background NVM maintenance and maintenance
-yields to an active refresh. Release authority is the successful local carrier
-zero, not receipt of the peer's zero. The host-testable policy owner is
-`split/era_host_peer_storage_indicator_policy.h`; the `cause` `wire storage
-ppath` probe remains diagnostic only.
+itself operation completion. Mirrors follow the existing relation validity
+boundary and current authoritative peer state. After clock alignment,
+presentation still runs before opportunistic NVM maintenance. The host-testable
+policy owner is `split/era_host_peer_storage_indicator_policy.h`; the `cause`
+`wire storage ppath` probe remains diagnostic only. Near-together bilateral
+display is best effort over existing communication/render opportunities,
+not a measured latency bound or a prerequisite for storage progress.
 
 ## What The Lane Costs A Typist
 

@@ -226,14 +226,18 @@ keeps only the standing grant suppressed through COMPLETE if the remote
 responder may still be applying. Authority, relation, policy, owner, or source
 revision change cancels the episode.
 
-TOMAK presentation observes storage and grants no route or write permission.
+TOMAK presentation observes the storage-owned Save/reconciliation operation
+and grants no route or write permission. Upload preparation and approved
+deferred waiting do not acquire bulk-transfer exclusivity. Existing standing
+activity sections carry each endpoint's locally owned live level, not its
+peer mirror or retained divergence; no extra control lane is required.
 Mandatory SESSION, ownership retirement and fresh input establishment outrank
 optional presentation traffic. A failed attempt must safely retire its claims
 and recover input before unchanged storage work can reacquire exclusivity;
 automatic revalidation and relation rebinding do not renew its recovery
 budget. Stateless arbitration failure never acquires an exclusive ABORT
 phase. The complete attempt, data-retention and failure-STATUS requirements
-are owned by `era_host_peer_storage_contract.md` **TOMAK Attempt Retirement
+are owned by `era_host_peer_storage_contract.md` **TOMAK Save/SYNC Operation
 And Failure Presentation**.
 
 Storage arbitration is change-triggered, never a periodic patrol. Its triggers

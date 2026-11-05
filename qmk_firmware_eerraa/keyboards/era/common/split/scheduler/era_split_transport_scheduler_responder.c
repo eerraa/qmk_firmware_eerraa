@@ -396,6 +396,9 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
         era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_RX, cause_detail);
 #endif
         era_split_scheduler_session_note_peer_status(&result->peer_status);
+        era_host_peer_transaction_force_responder_lock_state_response();
+        era_split_communication_core_refresh_responder_snapshot();
+        g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
     } else {
         /* One eligibility read for the whole result. Each section arm below
            used to take its own, five identical calls into another translation

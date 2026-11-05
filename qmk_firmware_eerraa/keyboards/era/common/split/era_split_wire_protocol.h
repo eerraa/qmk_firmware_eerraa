@@ -286,7 +286,8 @@ typedef enum {
 #define ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_VISUAL_BYTES ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_FULL_BYTES
 #define ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_BYTES 1
 #define ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK 0x7F
-/* bit7 of the same body byte: the responder's storage-pending fact toward the
+/* bit7 of the same body byte: the responder's locally owned live Save/SYNC
+   operation toward the
    initiator -- the response direction's half of the pair fact the push
    STORAGE_PENDING section carries the other way. It rides here rather than in
    a section of its own because the response mask has no free marker, and the
@@ -301,7 +302,8 @@ _Static_assert((ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK
                 ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING) == 0xFF,
                "every bit of the news byte is assigned; the next fact needs its own home, not a hidden bit");
 #define ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES 4
-/* Storage-pending body: bit0 is the fact, bits 1..7 reserved zero and
+/* Storage activity: bit0 is the sender's locally owned live operation, never
+   retained divergence or a peer mirror. Bits 1..7 remain reserved zero and
    validator-refused like every reserved bit on this envelope pair. */
 #define ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_BYTES 1
 #define ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING 0x01

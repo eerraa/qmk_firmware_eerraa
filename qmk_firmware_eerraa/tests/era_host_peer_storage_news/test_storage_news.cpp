@@ -121,7 +121,7 @@ TEST_F(EraHostPeerStorageNews, UnchangedFreshDefaultsStayDark) {
     }
 }
 
-TEST_F(EraHostPeerStorageNews, GenuineNewsStillArmsSummaryAndMinimumVisibleFloor) {
+TEST_F(EraHostPeerStorageNews, GenuineNewsOwnsReconciliationWithoutVisiblePadding) {
     era_test_news_begin_audit();
     era_test_news_receive(7);
     era_test_news_finish_unchanged_audit();
@@ -130,9 +130,6 @@ TEST_F(EraHostPeerStorageNews, GenuineNewsStillArmsSummaryAndMinimumVisibleFloor
     EXPECT_TRUE(era_test_news_pending());
     EXPECT_TRUE(era_test_news_visible());
     era_test_news_finish_unchanged_audit();
-    wait_ms(159);
-    EXPECT_TRUE(era_test_news_visible());
-    wait_ms(1);
     EXPECT_FALSE(era_test_news_visible());
 }
 

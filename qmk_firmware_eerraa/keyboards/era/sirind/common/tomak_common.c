@@ -451,11 +451,7 @@ static void tomak_link_reconcile_success_visibility_task(void) {
 static bool tomak_eeprom_sync_status_visible_cached;
 
 static void tomak_eeprom_sync_status_visibility_task(void) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    bool visible = era_host_peer_storage_content_attempt_active();
-#else
     bool visible = era_split_eeprom_sync_indicator_visible_advance();
-#endif
     if (tomak_eeprom_sync_status_visible_cached == visible) {
         return;
     }

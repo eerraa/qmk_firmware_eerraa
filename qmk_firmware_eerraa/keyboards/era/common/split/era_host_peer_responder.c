@@ -131,6 +131,9 @@ void era_host_peer_transaction_force_responder_lock_state_response(void) {
         g_era_host_peer_transaction_responder_input_layer_sent_valid = false;
         g_era_host_peer_transaction_responder_authority_sent_valid   = false;
         g_era_host_peer_transaction_responder_activity_sent_valid    = false;
+        /* A sent response is not a receive receipt. Recovery must restate
+           current activity, including zero after a lost falling edge. */
+        g_era_host_peer_transaction_responder_storage_news_sent_valid = false;
     }
 }
 
@@ -188,13 +191,8 @@ void era_host_peer_transaction_forget_responder_input_layer(void) {
            is one byte -- so the sentence is shorter and the reason it is here
            is unchanged.
 
-           Deliberately not in force_responder_lock_state_response() beside the
-           others. That call is a matrix-relation flush and a storage-recovery
-           step, neither of which resets the initiator's received cache or its
-           record of the peer's claim, so dropping the shadow there would
-           re-advertise a value the peer still holds -- harmless but not free,
-           on the path a storage episode close already runs. The rotation is
-           the only event both halves agree on. */
+           Recovery also invalidates this shadow: a successful send alone
+           cannot prove the peer received the falling pending level. */
         g_era_host_peer_transaction_responder_storage_news_sent_valid = false;
     }
 }

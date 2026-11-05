@@ -212,8 +212,9 @@ Flash the exact same selected UF2 to both halves, once each. The VIA definition 
 only side-specific file: load
 `keyboards/era/sirind/tomak/keymaps/via/TOMAK-TKL-L-VIA.json` when LEFT owns
 the host USB connection, or the adjacent `TOMAK-TKL-R-VIA.json` when RIGHT owns
-it. Wait for the steady-red EEPROM SYNC indication to go dark before starting
-a timed leg.
+it. Wait for the blue EEPROM SYNC operation indication to release before
+starting a timed leg. A finite red warning reports failure, not successful
+pair convergence; it is not a reason to time the next leg as if sync passed.
 
 Use the standard VIA image for the final acceptance result. A diagnostic image
 may establish timing/counter evidence but does not replace the final standard
@@ -245,8 +246,8 @@ bytes are not test records.
    this leg is explicitly exercising reset overlap. PASS means one reset, no
    boot loop or bootloader entry, and the last independently committed RGB state
    is still present after boot and the following one-second quiet period. A
-   steady-red SYNC lamp proves unfinished pair storage; it does not identify
-   whether the current NVM call is an append or a bank rotation.
+   blue SYNC lamp reports a live admitted storage operation; it does not
+   identify whether the current phase is upload, append or bank rotation.
 2. **SAVE then suspend.** Arrange a confirmed host USB suspend, change RGB
    Matrix to the next marker, release the final control less than 500 ms before
    USB suspend, then wake without touching Lighting. PASS means VIA reads back

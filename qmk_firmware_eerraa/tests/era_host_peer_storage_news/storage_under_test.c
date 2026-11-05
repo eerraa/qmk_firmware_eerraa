@@ -37,6 +37,7 @@
 #include "storage_under_test.h"
 
 static bool macro_open;
+static uint32_t macro_generation;
 static unsigned replace_calls;
 static bool retirement_ready = true;
 static unsigned attempt_starts, failure_receipts;
@@ -73,7 +74,12 @@ bool era_test_news_execution_pending(void) { return era_host_peer_storage_execut
 #ifndef ERA_TEST_REAL_EEPROM
 bool era_eeprom_driver_macro_transaction_open(void) { return macro_open; }
 #endif
-void era_test_news_macro_open(bool open) { macro_open = open; }
+void era_test_news_macro_open(bool open) {
+    macro_open = open;
+    if (open) macro_generation = era_host_peer_storage_operation_admit(
+        1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO, true);
+    else era_host_peer_storage_operation_end(macro_generation, false);
+}
 uint32_t era_test_news_retry_delay(void) {
     g_era_host_peer_storage_runtime.retry_count = 0;
     era_host_peer_storage_peer_retry_or_abort(timer_read32(), false);
@@ -88,6 +94,8 @@ void era_test_news_reset(void) {
     memset(&g_era_host_peer_storage_local, 0, sizeof(g_era_host_peer_storage_local));
     memset(&g_era_host_peer_storage_relation, 0, sizeof(g_era_host_peer_storage_relation));
     memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));
+    memset(g_era_host_peer_storage_manifest, 0, sizeof(g_era_host_peer_storage_manifest));
+    memset(g_era_host_peer_storage_image, 0, sizeof(g_era_host_peer_storage_image));
     memset(&era_split_eeprom_sync_state, 0, sizeof(era_split_eeprom_sync_state));
     g_era_host_peer_storage_local.initialized = 1;
     g_era_host_peer_storage_relation.indicator_bits = ERA_HOST_PEER_STORAGE_INDICATOR_GATE;
@@ -114,6 +122,10 @@ void era_test_news_finish_unchanged_audit(void) {
     // domains, transfer, or retry fault were injected. This does not implement
     // a second news consumer or presenter: both remain production functions.
     g_era_host_peer_storage_relation.arbitration_flags = ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_DONE;
+    era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.operation.generation,
+                                           ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
+    era_host_peer_storage_runtime_context_t context = {0};
+    era_host_peer_storage_operation_release(&context);
 }
 
 bool era_test_news_summary_pending(void) {
@@ -196,6 +208,12 @@ bool era_split_restart_agreement_timed_window(void) { return false; }
 bool era_split_restart_agreement_storage_quarantined(void) { return false; }
 #ifndef ERA_TEST_REAL_EEPROM
 bool era_eeprom_driver_ready(void) { return true; }
+uint32_t era_eeprom_driver_macro_operation_generation(void) { return macro_generation; }
+era_nvm_result_t era_eeprom_driver_macro_abort_owned(uint32_t generation) {
+    if (generation != macro_generation) return ERA_NVM_RESULT_PROTOCOL;
+    macro_open = false;
+    return ERA_NVM_RESULT_OK;
+}
 era_nvm_result_t era_eeprom_driver_replace(uint32_t offset, const void *data, size_t length, era_nvm_origin_t origin) {
     (void)offset; (void)data; (void)length; (void)origin; ++replace_calls; return ERA_NVM_RESULT_IO_ERROR;
 }
@@ -214,9 +232,14 @@ bool era_host_peer_transaction_time_anchor_adopted(void) { return true; }
 void era_split_transport_scheduler_mark_maintenance_due(uint8_t flags) { (void)flags; }
 uint32_t sync_timer_read32(void) { return timer_read32(); }
 
-void era_test_news_start_summary(void) { era_host_peer_storage_begin_summary_episode(); }
+void era_test_news_start_summary(void) {
+    g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+    era_host_peer_storage_begin_summary_episode();
+}
 void era_test_news_complete_summary(uint8_t mine, uint8_t peer) {
     era_host_peer_storage_complete_summary(timer_read32(), mine, peer, true);
+    era_host_peer_storage_runtime_context_t context = {0};
+    era_host_peer_storage_operation_release(&context);
 }
 void era_test_news_abort_summary(bool terminal) {
     era_host_peer_storage_peer_begin_abort(terminal ? ERA_SPLIT_EEPROM_SYNC_STATUS_POLICY_CLOSED :
