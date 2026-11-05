@@ -21,9 +21,6 @@ bool era_split_transport_scheduler_apply_link_level(uint8_t level);
  * wire-scale standing response window plus the bounded handoff/TX margin; the
  * publisher, not the request builder, applies it to the hardware clock. */
 uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void);
-#ifdef ERA_TOMAK_SYNC_ENABLE
-void era_split_transport_scheduler_request_sync_session(void);
-#endif
 // Returns true when this task reduces a changed local authority snapshot.
 bool era_split_transport_scheduler_task(void);
 // The scan path's transport step - one body for every half; role lives in the

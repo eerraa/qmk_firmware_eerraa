@@ -71,6 +71,25 @@ TEST_F(EraHostPeerStorageNews, NonTimeoutRetryUsesTwentyFiveMillisecondGate) {
     EXPECT_EQ(era_test_news_retry_delay(), 25U);
 }
 
+TEST_F(EraHostPeerStorageNews, ExhaustedStatelessArbitrationRetiresWithoutAbortOrRetry) {
+    EXPECT_TRUE(era_test_news_exhaust_arbitration(false));
+    era_test_news_reset();
+    EXPECT_TRUE(era_test_news_exhaust_arbitration(true));
+}
+
+TEST_F(EraHostPeerStorageNews, FailedApplyRetiresAndRecoversLatestReleaseWithoutRetransfer) {
+    EXPECT_TRUE(era_test_news_failed_apply_recovers_input(true));
+}
+
+TEST_F(EraHostPeerStorageNews, StorageAttemptDoesNotNeedBlueProof) {
+    EXPECT_TRUE(era_test_news_failed_apply_recovers_input(false));
+}
+
+TEST_F(EraHostPeerStorageNews, ResponderPreservesConflictTruthAndAdmitsNewWork) {
+    EXPECT_TRUE(era_test_news_paused_responder_admits_new_work(false));
+    EXPECT_TRUE(era_test_news_paused_responder_admits_new_work(true));
+}
+
 TEST_F(EraHostPeerStorageNews, NewsReceivedDuringAuditRemainsDeduplicated) {
     era_test_news_begin_audit();
     era_test_news_receive(7);
@@ -204,10 +223,12 @@ TEST_F(EraHostPeerStorageNews, InFlightRelationAuditRemainsProvisional) {
     EXPECT_EQ(era_test_news_probe_mask(), 0xff);
     EXPECT_FALSE(era_test_news_visible());
 }
-TEST_F(EraHostPeerStorageNews, RecoverableSummaryAbortRestoresInboxRequest) {
+TEST_F(EraHostPeerStorageNews, SummaryFailureWaitsForGenuineNewWork) {
     era_test_news_receive(7);
     era_test_news_start_summary();
     era_test_news_abort_summary(false);
+    EXPECT_FALSE(era_test_news_summary_pending());
+    era_test_news_receive(8);
     EXPECT_TRUE(era_test_news_summary_pending());
 }
 TEST_F(EraHostPeerStorageNews, TerminalSummaryRefusalDoesNotRetryForever) {

@@ -334,31 +334,59 @@ void era_via_macro_diagnostics_response_begin(void);
 void era_via_macro_diagnostics_response_end(void);
 #endif
 
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+static bool via_semantic_mutation(const uint8_t *data, uint8_t length) {
+    if (length != 32) return false;
+    switch (data[0]) {
+        case id_set_keyboard_value: return data[1] == id_layout_options;
+        case id_dynamic_keymap_set_keycode:
+        case id_dynamic_keymap_reset:
+        case id_dynamic_keymap_set_buffer:
+        case id_dynamic_keymap_set_encoder:
+        case id_dynamic_keymap_macro_reset:
+        case id_custom_set_value:
+        case id_custom_save:
+            return true;
+        case id_dynamic_keymap_macro_set_buffer:
+            /* Upload fragments are not semantic news. The storage/driver
+             * close boundary announces one completed transcript. */
+            return false;
+        default: return false;
+    }
+}
+#endif
+
 void raw_hid_receive(uint8_t *data, uint8_t length) {
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_via_macro_diagnostics_receive(data[0]);
 #endif
 
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    bool semantic = via_semantic_mutation(data, length);
+    if (semantic) EECONFIG_SEMANTIC_BEGIN();
+#endif
     // If via_command_kb() returns true, the command was fully
     // handled, including calling raw_hid_send()
     if (via_command_kb(data, length)) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        if (semantic) EECONFIG_SEMANTIC_END(data[0] != id_unhandled && eeprom_persistence_ok());
+#endif
         return;
     }
 
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    /* The board owns at most one bounded deferred mutation and its response. */
-    extern bool era_tomak_sync_via_admit(uint8_t *request, uint8_t length);
-    if (era_tomak_sync_via_admit(data, length)) {
-        return;
-    }
-#endif
     via_command_execute(data, length);
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (semantic) EECONFIG_SEMANTIC_END(data[0] != id_unhandled && eeprom_persistence_ok());
+#endif
 }
 
-/* Dispatch an already admitted request. A deferred keyboard hook uses this
- * entry once, never raw_hid_receive(), so it cannot capture its own request
- * again or manufacture a second receive event. Replies retain their owners. */
+/* Dispatch without manufacturing another raw receive event. Replies retain
+ * their existing owners. */
 void via_command_execute(uint8_t *data, uint8_t length) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    bool semantic = via_semantic_mutation(data, length);
+    if (semantic) EECONFIG_SEMANTIC_BEGIN();
+#endif
     uint8_t *command_id   = &(data[0]);
     uint8_t *command_data = &(data[1]);
 
@@ -557,6 +585,9 @@ void via_command_execute(uint8_t *data, uint8_t length) {
         }
     }
 
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (semantic) EECONFIG_SEMANTIC_END(data[0] != id_unhandled && eeprom_persistence_ok());
+#endif
     // Return the same buffer, optionally with values changed
     // (i.e. returning state to the host, or the unhandled state).
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE

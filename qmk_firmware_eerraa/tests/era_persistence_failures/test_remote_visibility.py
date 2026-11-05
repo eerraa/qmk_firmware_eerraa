@@ -1,14 +1,18 @@
 """Execute the complete production Apply boundary with actual ERA NVM storage."""
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from test_persistence import ROOT, HERE, nor_fixture, execute
 from test_macro_remount import extract
 
-PRELUDE = r"""
+PRELUDE = re.search(
+    r"^#define timer_expired32\(.+$", (ROOT / "platforms/timer.h").read_text(), re.M
+)[0] + "\n" + r"""
 #define main existing_nor_suite_main
 #include "nor.c"
 #undef main
+uint32_t timer_read32(void) { return 0; }
 #define ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG 3
 #define ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TARGET_DIRTY 1
 #define ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE 2
@@ -20,6 +24,7 @@ PRELUDE = r"""
 #define ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_DURABLE 5
 #define ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ 6
 #define ERA_HOST_PEER_STORAGE_RUNTIME_PEER_REVALIDATE 7
+#define ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT 8
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 10
 
 typedef uint8_t era_split_eeprom_sync_domain_t;
@@ -29,9 +34,9 @@ typedef struct { uint32_t address, size; } era_host_peer_storage_domain_descript
 static const era_host_peer_storage_domain_descriptor_t g_era_host_peer_storage_domains[] = {{801, 16384}};
 static struct { uint32_t domain, owner_epoch, relation_generation, policy_generation, peer_usb_epoch,
  peer_host_open_generation, peer_host_close_generation, image_size, next_chunk, staged_bytes, expected_crc32,
- flags, last_status, state, pending_operation, retry_count, retry_deadline_ms; } g_era_host_peer_storage_runtime;
+ flags, last_status, state, pending_operation, retry_count, retry_deadline_ms, episode_deadline_ms; } g_era_host_peer_storage_runtime;
 static struct { bool image_stale, image_valid; } g_era_host_peer_storage_local;
-static struct { unsigned integrity_reject_count, apply_count; } g_era_host_peer_storage_diagnostics;
+static struct { unsigned integrity_reject_count, apply_count, timeout_count; } g_era_host_peer_storage_diagnostics;
 static uint8_t g_era_host_peer_storage_image[16384];
 static bool refuse_manifest;
 static bool era_host_peer_storage_domain_valid(unsigned domain) { return domain == 0; }
@@ -54,6 +59,7 @@ int main(void) {
  for (unsigned host = 0; host < 2; ++host) for (unsigned failure = 0; failure < 3; ++failure) {
     fresh(); macro_seed(); era_state_sync_set_revisions_for_testing(1,1,1);
     memset(&g_era_host_peer_storage_runtime,0,sizeof(g_era_host_peer_storage_runtime));
+    g_era_host_peer_storage_runtime.episode_deadline_ms = 1000;
     memset(&g_era_host_peer_storage_local,0,sizeof(g_era_host_peer_storage_local));
     memset(&g_era_host_peer_storage_diagnostics,0,sizeof(g_era_host_peer_storage_diagnostics));
     memset(g_era_host_peer_storage_image,0,sizeof(g_era_host_peer_storage_image));

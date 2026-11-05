@@ -95,18 +95,15 @@ static void era_board_keyboard_channel_save_commit(void) {
         era_board_keyboard_channel_save_arm();
         return;
     }
+    EECONFIG_SEMANTIC_BEGIN();
     era_common_via_keyboard_channel_save();
     era_board_via_save();
-    if (!eeprom_end_transaction()) era_board_keyboard_channel_save_arm();
+    bool accepted = eeprom_end_transaction();
+    EECONFIG_SEMANTIC_END(accepted);
+    if (!accepted) era_board_keyboard_channel_save_arm();
 }
 
 static void era_board_keyboard_channel_save_task(void) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    extern bool era_tomak_sync_runtime_protected(void);
-    if (era_tomak_sync_runtime_protected()) {
-        return; /* Retain the approved dirty save across the output edge. */
-    }
-#endif
     if (!era_board_keyboard_save_pending || timer_elapsed(era_board_keyboard_save_timer) <= ERA_STORAGE_QUIET_DEFER_MS) {
         return;
     }
@@ -122,9 +119,12 @@ static void era_board_keyboard_channel_save_now(void) {
 #    else
 static bool era_board_keyboard_channel_save_arm(void) {
     if (!eeprom_begin_transaction()) return false;
+    EECONFIG_SEMANTIC_BEGIN();
     era_common_via_keyboard_channel_save();
     era_board_via_save();
-    return eeprom_end_transaction();
+    bool accepted = eeprom_end_transaction();
+    EECONFIG_SEMANTIC_END(accepted);
+    return accepted;
 }
 
 static void era_board_keyboard_channel_save_task(void) {}

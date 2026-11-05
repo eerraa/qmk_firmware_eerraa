@@ -8,11 +8,13 @@ extern "C" {
 #include "eeprom_driver.h"
 #include "keyboards/era/common/storage/era_eeprom_driver.h"
 #include "keyboards/era/common/system/era_macro_replace.h"
+#include "keyboards/era/common/system/era_macro_options.h"
 #include "keyboards/era/common/system/era_common_via.h"
 #include "keyboards/era/common/system/era_common_features.h"
 #include "keyboards/era/common/system/era_wire.h"
 #define _Static_assert static_assert
 #include "keyboards/era/common/storage/era_eeprom_layout.h"
+#include "keyboards/era/common/storage/era_storage_layout.h"
 #include "keyboards/era/common/split/era_split_sync_storage.h"
 #include "keyboards/era/common/split/era_host_peer_storage.h"
 #undef _Static_assert
@@ -21,6 +23,24 @@ extern "C" {
 #include "via.h"
 #include "quantum.h"
 void raw_hid_receive(uint8_t *data, uint8_t length);
+void era_test_news_reset(void);
+bool era_test_storage_execution_pending(void);
+void era_test_storage_note_eeprom_commit(uint32_t address, uint32_t length);
+void era_test_storage_note_eeprom_mask(uint8_t mask);
+void era_test_storage_note_macro_commit_ready(void);
+uint8_t era_test_storage_intent(void);
+uint8_t era_test_storage_dirty(void);
+uint32_t era_test_storage_revision(void);
+void era_test_storage_terminal_attempt(bool dual, bool left);
+uint32_t era_test_storage_attempt_deadline(void);
+void era_test_storage_retire(void);
+bool era_test_storage_retry_open(void);
+bool era_test_storage_responder_terminal(bool dual, bool left, void (*accepted_command)(void));
+void era_test_storage_readonly_failure(bool rebind);
+unsigned era_test_storage_starts(void);
+unsigned era_test_storage_failures(void);
+void era_test_storage_prepare_apply(bool push);
+void era_test_storage_deliver_expired_apply(void);
 }
 
 #include <array>
@@ -128,6 +148,8 @@ class EraNvmQmkDriver : public ::testing::Test {
         reset_notifications();
         eeprom_driver_init();
         ASSERT_TRUE(era_eeprom_driver_ready());
+        era_test_news_reset();
+        era_macro_options_init();
     }
     void SeedRetiredBank() {
         std::array<uint8_t, ERA_NVM_LOGICAL_SIZE_BYTES> image{};
@@ -171,7 +193,9 @@ extern "C" bool era_nvm_rp2040_flash_bind(era_nvm_flash_t *flash) {
 extern "C" void era_state_sync_note_macro_public_change(void) { ++g_public_macro_notify_count; }
 // USB-less fixture: execute real common maintenance policy without USB hardware.
 extern "C" void era_usb_session_task(void) {}
-extern "C" bool era_host_peer_storage_execution_pending(void) { return g_split_execution_pending; }
+extern "C" bool era_host_peer_storage_execution_pending(void) {
+    return g_split_execution_pending || era_test_storage_execution_pending();
+}
 
 extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length) {
     g_notify_count++;
@@ -184,11 +208,13 @@ extern "C" void era_state_sync_note_eeprom_span(uint16_t offset, uint16_t length
 extern "C" uint32_t era_state_sync_eeprom_span_mask(uint16_t, uint16_t length) { return length ? 1U : 0U; }
 extern "C" void era_state_sync_note_eeprom_mask(uint32_t mask) { if (mask) g_notify_count++; }
 extern "C" void era_host_peer_storage_note_eeprom_commit(uint32_t address, uint32_t length) {
-    era_state_sync_note_eeprom_span(address, length);
+    era_test_storage_note_eeprom_commit(address, length);
 }
-extern "C" uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t, uint32_t length) { return length ? 1U : 0U; }
-extern "C" void era_host_peer_storage_note_eeprom_mask(uint8_t) {}
-extern "C" void era_host_peer_storage_note_macro_commit_ready(void) { ++g_macro_ready_count; }
+extern "C" void era_host_peer_storage_note_eeprom_mask(uint8_t mask) { era_test_storage_note_eeprom_mask(mask); }
+extern "C" void era_host_peer_storage_note_macro_commit_ready(void) {
+    ++g_macro_ready_count;
+    era_test_storage_note_macro_commit_ready();
+}
 
 extern "C" void raw_hid_send(uint8_t *data, uint8_t) {
     g_response_command=data[0]; ++g_response_count;
@@ -196,6 +222,153 @@ extern "C" void raw_hid_send(uint8_t *data, uint8_t) {
 }
 extern "C" void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
     if (!era_common_via_handle_command(data, length)) data[0] = id_unhandled;
+}
+extern "C" bool via_command_kb(uint8_t *data, uint8_t length) {
+    if (!era_common_via_handle_command(data,length)) return false;
+    raw_hid_send(data,length);
+    return true;
+}
+extern "C" void era_state_sync_config_persist_begin(uint16_t offset, uint16_t length) { (void)offset; (void)length; }
+extern "C" void era_state_sync_config_persist_end(void) {}
+extern "C" void era_state_sync_note_config_semantic_commit(uint16_t offset, uint16_t length) { (void)offset; (void)length; }
+
+TEST_F(EraNvmQmkDriver, ValidatedCustomNoChangeSaveReportsIntentThroughKeyboardHook) {
+    std::array<uint8_t,32> request{};
+    request[0]=id_custom_save;
+    request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_OPTIONS;
+    const auto programs=g_flash.program_calls;
+    raw_hid_receive(request.data(),request.size());
+    ASSERT_EQ(g_response_command,id_custom_save);
+    EXPECT_EQ(g_flash.program_calls,programs);
+    EXPECT_NE(era_test_storage_intent(),0);
+    wait_ms(1000);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(),1);
+    request.fill(0);
+    request[0]=id_custom_set_value;
+    request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_OPTIONS;
+    request[2]=ERA_WIRE_MACRO_OPTIONS_HOLD_MS;
+    request[3]=DYNAMIC_KEYMAP_MACRO_COUNT; // Invalid record and zero hold.
+    raw_hid_receive(request.data(),request.size());
+    EXPECT_EQ(g_response_command,id_unhandled);
+    EXPECT_EQ(era_test_storage_intent(),0);
+}
+
+TEST_F(EraNvmQmkDriver, ExpiredApplyReadyCannotAdmitPullOrResponderPushWithStaleOwnerClock) {
+    for (bool push : {false, true}) {
+        SCOPED_TRACE(push ? "responder push" : "pull");
+        SetUp();
+        era_test_storage_prepare_apply(push);
+        std::array<uint8_t, ERA_STORAGE_MACRO_OPTIONS_BYTES> before{}, after{};
+        eeprom_read_block(before.data(), reinterpret_cast<const void *>(ERA_STORAGE_MACRO_OPTIONS_ADDR), before.size());
+        const auto programs=g_flash.program_calls;
+        era_test_storage_deliver_expired_apply();
+        EXPECT_EQ(g_flash.program_calls, programs);
+        eeprom_read_block(after.data(), reinterpret_cast<const void *>(ERA_STORAGE_MACRO_OPTIONS_ADDR), after.size());
+        EXPECT_EQ(after, before);
+        eeprom_driver_init();
+        ASSERT_TRUE(era_eeprom_driver_ready());
+        eeprom_read_block(after.data(), reinterpret_cast<const void *>(ERA_STORAGE_MACRO_OPTIONS_ADDR), after.size());
+        EXPECT_EQ(after, before);
+    }
+}
+
+TEST_F(EraNvmQmkDriver, AcceptedEqualViaCommandsCoalesceWithoutContentPublication) {
+    std::array<uint8_t, 32> request{};
+    request[0] = id_dynamic_keymap_set_keycode;
+    request[1] = DYNAMIC_KEYMAP_LAYER_COUNT; // Owner silently rejects invalid coordinates.
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(era_test_storage_intent(), 0);
+    request[1] = 0;
+    const auto programs = g_flash.program_calls;
+    const auto revision = era_test_storage_revision();
+    raw_hid_receive(request.data(), request.size()); // Accepted zero -> zero.
+    EXPECT_EQ(g_flash.program_calls, programs);
+    EXPECT_NE(era_test_storage_intent(), 0);
+    EXPECT_EQ(era_test_storage_dirty(), 0);
+    EXPECT_EQ(g_notify_count, 0U);
+    wait_ms(600);
+    request[0] = id_dynamic_keymap_set_buffer;
+    request[3] = 28;
+    raw_hid_receive(request.data(), request.size());
+    wait_ms(999);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(), 0);
+    wait_ms(1);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(), 1);
+    EXPECT_EQ(era_test_storage_intent(), 0);
+    EXPECT_EQ(era_test_storage_dirty(), 0);
+    EXPECT_EQ(era_test_storage_revision(), revision);
+    EXPECT_EQ(g_notify_count, 0U);
+    EXPECT_EQ(g_flash.program_calls, programs);
+    // A refused physical write does not turn an OK echo into accepted intent.
+    request.fill(0);
+    request[0] = id_dynamic_keymap_set_keycode;
+    request[4] = 1;
+    g_flash.reject_programs = true;
+    raw_hid_receive(request.data(), request.size());
+    EXPECT_EQ(g_response_command, id_unhandled);
+    EXPECT_EQ(era_test_storage_intent(), 0);
+}
+
+TEST_F(EraNvmQmkDriver, AcceptedSameValueDuringRetirementAuthorizesFreshOpen) {
+    for (unsigned relation=0; relation<3; ++relation) {
+        SetUp();
+        era_test_storage_terminal_attempt(relation==2, relation!=1);
+        const auto deadline=era_test_storage_attempt_deadline();
+        std::array<uint8_t,32> request{};
+        request[0]=id_dynamic_keymap_set_keycode;
+        raw_hid_receive(request.data(),request.size());
+        EXPECT_NE(era_test_storage_intent(),0);
+        EXPECT_EQ(era_test_storage_attempt_deadline(),deadline);
+        era_test_storage_retire();
+        wait_ms(1000);
+        era_host_peer_storage_task(timer_read32());
+        EXPECT_TRUE(era_test_storage_retry_open());
+    }
+}
+
+TEST_F(EraNvmQmkDriver, FreshResponderNewsDuringRetirementIsRetained) {
+    era_test_storage_terminal_attempt(true,true);
+    era_host_peer_storage_note_host_news(7);
+    const auto deadline=era_test_storage_attempt_deadline();
+    era_test_storage_retire();
+    EXPECT_TRUE(era_test_storage_retry_open());
+    EXPECT_NE(deadline,0U);
+}
+
+TEST_F(EraNvmQmkDriver, TerminalResponderRejectsOldIdentityAndPinsFreshEqualOpen) {
+    for (unsigned relation=0; relation<3; ++relation) {
+        SetUp();
+        EXPECT_TRUE(era_test_storage_responder_terminal(relation==2,relation!=1,[] {
+            std::array<uint8_t,32> request{};
+            request[0]=id_dynamic_keymap_set_keycode;
+            raw_hid_receive(request.data(),request.size());
+        }));
+        auto responder_news=era_host_peer_storage_settled_news_value();
+        era_test_storage_terminal_attempt(relation==2,relation==1);
+        era_host_peer_storage_note_host_news(responder_news);
+        era_test_storage_retire();
+        EXPECT_TRUE(era_test_storage_retry_open());
+    }
+}
+
+TEST_F(EraNvmQmkDriver, GenuineReadOnlyAttemptGetsItsOwnTerminalReceiptWithoutBlue) {
+    era_test_storage_readonly_failure(false);
+    EXPECT_EQ(era_test_storage_failures(),1U);
+    EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
+    std::array<uint8_t,32> request{};
+    request[0]=id_dynamic_keymap_set_keycode;
+    raw_hid_receive(request.data(),request.size());
+    wait_ms(1000);
+    era_test_storage_readonly_failure(false);
+    EXPECT_EQ(era_test_storage_starts(),2U);
+    EXPECT_EQ(era_test_storage_failures(),2U);
+    EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
+    era_test_storage_readonly_failure(true);
+    EXPECT_EQ(era_test_storage_starts(),2U);
+    EXPECT_EQ(era_test_storage_failures(),2U);
 }
 
 TEST_F(EraNvmQmkDriver, RawViaEndpointSeparatesLocalReceiptPeerProofAndSessionLoss) {
@@ -349,6 +522,8 @@ TEST_F(EraNvmQmkDriver, ExplicitViaReplacementEchoesDataAndAcknowledgesOnlyDurab
     ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
     ASSERT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
     EXPECT_EQ(request[30],1);
+    EXPECT_EQ(g_macro_ready_count,0U);
+    EXPECT_EQ(era_test_storage_intent(),0);
     const auto before = g_flash.program_calls;
     request.fill(0); request[0]=id_custom_set_value;
     request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE; request[2]=ERA_WIRE_MACRO_REPLACE_DATA;
@@ -359,6 +534,7 @@ TEST_F(EraNvmQmkDriver, ExplicitViaReplacementEchoesDataAndAcknowledgesOnlyDurab
     EXPECT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
     EXPECT_EQ(std::memcmp(request.data(),data.data(),31),0);
     EXPECT_EQ(g_flash.program_calls,before);
+    EXPECT_EQ(g_macro_ready_count,0U);
     // A retry is not another receipt or another physical mutation.
     request = data;
     ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
@@ -367,12 +543,19 @@ TEST_F(EraNvmQmkDriver, ExplicitViaReplacementEchoesDataAndAcknowledgesOnlyDurab
     ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
     ASSERT_EQ(request[31], ERA_WIRE_MACRO_REPLACE_RESULT_OK);
     EXPECT_EQ(request[30],2);
+    EXPECT_EQ(g_macro_ready_count,1U);
+    era_host_peer_storage_task(timer_read32());
+    const auto news=era_host_peer_storage_settled_news_value();
+    EXPECT_EQ(news,1);
     const auto committed = g_flash.program_calls;
     EXPECT_GT(committed,before);
     request = begin; request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
     ASSERT_TRUE(era_macro_replace_handle_via(request.data(), request.size()));
     EXPECT_EQ(request[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
     EXPECT_EQ(g_flash.program_calls,committed);
+    EXPECT_EQ(g_macro_ready_count,1U);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(),news);
     uint8_t actual[9]{};
     ASSERT_EQ(era_eeprom_driver_replay_read(kMacroAddress,actual,9),ERA_NVM_RESULT_OK);
     EXPECT_EQ(std::memcmp(actual,"123456789",9),0);
@@ -694,6 +877,40 @@ TEST_F(EraNvmQmkDriver, StockViaEndpointReadiesOnlySuccessfulUploadNotStandalone
     EXPECT_EQ(g_macro_ready_count, 0U);
     eeprom_driver_init();
     EXPECT_EQ(eeprom_read_byte(reinterpret_cast<const uint8_t *>(kMacroAddress)), 0);
+}
+
+TEST_F(EraNvmQmkDriver, AcceptedEmptyRawMacroResetReconcilesWithoutContentOrUploadPublication) {
+    std::array<uint8_t, kMacroSize> before{}, after{};
+    dynamic_keymap_macro_get_buffer(0, before.size(), before.data());
+    ASSERT_EQ(before, (std::array<uint8_t, kMacroSize>{}));
+    reset_notifications();
+    const auto programs=g_flash.program_calls;
+    const auto revision=era_test_storage_revision();
+    const auto responses=g_response_count;
+    std::array<uint8_t, 32> request{};
+    request[0]=id_dynamic_keymap_macro_reset;
+    raw_hid_receive(request.data(), request.size());
+    ASSERT_EQ(g_response_count, responses+1);
+    ASSERT_EQ(g_response[0], id_dynamic_keymap_macro_reset);
+    EXPECT_EQ(era_test_storage_intent(), 1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO);
+    EXPECT_EQ(era_test_storage_dirty(), 0);
+    wait_ms(999);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(), 0);
+    wait_ms(1);
+    era_host_peer_storage_task(timer_read32());
+    EXPECT_EQ(era_host_peer_storage_settled_news_value(), 1);
+    EXPECT_EQ(era_test_storage_intent(), 0);
+    EXPECT_EQ(era_test_storage_dirty(), 0);
+    EXPECT_EQ(era_test_storage_revision(), revision);
+    EXPECT_EQ(g_flash.program_calls, programs);
+    EXPECT_EQ(g_notify_count, 0U);
+    // RESET still invalidates and restores the public marker; semantic intent
+    // adds no publication beyond those two existing visibility transitions.
+    EXPECT_EQ(g_public_macro_notify_count, 2U);
+    EXPECT_EQ(g_macro_ready_count, 0U);
+    dynamic_keymap_macro_get_buffer(0, after.size(), after.data());
+    EXPECT_EQ(after, before);
 }
 
 TEST_F(EraNvmQmkDriver, MacroTouchingReplacementIsRefusedWhileStaged) {

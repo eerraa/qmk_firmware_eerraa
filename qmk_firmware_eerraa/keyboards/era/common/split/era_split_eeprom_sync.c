@@ -6,9 +6,6 @@
 #include <string.h>
 
 #include "timer.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_runtime.h"
-#endif
 #ifdef ERA_TOMAK_SYNC_TIMING
 #    include "era_sync_timing.h"
 #endif
@@ -65,13 +62,6 @@ bool era_split_eeprom_sync_indicator_visible_advance(void) {
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_cause_note_indicator(pending);
 #    endif
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_paired()) {
-        /* Diagnostics still sample real work above. Presentation no longer
-         * derives its edges from mirrored work or a per-half visible floor. */
-        return era_tomak_sync_runtime_controls_output() && era_tomak_sync_runtime_target();
-    }
-#endif
     if (pending) {
         /* Stamped on every pending pass, not once on the rising edge: the
          * last stamp IS the fall time when the fact drops, with no second

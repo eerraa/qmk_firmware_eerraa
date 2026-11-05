@@ -147,6 +147,50 @@ static absolute_time_t LAST_TRANSFER;
 /* The timestamp remains driver-owned. One status distinguishes a newly started
  * DMA from the previous frame's already-expired completion timestamp. */
 static volatile ws2812_transfer_status_t transfer_status = WS2812_TRANSFER_IDLE;
+static absolute_time_t transfer_deadline;
+static bool transfer_aborting;
+static uint ws2812_program_offset;
+
+static void ws2812_transfer_abort(void) {
+    /* Mask this channel only, including RP2040-E13's possible late completion.
+     * Unlike dmaChannelDisableX, do not spin waiting for hardware to retire. */
+    dmaChannelDisableInterruptX(dma_channel);
+    dmaChannelSuspendX(dma_channel);
+    dma_channel->dma->SET.CHAN_ABORT = dma_channel->chnmask;
+    transfer_aborting = true;
+    transfer_status = WS2812_TRANSFER_FAILED;
+    pio_sm_set_enabled(pio, STATE_MACHINE, false);
+    /* Mandatory side-set zero drives the output low (also in pull-up mode). */
+    pio_sm_exec(pio, STATE_MACHINE, pio_encode_jmp(ws2812_program_offset));
+}
+
+void ws2812_transfer_service(void) {
+    if (transfer_status == WS2812_TRANSFER_BUSY && time_reached(transfer_deadline)) {
+        dmaChannelDisableInterruptX(dma_channel);
+        /* A completion just before the channel mask is still authoritative. */
+        if (transfer_status == WS2812_TRANSFER_BUSY) {
+            ws2812_transfer_abort();
+        } else {
+            dmaChannelEnableInterruptX(dma_channel);
+        }
+    }
+    if (!transfer_aborting || dmaChannelIsBusyX(dma_channel) ||
+        (dma_channel->dma->CHAN_ABORT & dma_channel->chnmask) != 0U) {
+        return;
+    }
+    /* E13: ABORT clearing alone is insufficient; BUSY must be clear too.
+     * No buffer credit is returned until all in-flight DMA access has ended. */
+    dma_channel->dma->INTR = dma_channel->chnmask;
+    (void)dmaChannelGetAndClearInterrupts(dma_channel);
+    pio_sm_clear_fifos(pio, STATE_MACHINE);
+    pio_sm_restart(pio, STATE_MACHINE);
+    pio_sm_exec(pio, STATE_MACHINE, pio_encode_jmp(ws2812_program_offset));
+    update_us_since_boot(&LAST_TRANSFER, time_us_64() + WS2812_TRST_US);
+    pio_sm_set_enabled(pio, STATE_MACHINE, true);
+    chSemReset(&TRANSFER_COUNTER, 1);
+    transfer_aborting = false;
+    dmaChannelEnableInterruptX(dma_channel);
+}
 
 ws2812_transfer_status_t ws2812_transfer_status(void) {
     osalSysLock();
@@ -156,6 +200,13 @@ ws2812_transfer_status_t ws2812_transfer_status(void) {
     }
     osalSysUnlock();
     return status;
+}
+
+bool ws2812_transfer_ready(void) {
+    ws2812_transfer_status_t status = ws2812_transfer_status();
+    return !transfer_aborting &&
+           (status == WS2812_TRANSFER_IDLE ||
+            (status != WS2812_TRANSFER_BUSY && time_reached(LAST_TRANSFER)));
 }
 #endif
 
@@ -222,6 +273,9 @@ void ws2812_init(void) {
     }
 
     uint offset = pio_add_program(pio, &ws2812_program);
+#ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
+    ws2812_program_offset = offset;
+#endif
 
     pio_sm_set_consecutive_pindirs(pio, STATE_MACHINE, WS2812_DI_PIN, 1, true);
 
@@ -270,6 +324,7 @@ void ws2812_init(void) {
     // clang-format on
 }
 
+#ifndef ERA_TOMAK_SYNC_OUTPUT_ENABLE
 static inline bool sync_ws2812_transfer(void) {
     if (chSemWaitTimeout(&TRANSFER_COUNTER, TIME_MS2I(WS2812_LED_COUNT)) == MSG_TIMEOUT) {
         // Abort the synchronization if we have to wait longer than the total
@@ -279,17 +334,8 @@ static inline bool sync_ws2812_transfer(void) {
         dmaChannelDisableX(dma_channel);
         pio_sm_clear_fifos(pio, STATE_MACHINE);
         pio_sm_restart(pio, STATE_MACHINE);
-#ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
-        /* The aborted frame failed. Restore the idle credit so a subsequent
-         * explicit output attempt can recover without calling this one applied. */
-        chSemReset(&TRANSFER_COUNTER, 1);
-#else
         chSemReset(&TRANSFER_COUNTER, 0);
-#endif
         wait_us(WS2812_TRST_US);
-#ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
-        transfer_status = WS2812_TRANSFER_FAILED;
-#endif
         return false;
     }
 
@@ -297,6 +343,7 @@ static inline bool sync_ws2812_transfer(void) {
     busy_wait_until(LAST_TRANSFER);
     return true;
 }
+#endif
 
 ws2812_led_t ws2812_leds[WS2812_LED_COUNT];
 
@@ -317,8 +364,9 @@ void ws2812_set_color_all(uint8_t red, uint8_t green, uint8_t blue) {
 
 void ws2812_flush(void) {
 #ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
-    if (!sync_ws2812_transfer()) {
-        /* Recovery of the previous DMA is not successful output of this frame. */
+    ws2812_transfer_service();
+    if (!ws2812_transfer_ready() ||
+        chSemWaitTimeout(&TRANSFER_COUNTER, TIME_IMMEDIATE) == MSG_TIMEOUT) {
         return;
     }
 #else
@@ -337,6 +385,8 @@ void ws2812_flush(void) {
     dmaChannelSetCounterX(dma_channel, WS2812_LED_COUNT);
     dmaChannelSetModeX(dma_channel, RP_DMA_MODE_WS2812);
 #ifdef ERA_TOMAK_SYNC_OUTPUT_ENABLE
+    /* Reuse the driver's existing count-of-LEDs millisecond allowance. */
+    update_us_since_boot(&transfer_deadline, time_us_64() + WS2812_LED_COUNT * 1000ULL);
     transfer_status = WS2812_TRANSFER_BUSY;
 #endif
     dmaChannelEnableX(dma_channel);

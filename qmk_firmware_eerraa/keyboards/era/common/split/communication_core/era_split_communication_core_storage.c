@@ -131,7 +131,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
 /* V260909R1: the independent Core0 relation audit receipt adds four bytes. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20164U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20180U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -150,7 +150,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20
    route context. ERA NVM removes the 40-byte slice/raw-facade state and the
    8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
 /* V260909R1: the same receipt, without cause instrumentation. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18548U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18564U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif
@@ -1710,6 +1710,14 @@ bool era_split_communication_core_storage_plan_responder(const era_split_communi
         return true;
     }
 
+    bool open = request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ ||
+                (request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ &&
+                 request->detail == ERA_SPLIT_EEPROM_SYNC_PUSH_PHASE_OPEN);
+    if (open && snapshot->terminal_transaction != 0 &&
+        request->transaction_generation <= snapshot->terminal_transaction) {
+        result->status = ERA_SPLIT_EEPROM_SYNC_STATUS_STALE;
+        return true;
+    }
     if (request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ) {
         result->image_size = request->image_size;
         if (request->domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {

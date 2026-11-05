@@ -226,6 +226,16 @@ keeps only the standing grant suppressed through COMPLETE if the remote
 responder may still be applying. Authority, relation, policy, owner, or source
 revision change cancels the episode.
 
+TOMAK presentation observes storage and grants no route or write permission.
+Mandatory SESSION, ownership retirement and fresh input establishment outrank
+optional presentation traffic. A failed attempt must safely retire its claims
+and recover input before unchanged storage work can reacquire exclusivity;
+automatic revalidation and relation rebinding do not renew its recovery
+budget. Stateless arbitration failure never acquires an exclusive ABORT
+phase. The complete attempt, data-retention and failure-STATUS requirements
+are owned by `era_host_peer_storage_contract.md` **TOMAK Attempt Retirement
+And Failure Presentation**.
+
 Storage arbitration is change-triggered, never a periodic patrol. Its triggers
 are relation establishment/re-establishment, a newly settled local capture,
 and responder-changed news. News is consumed as an edge, never as a level.

@@ -124,6 +124,9 @@ bool era_split_input_source_service_needed(void) {
     return source.enabled && (source.pending_valid || source.count || source.phase != SOURCE_LIVE ||
                               acquire(&flow_hint_seq) != flow_hint_seen);
 }
+bool era_split_input_source_recovery_pending(void) {
+    return !source.enabled || source.phase != SOURCE_LIVE || era_split_input_source_service_needed();
+}
 bool era_split_input_source_due(uint32_t now) {
     uint32_t sequence = acquire(&flow_hint_seq);
     if (sequence != flow_hint_seen) {
@@ -273,7 +276,7 @@ static struct {
     uint32_t version, write, baseline_published, terminal;
     input_packet_t packets[ERA_INPUT_PACKET_SLOTS], baselines[2];
     /* Core0 writes these. A pinned packet is still the current read slot. */
-    uint32_t read, baseline_retired, abort_version;
+    uint32_t read, baseline_retired, abort_version, recovered_gate;
     bool claimed, claim_baseline;
     uint8_t cursor, groups_done;
     uint32_t claim_sequence, claim_version;
@@ -427,6 +430,10 @@ void era_split_input_receiver_pressure_event(void) {
 }
 void era_split_input_receiver_capacity(bool room) { release(&receiver.baseline_room, room); }
 bool era_split_input_receiver_enabled(void) { return receiver.gate_enabled != 0; }
+bool era_split_input_receiver_recovery_pending(void) {
+    return !receiver.gate_enabled || receiver.recovered_gate != acquire(&receiver.gate_seq) ||
+           acquire(&receiver.terminal) != 0 || era_split_input_receiver_pending();
+}
 void era_split_input_receiver_end(void) {
     if (receiver.state == RX_LIVE || receiver.state == RX_BOUND) close_execution();
 }
@@ -504,6 +511,7 @@ void era_split_input_finish(void) {
     receiver.claimed = false;
     if (receiver.claim_baseline) {
         receiver.cursor = receiver.groups_done = 0;
+        receiver.recovered_gate = receiver.baselines[receiver.claim_sequence & 1U].gate;
         release(&receiver.baseline_retired, receiver.claim_sequence);
     } else {
         uint32_t read = acquire(&receiver.read);

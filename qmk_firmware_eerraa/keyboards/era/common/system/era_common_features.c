@@ -5,10 +5,6 @@
 #include "era_common_features.h"
 
 #include "era_usb_session.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_via.h"
-#    include "../split/era_tomak_sync_runtime.h"
-#endif
 #ifdef ERA_MACRO_ENABLE
 #    include "era_macro.h"
 #endif
@@ -162,9 +158,6 @@ void era_common_features_task(void) {
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    era_tomak_sync_via_task();
-#endif
 #ifdef ERA_MACRO_ENABLE
     era_macro_task();
 #endif
@@ -184,11 +177,6 @@ void era_common_features_task(void) {
 }
 
 void era_common_features_maintenance_task(void) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_protected()) {
-        return;
-    }
-#endif
 #ifdef EEPROM_CUSTOM
 #    ifdef SPLIT_KEYBOARD
     /* Opportunistic erase has no deadline; a split transition does. */

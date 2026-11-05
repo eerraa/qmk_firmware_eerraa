@@ -124,7 +124,9 @@
  * an adopted transaction identity. This remains an exact accounting cap, not
  * a relaxed physical limit; the SRAM free floor and wire budgets do not move. */
 /* Eighth domain: one 16-byte manifest and one 4-byte dirty deadline. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18548U
+/* +16 bytes for storage-owned attempt, identity and semantic-intent state.
+ * This accounting equality does not change the physical SRAM free floor. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18564U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 /* The consecutive-failure abort bound is deliberately conservative. Its 1 s
@@ -209,7 +211,8 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
    the two retired deferred-abort/internal-read bytes plus their alignment. */
 /* V260909R1 adds the two 16-bit audit receipt generations: 140 -> 144.
    Moving the local news counter into local truth uses existing padding. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 148U
+/* Cancellation pause and the failed peer obligation survive relation churn. */
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 164U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -439,6 +442,7 @@ typedef struct {
     uint8_t  owner_ready;
     uint8_t  local_initiator;
     uint8_t  general_initiator_pending;
+    uint8_t  input_recovery_pending;
     uint8_t  status_revalidation_due;
     uint8_t  indicator_fast_recovery_active;
     uint8_t  local_policy_requested;
@@ -495,6 +499,13 @@ _Static_assert(sizeof(era_host_peer_storage_diagnostics_t) == ERA_HOST_PEER_STOR
 void era_host_peer_storage_init(void);
 bool era_host_peer_storage_task(uint32_t now_ms);
 bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context);
+/* Explicit semantic work, never relation revalidation or a duplicate receipt. */
+void era_host_peer_storage_note_semantic_mask(uint8_t mask);
+bool era_host_peer_storage_content_attempt_active(void);
+void era_tomak_sync_attempt_started_kb(void);
+void era_tomak_sync_failure_report_kb(void);
+/* Reevaluation notification only; no dirty or durable content claim. */
+void era_host_peer_storage_note_local_news(void);
 /* Core0's cached admission fact. True from a successful storage publication
  * until that result is consumed or cancelled; no shared record is read. */
 bool era_host_peer_storage_initiator_request_pending(void);
@@ -564,6 +575,7 @@ bool era_host_peer_storage_restart_should_wait(void);
 /* Executable work only: an admitted episode or a published lane result.
  * Queued work, idle relations and presentation obligations are not owners. */
 bool era_host_peer_storage_execution_pending(void);
+bool era_host_peer_storage_attempt_pending(void);
 /* CLEAN-only barrier after storage quarantine. It waits for an admitted
  * runtime episode to reach its coherent teardown boundary, then permanently
  * retires the dedicated Core1 request/snapshot publications and their result

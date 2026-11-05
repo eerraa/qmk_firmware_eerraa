@@ -126,7 +126,9 @@ static bool era_macro_options_persist(void) {
 
 static bool era_macro_options_via_save(uint8_t channel_id) {
     (void)channel_id;
-    return era_macro_options_persist();
+    bool accepted = era_macro_options_persist();
+    if (accepted) EECONFIG_SEMANTIC_ACCEPT(ERA_STORAGE_MACRO_OPTIONS_ADDR, ERA_STORAGE_MACRO_OPTIONS_BYTES);
+    return accepted;
 }
 
 static bool era_macro_options_via_set(uint8_t channel_id, uint8_t value_id, uint8_t *value_data, uint8_t length) {

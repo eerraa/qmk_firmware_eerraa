@@ -786,15 +786,31 @@ unchanged domains through new MATCH episodes.
 ## Storage News Value And Relation-Open Audit
 
 The responder's storage hint is a forward-only nonzero 7-bit news value, not a
-domain claim. Each settled divergent capture advances it; zero means no claim.
-A new nonzero value tells the peer only to request a fresh summary. The
-summary, not the hint, decides domains and direction.
+domain or durability claim. Settled divergent captures and accepted semantic
+reconciliation requests advance the same event counter. A same-value mutation
+may therefore request another attempt without inventing changed content.
+Compound uploads announce their logical close or settle, not every payload
+fragment. Rejected requests, duplicate receipts and polling create no event.
+A new nonzero value requests reevaluation; the summary, not the hint, decides
+domains and direction.
 
-The settled counter belongs to local storage truth and survives relation
+Acceptance comes from the validated mutation owner, including a successful
+`NO_CHANGE`, not from classifying raw request bytes or observing an OK reply.
+A macro upload contributes at its first successful live-upload close; a
+cached duplicate COMMIT contributes nothing. Stock VIA has no command nonce,
+so separate identical host submissions are independent commands. Only
+identifiable transport, transaction or nonce replays are excluded.
+
+The event counter belongs to Core0 local state and survives relation
 rotation. The consumed peer-news value resets at the scheduler's rotation
 boundary, before new-generation news can be accepted. Core1 retires its own
 received cache on the owner/relation identity; Core0 never concurrently clears
-that publication. The consumed value does **not** reset at audit startup:
+that publication. Semantic-event consumption separately survives automatic
+revalidation and rebinding: replaying the same event cannot reopen a failed
+attempt. Intent changes no EEPROM byte, baseline CRC, divergence counter, dirty
+content claim or State Sync revision.
+
+The relation-scoped consumed value does **not** reset at audit startup:
 housekeeping may already have drained current-generation standing news before
 storage runtime starts its audit. Policy-only audits also preserve it.
 Replaying an unchanged value after an all-MATCH audit must neither arm another
@@ -817,9 +833,11 @@ idle and the link is settled; transaction stamps authorize transactions only.
 summary consumes its inbox bit before the request is sent. The domainless
 active episode remains outstanding through completion, with the existing
 provisional-audit display rule. Later news can independently re-arm the inbox;
-an old result retires only its episode, never that later request. Recoverable
-summary abort restores an inbox request. A terminal refusal does not retry
-forever and discards obsolete direction queues it could not reclassify.
+an old result retires only its episode, never that later request. A failed
+summary does not restore its consumed request: another attempt requires
+genuine new work, while any independently queued later request is retained.
+A terminal summary failure discards obsolete direction queues it could not
+reclassify.
 
 New summary work revokes a selected but unsent domain token. An accepted
 whole-family summary replaces all direction masks rather than unioning them
@@ -941,9 +959,10 @@ generation-matched, duplicate responses are idempotent except the push
 (`split/communication_core/era_split_communication_core_storage.c`).
 Timeouts/stale results cannot be applied under a new relation.
 
-Episode bound `ERA_HOST_PEER_STORAGE_EPISODE_MS` 5000, re-armed only when the
-state **or** pinned operation advances (`era_host_peer_storage_note_episode_phase()`
-in `split/era_host_peer_storage.c`). Repeating `APPLY_READY` does not re-arm.
+An admitted episode has one absolute `ERA_HOST_PEER_STORAGE_EPISODE_MS` 5000
+budget, owned by `split/era_host_peer_storage.c`. State or pinned-operation
+progress and duplicate replies cannot renew it. A fresh admission, not
+revalidation of the existing episode, starts another budget.
 Retry spacing `ERA_HOST_PEER_STORAGE_RETRY_MS` 25, capped by
 `ERA_HOST_PEER_STORAGE_MAX_FAILURES`.
 
@@ -957,6 +976,66 @@ Retry spacing `ERA_HOST_PEER_STORAGE_RETRY_MS` 25, capped by
 
 Healthy device acceptance requires `program_failure_count == 0` and
 `erase_failure_count == 0`.
+
+## TOMAK Attempt Retirement And Failure Presentation
+
+One Core0 storage owner on each half owns admission, the nonrenewable attempt
+budget, terminal outcome, cancellation, ownership retirement and input
+recovery. Only the wire initiator originates connected transactions. A
+presentation adapter owns output requests and honest receipts, never a
+storage-attempt failure latch, retry policy or permission to persist.
+
+Local VIA mutations follow their ordinary validated persistence path without
+waiting for a peer or LED proof. A successful local result does not claim peer
+durability. LED readiness, failure, display completion and paired blue proofs
+cannot veto local persistence, transfer admission, new semantic work or input
+recovery. Physical-output supervision remains independent of the next flush;
+no elapsed timeout fabricates completion or permits DMA-owned buffer reuse.
+Only framebuffer ownership may defer a physical submission.
+
+Unresolved domain content and failed-work suppression survive terminal
+failure, but are records rather than a blanket responder execution gate.
+Policy alone controls the policy advertisement. SUMMARY and conflict replies
+retain truthful recency while resources retire or unchanged work is
+suppressed. A fresh identity-valid OPEN uses the existing BUSY/pinning
+handoff; stale replies, rebind and pending levels do not authorize a new
+unchanged attempt. Accepted semantic work, including same-value retry, is
+distinguished through the existing notification and transaction identities.
+New work arriving during retirement is retained without renewing the failed
+attempt's budget.
+
+Read-only SUMMARY and conflict exchanges create no remote Apply obligation.
+Their failure retires locally without an exclusive ABORT. A transfer's live
+Core1 claims must be quiesced or retired through the existing ownership
+boundary, never overwritten. Cancellation requests stop; observed safe
+retirement permits reuse. Mandatory SESSION and the existing
+FENCE/BIND/latest-baseline path then restore input, including the last release.
+Clearing a gate alone is not recovery. Existing capacity checks and accepted
+mixed local/remote action work remain intact.
+
+Progress and duplicate replies cannot renew the attempt budget or reissue a
+failed full-domain transfer indefinitely. ADMIT and durable old-or-new
+publication retain their meaning: cancellation before ADMIT changes no
+domain; recovery after durable success proceeds from the canonical new image.
+
+TOMAK's existing STATUS observes execution. Blue means an active content
+attempt, not queued or unresolved data, and ends with that execution; an
+equal-content audit stays silent. The storage owner emits one terminal
+`EEPROM_SYNC_ERROR` receipt per failed attempt, never a fabricated LINK result.
+Sleep and launch/link failures retain priority; SYNC failure outranks ordinary
+blue and success. Reuse the existing red 640-ms ON and 160-ms tail. An
+initially hidden receipt waits for its first eligible display, then expires
+without holding input or clearing unresolved data. Admissions and revalidation
+leave that receipt intact. Overlapping terminal receipts coalesce without
+restarting its clock; a terminal receipt after expiry can arm another finite
+indication.
+
+Failure indication is local-first and best-effort across the link. There is no
+new failure broadcast or guarantee of simultaneous bilateral display; dead
+LEDs cannot show a receipt and sleep is not overridden. Availability remains
+conditional on advancing clocks, finite handlers, safe claim retirement, link
+progress and action/HID capacity. Source deadlines are not measured hardware
+latency bounds.
 
 ## Inactive-Bank Maintenance And Rotation
 
@@ -1087,10 +1166,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 148 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18548 |
-| Core0 storage state | 148 bytes; includes the independent relation/policy audit receipt and eighth domain's dirty deadline |
-| cause-instrumented storage aggregate | 20164 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 164 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18564 |
+| Core0 storage state | 164 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, and storage-owned attempt, identity and semantic-intent state |
+| cause-instrumented storage aggregate | 20180 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never

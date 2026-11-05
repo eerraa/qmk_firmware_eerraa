@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "eeprom.h"
+#include "eeconfig.h"
 #include "eeprom_driver.h"
 #include "dynamic_keymap.h"
 #include "wear_leveling.h"

@@ -15,7 +15,3 @@ bool era_split_transport_scheduler_stop_communication_core_for_flash_write(void)
 bool era_split_transport_scheduler_initiator_route_available(void);
 bool era_split_transport_scheduler_poll_core1_initiator(void);
 void era_split_transport_scheduler_execute_owner_route(void);
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "../era_tomak_sync_wire.h"
-bool era_split_transport_scheduler_submit_sync(const era_tomak_sync_wire_t *message);
-#endif

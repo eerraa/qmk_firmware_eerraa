@@ -60,6 +60,21 @@ void eeconfig_require_reset(void);
 bool eeconfig_is_init_required(void);
 bool eeconfig_is_disabled(void);
 
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+/* An accepted scope also records which validated writers actually ran.
+ * A successful void return alone does not establish a semantic mutation. */
+void eeconfig_semantic_begin(void);
+void eeconfig_semantic_end(bool accepted);
+void eeconfig_semantic_accept(uint32_t offset, uint32_t length);
+#    define EECONFIG_SEMANTIC_BEGIN() eeconfig_semantic_begin()
+#    define EECONFIG_SEMANTIC_END(ok) eeconfig_semantic_end(ok)
+#    define EECONFIG_SEMANTIC_ACCEPT(offset, length) eeconfig_semantic_accept(offset, length)
+#else
+#    define EECONFIG_SEMANTIC_BEGIN() ((void)0)
+#    define EECONFIG_SEMANTIC_END(ok) ((void)0)
+#    define EECONFIG_SEMANTIC_ACCEPT(offset, length) ((void)0)
+#endif
+
 void eeconfig_init(void);
 void eeconfig_init_quantum(void);
 void eeconfig_init_kb(void);
@@ -181,7 +196,9 @@ void     eeconfig_init_user_datablock(void);
     }                                                                   \
     static inline void eeconfig_flush_##name(bool force) {              \
         if (force || dirty_##name) {                                    \
+            EECONFIG_SEMANTIC_BEGIN();                                  \
             eeconfig_update_##name(&config);                            \
+            EECONFIG_SEMANTIC_END(eeprom_persistence_ok());              \
             if (eeprom_persistence_ok()) {                              \
                 eeconfig_post_flush_##name();                           \
                 dirty_##name = false;                                   \
@@ -206,12 +223,6 @@ void     eeconfig_init_user_datablock(void);
     }
 
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
-#    ifdef ERA_TOMAK_SYNC_ENABLE
-bool era_tomak_sync_runtime_protected(void);
-#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() era_tomak_sync_runtime_protected()
-#    else
-#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() false
-#    endif
 /* Consume the current approval before writing; a failed durability receipt
  * re-arms it. A later approval must not be cleared by the old flush. */
 // clang-format off
@@ -240,11 +251,12 @@ bool era_tomak_sync_runtime_protected(void);
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name(bool force) {             \
-            if (!force && EECONFIG_DEFERRED_OUTPUT_PROTECTED()) return;     \
             if (force || (dirty_##name && eeconfig_deferred_ready_##name())) { \
                 dirty_##name = false;                                      \
                 deferred_##name = false;                                   \
+                EECONFIG_SEMANTIC_BEGIN();                                  \
                 eeconfig_update_##name(&config);                           \
+                EECONFIG_SEMANTIC_END(eeprom_persistence_ok());              \
                 if (eeprom_persistence_ok()) eeconfig_post_flush_##name(); \
                 else eeconfig_schedule_deferred_flush_##name();           \
             }                                                              \

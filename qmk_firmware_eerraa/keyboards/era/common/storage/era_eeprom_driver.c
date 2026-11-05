@@ -57,6 +57,10 @@ static uint32_t s_edit_semantic_mask;
 #endif
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 static uint8_t s_edit_domain_mask;
+static struct {
+    uint8_t depth, mask, pending;
+    bool failed;
+} semantic;
 #endif
 static bool s_edit_completing;
 
@@ -79,6 +83,43 @@ static bool era_eeprom_driver_range_touches_macro(uint32_t address, size_t lengt
     return false;
 #endif
 }
+
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+static void era_eeprom_driver_observe_semantic_write(uint32_t address, size_t length) {
+    if (!semantic.depth || !era_eeprom_driver_range_valid(address, length)) return;
+    semantic.mask |= era_host_peer_storage_eeprom_domain_mask(address, length);
+}
+
+__attribute__((weak)) uint8_t era_host_peer_storage_eeprom_domain_mask(uint32_t offset, uint32_t length) {
+    (void)offset;
+    (void)length;
+    return 0;
+}
+
+__attribute__((weak)) void era_host_peer_storage_note_semantic_mask(uint8_t mask) {
+    (void)mask;
+}
+
+void eeconfig_semantic_begin(void) {
+    if (!semantic.depth) {
+        semantic.mask = 0;
+        semantic.failed = false;
+    }
+    ++semantic.depth;
+}
+
+void eeconfig_semantic_accept(uint32_t offset, uint32_t length) {
+    era_eeprom_driver_observe_semantic_write(offset, length);
+}
+
+void eeconfig_semantic_end(bool accepted) {
+    if (!semantic.depth) return;
+    semantic.failed |= !accepted || !eeprom_persistence_ok();
+    if (--semantic.depth || semantic.failed || !semantic.mask) return;
+    if (eeprom_transaction_active()) semantic.pending |= semantic.mask;
+    else era_host_peer_storage_note_semantic_mask(semantic.mask);
+}
+#endif
 
 static uint32_t macro_serial;
 uint32_t era_eeprom_driver_macro_serial(void) { return macro_serial; }
@@ -134,6 +175,9 @@ void eeprom_driver_init(void) {
     memset(&s_era_eeprom_nvm, 0, sizeof(s_era_eeprom_nvm));
     s_era_eeprom_ready = false;
     s_edit_completing = false;
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    memset(&semantic, 0, sizeof(semantic));
+#endif
 
     if (!era_nvm_rp2040_flash_bind(&flash)) {
         return;
@@ -184,6 +228,9 @@ void eeprom_read_block(void *buf, const void *addr, size_t len) {
     }
     if (buf == NULL || !s_era_eeprom_ready ||
         era_nvm_qmk_read(&s_era_eeprom_nvm, (uint32_t)(uintptr_t)addr, buf, len) != ERA_NVM_RESULT_OK) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        if (semantic.depth) semantic.failed = true;
+#endif
         s_era_eeprom_write_ok = false;
         if (s_era_eeprom_nvm.edit_depth) s_era_eeprom_nvm.edit_failed = true;
         if (buf != NULL) {
@@ -195,6 +242,9 @@ void eeprom_read_block(void *buf, const void *addr, size_t len) {
 void eeprom_write_block(const void *buf, void *addr, size_t len) {
     if (len == 0U) return;
     if (buf == NULL || !era_eeprom_driver_ready()) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        if (semantic.depth) semantic.failed = true;
+#endif
         s_era_eeprom_write_ok = false;
         s_era_eeprom_nvm.edit_failed = true;
         return;
@@ -203,10 +253,16 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
     uint32_t       address = (uint32_t)(uintptr_t)addr;
     const uint8_t *source  = (const uint8_t *)buf;
     if (!era_eeprom_driver_range_valid(address, len)) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+        if (semantic.depth) semantic.failed = true;
+#endif
         s_era_eeprom_write_ok = false;
         s_era_eeprom_nvm.edit_failed = true;
         return;
     }
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_eeprom_driver_observe_semantic_write(address, len);
+#endif
 
 #ifdef ERA_TOMAK_SYNC_TIMING
     era_sync_timing_write_begin(len);
@@ -273,7 +329,7 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
     /* The stock VIA final marker is an explicit boundary too, but only after
      * a successful durable close. RESET has its own mode and retains its
      * independent publication and ordinary quiet period. */
-    if (legacy_macro_open && result == ERA_NVM_RESULT_OK &&
+    if (legacy_macro_open && (result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE) &&
         s_era_eeprom_nvm.macro_mode == ERA_NVM_MACRO_IDLE) {
         era_host_peer_storage_note_macro_commit_ready();
     }
@@ -282,10 +338,16 @@ void eeprom_write_block(const void *buf, void *addr, size_t len) {
     era_sync_timing_write_end(timer_read32() - timing_start);
 #endif
     s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (!s_era_eeprom_write_ok && semantic.depth) semantic.failed = true;
+#endif
     if (!s_era_eeprom_write_ok) s_era_eeprom_nvm.edit_failed = true;
 }
 
 bool eeprom_driver_can_skip_write(uint32_t address, size_t length) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_eeprom_driver_observe_semantic_write(address, length);
+#endif
     /* An equal macro byte is still a received transcript event (including
      * CLOSE). Ordinary updates retain their no-op optimization. */
     return !era_eeprom_driver_range_touches_macro(address, length) &&
@@ -301,6 +363,7 @@ bool eeprom_begin_transaction(void) {
 #endif
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
         s_edit_domain_mask = 0;
+        semantic.pending = 0;
 #endif
     }
     return ok;
@@ -309,6 +372,9 @@ bool eeprom_begin_transaction(void) {
 bool eeprom_transaction_active(void) { return s_era_eeprom_nvm.edit_depth != 0U; }
 
 void eeprom_reject_write(void) {
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (semantic.depth) semantic.failed = true;
+#endif
     s_era_eeprom_write_ok = false;
     if (eeprom_transaction_active()) s_era_eeprom_nvm.edit_failed = true;
 }
@@ -318,6 +384,16 @@ bool eeprom_end_transaction(void) {
     era_nvm_result_t result = era_nvm_end(&s_era_eeprom_nvm);
     s_edit_completing = false;
     s_era_eeprom_write_ok = result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE || result == ERA_NVM_RESULT_STAGED;
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    if (!eeprom_transaction_active()) {
+        if (s_era_eeprom_write_ok && semantic.pending) {
+            if (semantic.depth) semantic.mask |= semantic.pending;
+            else era_host_peer_storage_note_semantic_mask(semantic.pending);
+        }
+        semantic.pending = 0;
+        if (!s_era_eeprom_write_ok && semantic.depth) semantic.failed = true;
+    }
+#endif
     if (!eeprom_transaction_active()) eeprom_transaction_complete(s_era_eeprom_write_ok);
     return s_era_eeprom_write_ok;
 }
@@ -337,9 +413,13 @@ era_nvm_result_t era_eeprom_driver_macro_data(uint32_t offset, const void *data,
     return era_nvm_macro_replace_data(&s_era_eeprom_nvm, offset, data, length);
 }
 era_nvm_result_t era_eeprom_driver_macro_commit(uint32_t crc32) {
+    bool open = era_eeprom_driver_macro_replace_open();
     era_nvm_result_t result = era_nvm_macro_replace_commit(&s_era_eeprom_nvm, crc32);
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    if (result == ERA_NVM_RESULT_OK) era_host_peer_storage_note_macro_commit_ready();
+    if (open && (result == ERA_NVM_RESULT_OK || result == ERA_NVM_RESULT_NO_CHANGE))
+        era_host_peer_storage_note_macro_commit_ready();
+#else
+    (void)open;
 #endif
     return result;
 }

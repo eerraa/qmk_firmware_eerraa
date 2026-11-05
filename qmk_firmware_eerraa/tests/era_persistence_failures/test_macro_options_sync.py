@@ -78,6 +78,7 @@ int main(void) {
         fresh(); era_macro_options_init();
         assert(era_macro_options_flags(0) == 0 && era_macro_options_repeat_count(0) == 1);
         memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));
+        g_era_host_peer_storage_runtime.episode_deadline_ms = 1000;
         memset(&g_era_host_peer_storage_local, 0, sizeof(g_era_host_peer_storage_local));
         g_era_host_peer_storage_runtime.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS;
         g_era_host_peer_storage_runtime.image_size = g_era_host_peer_storage_runtime.staged_bytes = sizeof(source);

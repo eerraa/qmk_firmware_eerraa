@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib, json, re, subprocess
+from eeconfig_fixture import semantic_api
 
 import os, sys
 ROOT = Path(os.environ.get('ERA_FIXTURE_ROOT', Path(__file__).resolve().parents[2]))
@@ -52,6 +53,7 @@ write('stub/quantum.h',r'''
 #include <stddef.h>
 #include "eeprom.h"
 #include "quantum/keycodes.h"
+#include "eeconfig.h"
 typedef struct { struct { bool pressed; uint32_t time; } event; } keyrecord_t;
 typedef struct { uint8_t count; } tap_dance_state_t;
 #define MIN(a,b) ((a)<(b)?(a):(b))
@@ -70,7 +72,8 @@ write('stub/eeconfig.h',r'''
 void eeconfig_read_keymap(keymap_config_t *c);
 void eeconfig_update_keymap(const keymap_config_t *c);
 void eeconfig_init(void);
-''')
+''' + semantic_api(src('quantum/eeconfig.h')))
+record('quantum/eeconfig.h', mode='exact semantic API conditional extraction')
 keymap=src('quantum/keycode_config.h')
 start=keymap.index('typedef union keymap_config_t')
 end=keymap.index('} keymap_config_t;')+len('} keymap_config_t;')

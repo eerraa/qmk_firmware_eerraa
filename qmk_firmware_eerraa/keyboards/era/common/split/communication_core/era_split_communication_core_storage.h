@@ -118,8 +118,8 @@ typedef struct {
      * staging / applying / durable, which is what the admitted COMPLETE
      * poll answers from. */
     uint8_t  push_state;
-    /* The eighth counter consumes two reserved bytes, keeping this 64 bytes. */
-    uint8_t  reserved[6];
+    uint16_t terminal_transaction;
+    uint8_t  reserved[4];
 } era_split_communication_core_storage_responder_snapshot_t;
 
 enum {

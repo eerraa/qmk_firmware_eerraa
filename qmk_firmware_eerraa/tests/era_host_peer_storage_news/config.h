@@ -6,6 +6,8 @@
 #define MATRIX_ROWS 12
 #define MATRIX_COLS 11
 #define RGB_MATRIX_LED_COUNT 99
+#define EEPROM_CUSTOM
+#define EEPROM_SIZE 24576
 #ifndef QMK_KEYBOARD_H
 #    define QMK_KEYBOARD_H "quantum.h"
 #endif

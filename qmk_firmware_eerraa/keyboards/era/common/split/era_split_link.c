@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "era_split_link.h"
+#include "../system/era_status_terminal_pulse.h"
 
 #include <string.h>
 
@@ -520,10 +521,7 @@ bool era_split_link_apply_report_advance(era_split_link_apply_status_t *status, 
         uint32_t elapsed = timer_elapsed32(g_era_split_link.apply_report_since_ms);
         /* One terminal pulse for success (including no change) or failure.
          * No progress cadence and no minimum animation before completion. */
-        lit = elapsed < 640U;
-        if (elapsed >= 640U + 160U) {
-            g_era_split_link.apply_report_active = false;
-        }
+        g_era_split_link.apply_report_active = era_status_terminal_pulse(elapsed, &lit);
     }
     if (status != NULL) {
         *status = g_era_split_link.apply_status;
