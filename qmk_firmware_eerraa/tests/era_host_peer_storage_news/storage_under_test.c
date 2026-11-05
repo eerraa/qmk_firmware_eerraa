@@ -76,9 +76,9 @@ bool era_eeprom_driver_macro_transaction_open(void) { return macro_open; }
 #endif
 void era_test_news_macro_open(bool open) {
     macro_open = open;
-    if (open) macro_generation = era_host_peer_storage_operation_admit(
-        1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO, true);
-    else era_host_peer_storage_operation_end(macro_generation, false);
+    if (open) macro_generation = era_host_peer_storage_contribution_admit(ERA_STORAGE_PRODUCER_MACRO,
+        1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO);
+    else era_host_peer_storage_contribution_end(macro_generation, false);
 }
 uint32_t era_test_news_retry_delay(void) {
     g_era_host_peer_storage_runtime.retry_count = 0;
@@ -234,6 +234,7 @@ uint32_t sync_timer_read32(void) { return timer_read32(); }
 
 void era_test_news_start_summary(void) {
     g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+    g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
     era_host_peer_storage_begin_summary_episode();
 }
 void era_test_news_complete_summary(uint8_t mine, uint8_t peer) {

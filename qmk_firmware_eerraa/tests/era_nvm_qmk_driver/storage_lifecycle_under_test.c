@@ -30,7 +30,7 @@ void era_test_storage_deferred_flush(void) { eeconfig_run_deferred_flush_rgb_mat
 void era_test_storage_approve_then_fail_immediate(void) {
     EECONFIG_SEMANTIC_BEGIN();
     era_test_storage_deferred_approve(true);
-    eeprom_update_byte((void *)(uintptr_t)ERA_STORAGE_DYNAMIC_KEYMAP_ADDR, 1);
+    eeprom_update_byte((void *)(uintptr_t)ERA_STORAGE_EECONFIG_RGB_MATRIX_ADDR, 1);
     EECONFIG_SEMANTIC_END(eeprom_persistence_ok());
 }
 

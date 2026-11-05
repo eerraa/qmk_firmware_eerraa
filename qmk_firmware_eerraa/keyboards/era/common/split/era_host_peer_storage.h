@@ -58,12 +58,20 @@
 #define ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS 30000U
 #define ERA_HOST_PEER_STORAGE_OPERATION_MS 30000U
 
-uint32_t era_host_peer_storage_operation_admit(uint8_t mask, bool upload);
-bool era_host_peer_storage_operation_live(uint32_t generation);
-void era_host_peer_storage_operation_extend(uint32_t generation, uint8_t mask);
-void era_host_peer_storage_operation_committed(uint32_t generation, uint8_t mask);
-void era_host_peer_storage_operation_progress(uint32_t generation);
-void era_host_peer_storage_operation_end(uint32_t generation, bool failed);
+typedef enum {
+    ERA_STORAGE_PRODUCER_MACRO,
+    ERA_STORAGE_PRODUCER_SEMANTIC,
+    ERA_STORAGE_PRODUCER_DEFERRED_RGB_MATRIX,
+    ERA_STORAGE_PRODUCER_DEFERRED_KEYBOARD,
+    ERA_STORAGE_PRODUCER_COUNT,
+} era_host_peer_storage_producer_t;
+
+uint32_t era_host_peer_storage_contribution_admit(era_host_peer_storage_producer_t producer, uint8_t mask);
+bool era_host_peer_storage_contribution_live(uint32_t token);
+void era_host_peer_storage_contribution_extend(uint32_t token, uint8_t mask);
+bool era_host_peer_storage_contribution_committed(uint32_t token, uint8_t mask, bool final);
+void era_host_peer_storage_contribution_progress(uint32_t token);
+void era_host_peer_storage_contribution_end(uint32_t token, bool failed);
 void era_host_peer_storage_operation_task(uint32_t now_ms);
 #define ERA_HOST_PEER_STORAGE_CHUNK_BYTES 252U
 #define ERA_HOST_PEER_STORAGE_MAX_CHUNKS 66U
@@ -137,8 +145,8 @@ void era_host_peer_storage_operation_task(uint32_t now_ms);
 /* Eighth domain: one 16-byte manifest and one 4-byte dirty deadline. */
 /* +16 bytes for storage-owned attempt, identity and semantic-intent state.
  * This accounting equality does not change the physical SRAM free floor. */
-/* +60 bytes of actual operation/frontier state; physical SRAM floors are unchanged. */
-#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18624U
+/* Four contribution seats add 76 bytes net; physical SRAM floors are unchanged. */
+#define ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES 18700U
 #define ERA_HOST_PEER_STORAGE_EPISODE_MS 5000U
 #define ERA_HOST_PEER_STORAGE_RETRY_MS 25U
 /* The consecutive-failure abort bound is deliberately conservative. Its 1 s
@@ -224,7 +232,7 @@ _Static_assert(2U * ERA_HOST_PEER_STORAGE_PEER_SILENCE_MS <= ERA_HOST_PEER_STORA
 /* V260909R1 adds the two 16-bit audit receipt generations: 140 -> 144.
    Moving the local news counter into local truth uses existing padding. */
 /* Cancellation pause and the failed peer obligation survive relation churn. */
-#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 224U
+#define ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES 300U
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 #    ifndef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE

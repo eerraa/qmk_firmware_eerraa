@@ -82,7 +82,6 @@ typedef struct {
 enum {
     ERA_STORAGE_OPERATION_NONE,
     ERA_STORAGE_OPERATION_PREPARING,
-    ERA_STORAGE_OPERATION_UPLOAD,
     ERA_STORAGE_OPERATION_RECONCILING,
     ERA_STORAGE_OPERATION_RELEASING,
 };
@@ -92,7 +91,6 @@ enum {
     ERA_STORAGE_OPERATION_FAILED,
     ERA_STORAGE_OPERATION_SUPERSEDED,
     ERA_STORAGE_OPERATION_OUTCOME_MASK = 3U,
-    ERA_STORAGE_OPERATION_LOCAL = 1U << 7,
     ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING = 1U << 6,
     ERA_STORAGE_OPERATION_WAIT_CONTEXT = 1U << 5,
 };
@@ -100,13 +98,26 @@ enum {
 typedef struct {
     uint32_t generation;
     uint32_t deadline_ms;
-    uint32_t commit_ceiling_ms;
     uint8_t remaining_mask;
     uint8_t preparing_mask;
     uint8_t phase;
     uint8_t outcome;
     uint8_t settle_mask;
+    uint8_t local_mask;
 } era_host_peer_storage_operation_t;
+_Static_assert(sizeof(era_host_peer_storage_operation_t) == 16U, "ERA batch accounting changed.");
+
+typedef struct {
+    uint32_t token;
+    uint32_t operation_generation;
+    uint32_t deadline_ms;
+    uint32_t idle_deadline_ms;
+    uint8_t mask;
+    uint8_t live;
+} era_host_peer_storage_contribution_t;
+
+_Static_assert(ERA_STORAGE_PRODUCER_COUNT == 4U, "ERA contribution tokens reserve two producer bits.");
+_Static_assert(sizeof(era_host_peer_storage_contribution_t) == 20U, "ERA contribution accounting changed.");
 
 /* Local-EEPROM truth: what this half knows about its own store — manifests'
  * companions (dirty deadlines, capture/revision counters) and the pinned
@@ -166,11 +177,14 @@ typedef struct {
     uint8_t  failure_reported;
     era_host_peer_storage_operation_t operation;
     era_host_peer_storage_operation_t successor;
+    era_host_peer_storage_contribution_t contributions[ERA_STORAGE_PRODUCER_COUNT];
     uint32_t operation_generation;
-    uint32_t upload_idle_deadline_ms;
+    uint32_t contribution_generation;
+    uint32_t macro_cleanup_deadline_ms;
     uint32_t episode_operation_generation;
     uint32_t snapshot_operation_generation;
     uint8_t snapshot_operation_mask;
+    uint8_t episode_operation_mask;
 } era_host_peer_storage_local_state_t;
 
 /* Relation-scoped episode bookkeeping: probe scheduling, hint consumption,
@@ -532,14 +546,14 @@ static era_host_peer_storage_operation_t *era_host_peer_storage_operation_find(u
     return NULL;
 }
 
-bool era_host_peer_storage_operation_live(uint32_t generation) {
+static bool era_host_peer_storage_operation_live(uint32_t generation) {
     era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
     return operation && operation->phase != ERA_STORAGE_OPERATION_NONE &&
            (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS;
 }
 
-static uint32_t era_host_peer_storage_operation_admit_internal(uint8_t mask, bool upload, bool local) {
-    if (!g_era_host_peer_storage_local.initialized || !mask) return 0;
+static era_host_peer_storage_operation_t *era_host_peer_storage_operation_admit_internal(void) {
+    if (!g_era_host_peer_storage_local.initialized) return NULL;
     era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
     if (operation->phase != ERA_STORAGE_OPERATION_NONE) operation = &g_era_host_peer_storage_local.successor;
     if (operation->phase == ERA_STORAGE_OPERATION_NONE) {
@@ -547,57 +561,103 @@ static uint32_t era_host_peer_storage_operation_admit_internal(uint8_t mask, boo
         if (!generation) generation = ++g_era_host_peer_storage_local.operation_generation;
         *operation = (era_host_peer_storage_operation_t){
             .generation = generation,
-            .deadline_ms = timer_read32() + (upload ? ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS : ERA_HOST_PEER_STORAGE_OPERATION_MS),
-            .commit_ceiling_ms = upload ? 0 : timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS,
-            .phase = upload ? ERA_STORAGE_OPERATION_UPLOAD : ERA_STORAGE_OPERATION_PREPARING,
-            .outcome = upload ? 0 : ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING,
+            .deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS,
+            .phase = ERA_STORAGE_OPERATION_PREPARING,
         };
         g_era_host_peer_storage_local.failure_reported = 0;
         era_tomak_sync_attempt_started_kb();
     }
-    if (!upload && !(operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING)) {
-        operation->commit_ceiling_ms = timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS;
-        operation->outcome |= ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING;
+    return operation;
+}
+
+static void era_host_peer_storage_operation_limit(era_host_peer_storage_operation_t *operation, uint32_t deadline_ms) {
+    if (!(operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING) ||
+        (int32_t)(deadline_ms - operation->deadline_ms) < 0)
+        operation->deadline_ms = deadline_ms;
+    operation->outcome |= ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING;
+}
+
+static void era_host_peer_storage_operation_refresh_preparation(era_host_peer_storage_operation_t *operation) {
+    operation->preparing_mask = 0;
+    for (uint8_t producer = 0; producer < ERA_STORAGE_PRODUCER_COUNT; ++producer) {
+        const era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+        if (contribution->live && contribution->operation_generation == operation->generation)
+            operation->preparing_mask |= contribution->mask;
     }
-    if (local) operation->outcome |= ERA_STORAGE_OPERATION_LOCAL;
-    if (upload) operation->phase = ERA_STORAGE_OPERATION_UPLOAD;
+    if ((operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS)
+        operation->phase = operation->remaining_mask ? ERA_STORAGE_OPERATION_RECONCILING :
+                           operation->preparing_mask ? ERA_STORAGE_OPERATION_PREPARING :
+                                                       ERA_STORAGE_OPERATION_RELEASING;
+}
+
+static uint32_t era_host_peer_storage_operation_ready(uint8_t mask) {
+    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_admit_internal();
+    if (!operation || !mask) return 0;
+    era_host_peer_storage_operation_limit(operation, timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS);
     operation->remaining_mask |= mask;
-    operation->preparing_mask |= mask;
-    if (upload) g_era_host_peer_storage_local.upload_idle_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS;
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
     return operation->generation;
 }
 
-uint32_t era_host_peer_storage_operation_admit(uint8_t mask, bool upload) {
-    return era_host_peer_storage_operation_admit_internal(mask, upload, true);
+static era_host_peer_storage_contribution_t *era_host_peer_storage_contribution_find(uint32_t token) {
+    if (!token) return NULL;
+    era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[token & 3U];
+    if (contribution->token != token || !contribution->live ||
+        !era_host_peer_storage_operation_live(contribution->operation_generation)) return NULL;
+    return contribution;
 }
 
-void era_host_peer_storage_operation_extend(uint32_t generation, uint8_t mask) {
-    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
-    if (!operation || (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) return;
+bool era_host_peer_storage_contribution_live(uint32_t token) {
+    return era_host_peer_storage_contribution_find(token) != NULL;
+}
+
+uint32_t era_host_peer_storage_contribution_admit(era_host_peer_storage_producer_t producer, uint8_t mask) {
+    if (producer >= ERA_STORAGE_PRODUCER_COUNT || !mask || !g_era_host_peer_storage_local.initialized) return 0;
+    era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+    if (contribution->live) return contribution->token;
+    /* Incarnations never wrap into an outstanding/stale callback's token. */
+    if (g_era_host_peer_storage_local.contribution_generation == (UINT32_MAX >> 2)) return 0;
+    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_admit_internal();
+    if (!operation) return 0;
+    uint32_t now_ms = timer_read32();
+    *contribution = (era_host_peer_storage_contribution_t){
+        .token = (++g_era_host_peer_storage_local.contribution_generation << 2) | producer,
+        .operation_generation = operation->generation,
+        .deadline_ms = now_ms + (producer == ERA_STORAGE_PRODUCER_MACRO ?
+                                    ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS : ERA_HOST_PEER_STORAGE_OPERATION_MS),
+        .idle_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS,
+        .mask = mask,
+        .live = 1,
+    };
+    if (producer != ERA_STORAGE_PRODUCER_MACRO)
+        era_host_peer_storage_operation_limit(operation, contribution->deadline_ms);
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    return contribution->token;
+}
+
+void era_host_peer_storage_contribution_extend(uint32_t token, uint8_t mask) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution) return;
+    contribution->mask |= mask;
+    era_host_peer_storage_operation_refresh_preparation(
+        era_host_peer_storage_operation_find(contribution->operation_generation));
+}
+
+bool era_host_peer_storage_contribution_committed(uint32_t token, uint8_t mask, bool final) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution || !(mask &= contribution->mask)) return false;
+    era_host_peer_storage_operation_t *operation =
+        era_host_peer_storage_operation_find(contribution->operation_generation);
+    if ((token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        era_host_peer_storage_operation_limit(operation, timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS);
+    if (final) contribution->live = 0;
     operation->remaining_mask |= mask;
-    operation->preparing_mask |= mask;
-}
-
-static void era_host_peer_storage_operation_committed_internal(uint32_t generation, uint8_t mask, bool quiet) {
-    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
-    if (!operation || (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) return;
-    if (operation->phase == ERA_STORAGE_OPERATION_UPLOAD &&
-        (mask & (1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO))) {
-        operation->deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS;
-        if ((operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING) &&
-            (int32_t)(operation->commit_ceiling_ms - operation->deadline_ms) < 0)
-            operation->deadline_ms = operation->commit_ceiling_ms;
-        operation->phase = ERA_STORAGE_OPERATION_RECONCILING;
-    }
-    operation->preparing_mask &= (uint8_t)~mask;
-    if (quiet) operation->settle_mask |= mask;
-    if (operation->phase != ERA_STORAGE_OPERATION_UPLOAD)
-        operation->phase = ERA_STORAGE_OPERATION_RECONCILING;
+    operation->local_mask |= mask;
+    operation->settle_mask |= mask;
+    era_host_peer_storage_operation_refresh_preparation(operation);
     g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
-}
-
-void era_host_peer_storage_operation_committed(uint32_t generation, uint8_t mask) {
-    era_host_peer_storage_operation_committed_internal(generation, mask, true);
+    return true;
 }
 
 static void era_host_peer_storage_operation_settled(uint8_t mask) {
@@ -605,11 +665,10 @@ static void era_host_peer_storage_operation_settled(uint8_t mask) {
     g_era_host_peer_storage_local.successor.settle_mask &= (uint8_t)~mask;
 }
 
-void era_host_peer_storage_operation_progress(uint32_t generation) {
-    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
-    if (operation && operation->phase == ERA_STORAGE_OPERATION_UPLOAD &&
-        (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS)
-        g_era_host_peer_storage_local.upload_idle_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS;
+void era_host_peer_storage_contribution_progress(uint32_t token) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (contribution && (token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        contribution->idle_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS;
 }
 
 static void era_host_peer_storage_operation_suppress(era_host_peer_storage_operation_t *operation) {
@@ -623,37 +682,77 @@ static void era_host_peer_storage_operation_suppress(era_host_peer_storage_opera
     era_host_peer_storage_refresh_next_dirty_deadline(timer_read32());
 }
 
-void era_host_peer_storage_operation_end(uint32_t generation, bool failed) {
-    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
+static void era_host_peer_storage_operation_retire_contributions(era_host_peer_storage_operation_t *operation) {
+    for (uint8_t producer = 0; producer < ERA_STORAGE_PRODUCER_COUNT; ++producer) {
+        era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+        if (!contribution->live || contribution->operation_generation != operation->generation) continue;
+        if (producer == ERA_STORAGE_PRODUCER_MACRO) {
+            (void)era_eeprom_driver_macro_abort_owned(contribution->token);
+#ifdef ERA_MACRO_REPLACE_ENABLE
+            era_macro_replace_expire(contribution->token);
+#endif
+            g_era_host_peer_storage_local.macro_cleanup_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_RETRY_MS;
+        }
+        contribution->live = 0;
+    }
+    era_host_peer_storage_operation_refresh_preparation(operation);
+}
+
+static void era_host_peer_storage_operation_fail(era_host_peer_storage_operation_t *operation) {
     if (!operation || (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) return;
-    if (operation->phase == ERA_STORAGE_OPERATION_UPLOAD)
-        g_era_host_peer_storage_local.upload_idle_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_RETRY_MS;
     operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
-        (failed ? ERA_STORAGE_OPERATION_FAILED : ERA_STORAGE_OPERATION_SUPERSEDED);
+        ERA_STORAGE_OPERATION_FAILED;
     operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+    era_host_peer_storage_operation_retire_contributions(operation);
+    era_host_peer_storage_operation_suppress(operation);
     if (operation == &g_era_host_peer_storage_local.operation) {
-        if (failed) era_host_peer_storage_operation_suppress(operation);
-        era_host_peer_storage_peer_begin_abort(failed ? ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT :
-                                                       ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED, timer_read32());
-    } else if (failed) {
-        era_host_peer_storage_operation_suppress(operation);
+        g_era_host_peer_storage_local.failure_reported = 0;
+        era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT, timer_read32());
+    } else {
         era_tomak_sync_failure_report_kb();
         memset(operation, 0, sizeof(*operation));
-    } else {
-        memset(operation, 0, sizeof(*operation));
+    }
+}
+
+void era_host_peer_storage_contribution_end(uint32_t token, bool failed) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution) return;
+    era_host_peer_storage_operation_t *operation =
+        era_host_peer_storage_operation_find(contribution->operation_generation);
+    contribution->live = 0;
+    if ((token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        g_era_host_peer_storage_local.macro_cleanup_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_RETRY_MS;
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    if (failed) {
+        era_tomak_sync_failure_report_kb();
+        g_era_host_peer_storage_local.failure_reported = 1;
+    }
+    /* A receipt owns its preparation, never other producers or READY debt. */
+    if (!operation->remaining_mask && !operation->preparing_mask) {
+        operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
+            (failed ? ERA_STORAGE_OPERATION_FAILED : ERA_STORAGE_OPERATION_SUPERSEDED);
+        operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+        if (operation == &g_era_host_peer_storage_local.operation) {
+            if (g_era_host_peer_storage_relation.active_due &&
+                g_era_host_peer_storage_local.episode_operation_generation == operation->generation)
+                era_host_peer_storage_peer_begin_abort(failed ? ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT :
+                                                               ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED, timer_read32());
+        } else {
+            memset(operation, 0, sizeof(*operation));
+        }
     }
 }
 
 void era_host_peer_storage_operation_task(uint32_t now_ms) {
     uint32_t macro_generation = era_eeprom_driver_macro_operation_generation();
-    if (macro_generation && !era_host_peer_storage_operation_live(macro_generation) &&
+    if (macro_generation && !era_host_peer_storage_contribution_live(macro_generation) &&
         era_eeprom_driver_macro_transaction_open() &&
-        timer_expired32(now_ms, g_era_host_peer_storage_local.upload_idle_deadline_ms)) {
+        timer_expired32(now_ms, g_era_host_peer_storage_local.macro_cleanup_deadline_ms)) {
         (void)era_eeprom_driver_macro_abort_owned(macro_generation);
 #ifdef ERA_MACRO_REPLACE_ENABLE
         era_macro_replace_expire(macro_generation);
 #endif
-        g_era_host_peer_storage_local.upload_idle_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+        g_era_host_peer_storage_local.macro_cleanup_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
     }
     era_host_peer_storage_operation_t *operations[] = {
         &g_era_host_peer_storage_local.operation, &g_era_host_peer_storage_local.successor,
@@ -662,17 +761,17 @@ void era_host_peer_storage_operation_task(uint32_t now_ms) {
         era_host_peer_storage_operation_t *operation = operations[i];
         if (operation->phase == ERA_STORAGE_OPERATION_NONE) continue;
         if ((operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) continue;
-        if (timer_expired32(now_ms, operation->deadline_ms) ||
-            (operation->phase == ERA_STORAGE_OPERATION_UPLOAD &&
-             timer_expired32(now_ms, g_era_host_peer_storage_local.upload_idle_deadline_ms))) {
-            if (operation->phase == ERA_STORAGE_OPERATION_UPLOAD) {
-                (void)era_eeprom_driver_macro_abort_owned(operation->generation);
+        if ((operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING) &&
+            timer_expired32(now_ms, operation->deadline_ms))
+            era_host_peer_storage_operation_fail(operation);
+    }
+    era_host_peer_storage_contribution_t *macro = &g_era_host_peer_storage_local.contributions[ERA_STORAGE_PRODUCER_MACRO];
+    if (macro->live && (timer_expired32(now_ms, macro->deadline_ms) || timer_expired32(now_ms, macro->idle_deadline_ms))) {
+        (void)era_eeprom_driver_macro_abort_owned(macro->token);
 #ifdef ERA_MACRO_REPLACE_ENABLE
-                era_macro_replace_expire(operation->generation);
+        era_macro_replace_expire(macro->token);
 #endif
-            }
-            era_host_peer_storage_operation_end(operation->generation, true);
-        }
+        era_host_peer_storage_contribution_end(macro->token, true);
     }
 }
 
@@ -703,13 +802,17 @@ static void era_host_peer_storage_operation_proved(uint32_t generation, uint8_t 
     era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
     if (!generation || operation->generation != generation ||
         operation->phase != ERA_STORAGE_OPERATION_RECONCILING) return;
-    operation->remaining_mask &= (uint8_t)~(mask & era_host_peer_storage_operation_eligible_mask());
+    uint8_t proved = mask & era_host_peer_storage_operation_eligible_mask();
+    operation->remaining_mask &= (uint8_t)~proved;
+    operation->local_mask &= (uint8_t)~proved;
     if (!operation->remaining_mask && !operation->preparing_mask)
         operation->phase = ERA_STORAGE_OPERATION_RELEASING;
 }
 
 static void era_host_peer_storage_operation_release(const era_host_peer_storage_runtime_context_t *context) {
     era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    const era_host_peer_storage_contribution_t *macro =
+        &g_era_host_peer_storage_local.contributions[ERA_STORAGE_PRODUCER_MACRO];
     if (operation->outcome & ERA_STORAGE_OPERATION_WAIT_CONTEXT) {
         /* Recovery was requested after this pass sampled its context. */
         operation->outcome &= (uint8_t)~ERA_STORAGE_OPERATION_WAIT_CONTEXT;
@@ -719,7 +822,8 @@ static void era_host_peer_storage_operation_release(const era_host_peer_storage_
         g_era_host_peer_storage_relation.active_due || era_split_communication_core_storage_result_due() ||
         !context || context->input_recovery_pending || context->status_revalidation_due ||
         (era_eeprom_driver_macro_transaction_open() &&
-         era_eeprom_driver_macro_operation_generation() == operation->generation)) return;
+         era_eeprom_driver_macro_operation_generation() == macro->token &&
+         macro->operation_generation == operation->generation)) return;
     *operation = g_era_host_peer_storage_local.successor;
     memset(&g_era_host_peer_storage_local.successor, 0, sizeof(g_era_host_peer_storage_local.successor));
     if (operation->phase != ERA_STORAGE_OPERATION_NONE &&
@@ -1283,9 +1387,9 @@ static void era_host_peer_storage_indicator_note_transfer(era_split_eeprom_sync_
             g_era_host_peer_storage_relation.probe_pending_mask |
             g_era_host_peer_storage_relation.push_pending_mask |
             g_era_host_peer_storage_relation.conflict_pending_mask;
-        uint32_t generation = era_host_peer_storage_operation_admit_internal(mask, false, false);
-        era_host_peer_storage_operation_committed_internal(generation, mask, false);
+        uint32_t generation = era_host_peer_storage_operation_ready(mask);
         g_era_host_peer_storage_local.episode_operation_generation = generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
     }
     era_host_peer_storage_indicator_retire_provisional_domain(domain);
     era_host_peer_storage_indicator_confirm_round();
@@ -1372,7 +1476,8 @@ static void era_host_peer_storage_note_domain_converged(era_split_eeprom_sync_do
     era_host_peer_storage_note_changed_shadow(domain, false);
     if (g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_APPLY_WAIT) {
         era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.episode_operation_generation,
-                                               (uint8_t)era_host_peer_storage_domain_mask(domain));
+                                               (uint8_t)era_host_peer_storage_domain_mask(domain) &
+                                               g_era_host_peer_storage_local.episode_operation_mask);
     }
 #ifdef ERA_MACRO_REPLACE_ENABLE
     if (domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO &&
@@ -1842,8 +1947,7 @@ void era_host_peer_storage_note_host_news(uint8_t news_value) {
      * rely on the audit starting in the same housekeeping pass. */
     if (advertised != 0 && !g_era_host_peer_storage_relation.audit_owed) {
         if (accepted_news) {
-            uint32_t generation = era_host_peer_storage_operation_admit_internal(ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK, false, false);
-            era_host_peer_storage_operation_committed_internal(generation, ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK, false);
+            (void)era_host_peer_storage_operation_ready(ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
         }
         era_host_peer_storage_arm_summary_refresh();
     }
@@ -2843,12 +2947,10 @@ static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_
         (uint8_t)(1U << g_era_host_peer_storage_runtime.domain) : ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
     bool superseded = status == ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED &&
         ((operation->phase != ERA_STORAGE_OPERATION_NONE &&
-          (operation->outcome & ERA_STORAGE_OPERATION_LOCAL) &&
-          (operation->remaining_mask & affected) &&
+          ((operation->local_mask | operation->preparing_mask) & affected) &&
           operation->generation != g_era_host_peer_storage_local.episode_operation_generation) ||
          (successor->phase != ERA_STORAGE_OPERATION_NONE &&
-          (successor->outcome & ERA_STORAGE_OPERATION_LOCAL) &&
-          (successor->remaining_mask & affected)) ||
+          ((successor->local_mask | successor->preparing_mask) & affected)) ||
          (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUPERSEDED);
     /* A deferred producer still holds this generation until its receipt.
      * Retire/rebase the transaction without orphaning that preparation token. */
@@ -2857,13 +2959,16 @@ static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_
         (!superseded || !operation->preparing_mask)) {
         if (superseded && successor->phase != ERA_STORAGE_OPERATION_NONE) {
             successor->remaining_mask |= operation->remaining_mask;
-            successor->preparing_mask |= operation->preparing_mask;
+            successor->local_mask |= operation->local_mask;
             successor->settle_mask |= operation->settle_mask;
+            if (operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING)
+                era_host_peer_storage_operation_limit(successor, operation->deadline_ms);
         }
         operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
             (superseded ? ERA_STORAGE_OPERATION_SUPERSEDED : ERA_STORAGE_OPERATION_FAILED);
         operation->phase = ERA_STORAGE_OPERATION_RELEASING;
         if (!superseded) {
+            era_host_peer_storage_operation_retire_contributions(operation);
             era_host_peer_storage_operation_suppress(operation);
         }
     }
@@ -3084,7 +3189,8 @@ static void era_host_peer_storage_complete_summary(uint32_t now_ms, uint8_t mine
     bool verify_all = (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) != 0;
     if (!verify_all && peer_baseline_valid) {
         era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.episode_operation_generation,
-                                               (uint8_t)~(mine | peer));
+                                               (uint8_t)~(mine | peer) &
+                                               g_era_host_peer_storage_local.episode_operation_mask);
     }
     g_era_host_peer_storage_relation.provisional_cell_mask |=
         (uint8_t)(g_era_host_peer_storage_local.provisional_changed_mask & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
@@ -3492,6 +3598,7 @@ static bool era_host_peer_storage_start_peer_episode(const era_host_peer_storage
     g_era_host_peer_storage_local.initiator_transaction_generation++;
     g_era_host_peer_storage_local.episode_operation_generation =
         g_era_host_peer_storage_local.operation.generation;
+    g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
     g_era_host_peer_storage_runtime.transaction_generation = g_era_host_peer_storage_local.initiator_transaction_generation;
     if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE &&
         (!summary || !g_era_host_peer_storage_local.failure_reported)) {
@@ -3740,6 +3847,7 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
         }
         g_era_host_peer_storage_runtime.transaction_generation = result.transaction_generation;
         g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
         if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE) {
             g_era_host_peer_storage_local.failure_reported = 0;
             era_tomak_sync_attempt_started_kb();
@@ -3799,6 +3907,7 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
         }
         g_era_host_peer_storage_runtime.transaction_generation = result.transaction_generation;
         g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
         if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE) {
             g_era_host_peer_storage_local.failure_reported = 0;
             era_tomak_sync_attempt_started_kb();

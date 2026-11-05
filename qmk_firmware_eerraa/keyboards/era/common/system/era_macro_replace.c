@@ -29,7 +29,7 @@ void era_macro_replace_expire(uint32_t generation) {
 void era_macro_replace_session_lost(void) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     if (upload.state && upload.serial == era_eeprom_driver_macro_serial())
-        era_host_peer_storage_operation_end(era_eeprom_driver_macro_operation_generation(), true);
+        era_host_peer_storage_contribution_end(era_eeprom_driver_macro_operation_generation(), true);
 #endif
     if (era_eeprom_driver_macro_replace_open() &&
         era_eeprom_driver_macro_abort() != ERA_NVM_RESULT_OK) return;

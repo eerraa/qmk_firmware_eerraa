@@ -997,6 +997,16 @@ An app click that sends no command cannot create a firmware operation.
 Preparation owns completion or safe abandonment, but grants neither transfer
 exclusivity nor authority to copy incomplete staging to the peer.
 
+Batch identity is not producer receipt authority. Independently live writers
+and approved deferred owners retain distinct contribution tokens, even when
+their domains overlap. A completion, failure or cancellation affects only its
+matching live contribution; it cannot acknowledge another preparation or undo
+already committed obligations. Preparation remains the union of contributions
+still preparing. An outer durability receipt resolves only writers that
+actually participated, not an approval that has not entered that transaction.
+Accepted peer news adds ready reconciliation work, never a local persistence
+receipt or an upload COMMIT.
+
 Successful local publication carries the admitted work into reconciliation
 without an indication gap. Normal release requires the admitted work's
 convergence/completion and necessary ownership/input recovery, not just a
@@ -1099,7 +1109,8 @@ also yields to any open EEPROM edit
 scope or macro transaction, using existing NVM state rather than a second busy
 flag. Successful commit or rollback naturally restores eligibility; a failed
 close that remains open retains this preference, not exclusive NVM ownership.
-An indefinitely paused upload may defer optional maintenance indefinitely.
+An abandoned upload reaches its preparation deadline and requests safe abort;
+expiry alone cannot make an open transaction or outstanding claim reusable.
 An admitted split episode or a published dedicated-lane result also takes
 precedence until retirement/consumption. The storage owner derives this from
 existing execution state; idle relationships, queued work and indicator
@@ -1219,10 +1230,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 224 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18624 |
-| Core0 storage state | 224 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, and current/successor operation, identity, budget and semantic-intent state |
-| cause-instrumented storage aggregate | 20240 bytes; exact target assertion, not a relaxation of physical SRAM or reserved-stack boundaries |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 300 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18700 |
+| Core0 storage state | 300 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, current/successor batches, independent producer contributions and proof frontiers |
+| cause-instrumented storage aggregate | 20316 bytes; exact target assertion, not a relaxation of physical SRAM or reserved-stack boundaries |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never

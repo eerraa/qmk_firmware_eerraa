@@ -351,6 +351,29 @@ TEST_F(EraNvmQmkDriver, AbandonedUploadExpiresWithoutUsbDisconnectOrDuplicateRen
     EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
 }
 
+TEST_F(EraNvmQmkDriver, PeerNewsCannotCompleteLocalUploadPreparation) {
+    era_test_storage_agree_baseline();
+    std::array<uint8_t,32> request{};
+    request[0]=id_dynamic_keymap_set_keycode;
+    raw_hid_receive(request.data(),request.size());
+    wait_ms(1000);
+    era_host_peer_storage_task(timer_read32());
+    era_test_storage_hold_equal_summary(false);
+    request.fill(0);
+    request[0]=id_custom_set_value; request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+    request[2]=ERA_WIRE_MACRO_REPLACE_BEGIN; request[3]=0x67; request[12]=9;
+    raw_hid_receive(request.data(),request.size());
+    ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+    era_host_peer_storage_note_host_news(7);
+    wait_ms(4999);
+    era_common_features_task();
+    ASSERT_TRUE(era_eeprom_driver_macro_replace_open());
+    wait_ms(1);
+    era_common_features_task();
+    EXPECT_FALSE(era_eeprom_driver_macro_replace_open());
+    EXPECT_EQ(era_test_storage_failures(),1U);
+}
+
 TEST_F(EraNvmQmkDriver, NewUploadBytesCannotRenewWholeUploadBudget) {
     std::array<uint8_t,32> request{};
     request[0]=id_custom_set_value; request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
@@ -457,14 +480,23 @@ TEST_F(EraNvmQmkDriver, DeferredApprovalBudgetDoesNotStartAtFlushOrRenewOnRearm)
 }
 
 TEST_F(EraNvmQmkDriver, ImmediateFailureCannotRevokeAnIndependentDeferredApproval) {
-    g_flash.reject_programs=true;
-    era_test_storage_approve_then_fail_immediate();
-    EXPECT_EQ(era_test_storage_failures(),1U);
-    g_flash.reject_programs=false;
-    wait_ms(501);
-    era_test_storage_deferred_flush();
-    EXPECT_NE(era_test_storage_intent() & (1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX),0);
-    EXPECT_TRUE(era_host_peer_storage_content_attempt_active());
+    for (bool occupied : {false,true}) {
+        SetUp();
+        if (occupied) {
+            std::array<uint8_t,32> request{};
+            request[0]=id_dynamic_keymap_set_keycode;
+            raw_hid_receive(request.data(),request.size());
+            ASSERT_TRUE(era_host_peer_storage_content_attempt_active());
+        }
+        g_flash.reject_programs=true;
+        era_test_storage_approve_then_fail_immediate();
+        EXPECT_EQ(era_test_storage_failures(),1U);
+        g_flash.reject_programs=false;
+        wait_ms(501);
+        era_test_storage_deferred_flush();
+        EXPECT_NE(era_test_storage_intent() & (1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX),0);
+        EXPECT_TRUE(era_host_peer_storage_content_attempt_active());
+    }
 }
 
 TEST_F(EraNvmQmkDriver, RetiredOwnerCannotLendItsExpiredDeadlineToAnAcceptedSuccessor) {
@@ -512,28 +544,46 @@ TEST_F(EraNvmQmkDriver, NewAcceptedLocalContentSafelySupersedesAnOlderProofWitho
 }
 
 TEST_F(EraNvmQmkDriver, LiveCommitStartsOneReconciliationBudgetWithoutRollingBackDurability) {
-    std::array<uint8_t,32> request{};
-    request[0]=id_custom_set_value; request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
-    request[2]=ERA_WIRE_MACRO_REPLACE_BEGIN; request[3]=0x64; // Empty upload, CRC zero.
-    raw_hid_receive(request.data(),request.size());
-    ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
-    wait_ms(4000);
-    request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
-    raw_hid_receive(request.data(),request.size());
-    ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
-    const auto programs=g_flash.program_calls;
-    wait_ms(29999);
-    raw_hid_receive(request.data(),request.size()); // Cached COMMIT cannot renew.
-    era_common_features_task();
-    EXPECT_TRUE(era_host_peer_storage_content_attempt_active());
-    wait_ms(1);
-    era_common_features_task();
-    EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
-    EXPECT_EQ(era_test_storage_failures(),1U);
-    EXPECT_EQ(g_flash.program_calls,programs);
-    uint8_t marker=0xff;
-    ASSERT_EQ(era_eeprom_driver_replay_read(kMacroMarker,&marker,1),ERA_NVM_RESULT_OK);
-    EXPECT_EQ(marker,0);
+    for (bool occupied : {false,true}) {
+        SetUp();
+        std::array<uint8_t,32> request{};
+        if (occupied) {
+            request[0]=id_dynamic_keymap_set_keycode;
+            raw_hid_receive(request.data(),request.size());
+            ASSERT_TRUE(era_host_peer_storage_content_attempt_active());
+            request.fill(0);
+        }
+        request[0]=id_custom_set_value; request[1]=ERA_WIRE_CHANNELS_EERRAA_MACRO_REPLACE;
+        request[2]=ERA_WIRE_MACRO_REPLACE_BEGIN; request[3]=0x64; // Empty upload, CRC zero.
+        raw_hid_receive(request.data(),request.size());
+        ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+        wait_ms(1000);
+        request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
+        raw_hid_receive(request.data(),request.size());
+        ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+        if (occupied) {
+            wait_ms(7000);
+            request[2]=ERA_WIRE_MACRO_REPLACE_BEGIN; request[3]=0x68;
+            raw_hid_receive(request.data(),request.size());
+            ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+            request[2]=ERA_WIRE_MACRO_REPLACE_COMMIT;
+            raw_hid_receive(request.data(),request.size());
+            ASSERT_EQ(g_response[31],ERA_WIRE_MACRO_REPLACE_RESULT_OK);
+        }
+        const auto programs=g_flash.program_calls;
+        wait_ms(occupied ? 22999 : 29999);
+        raw_hid_receive(request.data(),request.size()); // Cached COMMIT cannot renew.
+        era_common_features_task();
+        EXPECT_TRUE(era_host_peer_storage_content_attempt_active());
+        wait_ms(1);
+        era_common_features_task();
+        EXPECT_FALSE(era_host_peer_storage_content_attempt_active());
+        EXPECT_EQ(era_test_storage_failures(),occupied ? 2U : 1U);
+        EXPECT_EQ(g_flash.program_calls,programs);
+        uint8_t marker=0xff;
+        ASSERT_EQ(era_eeprom_driver_replay_read(kMacroMarker,&marker,1),ERA_NVM_RESULT_OK);
+        EXPECT_EQ(marker,0);
+    }
 }
 
 TEST_F(EraNvmQmkDriver, AcceptedSameValueDuringRetirementAuthorizesFreshOpen) {

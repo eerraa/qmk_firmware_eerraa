@@ -74,7 +74,7 @@ bool eeconfig_semantic_approved_live(uint32_t generation);
 #    define EECONFIG_SEMANTIC_END(ok) eeconfig_semantic_end(ok)
 #    define EECONFIG_SEMANTIC_ACCEPT(offset, length) eeconfig_semantic_accept(offset, length)
 #    define EECONFIG_SEMANTIC_APPROVE(offset, length) eeconfig_semantic_approve(offset, length)
-#    define EECONFIG_SEMANTIC_APPROVE_RGB() eeconfig_semantic_approve_rgb_matrix()
+#    define EECONFIG_SEMANTIC_APPROVE_rgb_matrix() eeconfig_semantic_approve_rgb_matrix()
 #    define EECONFIG_SEMANTIC_APPROVED_BEGIN(generation) eeconfig_semantic_begin_approved(generation)
 #    define EECONFIG_SEMANTIC_APPROVED_LIVE(generation) eeconfig_semantic_approved_live(generation)
 #else
@@ -82,7 +82,7 @@ bool eeconfig_semantic_approved_live(uint32_t generation);
 #    define EECONFIG_SEMANTIC_END(ok) ((void)0)
 #    define EECONFIG_SEMANTIC_ACCEPT(offset, length) ((void)0)
 #    define EECONFIG_SEMANTIC_APPROVE(offset, length) 0U
-#    define EECONFIG_SEMANTIC_APPROVE_RGB() 0U
+#    define EECONFIG_SEMANTIC_APPROVE_rgb_matrix() 0U
 #    define EECONFIG_SEMANTIC_APPROVED_BEGIN(generation) EECONFIG_SEMANTIC_BEGIN()
 #    define EECONFIG_SEMANTIC_APPROVED_LIVE(generation) true
 #endif
@@ -252,7 +252,7 @@ void     eeconfig_init_user_datablock(void);
         }                                                                  \
         static inline void eeconfig_schedule_deferred_flush_##name(void) { \
             if (!deferred_##name || !EECONFIG_SEMANTIC_APPROVED_LIVE(deferred_operation_##name)) \
-                deferred_operation_##name = EECONFIG_SEMANTIC_APPROVE_RGB(); \
+                deferred_operation_##name = EECONFIG_SEMANTIC_APPROVE_##name(); \
             dirty_##name = true;                                           \
             deferred_##name = true;                                        \
             deferred_timer_##name = timer_read();                          \
