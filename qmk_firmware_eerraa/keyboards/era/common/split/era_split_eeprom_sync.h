@@ -130,6 +130,8 @@ typedef enum {
     ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT,
 } era_split_eeprom_sync_domain_t;
 
+#define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
+
 typedef struct {
     uint32_t span_count;
     uint32_t span_rise_ms;

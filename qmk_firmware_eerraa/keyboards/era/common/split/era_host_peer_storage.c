@@ -254,8 +254,6 @@ enum {
     ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY,
 };
 
-#define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
-
 _Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT == 8U,
                "ERA storage domain masks require exactly eight domains.");
 

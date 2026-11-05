@@ -422,11 +422,11 @@ static bool era_split_communication_core_storage_initiator_request_valid(const e
         case ERA_SPLIT_EEPROM_SYNC_OP_ABORT_REQ:
             return request->chunk_id == 0 && era_split_communication_core_storage_status_valid(request->detail);
         case ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ:
-            /* detail: changed flag (per-domain) or summary mask, bit7
-             * clear; chunk_id: baseline validity; image_crc32: the 16-bit
+            /* detail: changed flag (per-domain) or schema-derived summary
+             * mask; chunk_id: baseline validity; image_crc32: the 16-bit
              * divergence counter on the per-conflict form only. */
             return request->source_revision == 0 && request->chunk_id <= 1U &&
-                   (summary ? (request->detail & 0x80U) == 0 && request->image_crc32 == 0
+                   (summary ? request->detail <= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK && request->image_crc32 == 0
                             : request->detail <= 1U && request->image_crc32 <= 0xFFFFUL);
         case ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ:
             if (request->source_revision == 0 ||
@@ -1405,7 +1405,7 @@ static bool era_split_communication_core_storage_responder_snapshot_valid(const 
              snapshot->expected_chunk_id >= ERA_HOST_PEER_STORAGE_MAX_CHUNKS :
              snapshot->expected_chunk_id != 0) ||
         snapshot->push_state > (uint8_t)ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUSH_STATE_DURABLE ||
-        (snapshot->recency_changed_mask & 0x80U) != 0 || snapshot->recency_baseline_valid > 1U ||
+        snapshot->recency_changed_mask > ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK || snapshot->recency_baseline_valid > 1U ||
         snapshot->pinned > 1) {
         return false;
     }
