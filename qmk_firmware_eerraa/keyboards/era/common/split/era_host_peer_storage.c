@@ -104,6 +104,7 @@ typedef struct {
     uint8_t outcome;
     uint8_t settle_mask;
     uint8_t local_mask;
+    uint8_t news_pending_mask;
 } era_host_peer_storage_operation_t;
 _Static_assert(sizeof(era_host_peer_storage_operation_t) == 16U, "ERA batch accounting changed.");
 
@@ -809,6 +810,16 @@ static void era_host_peer_storage_operation_proved(uint32_t generation, uint8_t 
         operation->phase = ERA_STORAGE_OPERATION_RELEASING;
 }
 
+static void era_host_peer_storage_operation_publish_news(void) {
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    uint8_t ready = operation->news_pending_mask & operation->local_mask &
+                    era_host_peer_storage_operation_eligible_mask();
+    if (!ready) return;
+    operation->news_pending_mask &= (uint8_t)~ready;
+    era_host_peer_storage_note_local_news();
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+}
+
 static void era_host_peer_storage_operation_release(const era_host_peer_storage_runtime_context_t *context) {
     era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
     const era_host_peer_storage_contribution_t *macro =
@@ -818,6 +829,8 @@ static void era_host_peer_storage_operation_release(const era_host_peer_storage_
         operation->outcome &= (uint8_t)~ERA_STORAGE_OPERATION_WAIT_CONTEXT;
         return;
     }
+    if (context && !g_era_host_peer_storage_local.retiring)
+        era_host_peer_storage_operation_publish_news();
     if (operation->phase != ERA_STORAGE_OPERATION_RELEASING || g_era_host_peer_storage_local.retiring ||
         g_era_host_peer_storage_relation.active_due || era_split_communication_core_storage_result_due() ||
         !context || context->input_recovery_pending || context->status_revalidation_due ||
@@ -830,6 +843,7 @@ static void era_host_peer_storage_operation_release(const era_host_peer_storage_
         (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS) {
         g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~operation->remaining_mask;
         era_host_peer_storage_arm_summary_refresh();
+        era_host_peer_storage_operation_publish_news();
         g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
     }
 }
@@ -839,6 +853,23 @@ void era_host_peer_storage_note_local_news(void) {
         (uint8_t)((g_era_host_peer_storage_local.settled_news_value %
                    ERA_HOST_PEER_STORAGE_NEWS_VALUE_MAX) + 1U);
     g_era_host_peer_storage_local.failure_reported = 0;
+}
+
+static void era_host_peer_storage_note_settled_news(uint8_t mask) {
+    uint8_t current = mask & g_era_host_peer_storage_local.operation.settle_mask &
+                      g_era_host_peer_storage_local.operation.local_mask;
+    uint8_t successor = mask & g_era_host_peer_storage_local.successor.settle_mask &
+                        g_era_host_peer_storage_local.successor.local_mask;
+    era_host_peer_storage_operation_settled(mask);
+    g_era_host_peer_storage_local.operation.news_pending_mask |= current;
+    g_era_host_peer_storage_local.successor.news_pending_mask |= successor;
+    if (current || successor) {
+        /* A responder cannot execute its own SUMMARY. Retain the successor's
+         * original event until its generation can consume the peer's proof. */
+        era_host_peer_storage_operation_publish_news();
+    } else {
+        era_host_peer_storage_note_local_news();
+    }
 }
 
 void era_host_peer_storage_note_semantic_mask(uint8_t mask) {
@@ -2216,11 +2247,10 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                  ((g_era_host_peer_storage_local.successor.settle_mask & domain_mask) &&
                   era_host_peer_storage_operation_live(g_era_host_peer_storage_local.successor.generation)));
             if ((g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) == 0 && intent) {
-                era_host_peer_storage_operation_settled((uint8_t)domain_mask);
                 g_era_host_peer_storage_local.semantic_intent_mask &= (uint8_t)~domain_mask;
                 g_era_host_peer_storage_local.dirty_deadline_valid_mask &= ~domain_mask;
                 g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~domain_mask;
-                era_host_peer_storage_note_local_news();
+                era_host_peer_storage_note_settled_news((uint8_t)domain_mask);
                 era_host_peer_storage_arm_summary_refresh();
                 g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
                 era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
@@ -2238,7 +2268,6 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
             }
             era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
             if (captured) {
-                era_host_peer_storage_operation_settled((uint8_t)domain_mask);
                 g_era_host_peer_storage_local.semantic_intent_mask &= (uint8_t)~domain_mask;
                 g_era_host_peer_storage_relation.idle_due        = 1;
                 g_era_host_peer_storage_relation.idle_due_domain = domain;
@@ -2249,7 +2278,9 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                     (!(g_era_host_peer_storage_local.failed_domain_mask & domain_mask) || accepted_intent);
                 if (notify) {
                     g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~domain_mask;
-                    era_host_peer_storage_note_local_news();
+                    era_host_peer_storage_note_settled_news((uint8_t)domain_mask);
+                } else {
+                    era_host_peer_storage_operation_settled((uint8_t)domain_mask);
                 }
                 /* The recency seat core1 answers SYNC_STATUS from is built at
                  * the snapshot publish boundary, so a settle that moves the
@@ -2961,6 +2992,7 @@ static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_
             successor->remaining_mask |= operation->remaining_mask;
             successor->local_mask |= operation->local_mask;
             successor->settle_mask |= operation->settle_mask;
+            successor->news_pending_mask |= operation->news_pending_mask;
             if (operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING)
                 era_host_peer_storage_operation_limit(successor, operation->deadline_ms);
         }

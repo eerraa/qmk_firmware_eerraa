@@ -802,6 +802,15 @@ cached duplicate COMMIT contributes nothing. Stock VIA has no command nonce,
 so separate identical host submissions are independent commands. Only
 identifiable transport, transaction or nonce replays are excluded.
 
+An accepted local successor retains its unannounced settle event until its
+generation becomes current and eligible for proof. Eligibility restored after
+preparation ends also publishes that retained event. A settle belongs only to
+the generations owing that settle, not other proof debt in the same domain.
+The original event publishes once, never as a second semantic event for
+already-announced work.
+Durability, capture and source activity do not wait for this publication.
+The notification cannot consist solely of remote reconciliation debt.
+
 The event counter belongs to Core0 local state and survives relation
 rotation. The consumed peer-news value resets at the scheduler's rotation
 boundary, before new-generation news can be accepted. Core1 retires its own

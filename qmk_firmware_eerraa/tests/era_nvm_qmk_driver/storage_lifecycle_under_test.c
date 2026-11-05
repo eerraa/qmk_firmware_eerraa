@@ -118,6 +118,87 @@ static void test_deliver_summary(uint8_t peer_mask) {
 
 void era_test_storage_deliver_equal_summary(void) { test_deliver_summary(0); }
 
+static uint32_t promotion_peer_crc[ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT];
+static uint16_t promotion_peer_transaction;
+static uint8_t promotion_peer_news;
+
+void era_test_storage_promotion_peer_begin(void) {
+    era_test_storage_agree_baseline();
+    era_test_storage_hold_equal_summary(true);
+    era_test_storage_deliver_equal_summary();
+    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; ++domain)
+        promotion_peer_crc[domain] = g_era_host_peer_storage_manifest[domain].image_crc32;
+    promotion_peer_transaction = 1;
+    promotion_peer_news = era_host_peer_storage_settled_news_value();
+}
+
+static era_split_communication_core_storage_responder_result_t promotion_peer_exchange(
+    const era_split_communication_core_storage_initiator_request_t *request) {
+    era_split_communication_core_storage_responder_snapshot_t snapshot;
+    era_split_communication_core_storage_responder_result_t result;
+    assert(era_split_communication_core_storage_claim_responder_snapshot(&snapshot));
+    assert(era_split_communication_core_storage_plan_responder(&snapshot, request, NULL, &result));
+    assert(era_split_communication_core_storage_reserve_responder_result(snapshot.snapshot_generation));
+    result.response_sent = 1;
+    result.result = ERA_SPLIT_TRANSACTION_RESULT_OK;
+    assert(era_split_communication_core_storage_publish_responder_result(&result));
+    test_runtime();
+    return result;
+}
+
+bool era_test_storage_promotion_peer_take_news(void) {
+    test_runtime();
+    uint8_t news = era_host_peer_storage_settled_news_value();
+    /* The wire peer requests a fresh summary only for a new nonzero value. */
+    if (!news || news == promotion_peer_news) return false;
+    promotion_peer_news = news;
+    era_split_communication_core_storage_initiator_request_t request = {
+        .owner_epoch=1, .relation_generation=2, .policy_generation=1,
+        .transaction_generation=++promotion_peer_transaction,
+        .domain=ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE, .schema=ERA_HOST_PEER_STORAGE_SCHEMA,
+        .operation=ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ, .chunk_id=1,
+    };
+    (void)promotion_peer_exchange(&request);
+    return true;
+}
+
+void era_test_storage_promotion_peer_complete_pull(uint8_t domain, void (*interleave)(void)) {
+    assert(domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT);
+    era_split_communication_core_storage_initiator_request_t request = {
+        .owner_epoch=1, .relation_generation=2, .policy_generation=1,
+        .transaction_generation=++promotion_peer_transaction,
+        .domain=domain, .schema=ERA_HOST_PEER_STORAGE_SCHEMA,
+        .operation=ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ,
+        .image_size=g_era_host_peer_storage_domains[domain].size,
+        .image_crc32=promotion_peer_crc[domain],
+    };
+    era_split_communication_core_storage_responder_result_t result = promotion_peer_exchange(&request);
+    assert(result.status == ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY);
+    result = promotion_peer_exchange(&request);
+    assert(result.status == ERA_SPLIT_EEPROM_SYNC_STATUS_TRANSFER);
+    if (interleave) interleave();
+    request.source_revision = result.source_revision;
+    request.image_crc32 = result.image_crc32;
+    request.operation = ERA_SPLIT_EEPROM_SYNC_OP_CHUNK_REQ;
+    for (uint8_t chunk = 0;; ++chunk) {
+        uint8_t length = era_host_peer_storage_chunk_length(request.image_size, chunk);
+        if (!length) break;
+        request.chunk_id = chunk;
+        request.detail = length;
+        result = promotion_peer_exchange(&request);
+        assert(result.operation == ERA_SPLIT_EEPROM_SYNC_OP_CHUNK_RSP && result.data_length == length);
+    }
+    request.chunk_id = request.detail = 0;
+    request.operation = ERA_SPLIT_EEPROM_SYNC_OP_APPLY_REQ;
+    result = promotion_peer_exchange(&request);
+    assert(result.status == ERA_SPLIT_EEPROM_SYNC_STATUS_APPLY_READY);
+    /* The simulated peer supplies its durable completion at the wire boundary. */
+    request.operation = ERA_SPLIT_EEPROM_SYNC_OP_COMPLETE_REQ;
+    result = promotion_peer_exchange(&request);
+    assert(result.status == ERA_SPLIT_EEPROM_SYNC_STATUS_COMPLETE);
+    promotion_peer_crc[domain] = result.image_crc32;
+}
+
 bool era_test_storage_retire_and_claim_successor(void) {
     test_runtime();
     era_host_peer_storage_task(timer_read32());
