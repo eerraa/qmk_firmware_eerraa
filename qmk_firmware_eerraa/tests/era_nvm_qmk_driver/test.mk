@@ -12,6 +12,8 @@ COMMON_VPATH := tests/era_firmware_version $(filter-out tests/era_firmware_versi
 SRC += keyboards/era/common/storage/era_nvm.c
 SRC += keyboards/era/common/storage/era_eeprom_driver.c
 SRC += keyboards/era/common/system/era_macro_replace.c
+SRC += keyboards/era/common/system/era_macro_options.c
+OPT_DEFS += -DERA_MACRO_OPTIONS_ENABLE -DERA_STORAGE_DYNAMIC_MACRO_EEPROM_SIZE=16384
 SRC += keyboards/era/common/system/era_common_via.c
 SRC += keyboards/era/common/system/era_common_features.c
 SRC += keyboards/era/common/system/era_firmware_version.c
@@ -29,3 +31,8 @@ OPT_DEFS += -DDYNAMIC_KEYMAP_MACRO_EEPROM_SIZE=16384
 
 SRC += quantum/via.c quantum/dynamic_keymap.c quantum/nvm/eeprom/nvm_via.c
 OPT_DEFS += -DRAW_ENABLE -DDYNAMIC_KEYMAP_ENABLE -DVIA_EEPROM_ALLOW_RESET
+SRC += tests/era_nvm_qmk_driver/storage_lifecycle_under_test.c
+# RP2040 snapshots carry 32-bit publication addresses; native globals must fit.
+LDFLAGS += -no-pie -Wl,--gc-sections
+OPT_DEFS += -Itests/era_host_peer_storage_news/include -Ikeyboards/era/common/split
+OPT_DEFS += -Iquantum/nvm/eeprom -Iquantum/rgb_matrix -Iquantum/rgb_matrix/animations

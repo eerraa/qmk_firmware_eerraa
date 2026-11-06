@@ -25,6 +25,7 @@ RGB_MATRIX_INDICATORS_INDEPENDENT_ENABLE = yes
 RGB_MATRIX_INDICATORS_WHEN_DISABLED_ENABLE = yes
 RGB_MATRIX_IDLE_GATE_ENABLE = yes
 
+include keyboards/era/common/storage/era_storage_adoption_rules.mk
 include keyboards/era/common/system/era_common_qmk_rules.mk
 # Copy-to-RAM. Owner policy 2026-08-11: every ERA RP2040 board runs the image
 # from SRAM and XIP is retired, because performance is hard to control on it.

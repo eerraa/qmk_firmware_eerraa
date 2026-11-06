@@ -131,13 +131,9 @@
  * them (era_host_peer_storage_contract.md, Stored-Data Compatibility). */
 #define ERA_EEPROM_RESET_KEY 0x45524109UL
 
-/* Recency baseline record (Slice 10): seven per-domain sync-baseline CRC32
- * values plus one guard word, written only at storage convergence closes.
- * Layout, guard, and update rules are canonical in
- * era_host_peer_storage_contract.md (Recency Layer); this claim is that
- * contract's own entry for the former future-metadata reserved hole. The
- * range stays sync-excluded and zero after a strict reset, which reads as an
- * invalid guard and degrades every domain conservatively. */
+/* Retired seven-domain baseline seats, kept reserved. Schema 4's eight-domain
+ * recency record is after macro options (era_storage_layout.h); no old
+ * baseline or counter is imported. */
 #define ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET 244
 #define ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE 32
 

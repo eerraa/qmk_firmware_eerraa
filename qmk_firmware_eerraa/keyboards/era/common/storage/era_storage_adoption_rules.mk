@@ -37,6 +37,10 @@ SRC += keyboards/era/common/storage/era_eeprom_driver.c
 ifeq ($(strip $(VIA_ENABLE)),yes)
     SRC += keyboards/era/common/system/era_macro_replace.c
     OPT_DEFS += -DERA_MACRO_REPLACE_ENABLE
+    # Per-macro playback options keep their table in this geometry's free
+    # logical EEPROM after the macro domain (storage/era_storage_layout.h).
+    SRC += keyboards/era/common/system/era_macro_options.c
+    OPT_DEFS += -DERA_MACRO_OPTIONS_ENABLE
 endif
 
 # Read by split/era_split_qmk_rules.mk. The board includes this file above the

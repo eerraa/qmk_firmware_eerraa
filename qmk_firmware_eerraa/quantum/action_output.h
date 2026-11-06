@@ -69,6 +69,15 @@ bool action_output_usage_update(uint8_t page, uint16_t usage, uint16_t current, 
 /* Preserve the existing macro-enabled single-usage restoration policy. */
 uint16_t action_output_usage_remaining(uint8_t page);
 #endif
+#if defined(ERA_MACRO_ENABLE) && defined(ERA_MACRO_OPTIONS_ENABLE)
+/* Macro Ignore modifiers, selected like the owner: a keyboard usage or
+ * modifier a macro owner adds while it is set carries suppression provenance
+ * until that contribution is released. While one survives the report filter
+ * into a keyboard report, that report carries only the two macro owners'
+ * modifiers; every other modifier source keeps its state. Returns the
+ * previous selection. */
+bool action_output_set_mod_suppression(bool suppress);
+#endif
 #endif
 
 #ifdef __cplusplus

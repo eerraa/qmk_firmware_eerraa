@@ -118,7 +118,8 @@ typedef struct {
      * staging / applying / durable, which is what the admitted COMPLETE
      * poll answers from. */
     uint8_t  push_state;
-    uint8_t  reserved[8];
+    uint16_t terminal_transaction;
+    uint8_t  reserved[4];
 } era_split_communication_core_storage_responder_snapshot_t;
 
 enum {
@@ -148,6 +149,8 @@ typedef struct {
     uint8_t  failure;
     uint8_t  response_sent;
     uint8_t  replayed;
+    uint8_t  request_detail;
+    uint8_t  request_chunk_id;
     uint32_t request_source_revision;
     uint32_t request_image_crc32;
     uint16_t request_policy_generation;

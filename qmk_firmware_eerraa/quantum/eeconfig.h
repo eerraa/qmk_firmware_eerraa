@@ -60,6 +60,33 @@ void eeconfig_require_reset(void);
 bool eeconfig_is_init_required(void);
 bool eeconfig_is_disabled(void);
 
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+/* An accepted scope also records which validated writers actually ran.
+ * A successful void return alone does not establish a semantic mutation. */
+void eeconfig_semantic_begin(void);
+void eeconfig_semantic_end(bool accepted);
+void eeconfig_semantic_accept(uint32_t offset, uint32_t length);
+uint32_t eeconfig_semantic_approve(uint32_t offset, uint32_t length);
+uint32_t eeconfig_semantic_approve_rgb_matrix(void);
+void eeconfig_semantic_begin_approved(uint32_t generation);
+bool eeconfig_semantic_approved_live(uint32_t generation);
+#    define EECONFIG_SEMANTIC_BEGIN() eeconfig_semantic_begin()
+#    define EECONFIG_SEMANTIC_END(ok) eeconfig_semantic_end(ok)
+#    define EECONFIG_SEMANTIC_ACCEPT(offset, length) eeconfig_semantic_accept(offset, length)
+#    define EECONFIG_SEMANTIC_APPROVE(offset, length) eeconfig_semantic_approve(offset, length)
+#    define EECONFIG_SEMANTIC_APPROVE_rgb_matrix() eeconfig_semantic_approve_rgb_matrix()
+#    define EECONFIG_SEMANTIC_APPROVED_BEGIN(generation) eeconfig_semantic_begin_approved(generation)
+#    define EECONFIG_SEMANTIC_APPROVED_LIVE(generation) eeconfig_semantic_approved_live(generation)
+#else
+#    define EECONFIG_SEMANTIC_BEGIN() ((void)0)
+#    define EECONFIG_SEMANTIC_END(ok) ((void)0)
+#    define EECONFIG_SEMANTIC_ACCEPT(offset, length) ((void)0)
+#    define EECONFIG_SEMANTIC_APPROVE(offset, length) 0U
+#    define EECONFIG_SEMANTIC_APPROVE_rgb_matrix() 0U
+#    define EECONFIG_SEMANTIC_APPROVED_BEGIN(generation) EECONFIG_SEMANTIC_BEGIN()
+#    define EECONFIG_SEMANTIC_APPROVED_LIVE(generation) true
+#endif
+
 void eeconfig_init(void);
 void eeconfig_init_quantum(void);
 void eeconfig_init_kb(void);
@@ -181,7 +208,9 @@ void     eeconfig_init_user_datablock(void);
     }                                                                   \
     static inline void eeconfig_flush_##name(bool force) {              \
         if (force || dirty_##name) {                                    \
+            EECONFIG_SEMANTIC_BEGIN();                                  \
             eeconfig_update_##name(&config);                            \
+            EECONFIG_SEMANTIC_END(eeprom_persistence_ok());              \
             if (eeprom_persistence_ok()) {                              \
                 eeconfig_post_flush_##name();                           \
                 dirty_##name = false;                                   \
@@ -206,12 +235,6 @@ void     eeconfig_init_user_datablock(void);
     }
 
 #if defined(ERA_STORAGE_QUIET_DEFER_MS)
-#    ifdef ERA_TOMAK_SYNC_ENABLE
-bool era_tomak_sync_runtime_protected(void);
-#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() era_tomak_sync_runtime_protected()
-#    else
-#        define EECONFIG_DEFERRED_OUTPUT_PROTECTED() false
-#    endif
 /* Consume the current approval before writing; a failed durability receipt
  * re-arms it. A later approval must not be cleared by the old flush. */
 // clang-format off
@@ -219,6 +242,7 @@ bool era_tomak_sync_runtime_protected(void);
         static uint8_t  dirty_##name = false;                              \
         static uint8_t  deferred_##name = false;                           \
         static uint16_t deferred_timer_##name = 0;                         \
+        static uint32_t deferred_operation_##name = 0;                     \
                                                                            \
         bool eeconfig_check_valid_##name(void);                            \
         void eeconfig_post_flush_##name(void);                             \
@@ -227,6 +251,8 @@ bool era_tomak_sync_runtime_protected(void);
             return !deferred_##name || timer_elapsed(deferred_timer_##name) > ERA_STORAGE_QUIET_DEFER_MS; \
         }                                                                  \
         static inline void eeconfig_schedule_deferred_flush_##name(void) { \
+            if (!deferred_##name || !EECONFIG_SEMANTIC_APPROVED_LIVE(deferred_operation_##name)) \
+                deferred_operation_##name = EECONFIG_SEMANTIC_APPROVE_##name(); \
             dirty_##name = true;                                           \
             deferred_##name = true;                                        \
             deferred_timer_##name = timer_read();                          \
@@ -240,13 +266,20 @@ bool era_tomak_sync_runtime_protected(void);
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name(bool force) {             \
-            if (!force && EECONFIG_DEFERRED_OUTPUT_PROTECTED()) return;     \
+            if (!EECONFIG_SEMANTIC_APPROVED_LIVE(deferred_operation_##name)) return; \
             if (force || (dirty_##name && eeconfig_deferred_ready_##name())) { \
                 dirty_##name = false;                                      \
-                deferred_##name = false;                                   \
+                EECONFIG_SEMANTIC_APPROVED_BEGIN(deferred_operation_##name); \
                 eeconfig_update_##name(&config);                           \
-                if (eeprom_persistence_ok()) eeconfig_post_flush_##name(); \
-                else eeconfig_schedule_deferred_flush_##name();           \
+                EECONFIG_SEMANTIC_END(eeprom_persistence_ok());              \
+                if (eeprom_persistence_ok()) {                             \
+                    deferred_##name = false;                               \
+                    deferred_operation_##name = 0;                         \
+                    eeconfig_post_flush_##name();                          \
+                } else {                                                   \
+                    dirty_##name = deferred_##name = true;                 \
+                    deferred_timer_##name = timer_read();                  \
+                }                                                          \
             }                                                              \
         }                                                                  \
         static inline void eeconfig_flush_##name##_task(uint16_t timeout) { \

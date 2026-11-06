@@ -17,7 +17,10 @@ typedef struct {
     uint32_t fault;
     bool pending;
 } timing_t;
-static timing_t current, rows[40], baseline;
+#ifndef ERA_SYNC_TIMING_SPAN_COUNT
+#    define ERA_SYNC_TIMING_SPAN_COUNT 40
+#endif
+static timing_t current, rows[ERA_SYNC_TIMING_SPAN_COUNT], baseline;
 static bool active, frozen, overflow, armed;
 static uint8_t count, index_out, part, end_out;
 static uint32_t printed_at;

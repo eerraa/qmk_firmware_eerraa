@@ -1,3 +1,5 @@
+from eeconfig_fixture import semantic_api
+
 manifest=[]
 def source(path):
     p=ROOT/path
@@ -42,7 +44,7 @@ void eeconfig_enable(void);
 void eeconfig_require_reset(void);
 bool eeconfig_is_init_required(void);
 bool eeconfig_is_enabled(void);
-''')
+''' + semantic_api(source('quantum/eeconfig.h')))
 write('stubs/keycode_config.h','#pragma once\n#include <stdint.h>\ntypedef struct { uint16_t raw; } keymap_config_t;\n')
 write('stubs/via.h','''#pragma once
 #include <stdint.h>

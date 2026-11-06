@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib, json, re, subprocess
+from eeconfig_fixture import semantic_api
 
 import os, sys
 ROOT = Path(os.environ.get('ERA_FIXTURE_ROOT', Path(__file__).resolve().parents[2]))
@@ -42,6 +43,8 @@ def write(name, text):
 via=src('quantum/via.h')
 write('stub/via.h',via)
 record('quantum/via.h',mode='exact header copy')
+# The copied via.h includes keycodes.h by its quantum/ name.
+write('stub/keycodes.h','#pragma once\n#include "quantum/keycodes.h"\n')
 write('stub/action.h','#pragma once\n#include "quantum.h"\n')
 write('stub/quantum.h',r'''
 #pragma once
@@ -50,6 +53,7 @@ write('stub/quantum.h',r'''
 #include <stddef.h>
 #include "eeprom.h"
 #include "quantum/keycodes.h"
+#include "eeconfig.h"
 typedef struct { struct { bool pressed; uint32_t time; } event; } keyrecord_t;
 typedef struct { uint8_t count; } tap_dance_state_t;
 #define MIN(a,b) ((a)<(b)?(a):(b))
@@ -68,7 +72,8 @@ write('stub/eeconfig.h',r'''
 void eeconfig_read_keymap(keymap_config_t *c);
 void eeconfig_update_keymap(const keymap_config_t *c);
 void eeconfig_init(void);
-''')
+''' + semantic_api(src('quantum/eeconfig.h')))
+record('quantum/eeconfig.h', mode='exact semantic API conditional extraction')
 keymap=src('quantum/keycode_config.h')
 start=keymap.index('typedef union keymap_config_t')
 end=keymap.index('} keymap_config_t;')+len('} keymap_config_t;')
@@ -211,6 +216,7 @@ bool via_command_kb(uint8_t *data, uint8_t length);
 '''
 rawunit+=extract(RAW,'via_custom_value_command')
 rawunit+=extract(RAW,'raw_hid_receive')
+rawunit+=extract(RAW,'via_command_execute')
 write('raw_owner.c',rawunit)
 
 DISPATCH='keyboards/era/common/split/era_split_keyboard.c'

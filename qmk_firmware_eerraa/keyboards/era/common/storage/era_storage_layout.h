@@ -33,3 +33,24 @@
  * this formula and the wire schema must change together; the split storage
  * static assertions are the compile-time tripwire. */
 #define ERA_STORAGE_DYNAMIC_MACRO_ADDR (ERA_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_STORAGE_DYNAMIC_KEYMAP_BYTES)
+
+/* Per-macro playback options (system/era_macro_options.c), placed in logical
+ * EEPROM directly after the 16-KiB macro domain,
+ * separate from the macro domain. An 8-byte header -- signature LE32,
+ * version, record count, two zero bytes -- then one [flags, hold_ms LE16, repeat_count]
+ * record per macro. The macro bytes themselves are unchanged. */
+#define ERA_STORAGE_MACRO_OPTIONS_ADDR (ERA_STORAGE_DYNAMIC_MACRO_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)
+#define ERA_STORAGE_MACRO_OPTIONS_SIGNATURE 0x4F4D5245UL /* "ERMO" */
+#define ERA_STORAGE_MACRO_OPTIONS_VERSION 2U
+#define ERA_STORAGE_MACRO_OPTIONS_HEADER_BYTES 8U
+#define ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES 4U
+#define ERA_STORAGE_MACRO_OPTIONS_BYTES (ERA_STORAGE_MACRO_OPTIONS_HEADER_BYTES + DYNAMIC_KEYMAP_MACRO_COUNT * ERA_STORAGE_MACRO_OPTIONS_RECORD_BYTES)
+
+/* Half-local recency for the eight portable domains. New space avoids moving
+ * the macro marker, options, VIA geometry or the protected policy/link records.
+ * Old seven-domain metadata is not imported. */
+#define ERA_STORAGE_RECENCY_ADDR (ERA_STORAGE_MACRO_OPTIONS_ADDR + ERA_STORAGE_MACRO_OPTIONS_BYTES)
+#define ERA_STORAGE_RECENCY_COUNTER_BYTES 16U
+#define ERA_STORAGE_RECENCY_BASELINE_ADDR (ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_COUNTER_BYTES)
+#define ERA_STORAGE_RECENCY_BASELINE_BYTES 36U
+#define ERA_STORAGE_RECENCY_BYTES (ERA_STORAGE_RECENCY_COUNTER_BYTES + ERA_STORAGE_RECENCY_BASELINE_BYTES)

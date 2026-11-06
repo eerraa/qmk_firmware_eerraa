@@ -198,101 +198,6 @@ static void era_split_communication_core_responder_publish_result_slot(bool sour
     __DMB();
 }
 
-#ifdef ERA_TOMAK_SYNC_ENABLE
-/* One deduplication key, not another mailbox. The existing general ring carries
- * the command; the Core0 snapshot is the only source of installed/output proof. */
-static struct {
-    bool valid;
-    era_tomak_sync_binding_t binding;
-    era_tomak_sync_wire_t request;
-} sync_posted;
-
-static bool era_split_communication_core_sync_response(uint16_t owner_epoch,
-    const era_split_wire_frame_t *frame, const era_split_communication_core_responder_snapshot_t *snapshot) {
-    era_tomak_sync_wire_t request;
-    if (!era_tomak_sync_wire_decode(frame->payload, frame->payload_len, &request)) {
-        return true;
-    }
-    const era_tomak_sync_binding_t *binding = &snapshot->sync_binding;
-    if (sync_posted.valid && !era_tomak_sync_binding_equal(&sync_posted.binding, binding)) {
-        sync_posted.valid = false;
-    }
-    era_tomak_sync_wire_t reply = request;
-    reply.operation = ERA_TOMAK_SYNC_WIRE_PENDING;
-    bool admitted = snapshot->runtime_push_allowed && binding->local_owner == owner_epoch &&
-                    binding->local_relation == snapshot->relation_generation &&
-                    binding->peer_owner == request.owner_epoch && binding->peer_relation == request.relation_generation &&
-                    (request.operation == ERA_TOMAK_SYNC_WIRE_OFFER || request.operation == ERA_TOMAK_SYNC_WIRE_ARM ||
-                     request.operation == ERA_TOMAK_SYNC_WIRE_APPLIED);
-    const era_tomak_sync_wire_t *proof = &snapshot->sync_proof;
-    bool same_proof = era_tomak_sync_wire_matches(&request, proof, proof->operation);
-    bool proof_ready = same_proof &&
-        (proof->operation == ERA_TOMAK_SYNC_WIRE_REJECT ||
-         (request.operation == ERA_TOMAK_SYNC_WIRE_OFFER &&
-          (proof->operation == ERA_TOMAK_SYNC_WIRE_INSTALLED || proof->operation == ERA_TOMAK_SYNC_WIRE_ARMED ||
-           proof->operation == ERA_TOMAK_SYNC_WIRE_APPLIED || proof->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY)) ||
-         (request.operation == ERA_TOMAK_SYNC_WIRE_ARM &&
-          (proof->operation == ERA_TOMAK_SYNC_WIRE_ARMED || proof->operation == ERA_TOMAK_SYNC_WIRE_APPLIED ||
-           proof->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY)) ||
-         (request.operation == ERA_TOMAK_SYNC_WIRE_APPLIED && proof->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY));
-    bool changed_tuple = proof->sequence == request.sequence &&
-                         proof->owner_epoch == request.owner_epoch && proof->relation_generation == request.relation_generation &&
-                         !same_proof;
-    if (!admitted || changed_tuple) {
-        reply.operation = ERA_TOMAK_SYNC_WIRE_REJECT;
-    } else if (proof_ready) {
-        reply.operation = request.operation == ERA_TOMAK_SYNC_WIRE_OFFER &&
-                          proof->operation != ERA_TOMAK_SYNC_WIRE_REJECT ?
-                              ERA_TOMAK_SYNC_WIRE_INSTALLED : proof->operation;
-        if (request.operation == ERA_TOMAK_SYNC_WIRE_ARM && proof->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY) {
-            reply.operation = ERA_TOMAK_SYNC_WIRE_APPLIED;
-        }
-    } else {
-        /* Matching Core0 proof retires the prior posted phase. Without this
-         * key, duplicate requests could keep the ring nonempty forever and
-         * prevent the snapshot publishing the proof they are asking for. */
-        if (sync_posted.valid &&
-            era_tomak_sync_wire_matches(&sync_posted.request, proof, proof->operation) &&
-            (proof->operation == ERA_TOMAK_SYNC_WIRE_INSTALLED || proof->operation == ERA_TOMAK_SYNC_WIRE_ARMED ||
-             proof->operation == ERA_TOMAK_SYNC_WIRE_APPLIED || proof->operation == ERA_TOMAK_SYNC_WIRE_PAIR_READY ||
-             proof->operation == ERA_TOMAK_SYNC_WIRE_REJECT)) {
-            sync_posted.valid = false;
-        }
-        if (sync_posted.valid) {
-            if (sync_posted.request.operation != request.operation ||
-                !era_tomak_sync_wire_matches(&sync_posted.request, &request, request.operation)) {
-                reply.operation = ERA_TOMAK_SYNC_WIRE_REJECT;
-            }
-        } else {
-            uint32_t write, next;
-            if (era_split_communication_core_responder_prepare_result_slot(false, &write, &next)) {
-                era_split_communication_core_responder_result_t event = {0};
-                event.owner_epoch = snapshot->owner_epoch;
-                event.relation_generation = snapshot->relation_generation;
-                event.snapshot_generation = snapshot->snapshot_generation;
-                event.kind = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_TOMAK_SYNC;
-                event.result = ERA_SPLIT_TRANSACTION_RESULT_OK;
-                event.sync_binding = *binding;
-                event.sync_request = request;
-                era_split_communication_core_responder_publish_result_slot(false, write, next, &event);
-                sync_posted.binding = *binding;
-                sync_posted.request = request;
-                sync_posted.valid = true;
-                __SEV();
-            }
-        }
-    }
-    era_split_transaction_engine_commit_received_frame(frame);
-    uint8_t payload[ERA_TOMAK_SYNC_WIRE_BYTES], control, seq;
-    if (era_split_transaction_engine_prepare_control(true, &control, &seq) &&
-        era_tomak_sync_wire_encode(&reply, control, payload)) {
-        era_split_transaction_failure_t failure;
-        (void)era_split_transaction_engine_send_compact_response_owned(
-            ERA_SPLIT_WIRE_DIRECTION_SECONDARY_TO_PRIMARY, payload, sizeof(payload), seq, owner_epoch, &failure);
-    }
-    return true;
-}
-#endif
 /* `plan` is the caller's already-built plan, not a second derivation from the
    same snapshot. Both are `plan_from_snapshot()` of one unmodified snapshot, so
    recomputing produced a byte-identical copy on every answered non-source-push
@@ -468,14 +373,7 @@ static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bo
 
     bool encoded;
     if (session) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-        era_split_wire_session_status_t status = snapshot->local_session_status;
-        status.sync_owner_epoch = snapshot->owner_epoch;
-        status.sync_relation_generation = snapshot->relation_generation;
-        encoded = era_split_wire_encode_session_status(control, &status, payload, &payload_len);
-#else
         encoded = era_split_wire_encode_session_status(control, &snapshot->local_session_status, payload, &payload_len);
-#endif
     } else {
         encoded = era_split_communication_core_prepare_responder_response_payload(snapshot, &result->response_plan, control, core0_lane_request, payload, &payload_len, &result->response_section_mask);
     }
@@ -582,14 +480,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         g_era_split_communication_core.responder_noack_count++;
         return true;
     }
-
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC) {
-        bool handled = era_split_communication_core_sync_response(owner_epoch, frame, &snapshot);
-        era_split_communication_core_release_responder_snapshot();
-        return handled;
-    }
-#endif
 
     /* The input packet owner reserves, validates, copies, receipts and
      * release-publishes before this ACK. No response-plan lifetime is pinned

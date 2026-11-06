@@ -8,20 +8,6 @@
 
 #define ERA_SPLIT_EEPROM_SYNC_CLASS 0xE0
 
-/* The indicator's minimum-visible floor, anchored at each half's own lamp
-   rise (2026-08-14 redesign). It pads a short process to visibility and
-   never extends a long one: once the pending fact falls, the lamp survives
-   only to rise + floor, so it is a rise-anchored guarantee rather than a
-   trailing delay. Both halves' rises sit within one poll of each other, so
-   the floors expire symmetrically. Kept from the retired local-save
-   presenter (whose constant carried the STATUS_ prefix); the trailing
-   1500 ms sync bridge that stood beside it is gone with nothing in its
-   place — the wire-carried pending fact is what replaced the time. */
-#ifndef ERA_SPLIT_EEPROM_SYNC_MIN_VISIBLE_MS
-#    define ERA_SPLIT_EEPROM_SYNC_MIN_VISIBLE_MS 160
-#endif
-
-
 #define ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE 255U
 
 typedef enum {
@@ -126,8 +112,11 @@ typedef enum {
     ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG,
     ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER,
     ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS,
+    ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS,
     ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT,
 } era_split_eeprom_sync_domain_t;
+
+#define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
 
 typedef struct {
     uint32_t span_count;

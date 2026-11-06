@@ -14,8 +14,11 @@
 #include "../../common/storage/era_eeprom_storage.h"
 #include "../../common/storage/era_reset_guard.h"
 #include "../../common/system/era_common_features.h"
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+#    include "../../common/system/era_macro_options.h"
+#endif
 #ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "../../common/split/era_tomak_sync_runtime.h"
+#    include "../../common/system/era_status_terminal_pulse.h"
 #    include "ws2812.h"
 #endif
 #include "../../common/system/era_common_via.h"
@@ -26,6 +29,7 @@
 #include <stddef.h>
 #ifdef ERA_SPLIT_EEPROM_SYNC_ENABLE
 #    include "../../common/split/era_split_eeprom_sync.h"
+#    include "../../common/split/era_host_peer_storage.h"
 #endif
 #if defined(RGB_MATRIX_ENABLE)
 #    include "../../common/split/communication_core/era_split_communication_core_launch_signal.h"
@@ -277,6 +281,11 @@ void era_split_eeprom_sync_reload_domain_kb(era_split_eeprom_sync_domain_t domai
             via_set_layout_options_kb(via_get_layout_options());
 #    endif
             break;
+        case ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS:
+#    ifdef ERA_MACRO_OPTIONS_ENABLE
+            era_macro_options_init();
+#    endif
+            break;
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP:
         case ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO:
         default:
@@ -358,9 +367,9 @@ static void tomak_apply_caps_indicator(uint8_t led_min, uint8_t led_max) {
 /* STATUS is one full-field presentation surface with a small semantic colour
    vocabulary: red = failure/degradation, blue = normal synchronization work,
    green = success, amber = pending local Apply, white = unchanged Apply.
-   Producers are advanced from housekeeping
-   and cached; the render pass reads only those caches so cadence and priority
-   stay independent of the panel refresh rate. */
+   Producers are advanced from housekeeping and cached. The SYNC failure
+   receipt starts on its first eligible STATUS selection; once started its
+   expiry is independent of the panel refresh rate. */
 
 #if defined(RGB_MATRIX_ENABLE)
 static bool tomak_launch_signal_active_cached;
@@ -442,28 +451,46 @@ static void tomak_link_reconcile_success_visibility_task(void) {
 static bool tomak_eeprom_sync_status_visible_cached;
 
 static void tomak_eeprom_sync_status_visibility_task(void) {
-    /* The family-wide indicator predicate. The held-frame re-flush helper that
-       once rode this task retired with the presenter's flush handshake: the
-       lamp is one engine-owned pending fact now, and no note waits on a frame
-       reaching the panel. */
     bool visible = era_split_eeprom_sync_indicator_visible_advance();
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_controls_output()) {
-        visible = era_tomak_sync_runtime_target();
-    }
-#endif
     if (tomak_eeprom_sync_status_visible_cached == visible) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-        if (era_tomak_sync_runtime_protected() && !era_tomak_sync_runtime_output_pending()) {
-            /* A new identity with the same ON pixels still owns a new
-             * scheduled hardware submission and completion receipt. */
-            tomak_invalidate_indicator_render();
-        }
-#endif
         return;
     }
 
     tomak_eeprom_sync_status_visible_cached = visible;
+    tomak_invalidate_indicator_render();
+}
+#endif
+
+#if defined(ERA_TOMAK_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
+static bool tomak_sync_error_pending;
+static bool tomak_sync_error_started;
+static bool tomak_sync_error_on;
+static uint32_t tomak_sync_error_since_ms;
+
+/* Admission, including an equal-content audit, is not a display receipt. */
+void era_tomak_sync_attempt_started_kb(void) {}
+
+static void tomak_sync_error_visibility_task(void) {
+    if (!tomak_sync_error_pending || !tomak_sync_error_started) {
+        return;
+    }
+    bool on;
+    bool pending = era_status_terminal_pulse(timer_elapsed32(tomak_sync_error_since_ms), &on);
+    if (pending != tomak_sync_error_pending || on != tomak_sync_error_on) {
+        tomak_sync_error_pending = pending;
+        tomak_sync_error_on = on;
+        tomak_invalidate_indicator_render();
+    }
+}
+
+void era_tomak_sync_failure_report_kb(void) {
+    tomak_sync_error_visibility_task();
+    if (tomak_sync_error_pending) {
+        return;
+    }
+    tomak_sync_error_pending = true;
+    tomak_sync_error_started = false;
+    tomak_sync_error_on = true;
     tomak_invalidate_indicator_render();
 }
 #endif
@@ -487,6 +514,7 @@ enum {
     TOMAK_STATUS_SOURCE_LINK_APPLY_SUCCESS,
     TOMAK_STATUS_SOURCE_LINK_APPLY_ERROR,
     TOMAK_STATUS_SOURCE_EEPROM_SYNC,
+    TOMAK_STATUS_SOURCE_EEPROM_SYNC_ERROR,
 };
 #endif
 
@@ -531,10 +559,8 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
 #    endif
 
 #    if defined(RGB_MATRIX_ENABLE)
-    /* Which producer owns the STATUS frame this pass, and whether it wants the
-       field lit. Failure one-shots outrank success; success outranks normal
-       storage work. The storage indicator is recoverable steady state and
-       comes back on the next policy pass after a report ends. */
+    /* Fault receipts retain priority. TOMAK's active-content producer cannot
+       be repainted by an ordinary success report. */
     uint8_t status_source = TOMAK_STATUS_SOURCE_NONE;
     bool    status_on     = false;
 
@@ -546,14 +572,25 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
         status_source = TOMAK_STATUS_SOURCE_LINK_FALLBACK;
         status_on     = tomak_link_fallback_on_cached;
     }
-#        ifdef ERA_TOMAK_SYNC_ENABLE
-    bool sync_owned = era_tomak_sync_runtime_controls_output() && tomak_eeprom_sync_status_visible_cached;
     bool apply_error = tomak_link_apply_active_cached &&
         tomak_link_apply_status_cached != ERA_SPLIT_LINK_APPLY_APPLIED &&
         tomak_link_apply_status_cached != ERA_SPLIT_LINK_APPLY_UNCHANGED;
-    if (status_source == TOMAK_STATUS_SOURCE_NONE && sync_owned && !apply_error) {
-        /* Ordinary success reports cannot repaint a healthy admitted SYNC.
-         * Real faults retain priority and revoke its write permission. */
+    if (status_source == TOMAK_STATUS_SOURCE_NONE && apply_error) {
+        status_source = TOMAK_STATUS_SOURCE_LINK_APPLY_ERROR;
+        status_on = tomak_link_apply_on_cached;
+    }
+#        ifdef ERA_TOMAK_SYNC_ENABLE
+    if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_sync_error_pending) {
+        if (!tomak_sync_error_started) {
+            tomak_sync_error_started = true;
+            tomak_sync_error_since_ms = timer_read32();
+        }
+        status_source = TOMAK_STATUS_SOURCE_EEPROM_SYNC_ERROR;
+        status_on = tomak_sync_error_on;
+    }
+#        endif
+#        if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(ERA_TOMAK_SYNC_ENABLE)
+    if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_eeprom_sync_status_visible_cached) {
         status_source = TOMAK_STATUS_SOURCE_EEPROM_SYNC;
         status_on = true;
     }
@@ -570,13 +607,12 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
         status_source = TOMAK_STATUS_SOURCE_LINK_RECONCILE_SUCCESS;
         status_on     = tomak_link_reconcile_success_on_cached;
     }
-#        if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE)
+#        if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && !defined(ERA_TOMAK_SYNC_ENABLE)
     if (status_source == TOMAK_STATUS_SOURCE_NONE && tomak_eeprom_sync_status_visible_cached) {
         status_source = TOMAK_STATUS_SOURCE_EEPROM_SYNC;
         status_on     = true;
     }
 #        endif
-
     if (status_source != TOMAK_STATUS_SOURCE_NONE) {
         tomak_status_policy_on     = status_on;
         tomak_status_policy_source = status_source;
@@ -585,11 +621,7 @@ void rgb_matrix_render_policy_kb(rgb_matrix_render_policy_t *policy) {
         /* Source is visual state now: red/green/blue handover must repaint even
            when both producers are continuously ON. */
         if (!tomak_status_was_active || !tomak_status_frame_valid || tomak_status_policy_on != tomak_status_frame_on ||
-            tomak_status_policy_source != tomak_status_frame_source
-#        ifdef ERA_TOMAK_SYNC_ENABLE
-            || (era_tomak_sync_runtime_protected() && !era_tomak_sync_runtime_output_pending())
-#        endif
-        ) {
+            tomak_status_policy_source != tomak_status_frame_source) {
             policy->flags |= RGB_MATRIX_RENDER_POLICY_STATUS_DIRTY;
         }
         policy->led_min_index = 0;
@@ -642,21 +674,10 @@ bool rgb_matrix_render_status_kb(const rgb_matrix_render_policy_t *policy) {
 
 #ifdef ERA_TOMAK_SYNC_ENABLE
 int8_t rgb_matrix_sync_output_gate_kb(uint8_t frame_flags) {
-    bool sync_on = (frame_flags & RGB_MATRIX_RENDER_FRAME_STATUS) &&
-                   tomak_status_policy_source == TOMAK_STATUS_SOURCE_EEPROM_SYNC && tomak_status_policy_on;
-    bool target = era_tomak_sync_runtime_target();
-    if (era_tomak_sync_runtime_controls_output() &&
-        (rgb_matrix_get_suspend_state() ||
-         ((frame_flags & RGB_MATRIX_RENDER_FRAME_STATUS) &&
-          (tomak_status_policy_source == TOMAK_STATUS_SOURCE_LAUNCH_SIGNAL ||
-           tomak_status_policy_source == TOMAK_STATUS_SOURCE_LINK_FALLBACK ||
-           tomak_status_policy_source == TOMAK_STATUS_SOURCE_LINK_APPLY_ERROR)))) {
-        era_tomak_sync_runtime_preempt();
-        return 1;
-    }
-    ws2812_transfer_status_t status = ws2812_transfer_status();
-    return era_tomak_sync_runtime_output_gate(sync_on == target,
-        status == WS2812_TRANSFER_IDLE || status == WS2812_TRANSFER_COMPLETE);
+    (void)frame_flags;
+    /* This gate owns only the physical frame, never storage or input. */
+    ws2812_transfer_service();
+    return ws2812_transfer_ready() ? 1 : 0;
 }
 #endif
 
@@ -817,18 +838,17 @@ void era_split_board_post_init(void) {
    its first advance while the launch report is live. */
 void era_board_housekeeping_task(void) {
 #ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_output_pending()) {
-        ws2812_transfer_status_t output = ws2812_transfer_status();
-        if (output == WS2812_TRANSFER_COMPLETE || output == WS2812_TRANSFER_FAILED) {
-            era_tomak_sync_runtime_output(output == WS2812_TRANSFER_COMPLETE);
-        }
-    }
+    /* Driver progress must not depend on rendering, effects or lighting sleep. */
+    ws2812_transfer_service();
 #endif
 #if defined(RGB_MATRIX_ENABLE)
     tomak_launch_signal_visibility_task();
     tomak_link_fallback_visibility_task();
     tomak_link_reconcile_success_visibility_task();
     tomak_link_apply_visibility_task();
+#    ifdef ERA_TOMAK_SYNC_ENABLE
+    tomak_sync_error_visibility_task();
+#    endif
 #endif
 #if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
     tomak_eeprom_sync_status_visibility_task();

@@ -6,9 +6,6 @@
 #include <string.h>
 
 #include "timer.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_runtime.h"
-#endif
 #ifdef ERA_TOMAK_SYNC_TIMING
 #    include "era_sync_timing.h"
 #endif
@@ -17,25 +14,8 @@
 #    include "era_host_peer_storage.h"
 #endif
 
-/* The 2026-08-14 redesign: one pending fact, no timers.
- *
- * The lamp used to be two arms — a local-save presenter and a storage
- * episode span — each read from this half's own state machine, glued over
- * the protocol's silences by a fixed 1500 ms bridge run on each half's own
- * clock. The bridge existed because the responder structurally cannot know
- * whether the relation still holds work: every queue, cell and completion
- * poll is initiator-side state. A constant standing in for a missing wire
- * fact has no correct value, and the failure it produced was probabilistic
- * by construction — device-measured as the receiving half's lamp dying ~1 s
- * early on layout loads while every predicate stamp agreed to 15 ms.
- *
- * Now the storage engine owns the fact (era_host_peer_storage_indicator_
- * pending: the local arm plus the STORAGE_PENDING wire section's mirror),
- * and this unit only presents it: edge stamps for the console, and the
- * rise-anchored minimum-visible floor that pads a short process to
- * visibility without ever extending a long one. Both halves run this same
- * presenter over one shared fact, so the lamps end within one poll of the
- * initiator's last close instead of within one half's guess. */
+/* Storage owns the complete operation and valid peer mirror. Presentation
+ * records that fact's span without extending it or granting execution. */
 
 typedef struct {
     uint32_t span_rise_ms;
@@ -51,7 +31,6 @@ typedef struct {
     uint8_t  break_state;
     bool     red_present;
     bool     span_open;
-    bool     floor_active;
 } era_split_eeprom_sync_state_t;
 
 static era_split_eeprom_sync_state_t era_split_eeprom_sync_state;
@@ -65,23 +44,14 @@ bool era_split_eeprom_sync_indicator_visible_advance(void) {
 #    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_cause_note_indicator(pending);
 #    endif
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_paired()) {
-        /* Diagnostics still sample real work above. Presentation no longer
-         * derives its edges from mirrored work or a per-half visible floor. */
-        return era_tomak_sync_runtime_controls_output() && era_tomak_sync_runtime_target();
-    }
-#endif
     if (pending) {
         /* Stamped on every pending pass, not once on the rising edge: the
          * last stamp IS the fall time when the fact drops, with no second
-         * read racing it. One operator action produces one span however
-         * many domains it moves, because the fact holds across the
-         * inter-episode gaps the engine's cells and changed shadow cover. */
+         * read racing it. The storage owner, not presentation, determines
+         * whether inter-episode work still belongs to this span. */
         uint32_t now_ms = timer_read32();
         if (!era_split_eeprom_sync_state.span_open) {
             era_split_eeprom_sync_state.span_open    = true;
-            era_split_eeprom_sync_state.floor_active = true;
             era_split_eeprom_sync_state.span_count++;
             era_split_eeprom_sync_state.span_rise_ms = now_ms;
         }
@@ -91,16 +61,6 @@ bool era_split_eeprom_sync_indicator_visible_advance(void) {
     if (era_split_eeprom_sync_state.span_open) {
         era_split_eeprom_sync_state.span_open    = false;
         era_split_eeprom_sync_state.span_fall_ms = era_split_eeprom_sync_state.last_pending_ms;
-    }
-    /* The floor: hold a just-risen lamp to visibility, anchored at this
-     * half's own rise. It expires and never re-arms until the next span, so
-     * it cannot become a trailing delay — past rise + floor the lamp
-     * tracks the fact exactly. */
-    if (era_split_eeprom_sync_state.floor_active) {
-        if (timer_elapsed32(era_split_eeprom_sync_state.span_rise_ms) < ERA_SPLIT_EEPROM_SYNC_MIN_VISIBLE_MS) {
-            return true;
-        }
-        era_split_eeprom_sync_state.floor_active = false;
     }
     return false;
 #else
@@ -124,7 +84,7 @@ void era_split_eeprom_sync_note_status_frame_presence(bool status_frame, uint8_t
          * branch therefore records the healed-trigger frame, including a
          * higher-priority red/green STATUS report that temporarily preempted
          * blue synchronization. */
-        if (era_split_eeprom_sync_state.span_open || era_split_eeprom_sync_state.floor_active) {
+        if (era_split_eeprom_sync_state.span_open) {
             era_split_eeprom_sync_state.break_count++;
             era_split_eeprom_sync_state.break_flags = frame_flags;
             era_split_eeprom_sync_state.break_state = panel_state_bits;
@@ -160,5 +120,5 @@ void era_split_eeprom_sync_get_diagnostics_snapshot(era_split_eeprom_sync_diagno
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     snapshot->pending_bits = era_host_peer_storage_indicator_diag();
 #endif
-    snapshot->visible = era_split_eeprom_sync_state.span_open || era_split_eeprom_sync_state.floor_active ? 1 : 0;
+    snapshot->visible = era_split_eeprom_sync_state.span_open ? 1 : 0;
 }

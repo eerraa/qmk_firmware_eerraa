@@ -77,6 +77,15 @@ typedef struct keyrecord_t {
 #if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
     uint16_t keycode;
 #endif
+#ifdef ERA_MACRO_ENABLE
+    /* Macro provenance (ERA_MACRO_ORIGIN_* in quantum/era_macro.h) and the
+     * identity of the physical press the record stands for. Ingress sets them
+     * on every genuine edge and a dance copies its own into the records it
+     * builds, so queued and synthesized records keep them; any other record
+     * keeps zero and never starts a macro. */
+    uint8_t era_macro_origin;
+    uint8_t era_macro_press;
+#endif
 } keyrecord_t;
 
 /* Execute action per keyevent */

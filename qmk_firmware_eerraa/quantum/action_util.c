@@ -49,6 +49,43 @@ static uint8_t output_keys[ACTION_OUTPUT_OWNERS][32];
 static uint8_t output_key_counts[256];
 static uint8_t output_owner_key_counts[ACTION_OUTPUT_OWNERS];
 
+#    if defined(ERA_MACRO_ENABLE) && defined(ERA_MACRO_OPTIONS_ENABLE)
+/* Ignore-modifiers provenance of the two macro owners' keyboard contributions,
+ * kept where ownership changes. The sender checks it against the report its
+ * filter returned: the six slots or the NKRO bitmap and the modifier byte, a
+ * cost bounded by the report format, not by the matrix, the held keys or the
+ * macro. The obligation flag of quantum/era_macro.c is not this: that one
+ * outlives every contribution. */
+#        define OUTPUT_SUPPRESSION
+#        define OUTPUT_MACRO_SLOT(owner) ((owner) - ACTION_OUTPUT_OWNER_MACRO_HOLD)
+static bool     output_suppression;
+static uint8_t  output_suppressed_keys[2][32];
+static uint8_t  output_suppressed_mods[2];
+static uint16_t output_suppressed_key_count;
+
+static bool output_is_macro(action_output_owner_t owner) {
+    return owner == ACTION_OUTPUT_OWNER_MACRO_HOLD || owner == ACTION_OUTPUT_OWNER_MACRO_TAP;
+}
+bool action_output_set_mod_suppression(bool suppress) {
+    const bool previous = output_suppression;
+    output_suppression  = suppress;
+    return previous;
+}
+static bool output_mods_suppressed(void) {
+    return output_suppressed_key_count || output_suppressed_mods[0] || output_suppressed_mods[1];
+}
+static uint8_t output_suppressed_key_byte(uint8_t index) {
+    return output_suppressed_keys[0][index] | output_suppressed_keys[1][index];
+}
+/* After an owner's real modifiers change: keep provenance only on bits it
+ * still holds, and add the bits it asserted under suppression. */
+static void output_note_mods(action_output_owner_t owner, uint8_t asserted) {
+    if (!output_is_macro(owner)) return;
+    uint8_t *provenance = &output_suppressed_mods[OUTPUT_MACRO_SLOT(owner)];
+    *provenance         = (uint8_t)((*provenance | (output_suppression ? asserted : 0U)) & output_real_mods[owner]);
+}
+#    endif
+
 void add_key(uint8_t key) {
     const uint8_t bit = (uint8_t)(1U << (key & 7));
     if (output_owner < ACTION_OUTPUT_OWNERS) {
@@ -57,6 +94,12 @@ void add_key(uint8_t key) {
             ++output_key_counts[key];
             ++output_owner_key_counts[output_owner];
         }
+#    ifdef OUTPUT_SUPPRESSION
+        if (output_suppression && output_is_macro(output_owner) && !(output_suppressed_keys[OUTPUT_MACRO_SLOT(output_owner)][key >> 3] & bit)) {
+            output_suppressed_keys[OUTPUT_MACRO_SLOT(output_owner)][key >> 3] |= bit;
+            ++output_suppressed_key_count;
+        }
+#    endif
     } else {
         regular_keys[key >> 3] |= bit;
     }
@@ -70,6 +113,12 @@ void del_key(uint8_t key) {
             output_keys[output_owner][key >> 3] &= (uint8_t)~bit;
             --output_key_counts[key];
             --output_owner_key_counts[output_owner];
+#    ifdef OUTPUT_SUPPRESSION
+            if (output_is_macro(output_owner) && (output_suppressed_keys[OUTPUT_MACRO_SLOT(output_owner)][key >> 3] & bit)) {
+                output_suppressed_keys[OUTPUT_MACRO_SLOT(output_owner)][key >> 3] &= (uint8_t)~bit;
+                --output_suppressed_key_count;
+            }
+#    endif
         }
     } else {
         regular_keys[key >> 3] &= (uint8_t)~bit;
@@ -92,6 +141,10 @@ void action_output_reset_keys(void) {
     memset(output_keys, 0, sizeof(output_keys));
     memset(output_key_counts, 0, sizeof(output_key_counts));
     memset(output_owner_key_counts, 0, sizeof(output_owner_key_counts));
+#    ifdef OUTPUT_SUPPRESSION
+    memset(output_suppressed_keys, 0, sizeof(output_suppressed_keys));
+    output_suppressed_key_count = 0;
+#    endif
 }
 
 action_output_owner_t action_output_set_owner(action_output_owner_t owner) {
@@ -119,6 +172,9 @@ void action_output_clear_owner_mods(action_output_owner_t owner) {
     if (owner < ACTION_OUTPUT_OWNERS) {
         output_replace_mods(&output_real_mods[owner], 0, output_real_counts, &output_real_union);
         output_replace_mods(&output_weak_mods[owner], 0, output_weak_counts, &output_weak_union);
+#    ifdef OUTPUT_SUPPRESSION
+        output_note_mods(owner, 0);
+#    endif
     }
 }
 
@@ -539,9 +595,11 @@ static uint8_t get_mods_for_report(void) {
         }
 #    endif
         mods |= oneshot_mods;
+#    ifndef OUTPUT_SUPPRESSION
         if (has_anykey()) {
             clear_oneshot_mods();
         }
+#    endif
     }
 #endif
 
@@ -557,6 +615,48 @@ static uint8_t get_mods_for_report(void) {
 
     return mods;
 }
+
+#ifdef OUTPUT_SUPPRESSION
+/* After the report filter, which may drop a usage (ERA SOCD). While a
+ * contribution the macro added under Ignore modifiers is still in the report,
+ * the report carries only the macro owners' modifiers, and real, weak,
+ * one-shot, speculative and override modifiers keep their state for later
+ * reports; otherwise a one-shot modifier this report carried is spent, as
+ * get_mods_for_report() does without this option. */
+static void output_finish_mods(uint8_t *mods, bool macro_output) {
+    if (macro_output) {
+        *mods &= output_real_mods[ACTION_OUTPUT_OWNER_MACRO_HOLD] | output_real_mods[ACTION_OUTPUT_OWNER_MACRO_TAP] | output_weak_mods[ACTION_OUTPUT_OWNER_MACRO_HOLD] | output_weak_mods[ACTION_OUTPUT_OWNER_MACRO_TAP];
+        return;
+    }
+#    ifndef NO_ACTION_ONESHOT
+    if (oneshot_mods && has_anykey()) {
+        clear_oneshot_mods();
+    }
+#    endif
+}
+static bool output_suppressed_mods_in(uint8_t mods) {
+    return mods & (output_suppressed_mods[0] | output_suppressed_mods[1]);
+}
+static bool output_suppressed_in_6kro(const report_keyboard_t *report) {
+    if (!output_mods_suppressed()) return false;
+    if (output_suppressed_mods_in(report->mods)) return true;
+    for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; ++i) {
+        const uint8_t key = report->keys[i];
+        if (key && ((output_suppressed_key_byte(key >> 3) >> (key & 7)) & 1U)) return true;
+    }
+    return false;
+}
+#    ifdef NKRO_ENABLE
+static bool output_suppressed_in_nkro(const report_nkro_t *report) {
+    if (!output_mods_suppressed()) return false;
+    if (output_suppressed_mods_in(report->mods)) return true;
+    for (uint8_t i = 0; i < NKRO_REPORT_BITS; ++i) {
+        if (report->bits[i] & output_suppressed_key_byte(i)) return true;
+    }
+    return false;
+}
+#    endif
+#endif
 
 __attribute__((weak)) void keyboard_report_filter(report_keyboard_t *report) {
     (void)report;
@@ -589,6 +689,9 @@ void send_6kro_report(void) {
     static report_keyboard_t report;
     memcpy(&report, keyboard_report, sizeof(report_keyboard_t));
     keyboard_report_filter(&report);
+#ifdef OUTPUT_SUPPRESSION
+    output_finish_mods(&report.mods, output_suppressed_in_6kro(&report));
+#endif
 
 #ifdef PROTOCOL_VUSB
     host_keyboard_send(&report);
@@ -618,6 +721,9 @@ void send_nkro_report(void) {
     static report_nkro_t report;
     memcpy(&report, nkro_report, sizeof(report_nkro_t));
     nkro_report_filter(&report);
+#ifdef OUTPUT_SUPPRESSION
+    output_finish_mods(&report.mods, output_suppressed_in_nkro(&report));
+#endif
 
     static report_nkro_t last_report;
 
@@ -692,6 +798,9 @@ void add_mods(uint8_t mods) {
 #ifdef ACTION_OWNED_OUTPUTS
     if (output_owner < ACTION_OUTPUT_OWNERS) {
         output_replace_mods(&output_real_mods[output_owner], output_real_mods[output_owner] | mods, output_real_counts, &output_real_union);
+#    ifdef OUTPUT_SUPPRESSION
+        output_note_mods(output_owner, mods);
+#    endif
         return;
     }
 #endif
@@ -705,6 +814,9 @@ void del_mods(uint8_t mods) {
 #ifdef ACTION_OWNED_OUTPUTS
     if (output_owner < ACTION_OUTPUT_OWNERS) {
         output_replace_mods(&output_real_mods[output_owner], output_real_mods[output_owner] & (uint8_t)~mods, output_real_counts, &output_real_union);
+#    ifdef OUTPUT_SUPPRESSION
+        output_note_mods(output_owner, 0);
+#    endif
         return;
     }
 #endif
@@ -718,6 +830,9 @@ void set_mods(uint8_t mods) {
 #ifdef ACTION_OWNED_OUTPUTS
     if (output_owner < ACTION_OUTPUT_OWNERS) {
         output_replace_mods(&output_real_mods[output_owner], mods, output_real_counts, &output_real_union);
+#    ifdef OUTPUT_SUPPRESSION
+        output_note_mods(output_owner, mods);
+#    endif
         return;
     }
 #endif

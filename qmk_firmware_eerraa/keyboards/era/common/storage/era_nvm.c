@@ -1323,7 +1323,8 @@ era_nvm_result_t era_nvm_macro_replace_commit(era_nvm_t *nvm, uint32_t crc32) {
 
 era_nvm_result_t era_nvm_macro_replace_abort(era_nvm_t *nvm) {
     if (nvm == NULL || nvm->state != ERA_NVM_STATE_READY) return ERA_NVM_RESULT_NOT_READY;
-    if (nvm->macro_mode != ERA_NVM_MACRO_REPLACE_OPEN) return ERA_NVM_RESULT_PROTOCOL;
+    if (nvm->macro_mode != ERA_NVM_MACRO_REPLACE_OPEN &&
+        nvm->macro_mode != ERA_NVM_MACRO_WRITE_OPEN) return ERA_NVM_RESULT_PROTOCOL;
     if (nvm->edit_depth) return ERA_NVM_RESULT_BUSY;
     era_nvm_result_t result = era_nvm_replay_read(nvm, nvm->config.macro_address,
         nvm->image + nvm->config.macro_address, nvm->config.macro_size);

@@ -35,6 +35,8 @@ def fixture(out, interval=10, tap_delay=5, mutation=None, custom_layout=False):
     #define PROGMEM
     #define pgm_read_byte(p) (*(const uint8_t *)(p))
     #define DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE 512
+    #define MATRIX_ROWS 4
+    #define MATRIX_COLS 8
     #define DYNAMIC_KEYMAP_MACRO_DELAY INTERVAL_VALUE
     #define TAP_CODE_DELAY TAP_VALUE
     #define TAP_HOLD_CAPS_DELAY 80
@@ -98,7 +100,7 @@ def fixture(out, interval=10, tap_delay=5, mutation=None, custom_layout=False):
      unsigned nr=events, ni=intervals;uint32_t end=now;event_t ref[16];memcpy(ref,trace,nr*sizeof(event_t));
      reset();if(command){memory[0]=SS_QMK_PREFIX;memory[1]=SS_TAP_CODE;memory[2]=c;}else memory[0]=c;
      assert(era_macro_request(0)); unsigned limit=0;
-     while((count||active)&&limit++<1000) {era_macro_task();if(waiting)++now;}
+     while(playback&&limit++<1000) {era_macro_task();if(waiting)++now;}
      if(now!=end || nr!=events || ni!=intervals || waits) {printf("FAIL %s %u ref_end=%u now=%u ref_events=%u events=%u intervals=%u/%u waits=%u\\n",command?"TAP":"ASCII",c,end,now,nr,events,ni,intervals,waits);abort();}
      for(unsigned i=0;i<nr;i++) if(trace[i].t!=ref[i].t||trace[i].code!=ref[i].code||trace[i].down!=ref[i].down){printf("ORDER FAIL %u event %u\\n",c,i);abort();}
     }
@@ -106,8 +108,8 @@ def fixture(out, interval=10, tap_delay=5, mutation=None, custom_layout=False):
      for(unsigned c=1;c<128;c++) if(c!=SS_QMK_PREFIX)parity(c,false);
      for(unsigned c=1;c<256;c++)parity(c,true);
      puts("PASS production ASCII1..127/TAP1..255 trace+timing; no wait_ms from executor");
-     reset();memory[0]=SS_QMK_PREFIX;memory[1]=SS_DELAY_CODE;memcpy(memory+2,"1000|a",6);assert(era_macro_request(0));era_macro_task();assert(waiting);memory[7]='b';now=1000;while(count||active){era_macro_task();if(waiting)++now;}assert(trace[0].code==KC_A);puts("PASS active snapshot immutable across storage change");
-     reset();memset(memory,'a',sizeof(memory)-1);for(unsigned i=0;i<ERA_MACRO_QUEUE_CAPACITY;i++)assert(era_macro_request(0));assert(!era_macro_request(0));era_macro_task();assert(events<16);puts("PASS finite request capacity and one task work budget");
+     reset();memory[0]=SS_QMK_PREFIX;memory[1]=SS_DELAY_CODE;memcpy(memory+2,"1000|a",6);assert(era_macro_request(0));era_macro_task();assert(waiting);memory[7]='b';now=1000;while(playback){era_macro_task();if(waiting)++now;}assert(trace[0].code==KC_A);puts("PASS active snapshot immutable across storage change");
+     reset();memset(memory,'a',sizeof(memory)-1);assert(era_macro_request(0));assert(!era_macro_request(0));assert(!era_macro_request(1));era_macro_task();assert(events<16);puts("PASS one admitted macro without a queue and one task work budget");
      return 0;
     }
     '''

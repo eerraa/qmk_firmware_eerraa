@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include "util.h"
 
 /*
@@ -105,6 +106,12 @@ typedef enum {
 /* Observation only: never consumes the driver's transfer semaphore.
  * COMPLETE includes the PIO tail and reset-low interval, not optical feedback. */
 ws2812_transfer_status_t ws2812_transfer_status(void);
+/* FAILED records outcome, not buffer ownership. Readiness additionally waits
+ * for safe DMA retirement and the PIO reset-low interval. */
+bool ws2812_transfer_ready(void);
+/* Core0 thread/housekeeping only. Bounded cooperative DMA timeout/abort
+ * service; does not submit a frame or certify success by elapsed time. */
+void ws2812_transfer_service(void);
 #endif
 
 void ws2812_rgb_to_rgbw(ws2812_led_t *led);

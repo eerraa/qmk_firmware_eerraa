@@ -19,3 +19,4 @@ bool era_test_storage_late_claim_was_injected(void);
 uint32_t era_test_storage_initiator_publication_seq(void);
 uint32_t era_test_storage_responder_publication_seq(void);
 void era_test_storage_release_late_claim(void);
+bool era_test_storage_compact_valid(const uint8_t *payload, uint16_t length);

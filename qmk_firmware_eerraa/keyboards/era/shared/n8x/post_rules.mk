@@ -23,6 +23,7 @@ ERA_VIA_BOOTLOADER_ENABLE = yes
 ERA_EEPROM_CLEAN_ENABLE = yes
 ERA_STORAGE_QUIET_DEFER_MS = 500
 
+include keyboards/era/common/storage/era_storage_adoption_rules.mk
 include keyboards/era/common/system/era_common_qmk_rules.mk
 # Copy-to-RAM. Owner policy 2026-08-11: every ERA RP2040 board runs the image
 # from SRAM and XIP is retired, because performance is hard to control on it.

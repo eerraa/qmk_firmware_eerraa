@@ -15,11 +15,10 @@
  * happen, and because a signature change would reset the block on a
  * signature-shaped question rather than a layout-shaped one.
  *
- * The fourteen bytes at +10 are the seven per-domain 16-bit LE divergence
- * counters of the recency layer, owned by the storage engine
- * (era_host_peer_storage_contract.md, Recency Layer) and opaque to the policy
- * module. Ordinary policy persists write only the prefix below, so a policy
- * toggle cannot clobber them. */
+ * The fourteen bytes at +10 are retired seven-domain counter seats. They
+ * remain reserved, not imported. Eight-domain recency now lives after the
+ * macro-options table (era_host_peer_storage_contract.md, Recency Layer).
+ * Ordinary policy persists still write only the preference prefix. */
 /* 5 since 2026-08-13, when RGB joined EEPROM and INPUT as a default-on family.
  * A default change has to ride the version, and that is the whole reason this
  * byte moved: a valid v4 block is loaded verbatim, so a board that already

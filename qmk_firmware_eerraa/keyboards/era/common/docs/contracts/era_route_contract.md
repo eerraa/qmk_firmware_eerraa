@@ -78,7 +78,7 @@ Required route timing:
 
 | Requirement | Value |
 | --- | ---: |
-| known-peer SESSION_STATUS refresh while the relation lane is not live | 50 ms |
+| known-peer SESSION_STATUS refresh while the relation lane is not live and this half is the available wire initiator | 50 ms |
 | peer-unknown discovery before backoff | 25 ms |
 | peer-unknown discovery after 10 consecutive misses | 100 ms |
 | peer-unknown SESSION_STATUS response window | 2 ms |
@@ -142,6 +142,8 @@ A plan is executable only under a current owner epoch, a nonzero relation
 generation, and a nonzero period. Clearing its enable bit stops normal cadence
 but does not stop the 50 ms liveness exchange. Storage suppression and pending
 status revalidation may clear enable without destroying the relation identity.
+A pending status debt is retained through role or wire-availability changes;
+only the available wire initiator may discharge it.
 
 Standing state is latest-state, not a queue. Core0 owns plan publication;
 Core1 owns received state and its change sequence. Old owner/relation identities
@@ -225,6 +227,20 @@ exclusive; exclusivity lifts at transfer verification. A push initiator then
 keeps only the standing grant suppressed through COMPLETE if the remote
 responder may still be applying. Authority, relation, policy, owner, or source
 revision change cancels the episode.
+
+TOMAK presentation observes the storage-owned Save/reconciliation operation
+and grants no route or write permission. Upload preparation and approved
+deferred waiting do not acquire bulk-transfer exclusivity. Existing standing
+activity sections carry each endpoint's locally owned live level, not its
+peer mirror or retained divergence; no extra control lane is required.
+Mandatory SESSION, ownership retirement and fresh input establishment outrank
+optional presentation traffic. A failed attempt must safely retire its claims
+and recover input before unchanged storage work can reacquire exclusivity;
+automatic revalidation and relation rebinding do not renew its recovery
+budget. Stateless arbitration failure never acquires an exclusive ABORT
+phase. The complete attempt, data-retention and failure-STATUS requirements
+are owned by `era_host_peer_storage_contract.md` **TOMAK Save/SYNC Operation
+And Failure Presentation**.
 
 Storage arbitration is change-triggered, never a periodic patrol. Its triggers
 are relation establishment/re-establishment, a newly settled local capture,

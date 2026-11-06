@@ -41,6 +41,7 @@ void era_split_input_source_snapshot(const matrix_row_t *rows, uint32_t now);
 void era_split_input_source_facts(const era_split_wire_session_status_t *status);
 bool era_split_input_source_due(uint32_t now);
 bool era_split_input_source_service_needed(void);
+bool era_split_input_source_recovery_pending(void);
 bool era_split_input_source_prepare(era_split_input_request_t *request, uint32_t now);
 void era_split_input_source_complete(const era_split_input_request_t *request, bool ok, uint8_t status);
 uint32_t era_split_input_source_generation(void);
@@ -64,6 +65,7 @@ void era_split_input_receiver_pressure(bool pressured);
 void era_split_input_receiver_pressure_event(void);
 void era_split_input_receiver_capacity(bool room);
 bool era_split_input_receiver_enabled(void);
+bool era_split_input_receiver_recovery_pending(void);
 void era_split_input_receiver_end(void);
 
 /* The QMK ingress seam claims at the start of this synchronous action pass. */

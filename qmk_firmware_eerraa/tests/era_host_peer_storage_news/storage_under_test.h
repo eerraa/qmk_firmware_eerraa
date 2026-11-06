@@ -3,6 +3,9 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+bool era_test_news_exhaust_arbitration(bool conflict);
+bool era_test_news_failed_apply_recovers_input(bool blue_ready);
+bool era_test_news_paused_responder_admits_new_work(bool push);
 void era_test_news_reset(void);
 void era_test_news_result_due(bool due);
 void era_test_news_execution(bool active);
@@ -36,3 +39,4 @@ bool era_test_news_request_pending(void);
 
 bool era_test_news_restart_wait(void);
 void era_test_news_close_indicator_gate(void);
+uint8_t era_test_options_write_domain(void);

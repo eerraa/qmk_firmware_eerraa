@@ -3,14 +3,6 @@
 
 #pragma once
 
-#include "../../common/storage/era_eeprom_layout.h"
-
-/* ERA-owned EEPROM storage sits before VIA/dynamic-keymap EEPROM ranges. */
-#define VIA_EEPROM_MAGIC_ADDR ERA_EEPROM_CONFIG_END
-#if !defined(VIA_ENABLE)
-#    define DYNAMIC_KEYMAP_EEPROM_ADDR ERA_EEPROM_CONFIG_END
-#endif
-
 /* The tap-dance slot keycodes start at this board's first custom keycode. */
 #define ERA_TAP_DANCE_KEYCODE_BASE QK_KB_0
 

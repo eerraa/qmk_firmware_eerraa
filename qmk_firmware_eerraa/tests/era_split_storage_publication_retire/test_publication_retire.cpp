@@ -53,6 +53,41 @@ class EraSplitStoragePublicationRetire : public ::testing::Test {
 
 } // namespace
 
+TEST_F(EraSplitStoragePublicationRetire, OptionsDomainTravelsInSummaryAndProbe) {
+    uint8_t frame[15] = {0x41, 0xea, 0xff, 4, 1, 0, 0x80, 1};
+    EXPECT_TRUE(era_test_storage_compact_valid(frame, sizeof(frame)));
+    frame[1] = 0xeb;
+    EXPECT_TRUE(era_test_storage_compact_valid(frame, sizeof(frame)));
+    frame[8] = 1; // The reserved time-anchor seat stays closed.
+    EXPECT_FALSE(era_test_storage_compact_valid(frame, sizeof(frame)));
+
+    auto request = request_for();
+    request.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS;
+    request.image_size = 72;
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    EXPECT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+}
+
+TEST_F(EraSplitStoragePublicationRetire, EighthDomainSummaryAndRecencyPublishAndClaim) {
+    auto request = request_for();
+    request.domain     = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    request.image_size = 0;
+    request.operation  = ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ;
+    request.detail     = 0x80U;
+    ASSERT_TRUE(era_split_communication_core_storage_reserve_initiator_result(kGeneration));
+    ASSERT_TRUE(era_split_communication_core_storage_publish_initiator_request(&request, 25000U));
+    era_split_communication_core_storage_initiator_request_t claimed_request{};
+    ASSERT_TRUE(era_split_communication_core_storage_claim_initiator_request(&claimed_request));
+    EXPECT_EQ(claimed_request.detail, 0x80U);
+
+    auto snapshot = snapshot_for();
+    snapshot.recency_changed_mask = 0xFFU;
+    ASSERT_TRUE(era_split_communication_core_storage_publish_responder_snapshot(&snapshot));
+    era_split_communication_core_storage_responder_snapshot_t claimed_snapshot{};
+    ASSERT_TRUE(era_split_communication_core_storage_claim_responder_snapshot(&claimed_snapshot));
+    EXPECT_EQ(claimed_snapshot.recency_changed_mask, 0xFFU);
+}
+
 TEST_F(EraSplitStoragePublicationRetire, IdleRetirementIsTerminalAcrossCapacityReset) {
     ASSERT_TRUE(era_split_communication_core_storage_retire_publications());
     EXPECT_TRUE(era_split_communication_core_storage_retire_publications());

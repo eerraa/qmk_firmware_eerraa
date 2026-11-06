@@ -21,9 +21,6 @@
 #include "../era_split_responder_projection.h"
 #include "../era_split_tap_activity.h"
 #include "../era_split_scheduler_session.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "../era_tomak_sync_runtime.h"
-#endif
 #include "../era_split_wire_payload.h"
 #include "action_layer.h"
 #include "host.h"
@@ -206,10 +203,6 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
     snapshot.owner_epoch         = era_split_communication_core_owner_epoch();
     snapshot.relation_generation = g_era_split_transport_scheduler.core1_initiator_relation_generation;
     snapshot.owner_gate_ready    = snapshot.owner_epoch != 0 && snapshot.relation_generation != 0;
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    era_tomak_sync_runtime_bind(snapshot.owner_epoch, snapshot.relation_generation);
-    era_tomak_sync_runtime_snapshot(&snapshot.sync_binding, &snapshot.sync_proof);
-#endif
     snapshot.session_allowed     = era_split_scheduler_session_build_local_status(false, &snapshot.local_session_status) &&
                                    snapshot.local_session_status.accepted_host_open != snapshot.local_session_status.accepted_no_host;
     snapshot.eligible_push_sections = era_split_wire_eligible_sections((uint8_t)g_era_split_transport_scheduler.mode,
@@ -392,17 +385,6 @@ static void era_split_transport_scheduler_commit_communication_core_host_respons
 }
 
 static void era_split_transport_scheduler_apply_communication_core_responder_result(const era_split_communication_core_responder_result_t *result) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (result->kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_TOMAK_SYNC) {
-        /* Consumption is independent of whether the PENDING response crossed.
-         * Recheck current peer/session facts after the ring handoff. */
-        era_tomak_sync_runtime_bind(era_split_communication_core_owner_epoch(),
-                                    g_era_split_transport_scheduler.core1_initiator_relation_generation);
-        era_tomak_sync_runtime_receive(&result->sync_binding, &result->sync_request);
-        g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
-        return;
-    }
-#endif
     bool session     = result->kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION;
     bool source_push = result->kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SOURCE_PUSH;
     if (session) {
@@ -414,6 +396,9 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
         era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_RX, cause_detail);
 #endif
         era_split_scheduler_session_note_peer_status(&result->peer_status);
+        era_host_peer_transaction_force_responder_lock_state_response();
+        era_split_communication_core_refresh_responder_snapshot();
+        g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
     } else {
         /* One eligibility read for the whole result. Each section arm below
            used to take its own, five identical calls into another translation

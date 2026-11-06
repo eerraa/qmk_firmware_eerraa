@@ -8,6 +8,7 @@
 #include "atomic_util.h"
 #include "era_split_transport_scheduler_internal.h"
 #include "../era_host_peer_matrix_link.h"
+#include "../era_split_input.h"
 #include "../era_host_peer_transaction.h"
 #include "../era_split_link.h"
 #include "../era_split_transaction_backend.h"
@@ -23,9 +24,6 @@
 #include "../era_split_transport_scheduler.h"
 #include "../era_split_scheduler_events.h"
 #include "../era_split_scheduler_session.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "../era_tomak_sync_runtime.h"
-#endif
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
 #include "timer.h"
@@ -243,21 +241,6 @@ void era_tomak_sync_session_tx_diag(uint32_t *ms, uint32_t *detail) {
     *ms = tomak_session_fail_ms; *detail = tomak_session_fail_detail;
 }
 #endif
-#ifdef ERA_TOMAK_SYNC_ENABLE
-bool era_split_transport_scheduler_submit_sync(const era_tomak_sync_wire_t *message) {
-    if (!message || era_split_transport_scheduler_core1_initiator_pending() ||
-        !era_split_scheduler_session_peer_known()) {
-        return false;
-    }
-    era_split_communication_core_initiator_request_t request;
-    era_split_transport_scheduler_init_core1_request(&request,
-        ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC, ERA_SPLIT_WIRE_PAYLOAD_TOMAK_SYNC,
-        ERA_SPLIT_WIRE_PAYLOAD_INVALID, ERA_SPLIT_PEER_RESPONSE_WINDOW_MS);
-    request.semantic.sync = *message;
-    return era_split_transport_scheduler_submit_core1_request(&request, true);
-}
-#endif
-
 static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
     era_split_wire_session_status_t local_status;
     if (!era_split_scheduler_session_build_local_status(true, &local_status)) {
@@ -446,13 +429,6 @@ bool era_split_transport_scheduler_poll_core1_initiator(void) {
 
     if (result.lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS) {
         era_split_transport_scheduler_apply_core1_session_result(&result);
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    } else if (result.lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_TOMAK_SYNC) {
-        era_tomak_sync_runtime_bind(result.owner_epoch, result.relation_generation);
-        if (result.result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
-            era_tomak_sync_runtime_reply(&result.decoded.sync);
-        }
-#endif
     } else {
         era_split_transport_scheduler_apply_core1_host_peer_result(&result);
     }

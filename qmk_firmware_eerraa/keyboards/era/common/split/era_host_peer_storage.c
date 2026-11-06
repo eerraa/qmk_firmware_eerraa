@@ -4,11 +4,18 @@
 #include "era_host_peer_storage.h"
 #include "era_host_peer_storage_indicator_policy.h"
 #include "era_host_peer_storage_standing_policy.h"
-#ifdef ERA_TOMAK_SYNC_TIMING
+#if defined(ERA_TOMAK_SYNC_TIMING) || defined(ERA_TOMAK_SYNC_STATE_DIAGNOSTICS)
 #    include "era_sync_timing.h"
+#endif
+#ifdef ERA_TOMAK_SYNC_TIMING
 #    define ERA_STORAGE_TIMING_ABORT(path) era_sync_timing_abort(g_era_host_peer_storage_runtime.state, g_era_host_peer_storage_runtime.pending_operation, g_era_host_peer_storage_runtime.last_status, (path))
 #else
 #    define ERA_STORAGE_TIMING_ABORT(path) ((void)0)
+#endif
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+#    define ERA_STORAGE_TIMING_METADATA(domain, crc32, result) era_host_peer_storage_timing_metadata((domain), (crc32), (result))
+#else
+#    define ERA_STORAGE_TIMING_METADATA(domain, crc32, result) (result)
 #endif
 
 #include <stddef.h>
@@ -42,10 +49,6 @@
 #include "era_split_link.h"
 #include "era_split_mode_planner.h"
 #include "era_split_restart_agreement.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_runtime.h"
-#    include "../system/era_tomak_sync_admission.h"
-#endif
 #include "era_split_transport_scheduler.h"
 #include "era_split_wire_frame.h"
 #include "era_host_peer_storage_recency_policy.h"
@@ -75,12 +78,54 @@
 #define ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR ERA_STORAGE_DYNAMIC_MACRO_ADDR
 
 static bool era_host_peer_storage_summary_outstanding(void);
+static void era_host_peer_storage_arm_summary_refresh(void);
 
 typedef struct {
     uint32_t address;
     uint16_t size;
     uint8_t  schema;
 } era_host_peer_storage_domain_descriptor_t;
+
+enum {
+    ERA_STORAGE_OPERATION_NONE,
+    ERA_STORAGE_OPERATION_PREPARING,
+    ERA_STORAGE_OPERATION_RECONCILING,
+    ERA_STORAGE_OPERATION_RELEASING,
+};
+
+enum {
+    ERA_STORAGE_OPERATION_SUCCESS,
+    ERA_STORAGE_OPERATION_FAILED,
+    ERA_STORAGE_OPERATION_SUPERSEDED,
+    ERA_STORAGE_OPERATION_OUTCOME_MASK = 3U,
+    ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING = 1U << 6,
+    ERA_STORAGE_OPERATION_WAIT_CONTEXT = 1U << 5,
+};
+
+typedef struct {
+    uint32_t generation;
+    uint32_t deadline_ms;
+    uint8_t remaining_mask;
+    uint8_t preparing_mask;
+    uint8_t phase;
+    uint8_t outcome;
+    uint8_t settle_mask;
+    uint8_t local_mask;
+    uint8_t news_pending_mask;
+} era_host_peer_storage_operation_t;
+_Static_assert(sizeof(era_host_peer_storage_operation_t) == 16U, "ERA batch accounting changed.");
+
+typedef struct {
+    uint32_t token;
+    uint32_t operation_generation;
+    uint32_t deadline_ms;
+    uint32_t idle_deadline_ms;
+    uint8_t mask;
+    uint8_t live;
+} era_host_peer_storage_contribution_t;
+
+_Static_assert(ERA_STORAGE_PRODUCER_COUNT == 4U, "ERA contribution tokens reserve two producer bits.");
+_Static_assert(sizeof(era_host_peer_storage_contribution_t) == 20U, "ERA contribution accounting changed.");
 
 /* Local-EEPROM truth: what this half knows about its own store — manifests'
  * companions (dirty deadlines, capture/revision counters) and the pinned
@@ -129,6 +174,25 @@ typedef struct {
     uint8_t  recency_repair_mask;
     /* Local settled captures advance this counter; relation rotation does not. */
     uint8_t  settled_news_value;
+    uint8_t  retiring;
+    uint8_t  semantic_peer_news;
+    uint8_t  failed_domain_mask;
+    uint8_t  semantic_intent_mask;
+    uint16_t initiator_transaction_generation;
+    uint16_t terminal_owner;
+    uint16_t terminal_relation;
+    uint16_t terminal_transaction;
+    uint8_t  failure_reported;
+    era_host_peer_storage_operation_t operation;
+    era_host_peer_storage_operation_t successor;
+    era_host_peer_storage_contribution_t contributions[ERA_STORAGE_PRODUCER_COUNT];
+    uint32_t operation_generation;
+    uint32_t contribution_generation;
+    uint32_t macro_cleanup_deadline_ms;
+    uint32_t episode_operation_generation;
+    uint32_t snapshot_operation_generation;
+    uint8_t snapshot_operation_mask;
+    uint8_t episode_operation_mask;
 } era_host_peer_storage_local_state_t;
 
 /* Relation-scoped episode bookkeeping: probe scheduling, hint consumption,
@@ -254,10 +318,8 @@ enum {
     ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY,
 };
 
-#define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
-
-_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT == 7U,
-               "ERA storage domain masks require exactly seven domains.");
+_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT == 8U,
+               "ERA storage domain masks require exactly eight domains.");
 
 /* The news value's range, and it is the wire section's range rather than a
  * choice made here: bit 7 of the same body byte carries the responder's
@@ -303,8 +365,10 @@ static bool era_host_peer_storage_state_is_host_push(uint8_t state) {
 static void era_host_peer_storage_host_close(uint32_t now_ms, bool aborted, bool revalidate);
 static bool era_host_peer_storage_publish_current_image(era_split_eeprom_sync_domain_t domain, uint32_t image_crc32);
 static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_ms);
+static void era_host_peer_storage_record_terminal(void);
 static bool era_host_peer_storage_moving_span(void);
 static void era_host_peer_storage_note_domain_dirty(era_split_eeprom_sync_domain_t domain, uint16_t quiet_ms);
+static void era_host_peer_storage_refresh_next_dirty_deadline(uint32_t now_ms);
 
 typedef enum {
     ERA_HOST_PEER_STORAGE_ROLE_NONE = 0,
@@ -354,16 +418,6 @@ typedef struct {
     uint16_t peer_usb_epoch;
     uint16_t peer_host_open_generation;
     uint16_t peer_host_close_generation;
-    /* The episode phase `episode_deadline_ms` was armed under (Slice 11.7).
-     * The deadline re-arms when the phase advances and never when a request is
-     * merely repeated, which is what makes it mean "this episode stopped
-     * advancing" rather than "this episode took a while". A phase is the state
-     * plus the pinned operation, because the two halves express an advance
-     * differently: the initiator walks states, and a responder waiting through
-     * the initiator's durable apply stays in `HOST_PINNED` and moves only its
-     * pinned operation. */
-    uint8_t  deadline_state;
-    uint8_t  deadline_operation;
     uint8_t  state;
     uint8_t  role;
     uint8_t  domain;
@@ -394,7 +448,7 @@ _Static_assert((uintptr_t)EECONFIG_RGB_MATRIX == 23U, "ERA storage schema RGB Ma
 _Static_assert(ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR == 320U, "ERA storage schema VIA layout-options address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR == 321U, "ERA storage schema dynamic keymap address changed.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR == ERA_HOST_PEER_STORAGE_DYNAMIC_KEYMAP_ADDR + ERA_HOST_PEER_STORAGE_DOMAIN_DYNAMIC_KEYMAP_BYTES, "ERA storage schema v1: the macro domain no longer sits immediately after the keymap domain.");
-/* The seven size asserts below are also the core-boundary binding. Each
+/* The domain size asserts below are also the core-boundary binding. Each
  * compares a layout expression only core0 can evaluate against the shared
  * macro core1's codec table reads, so the two tables cannot drift: a layout
  * change fails here, and correcting the macro carries core1 with it. They
@@ -408,6 +462,8 @@ _Static_assert(sizeof(rgb_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_RGB_MATR
 _Static_assert(sizeof(keymap_config_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES, "ERA storage schema keymap config size changed.");
 _Static_assert(sizeof(uint8_t) == ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES, "ERA storage schema default-layer size changed.");
 _Static_assert(ERA_EEPROM_SYNCABLE_CONFIG_SIZE == ERA_HOST_PEER_STORAGE_DOMAIN_ERA_CONFIG_BYTES, "ERA storage schema ERA config size changed.");
+_Static_assert(ERA_STORAGE_MACRO_OPTIONS_BYTES == ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES, "ERA storage schema macro options size changed.");
+_Static_assert(ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_BYTES <= TOTAL_EEPROM_BYTE_COUNT, "ERA storage recency exceeds logical EEPROM.");
 _Static_assert(ERA_HOST_PEER_STORAGE_DYNAMIC_MACRO_ADDR + ERA_HOST_PEER_STORAGE_IMAGE_BYTES <= TOTAL_EEPROM_BYTE_COUNT,
                "ERA storage schema exceeds logical EEPROM.");
 /* Later state changes are narrated at ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES.
@@ -463,6 +519,11 @@ static const era_host_peer_storage_domain_descriptor_t g_era_host_peer_storage_d
         .size    = VIA_EEPROM_LAYOUT_OPTIONS_SIZE,
         .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
     },
+    [ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS] = {
+        .address = ERA_STORAGE_MACRO_OPTIONS_ADDR,
+        .size    = ERA_STORAGE_MACRO_OPTIONS_BYTES,
+        .schema  = ERA_HOST_PEER_STORAGE_SCHEMA,
+    },
 };
 
 static uint8_t g_era_host_peer_storage_image[ERA_HOST_PEER_STORAGE_IMAGE_BYTES] __attribute__((aligned(4)));
@@ -471,6 +532,474 @@ static era_host_peer_storage_local_state_t g_era_host_peer_storage_local __attri
 static era_host_peer_storage_relation_state_t g_era_host_peer_storage_relation __attribute__((aligned(4)));
 static era_host_peer_storage_runtime_state_data_t g_era_host_peer_storage_runtime __attribute__((aligned(4)));
 static era_host_peer_storage_diagnostics_t g_era_host_peer_storage_diagnostics __attribute__((aligned(4)));
+
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+static era_sync_timing_storage_snapshot_t g_era_host_peer_storage_timing;
+static uint8_t era_host_peer_storage_operation_eligible_mask(void);
+
+const era_sync_timing_storage_snapshot_t *era_host_peer_storage_timing_snapshot(void) {
+    return g_era_host_peer_storage_timing.reason ? &g_era_host_peer_storage_timing : NULL;
+}
+
+static bool era_host_peer_storage_timing_metadata(uint8_t domain, uint32_t crc32, bool ok) {
+    if (!g_era_host_peer_storage_timing.reason) {
+        g_era_host_peer_storage_timing.metadata = (era_sync_timing_metadata_t){
+            .at_ms = timer_read32(),
+            .operation_generation = g_era_host_peer_storage_local.operation.generation,
+            .crc32 = crc32, .domain = domain, .ok = ok,
+        };
+    }
+    return ok;
+}
+
+static void era_host_peer_storage_timing_expire(uint8_t reason, uint32_t now_ms) {
+    era_sync_timing_storage_snapshot_t *s = &g_era_host_peer_storage_timing;
+    if (s->reason) return;
+    const era_host_peer_storage_operation_t *operations[] = {
+        &g_era_host_peer_storage_local.operation, &g_era_host_peer_storage_local.successor,
+    };
+    for (uint8_t i = 0; i < 2; ++i) {
+        const era_host_peer_storage_operation_t *o = operations[i];
+        s->operations[i] = (era_sync_timing_operation_t){
+            .generation = o->generation, .deadline_ms = o->deadline_ms,
+            .remaining_mask = o->remaining_mask, .preparing_mask = o->preparing_mask,
+            .phase = o->phase, .outcome = o->outcome,
+            .settle_mask = o->settle_mask, .local_mask = o->local_mask,
+            .news_pending_mask = o->news_pending_mask,
+        };
+    }
+    _Static_assert(ERA_STORAGE_PRODUCER_COUNT == 4U, "Timing capture must include every contribution.");
+    for (uint8_t i = 0; i < ERA_STORAGE_PRODUCER_COUNT; ++i) {
+        const era_host_peer_storage_contribution_t *c = &g_era_host_peer_storage_local.contributions[i];
+        s->contributions[i] = (era_sync_timing_contribution_t){
+            .token = c->token, .operation_generation = c->operation_generation,
+            .deadline_ms = c->deadline_ms, .idle_deadline_ms = c->idle_deadline_ms,
+            .mask = c->mask, .live = c->live,
+        };
+    }
+    s->at_ms = now_ms;
+    s->macro_token = era_eeprom_driver_macro_operation_generation();
+    s->episode_generation = g_era_host_peer_storage_local.episode_operation_generation;
+    s->snapshot_generation = g_era_host_peer_storage_local.snapshot_operation_generation;
+    s->episode_mask = g_era_host_peer_storage_local.episode_operation_mask;
+    s->snapshot_mask = g_era_host_peer_storage_local.snapshot_operation_mask;
+    s->match_count = g_era_host_peer_storage_diagnostics.match_count;
+    s->transfer_count = g_era_host_peer_storage_diagnostics.transfer_count;
+    s->complete_count = g_era_host_peer_storage_diagnostics.complete_count;
+    s->abort_count = g_era_host_peer_storage_diagnostics.abort_count;
+    s->stale_count = g_era_host_peer_storage_diagnostics.stale_count;
+    s->retry_count = g_era_host_peer_storage_diagnostics.retry_count;
+    s->owner_epoch = g_era_host_peer_storage_runtime.owner_epoch;
+    s->relation_generation = g_era_host_peer_storage_runtime.relation_generation;
+    s->policy_generation = g_era_host_peer_storage_runtime.policy_generation;
+    s->transaction_generation = g_era_host_peer_storage_runtime.transaction_generation;
+    s->request_generation = g_era_host_peer_storage_runtime.request_generation;
+    s->responder_snapshot_generation = g_era_host_peer_storage_runtime.responder_snapshot_generation;
+    s->state = g_era_host_peer_storage_runtime.state;
+    s->role = g_era_host_peer_storage_runtime.role;
+    s->domain = g_era_host_peer_storage_runtime.domain;
+    s->pending_operation = g_era_host_peer_storage_runtime.pending_operation;
+    s->status = g_era_host_peer_storage_runtime.last_status;
+    s->flags = g_era_host_peer_storage_runtime.flags;
+    s->dirty_mask = g_era_host_peer_storage_local.dirty_domain_mask;
+    s->intent_mask = g_era_host_peer_storage_local.semantic_intent_mask;
+    s->failed_mask = g_era_host_peer_storage_local.failed_domain_mask;
+    s->eligible_mask = era_host_peer_storage_operation_eligible_mask();
+    s->active = g_era_host_peer_storage_relation.active_due;
+    s->retiring = g_era_host_peer_storage_local.retiring;
+    s->result_due = era_split_communication_core_storage_result_due();
+    s->macro_open = era_eeprom_driver_macro_transaction_open();
+    s->arbitration_flags = g_era_host_peer_storage_relation.arbitration_flags;
+    s->probe_mask = g_era_host_peer_storage_relation.probe_pending_mask;
+    s->push_mask = g_era_host_peer_storage_relation.push_pending_mask;
+    s->conflict_mask = g_era_host_peer_storage_relation.conflict_pending_mask;
+    s->news = g_era_host_peer_storage_local.settled_news_value;
+    s->peer_news = g_era_host_peer_storage_relation.peer_news_value;
+    s->reason = reason;
+}
+#endif
+
+#ifndef ERA_TOMAK_SYNC_ENABLE
+__attribute__((weak)) void era_tomak_sync_attempt_started_kb(void) {}
+__attribute__((weak)) void era_tomak_sync_failure_report_kb(void) {}
+#endif
+
+bool era_host_peer_storage_content_attempt_active(void) {
+    return (g_era_host_peer_storage_local.operation.phase != ERA_STORAGE_OPERATION_NONE &&
+            (g_era_host_peer_storage_local.operation.outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS) ||
+           (g_era_host_peer_storage_local.successor.phase != ERA_STORAGE_OPERATION_NONE &&
+            (g_era_host_peer_storage_local.successor.outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS);
+}
+
+static era_host_peer_storage_operation_t *era_host_peer_storage_operation_find(uint32_t generation) {
+    if (!generation) return NULL;
+    if (g_era_host_peer_storage_local.operation.generation == generation)
+        return &g_era_host_peer_storage_local.operation;
+    if (g_era_host_peer_storage_local.successor.generation == generation)
+        return &g_era_host_peer_storage_local.successor;
+    return NULL;
+}
+
+static bool era_host_peer_storage_operation_live(uint32_t generation) {
+    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_find(generation);
+    return operation && operation->phase != ERA_STORAGE_OPERATION_NONE &&
+           (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS;
+}
+
+static era_host_peer_storage_operation_t *era_host_peer_storage_operation_admit_internal(void) {
+    if (!g_era_host_peer_storage_local.initialized) return NULL;
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    if (operation->phase != ERA_STORAGE_OPERATION_NONE) operation = &g_era_host_peer_storage_local.successor;
+    if (operation->phase == ERA_STORAGE_OPERATION_NONE) {
+        uint32_t generation = ++g_era_host_peer_storage_local.operation_generation;
+        if (!generation) generation = ++g_era_host_peer_storage_local.operation_generation;
+        *operation = (era_host_peer_storage_operation_t){
+            .generation = generation,
+            .deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS,
+            .phase = ERA_STORAGE_OPERATION_PREPARING,
+        };
+        g_era_host_peer_storage_local.failure_reported = 0;
+        era_tomak_sync_attempt_started_kb();
+    }
+    return operation;
+}
+
+static void era_host_peer_storage_operation_limit(era_host_peer_storage_operation_t *operation, uint32_t deadline_ms) {
+    if (!(operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING) ||
+        (int32_t)(deadline_ms - operation->deadline_ms) < 0)
+        operation->deadline_ms = deadline_ms;
+    operation->outcome |= ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING;
+}
+
+static void era_host_peer_storage_operation_refresh_preparation(era_host_peer_storage_operation_t *operation) {
+    operation->preparing_mask = 0;
+    for (uint8_t producer = 0; producer < ERA_STORAGE_PRODUCER_COUNT; ++producer) {
+        const era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+        if (contribution->live && contribution->operation_generation == operation->generation)
+            operation->preparing_mask |= contribution->mask;
+    }
+    if ((operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS)
+        operation->phase = operation->remaining_mask ? ERA_STORAGE_OPERATION_RECONCILING :
+                           operation->preparing_mask ? ERA_STORAGE_OPERATION_PREPARING :
+                                                       ERA_STORAGE_OPERATION_RELEASING;
+}
+
+static uint32_t era_host_peer_storage_operation_ready(uint8_t mask) {
+    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_admit_internal();
+    if (!operation || !mask) return 0;
+    era_host_peer_storage_operation_limit(operation, timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS);
+    operation->remaining_mask |= mask;
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+    return operation->generation;
+}
+
+static era_host_peer_storage_contribution_t *era_host_peer_storage_contribution_find(uint32_t token) {
+    if (!token) return NULL;
+    era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[token & 3U];
+    if (contribution->token != token || !contribution->live ||
+        !era_host_peer_storage_operation_live(contribution->operation_generation)) return NULL;
+    return contribution;
+}
+
+bool era_host_peer_storage_contribution_live(uint32_t token) {
+    return era_host_peer_storage_contribution_find(token) != NULL;
+}
+
+uint32_t era_host_peer_storage_contribution_admit(era_host_peer_storage_producer_t producer, uint8_t mask) {
+    if (producer >= ERA_STORAGE_PRODUCER_COUNT || !mask || !g_era_host_peer_storage_local.initialized) return 0;
+    era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+    if (contribution->live) return contribution->token;
+    /* Incarnations never wrap into an outstanding/stale callback's token. */
+    if (g_era_host_peer_storage_local.contribution_generation == (UINT32_MAX >> 2)) return 0;
+    era_host_peer_storage_operation_t *operation = era_host_peer_storage_operation_admit_internal();
+    if (!operation) return 0;
+    uint32_t now_ms = timer_read32();
+    *contribution = (era_host_peer_storage_contribution_t){
+        .token = (++g_era_host_peer_storage_local.contribution_generation << 2) | producer,
+        .operation_generation = operation->generation,
+        .deadline_ms = now_ms + (producer == ERA_STORAGE_PRODUCER_MACRO ?
+                                    ERA_HOST_PEER_STORAGE_UPLOAD_TOTAL_MS : ERA_HOST_PEER_STORAGE_OPERATION_MS),
+        .idle_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS,
+        .mask = mask,
+        .live = 1,
+    };
+    if (producer != ERA_STORAGE_PRODUCER_MACRO)
+        era_host_peer_storage_operation_limit(operation, contribution->deadline_ms);
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    return contribution->token;
+}
+
+void era_host_peer_storage_contribution_extend(uint32_t token, uint8_t mask) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution) return;
+    contribution->mask |= mask;
+    era_host_peer_storage_operation_refresh_preparation(
+        era_host_peer_storage_operation_find(contribution->operation_generation));
+}
+
+bool era_host_peer_storage_contribution_committed(uint32_t token, uint8_t mask, bool final) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution || !(mask &= contribution->mask)) return false;
+    era_host_peer_storage_operation_t *operation =
+        era_host_peer_storage_operation_find(contribution->operation_generation);
+    if ((token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        era_host_peer_storage_operation_limit(operation, timer_read32() + ERA_HOST_PEER_STORAGE_OPERATION_MS);
+    if (final) contribution->live = 0;
+    operation->remaining_mask |= mask;
+    operation->local_mask |= mask;
+    operation->settle_mask |= mask;
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+    return true;
+}
+
+static void era_host_peer_storage_operation_settled(uint8_t mask) {
+    g_era_host_peer_storage_local.operation.settle_mask &= (uint8_t)~mask;
+    g_era_host_peer_storage_local.successor.settle_mask &= (uint8_t)~mask;
+}
+
+void era_host_peer_storage_contribution_progress(uint32_t token) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (contribution && (token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        contribution->idle_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_UPLOAD_IDLE_MS;
+}
+
+static void era_host_peer_storage_operation_suppress(era_host_peer_storage_operation_t *operation) {
+    era_host_peer_storage_operation_t *other = operation == &g_era_host_peer_storage_local.operation ?
+        &g_era_host_peer_storage_local.successor : &g_era_host_peer_storage_local.operation;
+    uint8_t discarded = operation->settle_mask & (uint8_t)~other->settle_mask;
+    g_era_host_peer_storage_local.failed_domain_mask |= operation->remaining_mask;
+    g_era_host_peer_storage_local.semantic_intent_mask &= (uint8_t)~discarded;
+    g_era_host_peer_storage_local.dirty_deadline_valid_mask &=
+        ~(discarded & ~g_era_host_peer_storage_local.dirty_domain_mask);
+    era_host_peer_storage_refresh_next_dirty_deadline(timer_read32());
+}
+
+static void era_host_peer_storage_operation_retire_contributions(era_host_peer_storage_operation_t *operation) {
+    for (uint8_t producer = 0; producer < ERA_STORAGE_PRODUCER_COUNT; ++producer) {
+        era_host_peer_storage_contribution_t *contribution = &g_era_host_peer_storage_local.contributions[producer];
+        if (!contribution->live || contribution->operation_generation != operation->generation) continue;
+        if (producer == ERA_STORAGE_PRODUCER_MACRO) {
+            (void)era_eeprom_driver_macro_abort_owned(contribution->token);
+#ifdef ERA_MACRO_REPLACE_ENABLE
+            era_macro_replace_expire(contribution->token);
+#endif
+            g_era_host_peer_storage_local.macro_cleanup_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_RETRY_MS;
+        }
+        contribution->live = 0;
+    }
+    era_host_peer_storage_operation_refresh_preparation(operation);
+}
+
+static void era_host_peer_storage_operation_fail(era_host_peer_storage_operation_t *operation) {
+    if (!operation || (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) return;
+    operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
+        ERA_STORAGE_OPERATION_FAILED;
+    operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+    era_host_peer_storage_operation_retire_contributions(operation);
+    era_host_peer_storage_operation_suppress(operation);
+    if (operation == &g_era_host_peer_storage_local.operation) {
+        g_era_host_peer_storage_local.failure_reported = 0;
+        era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT, timer_read32());
+    } else {
+        era_tomak_sync_failure_report_kb();
+        memset(operation, 0, sizeof(*operation));
+    }
+}
+
+void era_host_peer_storage_contribution_end(uint32_t token, bool failed) {
+    era_host_peer_storage_contribution_t *contribution = era_host_peer_storage_contribution_find(token);
+    if (!contribution) return;
+    era_host_peer_storage_operation_t *operation =
+        era_host_peer_storage_operation_find(contribution->operation_generation);
+    contribution->live = 0;
+    if ((token & 3U) == ERA_STORAGE_PRODUCER_MACRO)
+        g_era_host_peer_storage_local.macro_cleanup_deadline_ms = timer_read32() + ERA_HOST_PEER_STORAGE_RETRY_MS;
+    era_host_peer_storage_operation_refresh_preparation(operation);
+    if (failed) {
+        era_tomak_sync_failure_report_kb();
+        g_era_host_peer_storage_local.failure_reported = 1;
+    }
+    /* A receipt owns its preparation, never other producers or READY debt. */
+    if (!operation->remaining_mask && !operation->preparing_mask) {
+        operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
+            (failed ? ERA_STORAGE_OPERATION_FAILED : ERA_STORAGE_OPERATION_SUPERSEDED);
+        operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+        if (operation == &g_era_host_peer_storage_local.operation) {
+            if (g_era_host_peer_storage_relation.active_due &&
+                g_era_host_peer_storage_local.episode_operation_generation == operation->generation)
+                era_host_peer_storage_peer_begin_abort(failed ? ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT :
+                                                               ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED, timer_read32());
+        } else {
+            memset(operation, 0, sizeof(*operation));
+        }
+    }
+}
+
+void era_host_peer_storage_operation_task(uint32_t now_ms) {
+    uint32_t macro_generation = era_eeprom_driver_macro_operation_generation();
+    if (macro_generation && !era_host_peer_storage_contribution_live(macro_generation) &&
+        era_eeprom_driver_macro_transaction_open() &&
+        timer_expired32(now_ms, g_era_host_peer_storage_local.macro_cleanup_deadline_ms)) {
+        (void)era_eeprom_driver_macro_abort_owned(macro_generation);
+#ifdef ERA_MACRO_REPLACE_ENABLE
+        era_macro_replace_expire(macro_generation);
+#endif
+        g_era_host_peer_storage_local.macro_cleanup_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+    }
+    era_host_peer_storage_operation_t *operations[] = {
+        &g_era_host_peer_storage_local.operation, &g_era_host_peer_storage_local.successor,
+    };
+    for (uint8_t i = 0; i < 2; ++i) {
+        era_host_peer_storage_operation_t *operation = operations[i];
+        if (operation->phase == ERA_STORAGE_OPERATION_NONE) continue;
+        if ((operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) continue;
+        if ((operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING) &&
+            timer_expired32(now_ms, operation->deadline_ms)) {
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+            era_host_peer_storage_timing_expire(i + 1U, now_ms);
+#endif
+            era_host_peer_storage_operation_fail(operation);
+        }
+    }
+    era_host_peer_storage_contribution_t *macro = &g_era_host_peer_storage_local.contributions[ERA_STORAGE_PRODUCER_MACRO];
+    if (macro->live && (timer_expired32(now_ms, macro->deadline_ms) || timer_expired32(now_ms, macro->idle_deadline_ms))) {
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+        era_host_peer_storage_timing_expire(timer_expired32(now_ms, macro->deadline_ms) ? 3U : 4U, now_ms);
+#endif
+        (void)era_eeprom_driver_macro_abort_owned(macro->token);
+#ifdef ERA_MACRO_REPLACE_ENABLE
+        era_macro_replace_expire(macro->token);
+#endif
+        era_host_peer_storage_contribution_end(macro->token, true);
+    }
+}
+
+static uint8_t era_host_peer_storage_operation_eligible_mask(void) {
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    if (operation->phase != ERA_STORAGE_OPERATION_RECONCILING ||
+        (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) != ERA_STORAGE_OPERATION_SUCCESS) return 0;
+    return operation->remaining_mask & (uint8_t)~(operation->preparing_mask |
+        operation->settle_mask | g_era_host_peer_storage_local.dirty_domain_mask);
+}
+
+static bool era_host_peer_storage_operation_episode_expired(uint32_t now_ms) {
+    era_host_peer_storage_operation_t *operation =
+        era_host_peer_storage_operation_find(g_era_host_peer_storage_local.episode_operation_generation);
+    return operation && timer_expired32(now_ms, operation->deadline_ms);
+}
+
+static uint32_t era_host_peer_storage_episode_deadline(uint32_t now_ms) {
+    uint32_t deadline = now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    if (operation->phase != ERA_STORAGE_OPERATION_NONE &&
+        (int32_t)(operation->deadline_ms - deadline) < 0)
+        deadline = operation->deadline_ms;
+    return deadline;
+}
+
+static void era_host_peer_storage_operation_proved(uint32_t generation, uint8_t mask) {
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+    if (!g_era_host_peer_storage_timing.reason) {
+        g_era_host_peer_storage_timing.proof = (era_sync_timing_proof_t){
+            .at_ms = timer_read32(), .generation = generation,
+            .current_generation = operation->generation, .phase = operation->phase,
+            .mask = mask, .eligible_mask = era_host_peer_storage_operation_eligible_mask(),
+            .episode_generation = g_era_host_peer_storage_local.episode_operation_generation,
+            .snapshot_generation = g_era_host_peer_storage_local.snapshot_operation_generation,
+            .episode_mask = g_era_host_peer_storage_local.episode_operation_mask,
+            .snapshot_mask = g_era_host_peer_storage_local.snapshot_operation_mask,
+        };
+    }
+#endif
+    if (!generation || operation->generation != generation ||
+        operation->phase != ERA_STORAGE_OPERATION_RECONCILING) return;
+    uint8_t proved = mask & era_host_peer_storage_operation_eligible_mask();
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+    if (!g_era_host_peer_storage_timing.reason)
+        g_era_host_peer_storage_timing.proof.retired_mask = proved;
+#endif
+    operation->remaining_mask &= (uint8_t)~proved;
+    operation->local_mask &= (uint8_t)~proved;
+    if (!operation->remaining_mask && !operation->preparing_mask)
+        operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+}
+
+static void era_host_peer_storage_operation_publish_news(void) {
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    uint8_t ready = operation->news_pending_mask & operation->local_mask &
+                    era_host_peer_storage_operation_eligible_mask();
+    if (!ready) return;
+    operation->news_pending_mask &= (uint8_t)~ready;
+    era_host_peer_storage_note_local_news();
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+}
+
+static void era_host_peer_storage_operation_release(const era_host_peer_storage_runtime_context_t *context) {
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    const era_host_peer_storage_contribution_t *macro =
+        &g_era_host_peer_storage_local.contributions[ERA_STORAGE_PRODUCER_MACRO];
+    if (operation->outcome & ERA_STORAGE_OPERATION_WAIT_CONTEXT) {
+        /* Recovery was requested after this pass sampled its context. */
+        operation->outcome &= (uint8_t)~ERA_STORAGE_OPERATION_WAIT_CONTEXT;
+        return;
+    }
+    if (context && !g_era_host_peer_storage_local.retiring)
+        era_host_peer_storage_operation_publish_news();
+    if (operation->phase != ERA_STORAGE_OPERATION_RELEASING || g_era_host_peer_storage_local.retiring ||
+        g_era_host_peer_storage_relation.active_due || era_split_communication_core_storage_result_due() ||
+        !context || context->input_recovery_pending || context->status_revalidation_due ||
+        (era_eeprom_driver_macro_transaction_open() &&
+         era_eeprom_driver_macro_operation_generation() == macro->token &&
+         macro->operation_generation == operation->generation)) return;
+    *operation = g_era_host_peer_storage_local.successor;
+    memset(&g_era_host_peer_storage_local.successor, 0, sizeof(g_era_host_peer_storage_local.successor));
+    if (operation->phase != ERA_STORAGE_OPERATION_NONE &&
+        (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUCCESS) {
+        g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~operation->remaining_mask;
+        era_host_peer_storage_arm_summary_refresh();
+        era_host_peer_storage_operation_publish_news();
+        g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+    }
+}
+
+void era_host_peer_storage_note_local_news(void) {
+    g_era_host_peer_storage_local.settled_news_value =
+        (uint8_t)((g_era_host_peer_storage_local.settled_news_value %
+                   ERA_HOST_PEER_STORAGE_NEWS_VALUE_MAX) + 1U);
+    g_era_host_peer_storage_local.failure_reported = 0;
+}
+
+static void era_host_peer_storage_note_settled_news(uint8_t mask) {
+    uint8_t current = mask & g_era_host_peer_storage_local.operation.settle_mask &
+                      g_era_host_peer_storage_local.operation.local_mask;
+    uint8_t successor = mask & g_era_host_peer_storage_local.successor.settle_mask &
+                        g_era_host_peer_storage_local.successor.local_mask;
+    era_host_peer_storage_operation_settled(mask);
+    g_era_host_peer_storage_local.operation.news_pending_mask |= current;
+    g_era_host_peer_storage_local.successor.news_pending_mask |= successor;
+    if (current || successor) {
+        /* A responder cannot execute its own SUMMARY. Retain the successor's
+         * original event until its generation can consume the peer's proof. */
+        era_host_peer_storage_operation_publish_news();
+    } else {
+        era_host_peer_storage_note_local_news();
+    }
+}
+
+void era_host_peer_storage_note_semantic_mask(uint8_t mask) {
+    if (!g_era_host_peer_storage_local.initialized) return;
+    uint32_t now_ms = timer_read32();
+    g_era_host_peer_storage_local.semantic_intent_mask |= mask;
+    g_era_host_peer_storage_local.dirty_deadline_valid_mask |= mask;
+    for (uint8_t domain = 0; domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT; ++domain) {
+        if (mask & (1U << domain))
+            g_era_host_peer_storage_local.dirty_deadline_ms[domain] = now_ms + ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS;
+    }
+    era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+}
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 static era_host_peer_storage_cause_timeline_t g_era_host_peer_storage_cause_timeline __attribute__((aligned(4)));
 static era_host_peer_storage_cause_edge_t g_era_host_peer_storage_cause_edge __attribute__((aligned(4)));
@@ -486,6 +1015,7 @@ static uint8_t era_host_peer_storage_indicator_cell_mask(void) {
                                g_era_host_peer_storage_relation.peer_changed_mask));
 }
 
+#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 static bool era_host_peer_storage_indicator_cells_visible(void) {
     uint8_t cells = era_host_peer_storage_indicator_cell_mask();
     return cells != 0 &&
@@ -506,7 +1036,6 @@ static bool era_host_peer_storage_indicator_content_expected_visible(void) {
             (uint8_t)(1U << g_era_host_peer_storage_runtime.domain)) == 0;
 }
 
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
 static bool era_host_peer_storage_cause_event_role_allowed(era_host_peer_storage_cause_event_t event, uint8_t role) {
     switch (event) {
         case ERA_HOST_PEER_STORAGE_CAUSE_EVENT_CHUNK_RESULT:
@@ -846,9 +1375,8 @@ static void era_host_peer_storage_refresh_next_dirty_deadline(uint32_t now_ms) {
 
 /* ---- Recency layer (Slice 10) ----------------------------------------
  * Persisted per-domain sync baselines (the last converged content's CRC32,
- * in the protected reserved record at ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET)
- * and divergence counters (settled edits since that baseline, in the
- * sync-policy block's counter bytes). Both live in sync-excluded local
+ * in ERA_STORAGE_RECENCY_BASELINE_ADDR) and divergence counters (settled edits
+ * since that baseline, at ERA_STORAGE_RECENCY_ADDR). Both live in sync-excluded local
  * EEPROM outside every domain range, so a recency write can never re-dirty
  * a domain. There is no separate recency RAM copy: every reader and writer
  * uses the custom EEPROM/NVM boundary from the cold task. Baselines move only
@@ -861,12 +1389,11 @@ typedef struct {
     uint32_t guard;
 } era_host_peer_storage_baseline_record_t;
 
-_Static_assert(sizeof(era_host_peer_storage_baseline_record_t) == ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE,
+_Static_assert(sizeof(era_host_peer_storage_baseline_record_t) == ERA_STORAGE_RECENCY_BASELINE_BYTES,
                "ERA sync baseline record must fill the reserved range exactly.");
-_Static_assert(ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
-                       ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
-                   ERA_EEPROM_LOCAL_POLICY_CONFIG_SIZE,
-               "ERA divergence counters must fill the sync-policy counter bytes exactly.");
+_Static_assert(ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
+                   ERA_STORAGE_RECENCY_COUNTER_BYTES,
+               "ERA divergence counters must fill the recency counter bytes exactly.");
 
 static uint32_t era_host_peer_storage_baseline_guard(const era_host_peer_storage_baseline_record_t *record) {
     return era_split_wire_crc32((const uint8_t *)record->baseline_crc32, sizeof(record->baseline_crc32)) ^
@@ -874,9 +1401,8 @@ static uint32_t era_host_peer_storage_baseline_guard(const era_host_peer_storage
 }
 
 static bool era_host_peer_storage_read_baseline_record(era_host_peer_storage_baseline_record_t *record) {
-    if (era_eeprom_read_config(record, ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET, sizeof(*record)) != sizeof(*record)) {
-        return false;
-    }
+    if (!era_eeprom_driver_ready()) return false;
+    eeprom_read_block(record, (const void *)(uintptr_t)ERA_STORAGE_RECENCY_BASELINE_ADDR, sizeof(*record));
     return record->guard == era_host_peer_storage_baseline_guard(record);
 }
 
@@ -885,40 +1411,36 @@ static bool era_host_peer_storage_metadata_result_ok(era_nvm_result_t result) {
 }
 
 static uint32_t era_host_peer_storage_counter_config_offset(era_split_eeprom_sync_domain_t domain) {
-    return ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET +
+    return ERA_STORAGE_RECENCY_ADDR - ERA_EEPROM_CONFIG_ADDR +
            (uint32_t)domain * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES;
 }
 
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET \
-    (ERA_SPLIT_EEPROM_SYNC_POLICY_CONFIG_OFFSET + ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET)
+    (ERA_STORAGE_RECENCY_ADDR - ERA_EEPROM_CONFIG_ADDR)
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END \
-    (ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET + ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE)
+    (ERA_STORAGE_RECENCY_ADDR + ERA_STORAGE_RECENCY_BYTES - ERA_EEPROM_CONFIG_ADDR)
 #define ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE \
     (ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET)
 
 _Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET +
                        ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES ==
-                   ERA_EEPROM_LINK_CONFIG_OFFSET,
-               "ERA recency counters must end where the preserved protected metadata span begins.");
-_Static_assert(ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_END == ERA_EEPROM_PROTECTED_RESERVED_OFFSET,
-               "ERA convergence metadata transaction must end at the protected reserve.");
+                   ERA_STORAGE_RECENCY_BASELINE_ADDR - ERA_EEPROM_CONFIG_ADDR,
+               "ERA recency counters must end where the baseline begins.");
 
 /* A convergence close changes two durable recency facts together: the agreed
  * baseline and that domain's divergence counter returning to zero. They are
- * disjoint in the protected config layout, so the smallest existing ERA NVM
- * atomicity boundary is one contiguous metadata publication covering the
- * counters through the baseline record. Link/reset bytes and the other domain
- * counters inside that envelope are copied unchanged. Core0 owns all EEPROM
+ * adjacent in the local recency record, so one ERA NVM metadata publication
+ * covers the counters through the baseline. Other domain facts are copied
+ * unchanged. Core0 owns all EEPROM
  * writers and ERA NVM forbids recursive writes, so nothing can mutate those
  * preserved bytes between this logical read and the synchronous replacement. */
 static bool era_host_peer_storage_write_convergence_metadata(era_split_eeprom_sync_domain_t domain, uint32_t crc32) {
     uint8_t metadata[ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_SIZE];
-    if (era_eeprom_read_config(metadata, ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET, sizeof(metadata)) != sizeof(metadata)) {
-        return false;
-    }
+    if (!era_eeprom_driver_ready()) return false;
+    eeprom_read_block(metadata, (const void *)(uintptr_t)ERA_STORAGE_RECENCY_ADDR, sizeof(metadata));
 
     era_host_peer_storage_baseline_record_t record;
-    const uint32_t baseline_index = ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET - ERA_HOST_PEER_STORAGE_RECENCY_CONFIG_OFFSET;
+    const uint32_t baseline_index = ERA_STORAGE_RECENCY_COUNTER_BYTES;
     memcpy(&record, &metadata[baseline_index], sizeof(record));
     if (record.guard != era_host_peer_storage_baseline_guard(&record)) {
         /* Unknown neighbours stay zero under the fresh guard: they read as
@@ -949,9 +1471,8 @@ static bool era_host_peer_storage_write_convergence_metadata(era_split_eeprom_sy
    accessor, at the arbitration read further down. */
 static uint16_t era_host_peer_storage_read_divergence_counter(era_split_eeprom_sync_domain_t domain) {
     uint8_t bytes[ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES];
-    if (era_eeprom_read_config(bytes, era_host_peer_storage_counter_config_offset(domain), sizeof(bytes)) != sizeof(bytes)) {
-        return 0;
-    }
+    if (!era_eeprom_driver_ready()) return 0;
+    eeprom_read_block(bytes, (const void *)(uintptr_t)(ERA_EEPROM_CONFIG_ADDR + era_host_peer_storage_counter_config_offset(domain)), sizeof(bytes));
     return (uint16_t)((uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8));
 }
 
@@ -1009,6 +1530,15 @@ static void era_host_peer_storage_indicator_confirm_round(void) {
 }
 
 static void era_host_peer_storage_indicator_note_transfer(era_split_eeprom_sync_domain_t domain) {
+    if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE) {
+        uint8_t mask = (uint8_t)era_host_peer_storage_domain_mask(domain) |
+            g_era_host_peer_storage_relation.probe_pending_mask |
+            g_era_host_peer_storage_relation.push_pending_mask |
+            g_era_host_peer_storage_relation.conflict_pending_mask;
+        uint32_t generation = era_host_peer_storage_operation_ready(mask);
+        g_era_host_peer_storage_local.episode_operation_generation = generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
+    }
     era_host_peer_storage_indicator_retire_provisional_domain(domain);
     era_host_peer_storage_indicator_confirm_round();
 }
@@ -1087,11 +1617,17 @@ static void era_host_peer_storage_note_domain_converged(era_split_eeprom_sync_do
      * forward-only news value has nothing to retire, so the close writes the
      * baseline and stops. */
     if (!era_host_peer_storage_recency_convergence_can_retire(
-            era_host_peer_storage_write_convergence_metadata(domain, crc32))) {
+            ERA_STORAGE_TIMING_METADATA(domain, crc32,
+                era_host_peer_storage_write_convergence_metadata(domain, crc32)))) {
         return;
     }
     era_host_peer_storage_indicator_retire_provisional_domain(domain);
     era_host_peer_storage_note_changed_shadow(domain, false);
+    if (g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_APPLY_WAIT) {
+        era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.episode_operation_generation,
+                                               (uint8_t)era_host_peer_storage_domain_mask(domain) &
+                                               g_era_host_peer_storage_local.episode_operation_mask);
+    }
 #ifdef ERA_MACRO_REPLACE_ENABLE
     if (domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO &&
         !(g_era_host_peer_storage_local.dirty_domain_mask & era_host_peer_storage_domain_mask(domain)) &&
@@ -1399,7 +1935,7 @@ void era_host_peer_storage_init(void) {
 
     {
         /* Recency boot pass over the fresh captures. One record read serves
-         * all seven domains; an ordinary boot with content at its baselines
+         * all portable domains; an ordinary boot with content at its baselines
          * writes nothing. An invalid record seeds the changed shadow
          * all-set — the same conservative degradation the recency snapshot
          * reports. Successfully captured domains also retain display-only
@@ -1540,6 +2076,12 @@ void era_host_peer_storage_note_host_news(uint8_t news_value) {
      * nonzero value is news, and it arms nothing itself: there is no work to do
      * about an absence of news. */
     uint8_t advertised = (uint8_t)(news_value & ERA_HOST_PEER_STORAGE_NEWS_VALUE_MAX);
+    bool accepted_news = advertised != 0 && advertised != g_era_host_peer_storage_local.semantic_peer_news;
+    if (advertised != 0 && advertised != g_era_host_peer_storage_local.semantic_peer_news) {
+        g_era_host_peer_storage_local.semantic_peer_news = advertised;
+        g_era_host_peer_storage_local.failed_domain_mask = 0;
+        g_era_host_peer_storage_local.failure_reported = 0;
+    }
     if (advertised == g_era_host_peer_storage_relation.peer_news_value) {
         return;
     }
@@ -1553,6 +2095,9 @@ void era_host_peer_storage_note_host_news(uint8_t news_value) {
      * link agreement (era_split_link_runtime_settled), which is why this cannot
      * rely on the audit starting in the same housekeeping pass. */
     if (advertised != 0 && !g_era_host_peer_storage_relation.audit_owed) {
+        if (accepted_news) {
+            (void)era_host_peer_storage_operation_ready(ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
+        }
         era_host_peer_storage_arm_summary_refresh();
     }
 }
@@ -1630,7 +2175,12 @@ void era_host_peer_storage_note_eeprom_commit(uint32_t offset, uint32_t length) 
 
 void era_host_peer_storage_note_macro_commit_ready(void) {
     if (!g_era_host_peer_storage_local.initialized) return;
-    era_host_peer_storage_note_domain_dirty(ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO, 0);
+    uint8_t mask = (uint8_t)era_host_peer_storage_domain_mask(ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO);
+    g_era_host_peer_storage_local.semantic_intent_mask |= mask;
+    g_era_host_peer_storage_local.dirty_deadline_valid_mask |= mask;
+    uint32_t now_ms = timer_read32();
+    g_era_host_peer_storage_local.dirty_deadline_ms[ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO] = now_ms;
+    era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
 }
 
 static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
@@ -1667,7 +2217,8 @@ static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
             bool    pending = (g_era_host_peer_storage_relation.conflict_pending_mask & bit) != 0 ||
                               (g_era_host_peer_storage_relation.push_pending_mask & bit) != 0 ||
                               (g_era_host_peer_storage_relation.probe_pending_mask & bit) != 0;
-            if (!pending || (g_era_host_peer_storage_local.dirty_domain_mask & (1UL << domain)) != 0) {
+            if (!pending || (g_era_host_peer_storage_local.failed_domain_mask & bit) != 0 ||
+                (g_era_host_peer_storage_local.dirty_domain_mask & (1UL << domain)) != 0) {
                 /* A locally dirty domain stays pending and is retried after
                  * its trailing-quiet capture instead of stalling the
                  * remaining drain behind its quiet interval. */
@@ -1689,9 +2240,10 @@ static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
         bool round_over = (g_era_host_peer_storage_relation.arbitration_flags &
                            ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) == 0 &&
                           g_era_host_peer_storage_relation.deferred_summary_domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT &&
-                          (g_era_host_peer_storage_relation.probe_pending_mask |
+                          ((g_era_host_peer_storage_relation.probe_pending_mask |
                            g_era_host_peer_storage_relation.push_pending_mask |
-                           g_era_host_peer_storage_relation.conflict_pending_mask) == 0;
+                           g_era_host_peer_storage_relation.conflict_pending_mask) &
+                           (uint8_t)~g_era_host_peer_storage_local.failed_domain_mask) == 0;
         if (round_over && g_era_host_peer_storage_relation.runtime_service_active &&
             g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
             /* Only here does the verify-all scope retire: holding it until
@@ -1727,11 +2279,10 @@ static bool era_host_peer_storage_select_due_token(uint32_t now_ms) {
 }
 
 bool era_host_peer_storage_task(uint32_t now_ms) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_protected()) {
+    era_host_peer_storage_operation_task(now_ms);
+    if (g_era_host_peer_storage_local.retiring) {
         return false;
     }
-#endif
     if (era_split_restart_agreement_timed_window() ||
         !g_era_host_peer_storage_local.initialized || !era_eeprom_driver_ready() ||
         era_split_restart_agreement_storage_quarantined() ||
@@ -1807,6 +2358,22 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                 return true;
             }
 
+            bool intent = (g_era_host_peer_storage_local.semantic_intent_mask & domain_mask) != 0;
+            bool accepted_intent = intent &&
+                (((g_era_host_peer_storage_local.operation.settle_mask & domain_mask) &&
+                  era_host_peer_storage_operation_live(g_era_host_peer_storage_local.operation.generation)) ||
+                 ((g_era_host_peer_storage_local.successor.settle_mask & domain_mask) &&
+                  era_host_peer_storage_operation_live(g_era_host_peer_storage_local.successor.generation)));
+            if ((g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) == 0 && intent) {
+                g_era_host_peer_storage_local.semantic_intent_mask &= (uint8_t)~domain_mask;
+                g_era_host_peer_storage_local.dirty_deadline_valid_mask &= ~domain_mask;
+                g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~domain_mask;
+                era_host_peer_storage_note_settled_news((uint8_t)domain_mask);
+                era_host_peer_storage_arm_summary_refresh();
+                g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
+                era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
+                return true;
+            }
             era_host_peer_storage_recency_settle_result_t settle_result = ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_NOT_ATTEMPTED;
             bool captured = era_host_peer_storage_capture_domain_internal((era_split_eeprom_sync_domain_t)domain, &settle_result);
             if (settle_result == ERA_HOST_PEER_STORAGE_RECENCY_SETTLE_PERSIST_FAILED) {
@@ -1819,31 +2386,19 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
             }
             era_host_peer_storage_refresh_next_dirty_deadline(now_ms);
             if (captured) {
+                g_era_host_peer_storage_local.semantic_intent_mask &= (uint8_t)~domain_mask;
                 g_era_host_peer_storage_relation.idle_due        = 1;
                 g_era_host_peer_storage_relation.idle_due_domain = domain;
                 g_era_host_peer_storage_relation.idle_due_kind   = ERA_HOST_PEER_STORAGE_TOKEN_PROBE;
-                /* Settled capture after the trailing quiet interval. The
-                 * recency persistence now runs inside the capture before its
-                 * manifest/dirty publication boundary. Therefore every signal
-                 * below is backed by the durable counter it advertises, and a
-                 * failed counter write reaches none of them. */
-                bool departed = era_host_peer_storage_recency_settle_departed(settle_result);
-                if (departed) {
-                    /* One step of the news value, whichever domain it was (D2).
-                     * Stepping per capture rather than per *domain* is the
-                     * property that closes the case no mask discipline could: a
-                     * second edit of a domain already claimed moves the value
-                     * even though the domain set has not changed, so the peer
-                     * hears the second edit. `0` stays reserved for "nothing to
-                     * claim", so the wrap skips it. A settle at the agreement
-                     * steps nothing: every claim the value delivers is then
-                     * backed by the changed shadow until the two-sided close,
-                     * so no emitted claim ever outlives this half's own lamp
-                     * arm — the peer's armed summary crosses back as the
-                     * mirror for whatever remains. */
-                    g_era_host_peer_storage_local.settled_news_value =
-                        (uint8_t)((g_era_host_peer_storage_local.settled_news_value %
-                                   ERA_HOST_PEER_STORAGE_NEWS_VALUE_MAX) + 1U);
+                /* Real recency changes and accepted same-value intent share
+                 * one coalesced event; it proves no durable content change. */
+                bool notify = (era_host_peer_storage_recency_settle_departed(settle_result) || intent) &&
+                    (!(g_era_host_peer_storage_local.failed_domain_mask & domain_mask) || accepted_intent);
+                if (notify) {
+                    g_era_host_peer_storage_local.failed_domain_mask &= (uint8_t)~domain_mask;
+                    era_host_peer_storage_note_settled_news((uint8_t)domain_mask);
+                } else {
+                    era_host_peer_storage_operation_settled((uint8_t)domain_mask);
                 }
                 /* The recency seat core1 answers SYNC_STATUS from is built at
                  * the snapshot publish boundary, so a settle that moves the
@@ -1857,15 +2412,9 @@ bool era_host_peer_storage_task(uint32_t now_ms) {
                 g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
                 if (g_era_host_peer_storage_relation.runtime_service_active &&
                     g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
-                    if (departed) {
-                        /* In-relation local settle that departed from the
-                         * agreement: a direction has to be recomputed. Arm
-                         * the summary rather than queueing the push directly
-                         * - the reason is at `arm_summary_refresh`. A revert
-                         * back onto a queued cell's domain needs no arm of
-                         * its own: the stale cell's episode opens against
-                         * matching content and closes MATCH, healing the
-                         * baselines it re-proves. */
+                    if (notify) {
+                        /* Direction still comes from both halves' truth,
+                         * even when this event requests a same-value retry. */
                         era_host_peer_storage_arm_summary_refresh();
                     }
                     /* The probe token drops whether or not a summary was
@@ -2143,19 +2692,6 @@ static void era_host_peer_storage_reset_peer_episode(uint32_t now_ms, bool abort
          * the storage indicator flash. */
         if ((runtime_flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) == 0) {
             era_host_peer_storage_arm_summary_refresh();
-        } else if (episode_domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
-            /* Terminal refusal: the reason cannot change without an event
-             * that would itself re-trigger the domain, so the pair can do
-             * nothing further with this divergence and the indicator must
-             * not wear it as unfinished work — a policy-closed peer would
-             * otherwise hold the lamp red forever. Display shadow only: the
-             * persisted baseline still differs, so a later re-trigger (the
-             * policy enable is news by construction) re-derives the
-             * divergence from the durable facts and the lamp re-lights with
-             * the real work. */
-            era_host_peer_storage_indicator_retire_provisional_domain(
-                (era_split_eeprom_sync_domain_t)episode_domain);
-            era_host_peer_storage_note_changed_shadow((era_split_eeprom_sync_domain_t)episode_domain, false);
         }
         if (episode_domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE &&
             (runtime_flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) != 0) {
@@ -2179,25 +2715,15 @@ static void era_host_peer_storage_reset_peer_episode(uint32_t now_ms, bool abort
         g_era_host_peer_storage_diagnostics.close_count++;
     }
     if (route_was_exclusive || transfer_ran || revalidate) {
+        g_era_host_peer_storage_local.operation.outcome |= ERA_STORAGE_OPERATION_WAIT_CONTEXT;
         era_split_transport_scheduler_force_storage_recovery(revalidate);
     }
 }
 
 static void era_host_peer_storage_defer_peer_domain(uint32_t now_ms, uint8_t domain, bool aborted) {
-    if (aborted) {
-        era_host_peer_storage_indicator_confirm_round();
-    }
-    era_host_peer_storage_reset_peer_episode(now_ms, aborted, false);
-    if (domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
-        return;
-    }
-    g_era_host_peer_storage_relation.idle_due              = 0;
-    g_era_host_peer_storage_relation.idle_due_domain       = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
-    g_era_host_peer_storage_relation.deferred_summary_domain = domain;
-    /* Keep the trailing-quiet deadline, but retire the old direction. Its
-       expiry selects a fresh family summary, never a remembered pull token. */
-    g_era_host_peer_storage_relation.probe_pending_mask &= (uint8_t)~era_host_peer_storage_domain_mask(domain);
-    g_era_host_peer_storage_relation.idle_due_deadline_ms  = now_ms + ERA_HOST_PEER_STORAGE_DIRTY_QUIET_MS;
+    (void)domain;
+    (void)aborted;
+    era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED, now_ms);
 }
 
 static void era_host_peer_storage_begin_relation_audit(uint32_t now_ms) {
@@ -2238,7 +2764,8 @@ static void era_host_peer_storage_begin_relation_audit(uint32_t now_ms) {
 }
 
 static bool era_host_peer_storage_begin_relation_audit_if_due(const era_host_peer_storage_runtime_context_t *context) {
-    if (g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_IDLE ||
+    if (g_era_host_peer_storage_local.retiring ||
+        g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_IDLE ||
         (g_era_host_peer_storage_relation.audit_relation_generation == context->relation_generation &&
          g_era_host_peer_storage_relation.audit_policy_generation == context->policy_generation) ||
         !era_split_link_runtime_settled()) {
@@ -2307,16 +2834,28 @@ static void era_host_peer_storage_release_initiator_queues(void) {
     g_era_host_peer_storage_relation.arbitration_flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_ARB_ROUND_OWED_FLAGS;
 }
 
+static void era_host_peer_storage_record_terminal(void) {
+    if (g_era_host_peer_storage_runtime.role != ERA_HOST_PEER_STORAGE_ROLE_HOST ||
+        g_era_host_peer_storage_runtime.transaction_generation == 0) return;
+    g_era_host_peer_storage_local.terminal_owner = g_era_host_peer_storage_runtime.owner_epoch;
+    g_era_host_peer_storage_local.terminal_relation = g_era_host_peer_storage_runtime.relation_generation;
+    g_era_host_peer_storage_local.terminal_transaction = g_era_host_peer_storage_runtime.transaction_generation;
+}
+
 static void era_host_peer_storage_host_close(uint32_t now_ms, bool aborted, bool revalidate) {
     if (aborted) {
         ERA_STORAGE_TIMING_ABORT(2);
+        era_host_peer_storage_peer_begin_abort(g_era_host_peer_storage_runtime.last_status ?
+                                                  g_era_host_peer_storage_runtime.last_status :
+                                                  ERA_SPLIT_EEPROM_SYNC_STATUS_STALE, now_ms);
+        return;
     }
-    (void)now_ms;
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    if (aborted) {
-        era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_ABORT, g_era_host_peer_storage_runtime.last_status);
+    era_host_peer_storage_record_terminal();
+    if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_DURABLE) {
+        era_host_peer_storage_note_domain_converged(
+            (era_split_eeprom_sync_domain_t)g_era_host_peer_storage_runtime.domain,
+            g_era_host_peer_storage_runtime.expected_crc32);
     }
-#endif
     /* No hint retirement here, and since D2 there is none anywhere -- the news
      * value only ever steps forward. The rule this note was written for still
      * governs what the retirement left behind: the durable agreement belongs
@@ -2335,12 +2874,9 @@ static void era_host_peer_storage_host_close(uint32_t now_ms, bool aborted, bool
                                                         ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE);
     g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
     g_era_host_peer_storage_relation.active_due = 0;
-    if (aborted) {
-        g_era_host_peer_storage_diagnostics.abort_count++;
-    } else {
-        g_era_host_peer_storage_diagnostics.close_count++;
-    }
+    g_era_host_peer_storage_diagnostics.close_count++;
     if (route_was_exclusive || transfer_ran || revalidate) {
+        g_era_host_peer_storage_local.operation.outcome |= ERA_STORAGE_OPERATION_WAIT_CONTEXT;
         era_split_transport_scheduler_force_storage_recovery(revalidate);
     }
 }
@@ -2376,17 +2912,13 @@ static bool era_host_peer_storage_submit_peer_request(const era_host_peer_storag
          !era_host_peer_storage_domain_valid((era_split_eeprom_sync_domain_t)g_era_host_peer_storage_runtime.domain))) {
         return false;
     }
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    /* Audit/probe and terminal cleanup remain live. The ON barrier belongs
-     * before new transfer/apply admission, never before result retirement. */
-    bool needs_output = g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_TRANSFER ||
-                        g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_APPLY ||
-                        g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_CHUNKS ||
-                        g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_APPLY;
-    if (needs_output && era_tomak_sync_runtime_paired() && !era_tomak_sync_runtime_pair_ready()) {
-        return false;
+    if ((g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_TRANSFER ||
+         g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_CHUNKS) &&
+        (g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE) == 0) {
+        g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE |
+                                                 ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE;
+        g_era_host_peer_storage_diagnostics.transfer_count++;
     }
-#endif
 
     uint16_t next_request_generation = era_host_peer_storage_next_nonzero_u16(g_era_host_peer_storage_runtime.request_generation);
     if (next_request_generation == 1 && g_era_host_peer_storage_runtime.request_generation == UINT16_MAX) {
@@ -2458,11 +2990,6 @@ static bool era_host_peer_storage_submit_peer_request(const era_host_peer_storag
             request.operation       = ERA_SPLIT_EEPROM_SYNC_OP_COMPLETE_REQ;
             request.source_revision = g_era_host_peer_storage_runtime.source_revision;
             request.image_crc32     = g_era_host_peer_storage_runtime.expected_crc32;
-            break;
-        case ERA_HOST_PEER_STORAGE_RUNTIME_PEER_ABORT:
-            request.operation       = ERA_SPLIT_EEPROM_SYNC_OP_ABORT_REQ;
-            request.source_revision = g_era_host_peer_storage_runtime.source_revision;
-            request.detail          = g_era_host_peer_storage_runtime.last_status;
             break;
         case ERA_HOST_PEER_STORAGE_RUNTIME_PEER_SYNC_STATUS:
         case ERA_HOST_PEER_STORAGE_RUNTIME_PEER_CONFLICT_STATUS: {
@@ -2562,41 +3089,69 @@ static bool era_host_peer_storage_peer_result_identity_matches(const era_split_c
 }
 
 static void era_host_peer_storage_peer_begin_abort(uint8_t status, uint32_t now_ms) {
+    if (g_era_host_peer_storage_local.retiring) return;
+    era_host_peer_storage_operation_t *operation = &g_era_host_peer_storage_local.operation;
+    era_host_peer_storage_operation_t *successor = &g_era_host_peer_storage_local.successor;
+    uint8_t affected = g_era_host_peer_storage_runtime.domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT ?
+        (uint8_t)(1U << g_era_host_peer_storage_runtime.domain) : ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
+    bool superseded = status == ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED &&
+        ((operation->phase != ERA_STORAGE_OPERATION_NONE &&
+          ((operation->local_mask | operation->preparing_mask) & affected) &&
+          operation->generation != g_era_host_peer_storage_local.episode_operation_generation) ||
+         (successor->phase != ERA_STORAGE_OPERATION_NONE &&
+          ((successor->local_mask | successor->preparing_mask) & affected)) ||
+         (operation->outcome & ERA_STORAGE_OPERATION_OUTCOME_MASK) == ERA_STORAGE_OPERATION_SUPERSEDED);
+    /* A deferred producer still holds this generation until its receipt.
+     * Retire/rebase the transaction without orphaning that preparation token. */
+    if (operation->phase != ERA_STORAGE_OPERATION_NONE &&
+        operation->generation == g_era_host_peer_storage_local.episode_operation_generation &&
+        (!superseded || !operation->preparing_mask)) {
+        if (superseded && successor->phase != ERA_STORAGE_OPERATION_NONE) {
+            successor->remaining_mask |= operation->remaining_mask;
+            successor->local_mask |= operation->local_mask;
+            successor->settle_mask |= operation->settle_mask;
+            successor->news_pending_mask |= operation->news_pending_mask;
+            if (operation->outcome & ERA_STORAGE_OPERATION_HAS_COMMIT_CEILING)
+                era_host_peer_storage_operation_limit(successor, operation->deadline_ms);
+        }
+        operation->outcome = (operation->outcome & (uint8_t)~ERA_STORAGE_OPERATION_OUTCOME_MASK) |
+            (superseded ? ERA_STORAGE_OPERATION_SUPERSEDED : ERA_STORAGE_OPERATION_FAILED);
+        operation->phase = ERA_STORAGE_OPERATION_RELEASING;
+        if (!superseded) {
+            era_host_peer_storage_operation_retire_contributions(operation);
+            era_host_peer_storage_operation_suppress(operation);
+        }
+    }
+    era_host_peer_storage_record_terminal();
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_ABORT, status);
 #endif
-    g_era_host_peer_storage_runtime.state             = ERA_HOST_PEER_STORAGE_RUNTIME_PEER_ABORT;
+    bool stateless = g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_SYNC_STATUS ||
+                     g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_CONFLICT_STATUS;
     g_era_host_peer_storage_runtime.last_status       = status;
-    g_era_host_peer_storage_runtime.retry_count       = 0;
     g_era_host_peer_storage_runtime.retry_deadline_ms = now_ms;
-    /* Route exclusivity here is wire priority for the ABORT_REQ, not data
-     * movement, so TRANSFER_ACTIVE is deliberately not raised with it. */
-    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE;
-    switch ((era_split_eeprom_sync_status_t)status) {
-        /* Terminal refusals: the responder's answer cannot change without an
-         * event that would itself re-trigger this domain, so the episode
-         * closes instead of re-arming. INTEGRITY_FAIL is deliberately absent
-         * — it retries with hints disabled, which is a repair, not a
-         * refusal. */
-        case ERA_SPLIT_EEPROM_SYNC_STATUS_POLICY_CLOSED:
-        case ERA_SPLIT_EEPROM_SYNC_STATUS_UNSUPPORTED_DOMAIN:
-        case ERA_SPLIT_EEPROM_SYNC_STATUS_UNSUPPORTED_SCHEMA:
-        case ERA_SPLIT_EEPROM_SYNC_STATUS_SIZE_MISMATCH:
-            g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT;
-            break;
-        default:
-            break;
-    }
-    if ((g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT) == 0) {
-        era_host_peer_storage_indicator_confirm_round();
-    }
+    g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TERMINAL_ABORT;
+    g_era_host_peer_storage_local.retiring = 1;
+    if (!superseded) g_era_host_peer_storage_local.failed_domain_mask |=
+        g_era_host_peer_storage_runtime.domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT ?
+            (uint8_t)era_host_peer_storage_domain_mask(g_era_host_peer_storage_runtime.domain) :
+            ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
     if (status == ERA_SPLIT_EEPROM_SYNC_STATUS_INTEGRITY_FAIL &&
         g_era_host_peer_storage_runtime.domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
-        /* A 24-bit hint false match surfaces here; retry the domain with
-         * hints disabled so recovery is deterministic. */
+        /* Retain the delta repair for the next explicit/new-work attempt,
+         * without automatically retrying this failed obligation. */
         g_era_host_peer_storage_relation.delta_full_fetch_domain = g_era_host_peer_storage_runtime.domain;
     }
+    if (!superseded && !g_era_host_peer_storage_local.failure_reported) {
+        g_era_host_peer_storage_local.failure_reported = 1;
+        era_tomak_sync_failure_report_kb();
+    }
     era_host_peer_storage_note_reject_status(status);
+    if (stateless && !era_host_peer_storage_initiator_request_pending()) {
+        /* Neither form installs remote transfer ownership. In particular a
+         * domainless summary cannot encode an ABORT_REQ at all. */
+        era_host_peer_storage_reset_peer_episode(now_ms, true, false);
+    }
 }
 
 static void era_host_peer_storage_peer_retry_or_abort(uint32_t now_ms, bool timeout) {
@@ -2612,10 +3167,6 @@ static void era_host_peer_storage_peer_retry_or_abort(uint32_t now_ms, bool time
         g_era_host_peer_storage_runtime.retry_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
         return;
     }
-    if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_ABORT) {
-        era_host_peer_storage_reset_peer_episode(now_ms, true, true);
-        return;
-    }
     era_host_peer_storage_peer_begin_abort(timeout ? ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT : ERA_SPLIT_EEPROM_SYNC_STATUS_STALE, now_ms);
 }
 
@@ -2628,7 +3179,7 @@ static bool era_host_peer_storage_apply_publication_preflight(era_split_eeprom_s
 }
 
 static uint8_t era_host_peer_storage_nvm_failure_status(era_nvm_result_t result) {
-    return result == ERA_NVM_RESULT_BUSY ? ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY : ERA_SPLIT_EEPROM_SYNC_STATUS_INTEGRITY_FAIL;
+    return result == ERA_NVM_RESULT_BUSY ? ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY : ERA_SPLIT_EEPROM_SYNC_STATUS_STALE;
 }
 
 /* The only production Apply persistence boundary. Everything fallible that is
@@ -2687,6 +3238,13 @@ static bool era_host_peer_storage_apply_commit(const era_host_peer_storage_runti
         g_era_host_peer_storage_runtime.last_status = ERA_SPLIT_EEPROM_SYNC_STATUS_STALE;
         return false;
     }
+    /* Result processing and validation may outlive the sampled context. */
+    if (timer_expired32(timer_read32(), g_era_host_peer_storage_runtime.episode_deadline_ms) ||
+        era_host_peer_storage_operation_episode_expired(timer_read32())) {
+        g_era_host_peer_storage_runtime.last_status = ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT;
+        g_era_host_peer_storage_diagnostics.timeout_count++;
+        return false;
+    }
 
 #ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
     era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_APPLY_BEGIN, 0);
@@ -2703,9 +3261,6 @@ static bool era_host_peer_storage_apply_commit(const era_host_peer_storage_runti
 #endif
     if (nvm_result != ERA_NVM_RESULT_OK && nvm_result != ERA_NVM_RESULT_NO_CHANGE) {
         g_era_host_peer_storage_runtime.last_status = era_host_peer_storage_nvm_failure_status(nvm_result);
-        if (nvm_result != ERA_NVM_RESULT_BUSY) {
-            g_era_host_peer_storage_diagnostics.integrity_reject_count++;
-        }
         return false;
     }
 
@@ -2778,20 +3333,15 @@ static bool era_host_peer_storage_apply_begin(const era_host_peer_storage_runtim
  * serves from a published snapshot, so it proves the responder's core1 is alive
  * and says nothing about its core0. A responder whose core0 died mid-write
  * would hold the initiator open forever on that reading. */
-static void era_host_peer_storage_note_episode_phase(uint32_t now_ms) {
-    if (g_era_host_peer_storage_runtime.state == g_era_host_peer_storage_runtime.deadline_state &&
-        g_era_host_peer_storage_runtime.pending_operation == g_era_host_peer_storage_runtime.deadline_operation) {
-        return;
-    }
-    g_era_host_peer_storage_runtime.deadline_state      = g_era_host_peer_storage_runtime.state;
-    g_era_host_peer_storage_runtime.deadline_operation  = g_era_host_peer_storage_runtime.pending_operation;
-    g_era_host_peer_storage_runtime.episode_deadline_ms = now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
-}
-
 static void era_host_peer_storage_complete_summary(uint32_t now_ms, uint8_t mine, uint8_t peer, bool peer_baseline_valid) {
     mine &= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
     peer &= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK;
     bool verify_all = (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) != 0;
+    if (!verify_all && peer_baseline_valid) {
+        era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.episode_operation_generation,
+                                               (uint8_t)~(mine | peer) &
+                                               g_era_host_peer_storage_local.episode_operation_mask);
+    }
     g_era_host_peer_storage_relation.provisional_cell_mask |=
         (uint8_t)(g_era_host_peer_storage_local.provisional_changed_mask & ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK);
     if (!peer_baseline_valid) {
@@ -2848,7 +3398,6 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
         return false;
     }
 
-    g_era_host_peer_storage_runtime.retry_count = 0;
     switch ((era_split_eeprom_sync_op_t)result->operation) {
         case ERA_SPLIT_EEPROM_SYNC_OP_PROOF_RSP:
             g_era_host_peer_storage_diagnostics.proof_count++;
@@ -2878,13 +3427,11 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
                 g_era_host_peer_storage_runtime.staged_bytes    = 0;
                 g_era_host_peer_storage_runtime.next_chunk      = 0;
                 g_era_host_peer_storage_runtime.state           = ERA_HOST_PEER_STORAGE_RUNTIME_PEER_TRANSFER;
-                g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE |
-                                                         ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE;
+                g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_CONTENT_EXPECTED;
                 g_era_host_peer_storage_local.image_domain = result->domain;
                 g_era_host_peer_storage_local.image_valid  = 0;
                 g_era_host_peer_storage_local.image_stale  = 0;
                 era_host_peer_storage_invalidate_image_publication();
-                g_era_host_peer_storage_diagnostics.transfer_count++;
             } else if (result->status == ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY) {
                 era_host_peer_storage_peer_retry_or_abort(context->now_ms, false);
             } else if (result->status == ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED) {
@@ -2966,15 +3513,6 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
 #endif
             uint16_t request_generation = result->request_generation;
             bool result_released = era_split_communication_core_storage_release_initiator_result(request_generation);
-#ifdef ERA_TOMAK_SYNC_ENABLE
-            if (result_matches && result_released && era_tomak_sync_runtime_paired() &&
-                !era_tomak_sync_runtime_pair_ready()) {
-                /* Retire the slot before waiting. PEER_APPLY can request the
-                 * same idempotent readiness proof again after ON is ready. */
-                g_era_host_peer_storage_runtime.flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING;
-                return true;
-            }
-#endif
             if (!result_matches || !result_released || !era_host_peer_storage_apply_begin(context)) {
                 uint8_t status = g_era_host_peer_storage_runtime.last_status;
                 if (status == 0) {
@@ -2998,9 +3536,6 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
             } else {
                 era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_STALE, context->now_ms);
             }
-            break;
-        case ERA_SPLIT_EEPROM_SYNC_OP_ABORT_RSP:
-            era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
             break;
         case ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_RSP:
             if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_SYNC_STATUS) {
@@ -3058,9 +3593,7 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
                             (era_split_eeprom_sync_domain_t)g_era_host_peer_storage_runtime.domain);
                         g_era_host_peer_storage_runtime.state      = ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_CHUNKS;
                         g_era_host_peer_storage_runtime.next_chunk = 0;
-                        g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE |
-                                                                 ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE;
-                        g_era_host_peer_storage_diagnostics.transfer_count++;
+                        g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_CONTENT_EXPECTED;
                     } else if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_PUSH_CHUNKS &&
                                result->chunk_id == g_era_host_peer_storage_runtime.next_chunk) {
                         g_era_host_peer_storage_runtime.next_chunk++;
@@ -3127,16 +3660,7 @@ static bool era_host_peer_storage_process_peer_result_record(const era_host_peer
                     }
                     break;
                 case ERA_SPLIT_EEPROM_SYNC_STATUS_SOURCE_CHANGED:
-                    /* The responder's own content moved under the episode:
-                     * both halves have now changed, so the abort re-arm
-                     * (push for a push episode) plus the responder's
-                     * dirty-pin refusal and its later settled hint drive the
-                     * pair into the conflict exchange rather than losing
-                     * either side's edits. */
-                    g_era_host_peer_storage_runtime.last_status = result->status;
-                    era_host_peer_storage_note_reject_status(result->status);
-                    era_host_peer_storage_indicator_confirm_round();
-                    era_host_peer_storage_reset_peer_episode(context->now_ms, true, false);
+                    era_host_peer_storage_peer_begin_abort(result->status, context->now_ms);
                     break;
                 default:
                     era_host_peer_storage_peer_begin_abort(result->status, context->now_ms);
@@ -3167,11 +3691,20 @@ static void era_host_peer_storage_process_peer_result(const era_host_peer_storag
 static bool era_host_peer_storage_start_peer_episode(const era_host_peer_storage_runtime_context_t *context) {
     uint8_t token_kind = g_era_host_peer_storage_relation.idle_due_kind;
     bool    summary    = token_kind == ERA_HOST_PEER_STORAGE_TOKEN_SUMMARY;
-    if (context == NULL || !g_era_host_peer_storage_relation.idle_due || context->general_initiator_pending ||
+    if (context == NULL || g_era_host_peer_storage_local.retiring ||
+        g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_RELEASING ||
+        context->input_recovery_pending || !g_era_host_peer_storage_relation.idle_due || context->general_initiator_pending ||
         context->status_revalidation_due ||
         (!summary && !era_host_peer_storage_domain_valid((era_split_eeprom_sync_domain_t)g_era_host_peer_storage_relation.idle_due_domain))) {
         return false;
     }
+    if (!summary && (g_era_host_peer_storage_local.failed_domain_mask & (1U << g_era_host_peer_storage_relation.idle_due_domain))) {
+        g_era_host_peer_storage_relation.idle_due = 0;
+        return false;
+    }
+    if (!summary && ((g_era_host_peer_storage_local.operation.preparing_mask |
+                      g_era_host_peer_storage_local.operation.settle_mask) &
+                     (1U << g_era_host_peer_storage_relation.idle_due_domain))) return false;
     era_split_eeprom_sync_domain_t domain = (era_split_eeprom_sync_domain_t)g_era_host_peer_storage_relation.idle_due_domain;
     era_host_peer_storage_manifest_entry_t manifest;
     memset(&manifest, 0, sizeof(manifest));
@@ -3201,25 +3734,34 @@ static bool era_host_peer_storage_start_peer_episode(const era_host_peer_storage
             return false;
         }
     }
-    if (g_era_host_peer_storage_runtime.transaction_generation == UINT16_MAX) {
+    if (g_era_host_peer_storage_local.initiator_transaction_generation == UINT16_MAX) {
         g_era_host_peer_storage_diagnostics.stale_count++;
         if (!era_split_transport_scheduler_rotate_storage_relation()) {
             g_era_host_peer_storage_diagnostics.quiesce_fail_count++;
             return false;
         }
-        g_era_host_peer_storage_runtime.transaction_generation = 0;
+        g_era_host_peer_storage_local.initiator_transaction_generation = 0;
         g_era_host_peer_storage_runtime.request_generation     = 0;
         return false;
     }
 
-    g_era_host_peer_storage_runtime.transaction_generation = era_host_peer_storage_next_nonzero_u16(g_era_host_peer_storage_runtime.transaction_generation);
+    g_era_host_peer_storage_local.initiator_transaction_generation++;
+    g_era_host_peer_storage_local.episode_operation_generation =
+        g_era_host_peer_storage_local.operation.generation;
+    g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
+    g_era_host_peer_storage_runtime.transaction_generation = g_era_host_peer_storage_local.initiator_transaction_generation;
+    if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE &&
+        (!summary || !g_era_host_peer_storage_local.failure_reported)) {
+        g_era_host_peer_storage_local.failure_reported = 0;
+        era_tomak_sync_attempt_started_kb();
+    }
     g_era_host_peer_storage_runtime.owner_epoch             = context->owner_epoch;
     g_era_host_peer_storage_runtime.relation_generation     = context->relation_generation;
     g_era_host_peer_storage_runtime.policy_generation       = context->policy_generation;
     g_era_host_peer_storage_runtime.peer_usb_epoch          = context->peer_usb_epoch;
     g_era_host_peer_storage_runtime.peer_host_open_generation  = context->peer_host_open_generation;
     g_era_host_peer_storage_runtime.peer_host_close_generation = context->peer_host_close_generation;
-    g_era_host_peer_storage_runtime.episode_deadline_ms      = context->now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
+    g_era_host_peer_storage_runtime.episode_deadline_ms      = era_host_peer_storage_episode_deadline(context->now_ms);
     g_era_host_peer_storage_runtime.retry_deadline_ms        = context->now_ms;
     g_era_host_peer_storage_runtime.source_revision          = token_kind == ERA_HOST_PEER_STORAGE_TOKEN_PUSH ? manifest.source_revision : 0;
     g_era_host_peer_storage_runtime.expected_crc32           = manifest.image_crc32;
@@ -3264,6 +3806,9 @@ static bool era_host_peer_storage_start_peer_episode(const era_host_peer_storage
 }
 
 static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_context_t *context) {
+    if (g_era_host_peer_storage_local.retiring) {
+        return;
+    }
     if (g_era_host_peer_storage_runtime.role != ERA_HOST_PEER_STORAGE_ROLE_PEER) {
         uint16_t transaction_generation = g_era_host_peer_storage_runtime.transaction_generation;
         uint16_t request_generation = g_era_host_peer_storage_runtime.request_generation;
@@ -3289,7 +3834,8 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
                                     context->relation_generation != g_era_host_peer_storage_runtime.relation_generation)));
     if (peer_identity_changed) {
         g_era_host_peer_storage_diagnostics.stale_count++;
-        era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
+        era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_STALE, context->now_ms);
+        return;
     }
 
     if ((g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TARGET_DIRTY) != 0) {
@@ -3314,6 +3860,9 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
     if (era_split_communication_core_storage_initiator_result_ready()) {
         era_host_peer_storage_process_peer_result(context);
     }
+    if (g_era_host_peer_storage_local.retiring) {
+        return;
+    }
     if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_IDLE &&
         era_split_restart_agreement_timed_window()) {
         return;
@@ -3325,27 +3874,11 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
         return;
     }
 
-    era_host_peer_storage_note_episode_phase(context->now_ms);
     if (timer_expired32(context->now_ms, g_era_host_peer_storage_runtime.episode_deadline_ms)) {
         ERA_STORAGE_TIMING_ABORT(4);
-        if ((g_era_host_peer_storage_runtime.flags & ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING) != 0) {
-            if (!era_split_transport_scheduler_rotate_storage_relation()) {
-                g_era_host_peer_storage_diagnostics.quiesce_fail_count++;
-                g_era_host_peer_storage_runtime.episode_deadline_ms = context->now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
-                return;
-            }
-            g_era_host_peer_storage_diagnostics.timeout_count++;
-            g_era_host_peer_storage_runtime.flags &= (uint8_t)~ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING;
-            era_host_peer_storage_indicator_confirm_round();
-            era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
-            return;
-        }
         g_era_host_peer_storage_diagnostics.timeout_count++;
-        if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_ABORT) {
-            era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
-            return;
-        }
         era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_TIMEOUT, context->now_ms);
+        return;
     }
 
     if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_PEER_REVALIDATE) {
@@ -3357,7 +3890,7 @@ static void era_host_peer_storage_peer_task(const era_host_peer_storage_runtime_
                          context->peer_host_open_generation == g_era_host_peer_storage_runtime.peer_host_open_generation &&
                          context->peer_host_close_generation == g_era_host_peer_storage_runtime.peer_host_close_generation;
         if (!same_peer || context->policy_generation != g_era_host_peer_storage_runtime.policy_generation) {
-            era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
+            era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_STALE, context->now_ms);
             return;
         }
         if (!context->status_revalidation_due && !context->general_initiator_pending) {
@@ -3402,6 +3935,14 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
         return;
     }
     g_era_host_peer_storage_runtime.last_status = result.status;
+    if (result.owner_epoch == g_era_host_peer_storage_local.terminal_owner &&
+        result.relation_generation == g_era_host_peer_storage_local.terminal_relation &&
+        g_era_host_peer_storage_local.terminal_transaction != 0 &&
+        result.transaction_generation <= g_era_host_peer_storage_local.terminal_transaction &&
+        (result.operation == ERA_SPLIT_EEPROM_SYNC_OP_PROOF_RSP ||
+         result.operation == ERA_SPLIT_EEPROM_SYNC_OP_PUSH_RSP)) {
+        return;
+    }
 
     /* **No DUAL-HOST bulk retirement here** (D1). Serving the whole-family
      * summary used to clear this half's entire `settled_news`, on the
@@ -3434,13 +3975,17 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
      * how that stopped needing to be remembered at each site. */
     if (result.operation == ERA_SPLIT_EEPROM_SYNC_OP_PROOF_RSP && result.status == ERA_SPLIT_EEPROM_SYNC_STATUS_BUSY) {
         if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED) {
-            g_era_host_peer_storage_diagnostics.stale_count++;
             return;
         }
         if (result.domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
             g_era_host_peer_storage_diagnostics.domain_reject_count++;
             return;
         }
+        if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_RELEASING ||
+            ((g_era_host_peer_storage_local.operation.preparing_mask |
+             g_era_host_peer_storage_local.operation.settle_mask |
+             g_era_host_peer_storage_local.successor.preparing_mask |
+             g_era_host_peer_storage_local.successor.settle_mask) & (1U << result.domain))) return;
         g_era_host_peer_storage_relation.active_due = 0;
         uint32_t domain_mask = era_host_peer_storage_domain_mask((era_split_eeprom_sync_domain_t)result.domain);
         bool source_ready = (g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) == 0;
@@ -3451,6 +3996,12 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
             source_ready = era_host_peer_storage_capture_domain((era_split_eeprom_sync_domain_t)result.domain);
         }
         g_era_host_peer_storage_runtime.transaction_generation = result.transaction_generation;
+        g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
+        if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE) {
+            g_era_host_peer_storage_local.failure_reported = 0;
+            era_tomak_sync_attempt_started_kb();
+        }
         g_era_host_peer_storage_runtime.domain                 = result.domain;
         g_era_host_peer_storage_runtime.image_size             = g_era_host_peer_storage_domains[result.domain].size;
         g_era_host_peer_storage_runtime.source_revision        = source_ready ? g_era_host_peer_storage_manifest[result.domain].source_revision : 0;
@@ -3458,7 +4009,10 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
         g_era_host_peer_storage_runtime.state                  = ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED;
         g_era_host_peer_storage_runtime.pending_operation      = ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ;
         g_era_host_peer_storage_runtime.next_chunk             = 0;
-        g_era_host_peer_storage_runtime.episode_deadline_ms    = context->now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
+        g_era_host_peer_storage_runtime.episode_deadline_ms    = era_host_peer_storage_episode_deadline(context->now_ms);
+        if (source_ready && result.request_image_crc32 != g_era_host_peer_storage_runtime.expected_crc32) {
+            g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_CONTENT_EXPECTED;
+        }
         /* Pinning alone must not close normal HOST matrix response admission. */
         g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
         g_era_host_peer_storage_relation.active_due               = 1;
@@ -3477,7 +4031,6 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
          * then answers SOURCE_CHANGED. */
         if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED ||
             era_host_peer_storage_state_is_host_push(g_era_host_peer_storage_runtime.state)) {
-            g_era_host_peer_storage_diagnostics.stale_count++;
             return;
         }
         if (result.domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
@@ -3488,6 +4041,11 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
             g_era_host_peer_storage_diagnostics.stale_count++;
             return;
         }
+        if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_RELEASING ||
+            ((g_era_host_peer_storage_local.operation.preparing_mask |
+             g_era_host_peer_storage_local.operation.settle_mask |
+             g_era_host_peer_storage_local.successor.preparing_mask |
+             g_era_host_peer_storage_local.successor.settle_mask) & (1U << result.domain))) return;
         g_era_host_peer_storage_relation.active_due = 0;
         uint32_t domain_mask = era_host_peer_storage_domain_mask((era_split_eeprom_sync_domain_t)result.domain);
         bool source_ready = (g_era_host_peer_storage_local.dirty_domain_mask & domain_mask) == 0;
@@ -3498,6 +4056,12 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
             source_ready = era_host_peer_storage_capture_domain((era_split_eeprom_sync_domain_t)result.domain);
         }
         g_era_host_peer_storage_runtime.transaction_generation = result.transaction_generation;
+        g_era_host_peer_storage_local.episode_operation_generation = g_era_host_peer_storage_local.operation.generation;
+        g_era_host_peer_storage_local.episode_operation_mask = era_host_peer_storage_operation_eligible_mask();
+        if (g_era_host_peer_storage_local.operation.phase == ERA_STORAGE_OPERATION_NONE) {
+            g_era_host_peer_storage_local.failure_reported = 0;
+            era_tomak_sync_attempt_started_kb();
+        }
         g_era_host_peer_storage_runtime.domain                 = result.domain;
         g_era_host_peer_storage_runtime.image_size             = g_era_host_peer_storage_domains[result.domain].size;
         g_era_host_peer_storage_runtime.source_revision        = source_ready ? result.request_source_revision : 0;
@@ -3505,7 +4069,10 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
         g_era_host_peer_storage_runtime.state                  = ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_OPEN;
         g_era_host_peer_storage_runtime.pending_operation      = ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ;
         g_era_host_peer_storage_runtime.next_chunk             = 0;
-        g_era_host_peer_storage_runtime.episode_deadline_ms    = context->now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
+        g_era_host_peer_storage_runtime.episode_deadline_ms    = era_host_peer_storage_episode_deadline(context->now_ms);
+        if (source_ready && result.request_image_crc32 != g_era_host_peer_storage_manifest[result.domain].image_crc32) {
+            g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_CONTENT_EXPECTED;
+        }
         g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
         g_era_host_peer_storage_relation.active_due               = 1;
         g_era_host_peer_storage_diagnostics.open_count++;
@@ -3513,6 +4080,12 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
     }
 
     if (result.operation == ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_RSP) {
+        if (result.domain == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE && result.status &&
+            result.request_chunk_id) {
+            era_host_peer_storage_operation_proved(g_era_host_peer_storage_local.snapshot_operation_generation,
+                g_era_host_peer_storage_local.snapshot_operation_mask &
+                (uint8_t)~(result.chunk_id | result.request_detail));
+        }
         /* A sync-status answer binds to no episode on this half, by design:
          * the responder answers it from the published snapshot's recency
          * seat inside an admitted response slot and opens nothing, which is
@@ -3542,7 +4115,7 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
             g_era_host_peer_storage_runtime.flags |= ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
             if (g_era_host_peer_storage_runtime.state != ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED) {
                 g_era_host_peer_storage_runtime.state             = ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED;
-                g_era_host_peer_storage_runtime.episode_deadline_ms = context->now_ms + ERA_HOST_PEER_STORAGE_EPISODE_MS;
+                g_era_host_peer_storage_runtime.episode_deadline_ms = era_host_peer_storage_episode_deadline(context->now_ms);
                 g_era_host_peer_storage_relation.active_due           = 1;
                 g_era_host_peer_storage_diagnostics.open_count++;
             }
@@ -3683,13 +4256,6 @@ static void era_host_peer_storage_process_host_result(const era_host_peer_storag
                     break;
                 case ERA_SPLIT_EEPROM_SYNC_STATUS_APPLY_READY:
                     if (g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PUSH_APPLY_WAIT) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-                        if (era_tomak_sync_runtime_paired() && !era_tomak_sync_runtime_pair_ready()) {
-                            /* The result is already drained. Leave APPLY_WAIT
-                             * published so a later poll can trigger ADMIT. */
-                            return;
-                        }
-#endif
                         /* Core1 accepted the apply trigger. This call performs
                          * the final authority revalidation and, on ADMIT, the
                          * one synchronous ERA NVM replacement. */
@@ -3788,6 +4354,10 @@ static bool era_host_peer_storage_publish_host_snapshot(const era_host_peer_stor
                                                g_era_host_peer_storage_runtime.next_chunk :
                                                0;
     snapshot.allowed                     = context->local_policy_requested ? 1 : 0;
+    if (context->owner_epoch == g_era_host_peer_storage_local.terminal_owner &&
+        context->relation_generation == g_era_host_peer_storage_local.terminal_relation) {
+        snapshot.terminal_transaction = g_era_host_peer_storage_local.terminal_transaction;
+    }
     snapshot.valid                       = image_valid ? 1 : 0;
     snapshot.pinned                      = g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED ? 1 : 0;
     if (era_host_peer_storage_state_is_host_push(g_era_host_peer_storage_runtime.state)) {
@@ -3828,6 +4398,8 @@ static bool era_host_peer_storage_publish_host_snapshot(const era_host_peer_stor
     if (!era_split_communication_core_storage_publish_responder_snapshot(&snapshot)) {
         return false;
     }
+    g_era_host_peer_storage_local.snapshot_operation_generation = g_era_host_peer_storage_local.operation.generation;
+    g_era_host_peer_storage_local.snapshot_operation_mask = era_host_peer_storage_operation_eligible_mask();
     g_era_host_peer_storage_runtime.owner_epoch                  = context->owner_epoch;
     g_era_host_peer_storage_runtime.relation_generation          = context->relation_generation;
     g_era_host_peer_storage_runtime.policy_generation            = context->policy_generation;
@@ -3845,13 +4417,9 @@ static void era_host_peer_storage_host_task(const era_host_peer_storage_runtime_
         bool was_active = g_era_host_peer_storage_relation.active_due != 0;
         if (was_active) {
             ERA_STORAGE_TIMING_ABORT(3);
+            era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_ROLE_CHANGED, context->now_ms);
+            return;
         }
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        if (was_active) {
-            era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_ABORT,
-                                                      ERA_SPLIT_EEPROM_SYNC_STATUS_ROLE_CHANGED);
-        }
-#endif
         memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));
         g_era_host_peer_storage_runtime.role              = ERA_HOST_PEER_STORAGE_ROLE_HOST;
         g_era_host_peer_storage_runtime.state             = ERA_HOST_PEER_STORAGE_RUNTIME_HOST_READY;
@@ -3861,16 +4429,14 @@ static void era_host_peer_storage_host_task(const era_host_peer_storage_runtime_
         g_era_host_peer_storage_runtime.policy_generation = context->policy_generation;
         g_era_host_peer_storage_runtime.flags             = ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_SNAPSHOT_DIRTY;
         g_era_host_peer_storage_relation.active_due          = 0;
-        if (was_active) {
-            g_era_host_peer_storage_diagnostics.abort_count++;
-            era_split_transport_scheduler_force_storage_recovery(true);
-        }
     }
 
     if (era_split_communication_core_storage_responder_result_ready()) {
         era_host_peer_storage_process_host_result(context);
     }
-    era_host_peer_storage_note_episode_phase(context->now_ms);
+    if (g_era_host_peer_storage_local.retiring) {
+        return;
+    }
     if ((g_era_host_peer_storage_runtime.state == ERA_HOST_PEER_STORAGE_RUNTIME_HOST_PINNED ||
          era_host_peer_storage_state_is_host_push(g_era_host_peer_storage_runtime.state)) &&
         timer_expired32(context->now_ms, g_era_host_peer_storage_runtime.episode_deadline_ms)) {
@@ -3881,7 +4447,47 @@ static void era_host_peer_storage_host_task(const era_host_peer_storage_runtime_
     (void)era_host_peer_storage_publish_host_snapshot(context);
 }
 
-bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context) {
+static bool era_host_peer_storage_retire_failed_attempt(const era_host_peer_storage_runtime_context_t *context) {
+    if (!g_era_host_peer_storage_local.retiring) {
+        return false;
+    }
+    if (g_era_host_peer_storage_runtime.retry_deadline_ms != 0 &&
+        !timer_expired32(context->now_ms, g_era_host_peer_storage_runtime.retry_deadline_ms)) {
+        return true;
+    }
+    bool owned = g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_HOST ||
+                 (g_era_host_peer_storage_runtime.flags &
+                  (ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_REQUEST_PENDING |
+                   ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_ROUTE_EXCLUSIVE |
+                   ERA_HOST_PEER_STORAGE_RUNTIME_FLAG_TRANSFER_ACTIVE)) != 0;
+    /* The existing stop/owner boundary drains live Core1 claims before any
+     * image or reservation can be reused. A failed stop retains ownership,
+     * not a new attempt or a renewed cancellation budget. */
+    if (owned && !era_split_transport_scheduler_rotate_storage_relation()) {
+        g_era_host_peer_storage_diagnostics.quiesce_fail_count++;
+        g_era_host_peer_storage_runtime.retry_deadline_ms = context->now_ms + ERA_HOST_PEER_STORAGE_RETRY_MS;
+        return true;
+    }
+    uint16_t transaction = g_era_host_peer_storage_runtime.transaction_generation;
+    uint16_t request = g_era_host_peer_storage_runtime.request_generation;
+    memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));
+    g_era_host_peer_storage_runtime.transaction_generation = transaction;
+    g_era_host_peer_storage_runtime.request_generation = request;
+    g_era_host_peer_storage_runtime.domain = ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE;
+    g_era_host_peer_storage_relation.active_due = 0;
+    bool summary_pending = (g_era_host_peer_storage_relation.arbitration_flags &
+                            ERA_HOST_PEER_STORAGE_ARB_FLAG_SUMMARY_PENDING) != 0;
+    era_host_peer_storage_release_initiator_queues();
+    if (summary_pending) era_host_peer_storage_arm_summary_refresh();
+    g_era_host_peer_storage_local.retiring = 0;
+    g_era_host_peer_storage_local.operation.outcome |= ERA_STORAGE_OPERATION_WAIT_CONTEXT;
+    if (!owned) {
+        era_split_transport_scheduler_force_storage_recovery(true);
+    }
+    return true;
+}
+
+static bool era_host_peer_storage_runtime_step(const era_host_peer_storage_runtime_context_t *context) {
     if (!g_era_host_peer_storage_local.initialized) {
         g_era_host_peer_storage_relation.runtime_service_active = 0;
         return false;
@@ -3891,6 +4497,9 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
         g_era_host_peer_storage_relation.runtime_service_active = 0;
         era_host_peer_storage_update_indicator_relation(false, false);
         return retired_unowned_result;
+    }
+    if (era_host_peer_storage_retire_failed_attempt(context)) {
+        return true;
     }
 
     bool relation_serviced = era_host_peer_storage_relation_serviced(context);
@@ -3958,12 +4567,8 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
             return retired_unowned_result;
         }
         if (g_era_host_peer_storage_relation.active_due) {
-            if (g_era_host_peer_storage_runtime.role == ERA_HOST_PEER_STORAGE_ROLE_PEER) {
-                era_host_peer_storage_reset_peer_episode(context->now_ms, true, true);
-            } else {
-                g_era_host_peer_storage_diagnostics.abort_count++;
-                era_split_transport_scheduler_force_storage_recovery(true);
-            }
+            era_host_peer_storage_peer_begin_abort(ERA_SPLIT_EEPROM_SYNC_STATUS_ROLE_CHANGED, context->now_ms);
+            return true;
         }
         uint16_t transaction_generation = g_era_host_peer_storage_runtime.transaction_generation;
         uint16_t request_generation = g_era_host_peer_storage_runtime.request_generation;
@@ -3979,6 +4584,32 @@ bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_cont
          * owner/session/capability gap inside the same serviced mode. */
     }
     return retired_unowned_result || previous_state != g_era_host_peer_storage_runtime.state;
+}
+
+bool era_host_peer_storage_runtime_task(const era_host_peer_storage_runtime_context_t *context) {
+#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
+    if (!g_era_host_peer_storage_timing.reason) {
+        era_sync_timing_context_t *s = &g_era_host_peer_storage_timing.context;
+        memset(s, 0, sizeof(*s));
+        s->at_ms = timer_read32();
+        if (context) {
+            s->valid = 1;
+            s->owner_epoch = context->owner_epoch;
+            s->relation_generation = context->relation_generation;
+            s->policy_generation = context->policy_generation;
+            s->mode = context->mode;
+            s->owner_ready = context->owner_ready;
+            s->local_initiator = context->local_initiator;
+            s->input_recovery_pending = context->input_recovery_pending;
+            s->status_revalidation_due = context->status_revalidation_due;
+        }
+    }
+#endif
+    era_host_peer_storage_operation_task(timer_read32());
+    era_host_peer_storage_operation_release(context);
+    bool performed = era_host_peer_storage_runtime_step(context);
+    era_host_peer_storage_operation_release(context);
+    return performed;
 }
 
 bool era_host_peer_storage_initiator_request_pending(void) {
@@ -4008,10 +4639,8 @@ bool era_host_peer_storage_standing_suppressed(void) {
 
 /* "Data is moving": the episode span whose boundaries are two-sided
  * exchanges. It is a separate fact from route exclusivity, which answers
- * "who owns the wire" — an abort raises exclusivity to get its ABORT_REQ out
- * and moves nothing, and reading that as a transfer made a retry loop look
- * identical to one (device-shown 2026-07-29 as a 1 Hz flash against a
- * policy-closed responder). The TRANSFER flag alone is not the span either:
+ * "who owns the wire". Pre-transfer preparation and terminal retirement
+ * must not invent a moving span. The TRANSFER flag alone is not the span:
  * it clears at each role's transfer-verified boundary, and the post-move
  * states carry the rest — apply, revalidation, completion — including the
  * pull responder waiting through the initiator's durable apply inside
@@ -4069,95 +4698,15 @@ static bool era_host_peer_storage_live_pair_work(void) {
     return era_host_peer_storage_moving_span();
 }
 
-/* The lamp's local arm and the advertised fact, one value with one name:
- * each half's own unfinished pair work, minus only the mirror (a half never
- * echoes the peer's claim back at it). The initiator's standing plan
- * carries it as the STORAGE_PENDING push section, the responder's standing
- * answer as STORAGE_NEWS bit7 — and with the lamp reading mirror OR this,
- * era_host_peer_storage_indicator_pending() is literally the design
- * sentence: own advertised ∪ peer's advertised. One expression, O(1)
- * aligned RAM reads, callable from the render path: no EEPROM, no CRC, no
- * context.
- *
- * The terms, in falling order of earliness:
- * - an ERA NVM macro transaction that is already staging. This is deliberately
- *   presentation-only here: opener/payload writes are not durable semantic
- *   commits and therefore must not advance State Sync or the settled-dirty
- *   recency machinery, but they are already user-visible unfinished storage
- *   work. Reading the NVM transaction mode restores the old first-write lamp
- *   edge without inventing a QMK hook or pretending staged RAM is durable;
- * - dirty content inside its quiet interval (the edited half's save phase —
- *   crossed to the peer too, so an initiator-edited operation lights both
- *   halves together from the first write);
- * - settled content departed from a valid baseline, or from an invalid one
- *   after a real local writer retired its display-only provisional bit (the
- *   changed shadow carries this across relation identity rotation);
- * - decided content-moving cells (push, conflict, and the pull-expected
- *   subset of the probe queue — peer_changed is not consumed at grant, so
- *   the intersection empties exactly as episodes start);
- * - an armed in-session summary (a settle or news armed it, so movement is
- *   plausibly coming; the relation-open verify-all round deliberately does
- *   not count, which keeps the audit sweep dark);
- * - a decided episode's own span (CONTENT_EXPECTED across its pre-transfer
- *   exchanges, then the moving span through close).
- *
- * Boot's baseline-unknown shadow and any cell classified solely from that
- * provenance stay dark. MATCH retires them silently. TRANSFER retires the
- * domain's provisional bit and confirms the initiator round, so its moving
- * span and all remaining gaps are visible until the drain completes. A real
- * storage timeout/source-change/nonterminal abort confirms the round by the
- * same rule; ordinary BUSY responses do not. These are display filters only:
- * live_pair_work() above remains the raw restart-safety predicate.
- *
- * All of it behind the cold-cached gate: serviceability and this half's own
- * sync policy. A standalone half and a policy-off half stay dark whatever
- * they hold.
- *
- * The dirty term was excluded at first, preserving the old "edited half
- * alone lights first during its save" doctrine, and the first device
- * sitting (2026-08-14) refuted that choice with the owner's own UX ruling:
- * a VIA save is a multi-second write stream, so joining at settle put the
- * peer seconds behind the edited half's rise and dipped it dark between
- * one domain's convergence and the next one's settle. Entry and exit are
- * both the pair's process; both synchronize. The response direction ran
- * settle-bound for one more sitting — the response mask had no free
- * marker — until the fourth sitting measured the bound at 4.1 s on an
- * R-side load and the owner ruled it closed; the news byte's reserved bit7
- * was the free carrier. */
+/* Presentation observes the operation owner, not divergence or delivery debt. */
 static bool era_host_peer_storage_visible_pair_work(void) {
-    if (era_eeprom_driver_macro_transaction_open()) {
-        return true;
-    }
-    if (g_era_host_peer_storage_local.dirty_domain_mask != 0) {
-        return true;
-    }
-    if (era_host_peer_storage_indicator_cells_visible()) {
-        return true;
-    }
-    if (era_host_peer_storage_summary_outstanding() &&
-        (g_era_host_peer_storage_relation.indicator_round_confirmed ||
-         (g_era_host_peer_storage_relation.arbitration_flags & ERA_HOST_PEER_STORAGE_ARB_FLAG_ROUND_VERIFY_ALL) == 0)) {
-        return true;
-    }
-    if (era_host_peer_storage_indicator_content_expected_visible()) {
-        return true;
-    }
-    return era_host_peer_storage_moving_span();
+    return era_host_peer_storage_content_attempt_active();
 }
 
 bool era_host_peer_storage_advertised_pending(void) {
     if (!g_era_host_peer_storage_local.initialized ||
         (g_era_host_peer_storage_relation.indicator_bits & ERA_HOST_PEER_STORAGE_INDICATOR_GATE) == 0) {
         return false;
-    }
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_admission_pending()) {
-        return true;
-    }
-#endif
-    if ((g_era_host_peer_storage_local.changed_domain_mask &
-         (uint8_t)~g_era_host_peer_storage_local.provisional_changed_mask) != 0) {
-        return true;
     }
     return era_host_peer_storage_visible_pair_work();
 }
@@ -4182,6 +4731,16 @@ bool era_host_peer_storage_restart_should_wait(void) {
 bool era_host_peer_storage_execution_pending(void) {
     return g_era_host_peer_storage_relation.active_due ||
            era_split_communication_core_storage_result_due();
+}
+
+bool era_host_peer_storage_attempt_pending(void) {
+    return era_host_peer_storage_execution_pending() ||
+           g_era_host_peer_storage_relation.idle_due ||
+           g_era_host_peer_storage_relation.probe_pending_mask ||
+           g_era_host_peer_storage_relation.push_pending_mask ||
+           g_era_host_peer_storage_relation.conflict_pending_mask ||
+           era_host_peer_storage_summary_outstanding() ||
+           g_era_host_peer_storage_local.dirty_domain_mask != 0;
 }
 
 bool era_host_peer_storage_restart_quarantine_ready(void) {

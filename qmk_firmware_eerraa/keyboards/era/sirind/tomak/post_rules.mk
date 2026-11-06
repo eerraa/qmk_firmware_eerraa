@@ -35,12 +35,7 @@ ERA_SPLIT_SERIAL_USART_SPEED = 460800
 ifeq ($(strip $(VIA_ENABLE)),yes)
     ERA_SPLIT_EEPROM_SYNC_ENABLE := yes
     OPT_DEFS += -DERA_TOMAK_SYNC_ENABLE
-    SRC += keyboards/era/common/system/era_tomak_sync_admission.c
-    SRC += keyboards/era/common/system/era_tomak_sync_via.c
-    SRC += keyboards/era/common/split/era_tomak_sync_transition.c
     SRC += keyboards/era/common/split/era_tomak_sync_wire.c
-    SRC += keyboards/era/common/split/era_tomak_sync_receiver.c
-    SRC += keyboards/era/common/split/era_tomak_sync_runtime.c
 endif
 
 # The tomak family's whole board content, shared by all three boards: the

@@ -171,7 +171,10 @@ static bool era_split_transport_scheduler_bootstrap_due(void) {
 }
 
 bool era_split_transport_scheduler_local_status_revalidation_due(void) {
-    return g_era_split_transport_scheduler.local_status_pending && era_split_transport_scheduler_bootstrap_due();
+    /* Retain the debt across role changes; only the wire initiator can
+       discharge it through SESSION_STATUS. */
+    return era_split_transport_scheduler_local_initiator_available() &&
+           g_era_split_transport_scheduler.local_status_pending && era_split_transport_scheduler_bootstrap_due();
 }
 
 /* True while this half's relation runs a lane of its own that carries the

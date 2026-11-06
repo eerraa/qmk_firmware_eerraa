@@ -16,9 +16,6 @@
 #endif
 #include "era_host_peer_source_snapshot.h"
 #include "era_host_peer_transaction.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_runtime.h"
-#endif
 #include "era_split_authority_reducer.h"
 #include "era_split_keyboard.h"
 #include "era_split_peer_layer.h"
@@ -79,18 +76,6 @@ _Static_assert(ERA_SPLIT_RESTART_COMMIT_DELAY_MS > ERA_SPLIT_RESTART_ARM_TIMEOUT
                "The commit deadline must sit far enough past the arm timeout for the retire to reach a responder that armed on a lost answer.");
 
 era_split_transport_scheduler_state_t g_era_split_transport_scheduler;
-#ifdef ERA_TOMAK_SYNC_ENABLE
-void era_split_transport_scheduler_request_sync_session(void) {
-    if (!g_era_split_transport_scheduler.local_wire_initiator) {
-        return;
-    }
-    /* AUTHORITY may preserve the mode while revoking its private channel.
-     * The ordinary SESSION owner, not a new discovery lane, rebinds it. */
-    g_era_split_transport_scheduler.local_status_pending = true;
-    g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
-    era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
-}
-#endif
 #ifdef ERA_TOMAK_SYNC_DIAG
 static bool tomak_sync_link_seen;
 static uint32_t tomak_sync_first_link_ms, tomak_sync_loss_count, tomak_sync_return_count;
@@ -1247,28 +1232,6 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
     era_host_peer_transaction_forget_responder_input_layer();
 }
 
-#ifdef ERA_TOMAK_SYNC_ENABLE
-static void era_split_transport_scheduler_sync_channel_restored(bool initiator) {
-    era_tomak_sync_binding_t previous;
-    era_tomak_sync_wire_t proof;
-    era_tomak_sync_runtime_snapshot(&previous, &proof);
-    uint16_t owner = era_split_communication_core_owner_epoch();
-    uint16_t relation = g_era_split_transport_scheduler.core1_initiator_relation_generation;
-    if (previous.local_owner == owner && previous.local_relation == relation) {
-        return;
-    }
-    /* Invalidate proof at the usable-channel boundary, not later at the next
-     * renderer/housekeeping pass. The caller's settled target role is current
-     * even when update_mode has not committed its scheduler role yet. */
-    era_tomak_sync_runtime_bind(owner, relation);
-    if (initiator) {
-        g_era_split_transport_scheduler.local_status_pending = true;
-        g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
-        era_split_transport_scheduler_mark_route_due(ERA_SPLIT_SCHEDULER_ROUTE_DUE_ATTACH_STATUS);
-    }
-}
-#endif
-
 static bool era_split_transport_scheduler_reset_serial_for_transport_role(bool local_wire_available, bool local_wire_initiator, bool relation_rotation_required) {
     /* Before the explicit launch step this function is policy-only. Mode
        planning still runs and still records the wire role it decided; it just
@@ -1324,9 +1287,6 @@ static bool era_split_transport_scheduler_reset_serial_for_transport_role(bool l
         if (relation_rotation_required) {
             era_split_transport_scheduler_rotate_core1_relation();
         }
-#ifdef ERA_TOMAK_SYNC_ENABLE
-        era_split_transport_scheduler_sync_channel_restored(local_wire_initiator);
-#endif
         return true;
     }
     bool reset = false;
@@ -1358,11 +1318,6 @@ static bool era_split_transport_scheduler_reset_serial_for_transport_role(bool l
     if (relation_rotation_required) {
         era_split_transport_scheduler_rotate_core1_relation();
     }
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (local_wire_available) {
-        era_split_transport_scheduler_sync_channel_restored(local_wire_initiator);
-    }
-#endif
     reset = true;
 
 done:
@@ -1921,31 +1876,6 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
        link lane owns what a level means. Reconciliation's open half runs here
        -- the winner may raise, the loser waits, and a live raise adopts. */
     era_split_link_task();
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    bool sync_paired = era_split_scheduler_session_peer_known() &&
-        (g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_HOST ||
-         g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_PEER ||
-         g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT ||
-         g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_DUAL_HOST_RIGHT);
-    era_tomak_sync_runtime_bind(era_split_communication_core_owner_epoch(),
-                               g_era_split_transport_scheduler.core1_initiator_relation_generation);
-    era_tomak_sync_runtime_relation(sync_paired);
-    /* A channel replacement is not usable until its SESSION response retires.
-     * The retry cadence's "due" predicate is not that completion boundary. */
-    if (sync_paired && g_era_split_transport_scheduler.local_wire_initiator &&
-        (!g_era_split_transport_scheduler.local_status_pending ||
-         era_tomak_sync_runtime_transition_pending())) {
-        era_tomak_sync_wire_t request;
-        /* Work facts are semantic, not the old local-sent presentation hold.
-         * The peer's advertised bit still carries responder-origin edits. */
-        bool work = era_host_peer_storage_advertised_pending() ||
-                    (era_host_peer_storage_indicator_diag() & 0x02U) != 0;
-        if (era_tomak_sync_runtime_request(work, &request)) {
-            (void)era_split_transport_scheduler_submit_sync(&request);
-        }
-    }
-#endif
-
     /* The listener's step, evaluated after the mode has settled this pass so
        the relation and wire-role terms it reads are this pass's answers and
        not the previous one's. */
@@ -1980,6 +1910,11 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         .owner_ready               = owner_ready ? 1 : 0,
         .local_initiator           = g_era_split_transport_scheduler.local_wire_initiator ? 1 : 0,
         .general_initiator_pending = era_split_transport_scheduler_core1_initiator_pending() ? 1 : 0,
+        .input_recovery_pending =
+            g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_PEER ?
+                era_split_input_source_recovery_pending() :
+            g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_HOST_PEER_HOST ?
+                era_split_input_receiver_recovery_pending() : 0,
         .status_revalidation_due   = era_split_transport_scheduler_local_status_revalidation_due() ? 1 : 0,
         /* Keep the storage initiator's peer mirror across the short recovery
            window produced by a responder-side storage relation rotation. The

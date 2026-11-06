@@ -1,7 +1,7 @@
 # ERA Replacement Storage Contract
 
 Genre: contract
-Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the seven-domain
+Canonical for: ERA logical EEPROM ownership, ERA NVM durability, the eight-domain
 cross-half storage protocol, replacement Apply, dynamic-macro durability, the
 `GET_KEYBOARD_VALUE` `0x80` State Sync envelope, EEPROM CLEAN, storage
 arbitration and recovery
@@ -23,8 +23,7 @@ replacement transactions, or CLEAN replay proof.
 
 Logical EEPROM is `ERA_STORAGE_EEPROM_LOGICAL_SIZE` / `EEPROM_SIZE` 24576,
 asserted as `TOTAL_EEPROM_BYTE_COUNT` 24576 in
-`split/era_host_peer_storage.c`. The three split boards
-(`sirind/tomak`, `sirind/tomak79h`, `sirind/tomak79s`) include
+`split/era_host_peer_storage.c`. Every ERA RP2040 board includes
 `storage/era_storage_adoption_rules.mk`, which sets `EEPROM_DRIVER=custom`
 and force-includes `storage/era_storage_adoption.h`. QMK wear-leveling is
 not linked. An ordinary QMK EEPROM write has no error return. Replacement
@@ -109,7 +108,8 @@ RP2040 NOR: `storage/era_nvm_rp2040.c`. Host proofs: `tests/era_nvm`,
 | Item | Value |
 | --- | --- |
 | effective flash | 2 MiB (`flash1` default `2048k` in `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld`) |
-| ERA NVM region | final 128 KiB: `__era_nvm_region_end__ - 128k`; load-image overlap `ASSERT` |
+| ERA NVM region | `[flash end - 264 KiB, flash end - 136 KiB)` on every ERA RP2040 board; load-image overlap `ASSERT` |
+| previous-firmware reserve | final 136 KiB, never written by this firmware; contains the former ERA region (final 128 KiB) and QMK wear-leveling window (final 8 KiB) |
 | banks | `ERA_NVM_BANK_COUNT` 2 × `ERA_NVM_BANK_SIZE_BYTES` 65536 |
 | physical | `ERA_NVM_PHYSICAL_SIZE_BYTES` 131072 |
 | logical image | `ERA_NVM_LOGICAL_SIZE_BYTES` 24576; public erased byte `0x00` |
@@ -163,6 +163,39 @@ failure counters zero.
 `ERA_NVM_FORMAT_VERSION` 1 is distinct from `ERA_EEPROM_RESET_KEY`. A physical
 format change and a logical owner-map change are separate compatibility
 decisions.
+
+### Placement Upgrade And Rollback
+
+The linker owns one placement for all 24 RP2040 boards; it reserves 264 KiB
+in total without changing either bank's format, size, journal, logical capacity,
+macro domain or options-table position. Firmware must fit below that reservation.
+The RP2040 backend binds to the linker's region bounds, so format, rotation,
+maintenance erase and macro replacement cannot write the previous stores.
+
+On the first upgrade to this placement, every board, TOMAK included, starts from
+defaults in the fresh region. Back up with the app's Save/Load before upgrading.
+No old data is imported, and neither `ERA_EEPROM_RESET_KEY` nor the pinned VIA
+date changes. A downgrade reads its own untouched pre-upgrade store: QMK
+wear-leveling on the 21 newly adopted boards, the former ERA banks on TOMAK.
+It does not reset because of this upgrade. A re-upgrade resumes the new
+firmware's last ERA state. Edits made on old firmware do not carry over; use
+the app's Save/Load to carry those settings.
+
+This guarantee comes from disjoint physical ownership, not a reset-key test.
+An arbitrary macro payload can contain a valid old-format image, and a legacy
+erase can destroy overlapping new journal records even if its guard rejects
+them. `tests/era_storage_backends/test_downgrade.py` uses the production linker
+placement, ERA NVM and QMK wear-leveling to exercise both rollback lifecycles
+after MACRO_REPLACE, including the original aliasing payload.
+
+Precedent: [Zephyr settings](https://docs.zephyrproject.org/latest/services/storage/settings/index.html)
+selects an explicit settings partition, and
+[MCUboot](https://docs.mcuboot.com/design.html) keeps rollback image slots
+separate. Neither makes an application-data conversion automatically reversible.
+[QMK's EEPROM drivers](https://docs.qmk.fm/drivers/eeprom) likewise distinguish
+logical EEPROM from its physical backing location. Keeping an untouched old
+store beside a new one applies that ownership separation without a compatibility
+reader; each firmware remains authoritative only for its own store.
 
 Origins (`era_nvm_origin_t` in `storage/era_nvm.h`): `LOCAL_QMK`,
 `REMOTE_APPLY`, `MACRO_TRANSACTION`, `CLEAN_PREPARE`, `FORMAT`,
@@ -317,17 +350,18 @@ must run the same image; the app cannot claim peer durability from a local SET.
 
 ## Current Storage Inventory
 
-Seven portable domains. Table `g_era_host_peer_storage_domains` in
+Eight portable domains. Table `g_era_host_peer_storage_domains` in
 `split/era_host_peer_storage.c`; ids `era_split_eeprom_sync_domain_t` in
 `split/era_split_eeprom_sync.h`; sizes bound across cores by
 `ERA_HOST_PEER_STORAGE_DOMAIN_*` in `split/era_host_peer_storage.h` and the
 matching `_Static_assert`s in that `.c`. Addresses from
 `storage/era_storage_layout.h` and `storage/era_eeprom_layout.h`. Semantic
 logical ranges only — never NVM banks, journal, or local metadata.
-`ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 7. Schema
-`ERA_HOST_PEER_STORAGE_SCHEMA` 3 on every row. The six-layer keymap is unchanged;
-schema 3 adds 24 bytes of Tap Dance timing, relocates the protected block and
-VIA/keymap/macro bases together, and advances the full-reset key to `0x45524108`. Probe/proof refuses a
+`ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT` 8. Schema
+`ERA_HOST_PEER_STORAGE_SCHEMA` 4 on every row. Schema 4 adds macro options
+without relocating any existing domain, the options table or the final macro
+marker. The six-layer keymap and the 16-KiB macro region are unchanged.
+Probe/proof refuses a
 schema or size mismatch before content moves. Both halves of a pair run one
 identical image; mixed versions are unsupported (**Stored-Data Compatibility**).
 
@@ -345,6 +379,7 @@ QMK reads the public EEPROM image.
 | 4 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG` | `ERA_STORAGE_EECONFIG_KEYMAP_ADDR` 4 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES` 2 (`sizeof(keymap_config_t)`) | `keymap_config` |
 | 5 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER` | `ERA_STORAGE_EECONFIG_DEFAULT_LAYER_ADDR` 3 | `ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES` 1 | default-layer apply |
 | 6 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS` | `ERA_STORAGE_VIA_LAYOUT_OPTIONS_ADDR` 320 | `ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES` 1 (`VIA_EEPROM_LAYOUT_OPTIONS_SIZE`) | VIA layout-options apply |
+| 7 | `ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS` | `ERA_STORAGE_MACRO_OPTIONS_ADDR` (immediately after macro) | `ERA_STORAGE_MACRO_OPTIONS_BYTES` / `ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES` 72 | `era_macro_options_init()`; immediate runtime table reload |
 
 QMK prefix `ERA_EEPROM_QMK_CONFIG_SIZE` 37. Portable seats in it are domains
 3–5; the rest of that prefix is not a domain. `VIA_EEPROM_MAGIC_ADDR` is
@@ -357,12 +392,52 @@ Keymap bytes = `ERA_STORAGE_DYNAMIC_KEYMAP_BYTES`. Macro starts at
 keymap-base + keymap-bytes. No encoder map sits between them
 (`storage/era_storage_layout.h`; `ERA_HOST_PEER_STORAGE_DYNAMIC_ENCODER_ADDR`
 in `split/era_host_peer_storage.c` is defined and unused). Every other
-domain address and size is geometry-independent.
+domain address and size except the following options/local-recency tail is geometry-independent.
 
-| Board | Matrix | Keymap | Macro |
-| --- | --- | --- | --- |
-| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` |
-| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` |
+| Board | Matrix | Keymap | Macro | Macro options |
+| --- | --- | --- | --- | --- |
+| `sirind/tomak79h`, `sirind/tomak79s` | 12×9 | 1296 at `321..1616` | `1617..18000` | `18001..18072` |
+| `sirind/tomak` | 12×11 | 1584 at `321..1904` | `1905..18288` | `18289..18360` |
+
+The per-macro playback options table (`ERA_STORAGE_MACRO_OPTIONS_*` in
+`storage/era_storage_layout.h`, owner `system/era_macro_options.c`) starts
+where the macro domain ends: an 8-byte header (signature, version, record
+count, two zero bytes), then `[flags, hold_ms LE16, repeat_count]` per macro,
+72 bytes for 16 macros. Table version 2 rejects the unreleased v1 table.
+A missing, erased, v1 or foreign header means every default; reserved or
+unsupported flags or zero hold time default that record alone. Every count
+byte is valid. These same decoding rules apply after remote replacement:
+an invalid stored record represents defaults, never executable unsupported
+flags. The portable image retains the exact stored bytes, including cleared
+headers, so CRC equality and reboot/runtime interpretation agree.
+
+SAVE's durable span dirties domain 7 through the descriptor-based write
+classifier. SET remains local RAM intent, not a peer durability receipt.
+The existing summary/arbitration, immutable capture, size/schema/CRC checks,
+ADMIT, result-bearing replacement and convergence bookkeeping apply unchanged.
+After durable success, receiving CONFIG advances and the runtime table reloads
+immediately; failed Apply publishes neither. An admitted macro retains its
+admission snapshot. Table validity is interpreted by the shared loader rather
+than rejecting cleared/default storage as an unsynchronizable domain.
+
+### Macro playback options v2
+
+The registry `the-via-eerraa/config/era-wire.json` owns channel/value numbers,
+flag allocations and the unchanged `EMO1` capability marker; the generated
+`system/era_wire.h` binds this image to that registry. `REPEAT_COUNT` is one
+byte: 1 (default) plays once, 2..255 plays N times, and 0 repeats until stopped.
+At admission, 0 without a usable stop condition becomes one play. A repeat
+boundary releases both macro output scopes; normal completion of the last
+play retains an explicit DOWN. Stops/cancellation release every macro-held key.
+
+BLOCK_OTHERS rejects a genuine non-macro-bound press begun during playback
+before handlers, Tap Dance or the tapping queue. One bit per matrix position
+retains that decision until release, even after playback ends. Already-held
+keys and keys bound to the playing macro remain admitted. Stop judgments see
+the rejected edge first, so OTHER can stop playback without that key's action.
+Synthesized records retain the existing provenance rules and are not new
+physical ingress; a blocked Tap Dance press never creates a dance. The added
+per-input work is constant. The old REPEAT flag is reserved, not reinterpreted.
 
 ERA config block: `ERA_EEPROM_CONFIG_SIZE` 280 at `ERA_EEPROM_CONFIG_ADDR`
 37, ending at `ERA_EEPROM_CONFIG_END` 317. Interior owner map:
@@ -404,12 +479,12 @@ Not portable payload, and not in `g_era_host_peer_storage_domains`:
 | Span | Content | Home |
 | --- | --- | --- |
 | rest of the QMK prefix inside `ERA_EEPROM_QMK_CONFIG_SIZE` 37 | magic, debug, and the eeconfig fields that are not domains 3–5 | QMK eeconfig; `storage/era_storage_layout.h` names only the three portable seats |
-| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 / size 80 | local-policy, link, reset guard, recency baseline, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
-| `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 | seven CRC32 + guard (`244..275`) | **Recency Layer** |
+| `ERA_EEPROM_PROTECTED_CONFIG_OFFSET` 200 / size 80 | local-policy, link, reset guard, retired seven-domain recency seats, protected reserve | `era_authority_contract.md` **Persisted Sync Policy** |
+| `ERA_STORAGE_RECENCY_ADDR` / `ERA_STORAGE_RECENCY_BYTES` | eight-domain half-local recency, 52 bytes immediately after options | **Recency Layer** |
 | `ERA_EEPROM_LINK_CONFIG_OFFSET` 224 / size 4 | split link level | `era_authority_contract.md`; `split/era_split_link.h` |
 | `ERA_EEPROM_RESET_GUARD_CONFIG_OFFSET` 228 / size 16 | reset guard / `ERA_EEPROM_RESET_KEY` | `storage/era_eeprom_layout.h`; every board, `storage/era_reset_guard.c` |
 | `VIA_EEPROM_MAGIC_ADDR` 317, three bytes | VIA magic | QMK VIA |
-| after macro to `EEPROM_SIZE` 24576 | unused logical | — |
+| after the recency record to `EEPROM_SIZE` 24576 | unused logical | — |
 | ERA NVM banks, generations, journal | physical metadata | `storage/era_nvm.c` |
 | runtime transaction generations, route state, diagnostics | not EEPROM | `split/era_host_peer_storage.c` |
 
@@ -427,8 +502,9 @@ semantic change set. A wear-level recovery unions its pending and current
 notifications before publishing each revision once. No QMK `nvm_*` weak hook is
 part of this boundary.
 Dynamic-macro staging has a separate public-visibility notification: the NVM transaction mode
-opens on the nonzero macro marker and the storage indicator may read that O(1)
-RAM fact immediately. **Opening or staging a macro is not a committed-span
+opens on the nonzero macro marker. Its validated upload admission joins the
+storage-owned Save/SYNC operation; the indicator observes that owner, not a
+second lifetime inferred from the marker. **Opening or staging a macro is not a committed-span
 notification**: it starts no settled-dirty recency claim and proves no durable
 content. A changed public staging byte or marker advances MACRO independently
 of that receipt. The ordinary full-domain
@@ -652,10 +728,16 @@ claim that every existing app upload was displayed incorrectly.
 
 | Record | Home |
 | --- | --- |
-| per-domain baseline CRC32 + guard | `ERA_EEPROM_SYNC_BASELINE_CONFIG_OFFSET` 244 / `ERA_EEPROM_SYNC_BASELINE_CONFIG_SIZE` 32 (`244..275`). Struct `era_host_peer_storage_baseline_record_t` in `split/era_host_peer_storage.c`: seven CRC32 then a guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
-| 16-bit LE divergence counters | local-policy `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10, seven × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2; layout `era_authority_contract.md` **Persisted Sync Policy** |
+| per-domain baseline CRC32 + guard | `ERA_STORAGE_RECENCY_BASELINE_ADDR` / `ERA_STORAGE_RECENCY_BASELINE_BYTES` 36. Struct `era_host_peer_storage_baseline_record_t`: eight CRC32 then guard = CRC32 of those words XOR `ERA_HOST_PEER_STORAGE_BASELINE_GUARD_XOR` |
+| 16-bit LE divergence counters | `ERA_STORAGE_RECENCY_ADDR`, eight × `ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_BYTES` 2 |
 
-They never cross as portable domain bytes.
+They never cross as portable domain bytes. Schema 4 allocates one contiguous
+52-byte local record immediately after the v2 options table. The old policy
+counter seats and old baseline region stay reserved and are not imported.
+This avoids enlarging the 280-byte ERA block or moving keymap/macro/options.
+The new guard rejects stale metadata; the first audit is conservative.
+No full-reset key or VIA date change is needed. Geometry assertions cover the
+complete options/local-recency tail inside the 24-KiB logical image.
 
 | Settled-capture compare | Result |
 | --- | --- |
@@ -666,11 +748,9 @@ They never cross as portable domain bytes.
 An invalid baseline remains conservative across boot: every domain reads as
 changed until the relation proves it, so a standalone or unilateral CLEAN is a
 real local divergence. Confirmed convergence is one result-bearing replacement
-over config-block offsets `ERA_EEPROM_LOCAL_POLICY_CONFIG_OFFSET` 200 +
-`ERA_SPLIT_SYNC_POLICY_STORAGE_COUNTER_OFFSET` 10 through
-`ERA_EEPROM_PROTECTED_RESERVED_OFFSET` 276 exclusive (`210..275`) via
+over the complete `ERA_STORAGE_RECENCY_ADDR` / `ERA_STORAGE_RECENCY_BYTES` record via
 `era_eeprom_driver_write_storage_metadata()` in `storage/era_eeprom_driver.c`
-(agreed CRC and a zero counter; intervening link/reset bytes copied unchanged). I/O failure leaves both old facts public. First MATCH
+(agreed CRC and a zero counter; other domains copied unchanged). I/O failure leaves both old facts public. First MATCH
 after an invalid record keeps unknown neighbour CRC seats at zero. The NVM
 origin is internal storage metadata, not `LOCAL_QMK`: no State Sync revision
 and no portable dirty-domain notification. MATCH-only relation-open work is
@@ -707,15 +787,40 @@ unchanged domains through new MATCH episodes.
 ## Storage News Value And Relation-Open Audit
 
 The responder's storage hint is a forward-only nonzero 7-bit news value, not a
-domain claim. Each settled divergent capture advances it; zero means no claim.
-A new nonzero value tells the peer only to request a fresh summary. The
-summary, not the hint, decides domains and direction.
+domain or durability claim. Settled divergent captures and accepted semantic
+reconciliation requests advance the same event counter. A same-value mutation
+may therefore request another attempt without inventing changed content.
+Compound uploads announce their logical close or settle, not every payload
+fragment. Rejected requests, duplicate receipts and polling create no event.
+A new nonzero value requests reevaluation; the summary, not the hint, decides
+domains and direction.
 
-The settled counter belongs to local storage truth and survives relation
+Acceptance comes from the validated mutation owner, including a successful
+`NO_CHANGE`, not from classifying raw request bytes or observing an OK reply.
+A macro upload contributes at its first successful live-upload close; a
+cached duplicate COMMIT contributes nothing. Stock VIA has no command nonce,
+so separate identical host submissions are independent commands. Only
+identifiable transport, transaction or nonce replays are excluded.
+
+An accepted local successor retains its unannounced settle event until its
+generation becomes current and eligible for proof. Eligibility restored after
+preparation ends also publishes that retained event. A settle belongs only to
+the generations owing that settle, not other proof debt in the same domain.
+The original event publishes once, never as a second semantic event for
+already-announced work.
+Durability, capture and source activity do not wait for this publication.
+The notification cannot consist solely of remote reconciliation debt.
+
+The event counter belongs to Core0 local state and survives relation
 rotation. The consumed peer-news value resets at the scheduler's rotation
 boundary, before new-generation news can be accepted. Core1 retires its own
 received cache on the owner/relation identity; Core0 never concurrently clears
-that publication. The consumed value does **not** reset at audit startup:
+that publication. Semantic-event consumption separately survives automatic
+revalidation and rebinding: replaying the same event cannot reopen a failed
+attempt. Intent changes no EEPROM byte, baseline CRC, divergence counter, dirty
+content claim or State Sync revision.
+
+The relation-scoped consumed value does **not** reset at audit startup:
 housekeeping may already have drained current-generation standing news before
 storage runtime starts its audit. Policy-only audits also preserve it.
 Replaying an unchanged value after an all-MATCH audit must neither arm another
@@ -738,9 +843,11 @@ idle and the link is settled; transaction stamps authorize transactions only.
 summary consumes its inbox bit before the request is sent. The domainless
 active episode remains outstanding through completion, with the existing
 provisional-audit display rule. Later news can independently re-arm the inbox;
-an old result retires only its episode, never that later request. Recoverable
-summary abort restores an inbox request. A terminal refusal does not retry
-forever and discards obsolete direction queues it could not reclassify.
+an old result retires only its episode, never that later request. A failed
+summary does not restore its consumed request: another attempt requires
+genuine new work, while any independently queued later request is retained.
+A terminal summary failure discards obsolete direction queues it could not
+reclassify.
 
 New summary work revokes a selected but unsent domain token. An accepted
 whole-family summary replaces all direction masks rather than unioning them
@@ -862,9 +969,10 @@ generation-matched, duplicate responses are idempotent except the push
 (`split/communication_core/era_split_communication_core_storage.c`).
 Timeouts/stale results cannot be applied under a new relation.
 
-Episode bound `ERA_HOST_PEER_STORAGE_EPISODE_MS` 5000, re-armed only when the
-state **or** pinned operation advances (`era_host_peer_storage_note_episode_phase()`
-in `split/era_host_peer_storage.c`). Repeating `APPLY_READY` does not re-arm.
+An admitted episode has one absolute `ERA_HOST_PEER_STORAGE_EPISODE_MS` 5000
+budget, owned by `split/era_host_peer_storage.c`. State or pinned-operation
+progress and duplicate replies cannot renew it. A fresh admission, not
+revalidation of the existing episode, starts another budget.
 Retry spacing `ERA_HOST_PEER_STORAGE_RETRY_MS` 25, capped by
 `ERA_HOST_PEER_STORAGE_MAX_FAILURES`.
 
@@ -879,6 +987,128 @@ Retry spacing `ERA_HOST_PEER_STORAGE_RETRY_MS` 25, capped by
 Healthy device acceptance requires `program_failure_count == 0` and
 `erase_failure_count == 0`.
 
+## TOMAK Save/SYNC Operation And Failure Presentation
+
+One Core0 storage owner on each half owns the enclosing Save/reconciliation
+operation, its admission, bounded preparation, terminal outcome, cancellation,
+ownership retirement and input recovery. Existing SUMMARY and domain
+transactions are execution steps within that operation, with their own
+immutable identities and nonrenewable attempt budgets. Only the wire
+initiator originates connected transactions. A
+presentation adapter owns output requests and honest receipts, never a
+storage-attempt failure latch, retry policy or permission to persist.
+
+Validated macro BEGIN admits preparation before DATA and local COMMIT.
+Ordinary synchronous writes join through their validated mutation owner
+before persistence; approved deferred saves join through their approval
+owner. A raw packet classification, polling, or an OK echo is not admission.
+An app click that sends no command cannot create a firmware operation.
+Preparation owns completion or safe abandonment, but grants neither transfer
+exclusivity nor authority to copy incomplete staging to the peer.
+
+Batch identity is not producer receipt authority. Independently live writers
+and approved deferred owners retain distinct contribution tokens, even when
+their domains overlap. A completion, failure or cancellation affects only its
+matching live contribution; it cannot acknowledge another preparation or undo
+already committed obligations. Preparation remains the union of contributions
+still preparing. An outer durability receipt resolves only writers that
+actually participated, not an approval that has not entered that transaction.
+Accepted peer news adds ready reconciliation work, never a local persistence
+receipt or an upload COMMIT.
+
+Successful local publication carries the admitted work into reconciliation
+without an indication gap. Normal release requires the admitted work's
+convergence/completion and necessary ownership/input recovery, not just a
+local COMMIT or empty responder queues. Later accepted work is coalesced for
+a successor; an old completion cannot discharge that successor even when its
+content CRC is equal. Semantic identity does not fabricate a dirty byte,
+content revision, State Sync token or NVM write.
+
+Upload preparation has both a nonrenewable whole-upload limit and a
+progress-idle limit. Only new accepted transcript progress refreshes the idle
+limit; duplicate BEGIN/DATA, STATUS, replay and revalidation do not. A
+separate nonrenewable operation limit covers post-publication settling,
+handoff and reconciliation in either role. The existing per-transaction
+five-second budget starts at transaction admission, not at upload BEGIN.
+Expiry creates a terminal outcome and safe cleanup obligations, never proof
+that a live Core1 or DMA claim can be reused.
+
+The operation policy limits are:
+
+| Owned interval | Limit and anchor |
+| --- | --- |
+| upload progress-idle | 5000 ms from accepted BEGIN or the latest newly accepted transcript progress |
+| complete upload | 30000 ms from accepted BEGIN; progress cannot renew it |
+| macro reconciliation | 30000 ms from the first successful live local COMMIT |
+| ordinary or approved deferred Save | 30000 ms from validated admission/approval, including precommit quiet/retry waiting |
+| individual SUMMARY/domain transaction | the existing 5000-ms absolute admission budget, additionally limited by its enclosing operation |
+
+A coalesced successor retains the earliest applicable admission/commit anchor;
+promotion and further coalescing cannot restart its clock. These are deliberate
+safety/abandonment caps, not measurements or a promise that every maximum-size
+upload or eight-domain reconciliation completes within them. A synchronous
+write already past ADMIT resolves to its canonical outcome even when a
+deadline passes during the call; subsequent recovery remains repair-forward.
+
+Local VIA mutations follow their ordinary validated persistence path without
+waiting for a peer or LED proof. A successful local result does not claim peer
+durability. LED readiness, failure, display completion and paired blue proofs
+cannot veto local persistence, transfer admission, new semantic work or input
+recovery. Physical-output supervision remains independent of the next flush;
+no elapsed timeout fabricates completion or permits DMA-owned buffer reuse.
+Only framebuffer ownership may defer a physical submission.
+
+Unresolved domain content and failed-work suppression survive terminal
+failure, but are records rather than a blanket responder execution gate.
+Policy alone controls the policy advertisement. SUMMARY and conflict replies
+retain truthful recency while resources retire or unchanged work is
+suppressed. A fresh identity-valid OPEN uses the existing BUSY/pinning
+handoff; stale replies, rebind and pending levels do not authorize a new
+unchanged attempt. Accepted semantic work, including same-value retry, is
+distinguished through the existing notification and transaction identities.
+New work arriving during retirement is retained without renewing the failed
+attempt's budget. SOURCE_CHANGED is non-error supersession only when it is
+causally tied to newer accepted work. It still retires the old claims before
+the successor can use them; an unexplained status or stale identity cannot
+manufacture a new admission.
+
+Read-only SUMMARY and conflict exchanges create no remote Apply obligation.
+Their failure retires locally without an exclusive ABORT. A transfer's live
+Core1 claims must be quiesced or retired through the existing ownership
+boundary, never overwritten. Cancellation requests stop; observed safe
+retirement permits reuse. Mandatory SESSION and the existing
+FENCE/BIND/latest-baseline path then restore input, including the last release.
+Clearing a gate alone is not recovery. Existing capacity checks and accepted
+mixed local/remote action work remain intact.
+
+Progress and duplicate replies cannot renew the attempt budget or reissue a
+failed full-domain transfer indefinitely. ADMIT and durable old-or-new
+publication retain their meaning: cancellation before ADMIT changes no
+domain; recovery after durable success proceeds from the canonical new image.
+
+TOMAK's existing STATUS observes the operation. Blue covers admitted
+preparation, upload, local publication, reconciliation and normal safe release,
+without gaps between its domain transactions. It is not a fixed pulse or a
+minimum-visible hold. Retained unresolved data and silent automatic
+equal-content audits do not create blue. A genuinely admitted same-content
+request may enter and complete without a content transfer. The storage owner
+emits one terminal `EEPROM_SYNC_ERROR` receipt for failed owned work, never a
+fabricated LINK result.
+Sleep and launch/link failures retain priority; SYNC failure outranks ordinary
+blue and success. Reuse the existing red 640-ms ON and 160-ms tail. An
+initially hidden receipt waits for its first eligible display, then expires
+without holding input or clearing unresolved data. Admissions and revalidation
+leave that receipt intact. Overlapping terminal receipts coalesce without
+restarting its clock; a terminal receipt after expiry can arm another finite
+indication.
+
+Failure indication is local-first and best-effort across the link. There is no
+new failure broadcast or guarantee of simultaneous bilateral display; dead
+LEDs cannot show a receipt and sleep is not overridden. Availability remains
+conditional on advancing clocks, finite handlers, safe claim retirement, link
+progress and action/HID capacity. Source deadlines are not measured hardware
+latency bounds.
+
 ## Inactive-Bank Maintenance And Rotation
 
 Background maintenance may erase at most one inactive 4-KiB sector per call
@@ -888,7 +1118,8 @@ also yields to any open EEPROM edit
 scope or macro transaction, using existing NVM state rather than a second busy
 flag. Successful commit or rollback naturally restores eligibility; a failed
 close that remains open retains this preference, not exclusive NVM ownership.
-An indefinitely paused upload may defer optional maintenance indefinitely.
+An abandoned upload reaches its preparation deadline and requests safe abort;
+expiry alone cannot make an open transaction or outstanding claim reusable.
 An admitted split episode or a published dedicated-lane result also takes
 precedence until retirement/consumption. The storage owner derives this from
 existing execution state; idle relationships, queued work and indicator
@@ -1008,10 +1239,10 @@ fresh COMMIT. Request lifetime `ERA_SPLIT_RESTART_REQUEST_LIFETIME_MS` 5000.
 | --- | --- |
 | public NVM image | 24 KiB |
 | transfer / publication buffer | one `ERA_HOST_PEER_STORAGE_IMAGE_BYTES` 16384; no additional old-image copy |
-| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 144 |
-| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18528 |
-| Core0 storage state | 144 bytes; includes an independent 4-byte relation/policy audit receipt. Local news uses existing local-state padding |
-| cause-instrumented storage aggregate | 20144 bytes; exact target assertion, not an increase to the SRAM free-floor allowance |
+| host-peer core0 state | `ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES` 300 |
+| aggregate communication-core static budget | `ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES` 18700 |
+| Core0 storage state | 300 bytes; includes the relation/policy audit receipt, eighth domain's dirty deadline, current/successor batches, independent producer contributions and proof frontiers |
+| cause-instrumented storage aggregate | 20316 bytes; exact target assertion, not a relaxation of physical SRAM or reserved-stack boundaries |
 
 Those two budgets are compile-time equalities. Any struct growth must move the
 declared budget and then pass the SRAM residency gate. A source image is never
@@ -1049,23 +1280,31 @@ anchors are `split/era_host_peer_storage.c` and
 Protocol-visible counts and verified NVM program/erase failure totals are the
 acceptance surface; decode lives in `era_capture_reading.md`.
 
-The storage-pending indication is presentation only. It composes local visible
-work, the peer's advertised pending mirror, and the last successfully sent
-pending-one. A local fall cannot retire an indication while the peer may still
-hold that confirmed one; retirement needs confirmed zero or real service
-departure. Policy-off prevents arming a new local one but does not erase a
-peer-held confirmation. The boot-only conservative baseline remains
-provisional, and none of these indication facts may change arbitration,
-persistence, or restart/CLEAN predicates.
+The storage activity indication is presentation only. Subject to the existing
+policy/relation and warning/sleep gates, it observes locally owned live
+operation state or a valid peer activity mirror. Each endpoint advertises
+only its own activity, never the received mirror or combined lamp state.
+Neither a successfully sent one nor a minimum-duration timer holds the lamp
+after actual release. A local failure cannot erase independently live peer
+work, and receipt of peer-zero is not local completion authority.
+
+STORAGE_PENDING bit0 and STORAGE_NEWS bit7 carry this live activity level;
+their packet shapes and eligibility do not change. The low seven news bits
+retain their separate semantic-work/retry meaning. Neither activity edge
+authorizes retry or fabricates durability. Existing SESSION recovery restates
+the current level, including zero; a sent shadow is not proof of reception.
+Both halves must run the same image; mixed-version semantics are unsupported.
+No dedicated TOMAK_SYNC control lane, added polling loop, paired-blue proof
+or synchronized physical-output barrier is part of this operation.
 
 A transient `LOCAL_NO_LINK` label inside fast bootstrap recovery is not by
-itself operation completion. After clock alignment, opportunistic flash
-maintenance must not delay one panel's storage STATUS edge after the other has
-changed; presentation runs before background NVM maintenance and maintenance
-yields to an active refresh. Release authority is the successful local carrier
-zero, not receipt of the peer's zero. The host-testable policy owner is
-`split/era_host_peer_storage_indicator_policy.h`; the `cause` `wire storage
-ppath` probe remains diagnostic only.
+itself operation completion. Mirrors follow the existing relation validity
+boundary and current authoritative peer state. After clock alignment,
+presentation still runs before opportunistic NVM maintenance. The host-testable
+policy owner is `split/era_host_peer_storage_indicator_policy.h`; the `cause`
+`wire storage ppath` probe remains diagnostic only. Near-together bilateral
+display is best effort over existing communication/render opportunities,
+not a measured latency bound or a prerequisite for storage progress.
 
 ## What The Lane Costs A Typist
 

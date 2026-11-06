@@ -9,6 +9,9 @@
 
 #include "era_nvm.h"
 
+uint32_t era_eeprom_driver_macro_operation_generation(void);
+era_nvm_result_t era_eeprom_driver_macro_abort_owned(uint32_t generation);
+
 /* ERA-owned, result-bearing persistence boundary. QMK's public EEPROM API is
  * intentionally void-returning; replacement Apply and CLEAN use this surface
  * instead so persistent failure is never confused with success. */
@@ -17,6 +20,7 @@ era_nvm_result_t era_eeprom_driver_macro_begin(uint32_t length);
 era_nvm_result_t era_eeprom_driver_macro_data(uint32_t offset, const void *data, size_t length);
 era_nvm_result_t era_eeprom_driver_macro_commit(uint32_t crc32);
 era_nvm_result_t era_eeprom_driver_macro_abort(void);
+era_nvm_result_t era_eeprom_driver_macro_supersede(void);
 bool era_eeprom_driver_macro_replace_open(void);
 uint32_t era_eeprom_driver_macro_serial(void);
 

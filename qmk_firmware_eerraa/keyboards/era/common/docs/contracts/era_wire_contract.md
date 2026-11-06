@@ -34,12 +34,20 @@ The classifier enum and its numeric slots are source-owned by
 mapping is owned by `era_split_wire_classify_payload()` in
 `split/era_split_wire_payload.c`. This contract keeps only the wire-visible
 classification boundary: an EXT-clear one-byte compact payload is the
-control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x17` with length 9,
+control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x17` with the base
+9-byte or conditional 13-byte body specified below,
 storage uses class `0xE0`, and HOST-PEER uses class `0x20` with ops `0x20` and
 `0x21`. Retired `ERROR_NACK` class `0x40`, the unallocated `0x6x` class, and
 input operations below are strict exact-op bodies; all unassigned operations
 are rejected. Retired classifier slots remain retired so captured diagnostic kind
 numbering is not reinterpreted.
+
+With `ERA_TOMAK_SYNC_ENABLE`, the registered `TOMAK_SYNC` codec and
+classification remain compatibility boundaries owned by
+`split/era_tomak_sync_wire.c`, `split/era_tomak_sync_wire.h`, and the compact
+classifier. Classification grants no write or presentation authority; local
+admission and completion belong to the Core0 storage owner described in
+`era_host_peer_storage_contract.md`.
 
 `HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over
 the control-only packet. They MUST NOT take class/op ids.
@@ -127,7 +135,7 @@ state latency; this contract makes no average-performance claim.
 
 ## HOST-PEER Replacement Storage Class
 
-Body layout of the seven domains, state machine, capacity, retry, durable apply, and stored-data compatibility: `era_host_peer_storage_contract.md`. Status ids are source-owned by `split/era_split_eeprom_sync.h`. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
+Body layout of the eight domains, state machine, capacity, retry, durable apply, and stored-data compatibility: `era_host_peer_storage_contract.md`. Status ids are source-owned by `split/era_split_eeprom_sync.h`. Removed V16 `ATTEST`/`BEGIN`/`DATA`/`COMMIT`/`ABORT` ops are not a compatibility surface (`era_closed_surface_contract.md`).
 
 ```text
 ERA_SPLIT_EEPROM_SYNC_CLASS = 0xE0   (split/era_split_eeprom_sync.h)
@@ -172,7 +180,7 @@ Remainder of the compact 15 (`split/communication_core/era_split_communication_c
 | `APPLY_REQ`, `COMPLETE_REQ` | 6..9 source revision, nonzero; 10..13 image CRC32; 14 zero |
 | `APPLY_RSP`, `CLOSE_RSP`, `PUSH_RSP` | 6 status; 7..10 source revision; 11..14 image CRC32. `PUSH_RSP` is this shape for every push request |
 | `ABORT_REQ`, `ABORT_RSP` | 6..9 source revision; 10 status; 11..14 reserved zero |
-| `SYNC_STATUS_REQ` / `RSP`, domain `ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE` 255 (`0xFF`) | 6 changed mask, bit7 clear; 7 baseline validity 0 or 1; 8..14 reserved zero. Summary RSP bytes 8..11 are the relation time-anchor seat: the validator REQUIRES them **permanently** zero. `TIME_ANCHOR` is the anchor's one carrier |
+| `SYNC_STATUS_REQ` / `RSP`, domain `ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE` 255 (`0xFF`) | 6 eight-domain changed mask (bit7 is MACRO_OPTIONS under schema 4); 7 baseline validity 0 or 1; 8..14 reserved zero. Summary RSP bytes 8..11 are the relation time-anchor seat: the validator REQUIRES them **permanently** zero. `TIME_ANCHOR` is the anchor's one carrier |
 | `SYNC_STATUS_REQ` / `RSP`, real domain | 6 changed flag 0 or 1; 7 baseline validity 0 or 1; 8..9 16-bit divergence counter; 10..14 reserved zero |
 | `PUSH_CTL_REQ` | 6 phase (`OPEN` 0 / `APPLY` 1 / `COMPLETE` 2 / `ABORT` 3); 7..10 source revision, nonzero. Abort: 11 abort-reason status, 12..14 zero. Else 11..14 full-image CRC32 |
 
@@ -194,7 +202,10 @@ Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That
 
 ## `SESSION_STATUS`
 
-Compact, EXT set, `payload_len == 9`, byte1 `0x17`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
+Compact, EXT set, byte1 `0x17`. The base form has `payload_len == 9`.
+With `ERA_TOMAK_SYNC_ENABLE`, a 13-byte channel-binding form is also valid.
+Layout (`split/era_split_wire_protocol.h`; encode and decode in
+`split/era_split_wire_payload.c`):
 
 ```text
 byte0: control with EXT
@@ -203,9 +214,21 @@ byte2: flags
 bytes 3..4: usb_epoch, little-endian
 bytes 5..6: host_open_generation, little-endian
 bytes 7..8: host_close_generation, little-endian
+optional bytes 9..10: sync_owner_epoch, little-endian
+optional bytes 11..12: sync_relation_generation, little-endian
 ```
 
-The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x17` exactly, not any `0x1x` nibble.
+The three base uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x17` exactly, not any `0x1x` nibble.
+
+The two optional identifiers must both be nonzero in the 13-byte form.
+Both zero select the 9-byte encoding; only one nonzero refuses encoding.
+Decoding the base form clears both optional identifiers. Builds without
+`ERA_TOMAK_SYNC_ENABLE` reject the extended form, and no other length is valid.
+The generic SESSION request producer in
+`split/communication_core/era_split_communication_core_host_peer_lanes.c`
+supplies the captured request's owner and relation identities. This extension
+does not change the 9-byte FENCE/BIND SESSION-shaped prefix or authorize local
+persistence.
 
 Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protocol.h`):
 
@@ -216,7 +239,9 @@ Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protoc
 0x08 rate_searched           0x80 bulk_page_supported
 ```
 
-`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x17`, then:
+`era_split_wire_validate_session_status_payload()` in
+`split/era_split_wire_payload.c` refuses the frame unless its length and
+optional identifiers match one of the forms above and byte1 is `0x17`, then:
 
 | Check | Rule |
 | --- | --- |
@@ -328,7 +353,12 @@ body byte0: bit0 pending (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_
             bits 1..7 reserved zero, refused
 ```
 
-Composition and consumer: `era_host_peer_storage_contract.md`'s **Diagnostics**. Responder copy rides STORAGE_NEWS bit7. Invalid sent shadow forces the current value across once per relation, zero included.
+The level reports the sender's locally owned live Save/SYNC operation, not
+retained divergence or a received peer mirror. Composition and consumer:
+`era_host_peer_storage_contract.md`'s **Diagnostics**. Responder activity rides
+STORAGE_NEWS bit7. Invalid sent shadow and existing SESSION revalidation force
+the current value across, zero included. Activity grants no persistence,
+transfer admission or semantic retry authority.
 
 RESTART_ARM (`ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_RESTART_ARM_BYTES` 5). Carries any act; acts are `split/era_split_restart_agreement.h`'s. `era_split_restart_arm_valid()` in `split/era_split_restart_agreement.c` owns the live tuples. CLEAN `param_max` is 0 in `split/era_split_keyboard.c`; wire phases 1 and 2 are not an application argument.
 
@@ -444,7 +474,14 @@ body byte0: bits0..6 value (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NE
             bit7 pending (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING`)
 ```
 
-No reserved bits. Bit7 set dates the image at or after 2026-08-14. The retired `SETTLED_DIRTY_MASK` spelling remains only as a comment in `communication_core/era_split_communication_core_standing.h`. Meaning: `era_host_peer_storage_contract.md`'s **Storage News Value And Relation-Open Audit**.
+No reserved bits. Bit7 set dates the image at or after 2026-08-14. Bit7 now
+reports source-owned live operation activity on the same rule as push
+STORAGE_PENDING; it does not extend the low-seven-bit news value's meaning.
+Both halves run the same image; there is no mixed-version interpretation or
+new capability flag. The retired `SETTLED_DIRTY_MASK` spelling remains only
+as a comment in `communication_core/era_split_communication_core_standing.h`.
+News meaning: `era_host_peer_storage_contract.md`'s **Storage News Value And
+Relation-Open Audit**.
 
 Time anchor (`ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES` 4): responder sync-timer ms at snapshot publish, little-endian. Fits `3+8+4` on seven-byte half-matrix boards.
 

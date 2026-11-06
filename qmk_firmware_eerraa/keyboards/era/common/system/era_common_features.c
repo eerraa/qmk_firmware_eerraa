@@ -5,12 +5,11 @@
 #include "era_common_features.h"
 
 #include "era_usb_session.h"
-#ifdef ERA_TOMAK_SYNC_ENABLE
-#    include "era_tomak_sync_via.h"
-#    include "../split/era_tomak_sync_runtime.h"
-#endif
 #ifdef ERA_MACRO_ENABLE
 #    include "era_macro.h"
+#endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+#    include "era_macro_options.h"
 #endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
 #    include "era_hid_report_interval.h"
@@ -69,6 +68,11 @@
 void era_common_features_init(void) {
 #ifdef ERA_MACRO_ENABLE
     era_macro_cancel();
+#endif
+#ifdef ERA_MACRO_OPTIONS_ENABLE
+    /* Boot and the reinitialization after an EEPROM clear; no portable domain
+       carries the table, so domain reload does not come here. */
+    era_macro_options_init();
 #endif
 #ifdef ERA_HID_REPORT_INTERVAL_ENABLE
     era_hid_report_interval_platform_init();
@@ -154,8 +158,8 @@ void era_common_features_task(void) {
     era_hid_report_interval_service();
 #endif
     era_usb_session_task();
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    era_tomak_sync_via_task();
+#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
+    era_host_peer_storage_operation_task(timer_read32());
 #endif
 #ifdef ERA_MACRO_ENABLE
     era_macro_task();
@@ -176,11 +180,6 @@ void era_common_features_task(void) {
 }
 
 void era_common_features_maintenance_task(void) {
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    if (era_tomak_sync_runtime_protected()) {
-        return;
-    }
-#endif
 #ifdef EEPROM_CUSTOM
 #    ifdef SPLIT_KEYBOARD
     /* Opportunistic erase has no deadline; a split transition does. */

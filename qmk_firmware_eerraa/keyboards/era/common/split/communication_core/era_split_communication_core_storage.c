@@ -131,7 +131,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ER
    Deliberate arithmetic on a selector-gated variant that is never an
    acceptance build. */
 /* V260909R1: the independent Core0 relation audit receipt adds four bytes. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20144U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20316U,
                "ERA HOST-PEER cause diagnostic budget changed.");
 #else
 #    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
@@ -150,7 +150,7 @@ _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20
    route context. ERA NVM removes the 40-byte slice/raw-facade state and the
    8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
 /* V260909R1: the same receipt, without cause instrumentation. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18528U,
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18700U,
                "ERA HOST-PEER wire-diagnostics static budget changed.");
 #    endif
 #endif
@@ -247,6 +247,7 @@ static uint16_t era_split_communication_core_storage_domain_size(uint8_t domain)
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG]  = ERA_HOST_PEER_STORAGE_DOMAIN_QMK_KEYMAP_CONFIG_BYTES,
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER]  = ERA_HOST_PEER_STORAGE_DOMAIN_QMK_DEFAULT_LAYER_BYTES,
         [ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS] = ERA_HOST_PEER_STORAGE_DOMAIN_VIA_LAYOUT_OPTIONS_BYTES,
+        [ERA_SPLIT_EEPROM_SYNC_DOMAIN_MACRO_OPTIONS] = ERA_HOST_PEER_STORAGE_DOMAIN_MACRO_OPTIONS_BYTES,
     };
     return domain < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT ? domain_sizes[domain] : 0;
 }
@@ -295,7 +296,7 @@ static bool era_split_communication_core_storage_compact_payload_valid(const uin
              * validity. Per-conflict form (real domain): changed flag +
              * 16-bit divergence counter. */
             if (payload[2] == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE) {
-                return (payload[6] & 0x80U) == 0 && payload[7] <= 1U &&
+                return payload[7] <= 1U &&
                        era_split_communication_core_storage_reserved_zero(payload, 8, 14);
             }
             return payload[2] < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT && payload[6] <= 1U && payload[7] <= 1U &&
@@ -320,7 +321,7 @@ static bool era_split_communication_core_storage_compact_payload_valid(const uin
              * the zero reading is collected as a gate leg. Arming it is
              * forbidden, not pending. */
             if (payload[2] == ERA_SPLIT_EEPROM_SYNC_DOMAIN_NONE) {
-                return (payload[6] & 0x80U) == 0 && payload[7] <= 1U &&
+                return payload[7] <= 1U &&
                        era_split_communication_core_storage_reserved_zero(payload, 8, 14);
             }
             return payload[2] < ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT && payload[6] <= 1U && payload[7] <= 1U &&
@@ -421,11 +422,11 @@ static bool era_split_communication_core_storage_initiator_request_valid(const e
         case ERA_SPLIT_EEPROM_SYNC_OP_ABORT_REQ:
             return request->chunk_id == 0 && era_split_communication_core_storage_status_valid(request->detail);
         case ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ:
-            /* detail: changed flag (per-domain) or summary mask, bit7
-             * clear; chunk_id: baseline validity; image_crc32: the 16-bit
+            /* detail: changed flag (per-domain) or schema-derived summary
+             * mask; chunk_id: baseline validity; image_crc32: the 16-bit
              * divergence counter on the per-conflict form only. */
             return request->source_revision == 0 && request->chunk_id <= 1U &&
-                   (summary ? (request->detail & 0x80U) == 0 && request->image_crc32 == 0
+                   (summary ? request->detail <= ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK && request->image_crc32 == 0
                             : request->detail <= 1U && request->image_crc32 <= 0xFFFFUL);
         case ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ:
             if (request->source_revision == 0 ||
@@ -1404,7 +1405,7 @@ static bool era_split_communication_core_storage_responder_snapshot_valid(const 
              snapshot->expected_chunk_id >= ERA_HOST_PEER_STORAGE_MAX_CHUNKS :
              snapshot->expected_chunk_id != 0) ||
         snapshot->push_state > (uint8_t)ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUSH_STATE_DURABLE ||
-        (snapshot->recency_changed_mask & 0x80U) != 0 || snapshot->recency_baseline_valid > 1U ||
+        snapshot->recency_changed_mask > ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK || snapshot->recency_baseline_valid > 1U ||
         snapshot->pinned > 1) {
         return false;
     }
@@ -1686,6 +1687,8 @@ bool era_split_communication_core_storage_plan_responder(const era_split_communi
     result->request_image_crc32     = request->image_crc32;
     result->request_policy_generation = request->policy_generation;
     result->request_image_size      = request->image_size;
+    result->request_detail          = request->detail;
+    result->request_chunk_id        = request->chunk_id;
 
     if (request->operation == ERA_SPLIT_EEPROM_SYNC_OP_SYNC_STATUS_REQ) {
         /* Stateless arbitration input, answered from the snapshot's recency
@@ -1709,6 +1712,14 @@ bool era_split_communication_core_storage_plan_responder(const era_split_communi
         return true;
     }
 
+    bool open = request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ ||
+                (request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PUSH_CTL_REQ &&
+                 request->detail == ERA_SPLIT_EEPROM_SYNC_PUSH_PHASE_OPEN);
+    if (open && snapshot->terminal_transaction != 0 &&
+        request->transaction_generation <= snapshot->terminal_transaction) {
+        result->status = ERA_SPLIT_EEPROM_SYNC_STATUS_STALE;
+        return true;
+    }
     if (request->operation == ERA_SPLIT_EEPROM_SYNC_OP_PROBE_REQ) {
         result->image_size = request->image_size;
         if (request->domain >= ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) {
