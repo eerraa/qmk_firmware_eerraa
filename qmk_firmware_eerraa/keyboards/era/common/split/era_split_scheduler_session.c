@@ -23,10 +23,6 @@ typedef struct {
     uint16_t usb_epoch;
     uint16_t host_open_generation;
     uint16_t host_close_generation;
-#ifdef ERA_TOMAK_SYNC_ENABLE
-    uint16_t sync_owner_epoch;
-    uint16_t sync_relation_generation;
-#endif
 } era_split_scheduler_status_cache_t;
 
 typedef struct {
