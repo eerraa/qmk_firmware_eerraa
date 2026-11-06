@@ -34,12 +34,20 @@ The classifier enum and its numeric slots are source-owned by
 mapping is owned by `era_split_wire_classify_payload()` in
 `split/era_split_wire_payload.c`. This contract keeps only the wire-visible
 classification boundary: an EXT-clear one-byte compact payload is the
-control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x17` with length 9,
+control-only packet, `SESSION_STATUS` is EXT-set byte1 `0x17` with the base
+9-byte or conditional 13-byte body specified below,
 storage uses class `0xE0`, and HOST-PEER uses class `0x20` with ops `0x20` and
 `0x21`. Retired `ERROR_NACK` class `0x40`, the unallocated `0x6x` class, and
 input operations below are strict exact-op bodies; all unassigned operations
 are rejected. Retired classifier slots remain retired so captured diagnostic kind
 numbering is not reinterpreted.
+
+With `ERA_TOMAK_SYNC_ENABLE`, the registered `TOMAK_SYNC` codec and
+classification remain compatibility boundaries owned by
+`split/era_tomak_sync_wire.c`, `split/era_tomak_sync_wire.h`, and the compact
+classifier. Classification grants no write or presentation authority; local
+admission and completion belong to the Core0 storage owner described in
+`era_host_peer_storage_contract.md`.
 
 `HOST_PEER_HEARTBEAT` and `HOST_PEER_ACK_STATUS` are route-context names over
 the control-only packet. They MUST NOT take class/op ids.
@@ -194,7 +202,10 @@ Bulk frames classify only in builds with `ERA_HOST_PEER_STORAGE_V1_ENABLE`. That
 
 ## `SESSION_STATUS`
 
-Compact, EXT set, `payload_len == 9`, byte1 `0x17`. Layout (`split/era_split_wire_protocol.h`; encode and decode in `split/era_split_wire_payload.c`):
+Compact, EXT set, byte1 `0x17`. The base form has `payload_len == 9`.
+With `ERA_TOMAK_SYNC_ENABLE`, a 13-byte channel-binding form is also valid.
+Layout (`split/era_split_wire_protocol.h`; encode and decode in
+`split/era_split_wire_payload.c`):
 
 ```text
 byte0: control with EXT
@@ -203,9 +214,21 @@ byte2: flags
 bytes 3..4: usb_epoch, little-endian
 bytes 5..6: host_open_generation, little-endian
 bytes 7..8: host_close_generation, little-endian
+optional bytes 9..10: sync_owner_epoch, little-endian
+optional bytes 11..12: sync_relation_generation, little-endian
 ```
 
-The three uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x17` exactly, not any `0x1x` nibble.
+The three base uint16 fields admit every value. `era_split_wire_encode_session_status()` in `split/era_split_wire_payload.c` refuses both-or-neither role bits and `matrix_ready` without `accepted_no_host`. `era_split_wire_classify_payload()` in the same file reaches this kind only after `era_split_wire_validate_session_status_payload()`; byte1 must be `0x17` exactly, not any `0x1x` nibble.
+
+The two optional identifiers must both be nonzero in the 13-byte form.
+Both zero select the 9-byte encoding; only one nonzero refuses encoding.
+Decoding the base form clears both optional identifiers. Builds without
+`ERA_TOMAK_SYNC_ENABLE` reject the extended form, and no other length is valid.
+The generic SESSION request producer in
+`split/communication_core/era_split_communication_core_host_peer_lanes.c`
+supplies the captured request's owner and relation identities. This extension
+does not change the 9-byte FENCE/BIND SESSION-shaped prefix or authorize local
+persistence.
 
 Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protocol.h`):
 
@@ -216,7 +239,9 @@ Flags (`ERA_SPLIT_WIRE_SESSION_STATUS_FLAG_MASK` in `split/era_split_wire_protoc
 0x08 rate_searched           0x80 bulk_page_supported
 ```
 
-`era_split_wire_validate_session_status_payload()` in `split/era_split_wire_payload.c` refuses the frame unless `payload_len == 9` and byte1 is `0x17`, then:
+`era_split_wire_validate_session_status_payload()` in
+`split/era_split_wire_payload.c` refuses the frame unless its length and
+optional identifiers match one of the forms above and byte1 is `0x17`, then:
 
 | Check | Rule |
 | --- | --- |

@@ -207,7 +207,9 @@ authority derivation. First anchor: `split/era_split_mode_planner.c`.
 - Relation change and staleness may require a new `SESSION_STATUS`; ordinary
   live traffic does not create a second session-fact channel.
 - A pending status request is cleared only by successful `SESSION_STATUS`, not
-  by a compact ACK from another route.
+  by a compact ACK from another route. The pending debt is retained across
+  role and wire-availability changes; only the currently available wire
+  initiator may discharge it.
 - Fact staleness or invalid authority payload falls back to peer-unknown
   bootstrap/backoff.
 - A local HOST-open -> no-host edge forces peer-session stale recovery only when

@@ -78,7 +78,7 @@ Required route timing:
 
 | Requirement | Value |
 | --- | ---: |
-| known-peer SESSION_STATUS refresh while the relation lane is not live | 50 ms |
+| known-peer SESSION_STATUS refresh while the relation lane is not live and this half is the available wire initiator | 50 ms |
 | peer-unknown discovery before backoff | 25 ms |
 | peer-unknown discovery after 10 consecutive misses | 100 ms |
 | peer-unknown SESSION_STATUS response window | 2 ms |
@@ -142,6 +142,8 @@ A plan is executable only under a current owner epoch, a nonzero relation
 generation, and a nonzero period. Clearing its enable bit stops normal cadence
 but does not stop the 50 ms liveness exchange. Storage suppression and pending
 status revalidation may clear enable without destroying the relation identity.
+A pending status debt is retained through role or wire-availability changes;
+only the available wire initiator may discharge it.
 
 Standing state is latest-state, not a queue. Core0 owns plan publication;
 Core1 owns received state and its change sequence. Old owner/relation identities
