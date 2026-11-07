@@ -21,6 +21,9 @@
 
 #include "era_eeprom_layout.h"
 #include "era_nvm_rp2040.h"
+#ifdef ERA_SETTINGS_RESET_IMAGE
+#    include "era_settings_reset.h"
+#endif
 #ifdef VIA_ENABLE
 #    include "era_storage_layout.h"
 #endif
@@ -296,7 +299,11 @@ void eeprom_driver_init(void) {
     macro_operation = 0;
 #endif
 
-    if (!era_nvm_rp2040_flash_bind(&flash)) {
+    bool bound = era_nvm_rp2040_flash_bind(&flash);
+#ifdef ERA_SETTINGS_RESET_IMAGE
+    era_settings_reset_bootstrap(bound ? &flash : NULL);
+#endif
+    if (!bound) {
         return;
     }
 

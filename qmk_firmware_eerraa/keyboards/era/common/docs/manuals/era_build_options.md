@@ -72,8 +72,9 @@ Resolution order matters:
 3. Board feature assignments appear above the ERA includes that consume them.
    A declaration using `?=` therefore supplies only an otherwise-unset value;
    ordinary GNU make command-line precedence still applies to normal selectors.
-4. `system/era_build_variant_rules.mk` selects one complete diagnostic
-   variant from `common/build_variants/`. Those axis assignments use
+4. `system/era_build_variant_rules.mk` selects one complete build variant
+   from `common/build_variants/`, including the install-reset policy.
+   Those axis assignments use
    `override :=` so a named variant remains one immutable tuple.
 
 A fragment moved earlier can still parse while silently seeing the wrong QMK
@@ -121,7 +122,7 @@ callers must not gain a second route merely to bypass that gate.
 | firmware-inert identity controls | `keyboards/era/era_build_identity_options.mk` |
 | board-shipped feature choices | each board's `post_rules.mk` |
 | selector consumption and common dependency refusals | `system/era_common_qmk_rules.mk` and the feature/split fragments it includes |
-| named diagnostic variants and immutable axis tuples | `system/era_build_variant_rules.mk` and `common/build_variants/` |
+| named build variants, install-reset policy and immutable axis tuples | `system/era_build_variant_rules.mk` and `common/build_variants/` |
 | resolved option printer | `system/era_show_options.mk` |
 | build identity verification/artifact naming | `tools/era_qmk_build.sh` |
 | copy-to-RAM adoption | `system/era_sram_resident_rules.mk`; it is a bundle, not a selector |

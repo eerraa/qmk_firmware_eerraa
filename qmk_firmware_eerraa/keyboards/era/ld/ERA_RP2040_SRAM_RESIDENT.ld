@@ -139,6 +139,13 @@ SECTIONS
         __era_boot_core1_halt_base__ = .;
         */era/common/system/era_boot_core1_halt.o(.text .text.* .rodata .rodata.*)
         __era_boot_core1_halt_end__ = .;
+
+        /* Installed bytes, never a runtime initializer or an NVM allocation.
+           KEEP retains the FF page in the UF2 so every installation re-arms it. */
+        . = ALIGN(256);
+        __era_install_reset_receipt_base__ = .;
+        KEEP(*(.era_install_reset_receipt))
+        __era_install_reset_receipt_end__ = .;
         __flash_startup_end__ = .;
     } > flash1
 
@@ -357,6 +364,14 @@ ASSERT(magic_location == __era_bootloader_magic_base__,
        "ERA: magic_location is not the one word claimed by .era_bootloader_magic - the pre-copy writer and linker carve-out are disconnected")
 
 /* Neither firmware loads nor NVM writes may consume the legacy-store reserve. */
+ASSERT(__era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 0 ||
+       __era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 256,
+       "ERA: install-reset receipt must be absent or exactly one program page")
+ASSERT(DEFINED(era_settings_reset_bootstrap) ==
+       (__era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 256),
+       "ERA: install-reset bootstrap and emitted receipt page must be present together")
+ASSERT(__era_install_reset_receipt_base__ % 256 == 0,
+       "ERA: install-reset receipt is not page aligned")
 ASSERT(LENGTH(flash1) >= 264k,
        "ERA: effective flash range is too small for 128-KiB NVM plus 136-KiB legacy stores")
 ASSERT(__flash_binary_end <= __era_nvm_region_base__,

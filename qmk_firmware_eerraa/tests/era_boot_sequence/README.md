@@ -45,6 +45,15 @@ count as a counterexample. No production source is mutated by the tests.
 Official firmware builds validate target integration. Physical reset timing,
 USB enumeration, wire baud/latency, LED output and performance remain device gates.
 
+The Bootmagic preservation fixture links QMK's weak implementation with the
+production ERA override and checks both physical halves without changing stored
+settings. The Reset.uf2 controller fixture executes the production bootstrap and
+erase/readback loop against bounded NOR callbacks: first-install wipe, unchanged
+settings on later boots, identical-file reinstall, interrupted erase retry, and
+rejection of torn/invalid receipts or incomplete readback. Neighboring regions
+stay untouched. These are host checks, not electrical erase or re-enumeration
+measurements.
+
 The matrix-startup fixture executes the production PIO sampler initialization,
 raw-row admission/decode and Bootmagic callers. Register, clock, GPIO and DMA
 operations are simulated; debounce is a direct raw-row bridge. Zero and partial

@@ -29,15 +29,16 @@ expect_fail() {
 }
 
 declare -A tuples=(
-    [standard]='wire=no,qwin=no,phase=no,cause=no,stale=no'
-    [wire]='wire=yes,qwin=no,phase=no,cause=no,stale=no'
-    [qwin]='wire=no,qwin=yes,phase=no,cause=no,stale=no'
-    [cause]='wire=yes,qwin=no,phase=no,cause=yes,stale=no'
-    [stale]='wire=yes,qwin=no,phase=no,cause=no,stale=yes'
-    [qwin_phase]='wire=no,qwin=yes,phase=yes,cause=no,stale=no'
+    [standard]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=no'
+    [reset]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=yes'
+    [wire]='wire=yes,qwin=no,phase=no,cause=no,stale=no,reset=no'
+    [qwin]='wire=no,qwin=yes,phase=no,cause=no,stale=no,reset=no'
+    [cause]='wire=yes,qwin=no,phase=no,cause=yes,stale=no,reset=no'
+    [stale]='wire=yes,qwin=no,phase=no,cause=no,stale=yes,reset=no'
+    [qwin_phase]='wire=no,qwin=yes,phase=yes,cause=no,stale=no,reset=no'
 )
 
-for variant in standard wire qwin cause stale qwin_phase; do
+for variant in standard reset wire qwin cause stale qwin_phase; do
     expect_line "normal $variant" "variant=$variant tuple=${tuples[$variant]}" \
         make --no-print-directory -f "$fixture" "ERA_BUILD_VARIANT=$variant" print
 done
@@ -50,7 +51,7 @@ expect_line 'direct option overrides' "variant=cause tuple=${tuples[cause]}" \
     make --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=cause \
         ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=no ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes \
         ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=yes ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=no \
-        ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes print
+        ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes ERA_SETTINGS_RESET_IMAGE=yes print
 
 expect_line 'MAKEFLAGS overrides' "variant=standard tuple=${tuples[standard]}" \
     env 'MAKEFLAGS=ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=yes ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes' \
@@ -68,10 +69,11 @@ expect_line 'make -e overrides' "variant=qwin_phase tuple=${tuples[qwin_phase]}"
         ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes \
         make -e --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=qwin_phase print
 
-# The non-split and Brick65 rule is the same make-level boundary: standard is
-# valid and firmware-inert; every diagnostic identity is refused.
+# Reset must work on non-split RP2040 too.
 expect_line 'non-split standard' "variant=standard tuple=${tuples[standard]}" \
     make --no-print-directory -f "$fixture" SPLIT_KEYBOARD=no ERA_BUILD_VARIANT=standard print
+expect_line 'non-split reset' "variant=reset tuple=${tuples[reset]}" \
+    make --no-print-directory -f "$fixture" SPLIT_KEYBOARD=no ERA_BUILD_VARIANT=reset print
 expect_fail 'non-split diagnostic variant' \
     make --no-print-directory -f "$fixture" SPLIT_KEYBOARD=no ERA_BUILD_VARIANT=wire print
 expect_fail 'retired board profile' \

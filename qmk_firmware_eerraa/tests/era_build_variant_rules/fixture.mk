@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 SPLIT_KEYBOARD ?= yes
+MCU ?= RP2040
+include platforms/chibios/mcu_selection.mk
 include keyboards/era/common/system/era_build_variant_rules.mk
 
 .PHONY: print

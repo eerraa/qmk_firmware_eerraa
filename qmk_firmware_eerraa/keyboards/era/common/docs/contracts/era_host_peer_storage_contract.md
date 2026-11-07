@@ -236,6 +236,32 @@ UF2 flash does not erase ERA NVM, so same-format data may remain mounted;
 physical-format rejection and logical owner-map/reset-key invalidation are
 separate decisions.
 
+Normal ERA RP2040 Bootmagic entry preserves settings, just like VIA BOOT.
+Explicit `Reset.uf2` is the full normal firmware with a one-shot installation
+policy. Before any settings mount or peer service, a pending installation
+erases the active ERA NVM region through the bounded physical owner and verifies
+all erased bytes. Only a verified durable completion receipt permits ordinary
+mount/default initialization and keyboard use. Later boots preserve new settings;
+reinstalling even the identical UF2 re-arms the receipt and resets again.
+
+The installation owns one aligned 256-byte receipt page in the contiguous
+firmware load image, outside boot2, vectors, NVM and the legacy rollback store.
+It is emitted as erased bytes, not NOLOAD. The linker owns its placement;
+`storage/era_install_reset_receipt.h` owns the fixed receipt format shared with
+H7S. Only its boot-only physical owner may program this page, never erase its
+containing image sector. The ordinary NVM interface remains region-bounded.
+All-FF is pending, the exact completed record is done, and every other pattern
+is invalid. Invalid metadata or IO failure stops before mount; no in-place
+repair or success is inferred. An interrupted erase retries while pending;
+a torn receipt requires re-upload. An interrupted UF2 transfer is not a completed
+installation and retains the existing ROM loader's nontransactional limits.
+No firmware version, reset key or NVM format change identifies an installation.
+
+Split reset requires disconnected units and both stores reset before pair
+service resumes; otherwise the surviving peer may restore old settings.
+No second normal-firmware upload is needed. The build and packaging route is owned by
+`manuals/era_build_and_flash.md` **Settings-reset recovery image**.
+
 Two keys pinned in source decide when stored data is wiped; a release that
 changes no stored format keeps both, so an ordinary update keeps every setting.
 

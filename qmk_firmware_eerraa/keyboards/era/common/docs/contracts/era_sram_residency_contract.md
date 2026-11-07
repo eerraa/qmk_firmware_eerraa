@@ -22,8 +22,12 @@ outside this load-image contract.
 ERA RP2040 firmware uses one copy-to-RAM runtime image. After crt0 completes
 its copies, runtime code/data/rodata and the live vector table execute from
 SRAM; the reset/bootstrap material that must run before the copy remains in the
-linker's flash startup carve-out. The flash load image and linker-reserved ERA
-NVM region remain flash data, not runtime instruction-fetch dependencies.
+linker's flash startup carve-out. The flash load image, its install-reset
+receipt, and linker-reserved ERA NVM region remain flash data, not runtime
+instruction-fetch dependencies. The optional receipt is a retained, FF-filled
+page at the end of `.flash_startup`; only the post-copy bootstrap may read/program
+it. It adds no pre-copy SRAM state and never grants permission to erase the
+containing image sector.
 
 Exact placement values are intentionally not repeated here. Read the linker
 script for region sizes/addresses, section VMAs/LMAs, the startup object
@@ -78,8 +82,10 @@ The order below is load-bearing:
    survives the destructive copy/clear window.
 2. crt0 copies the live vector table and runtime image, clears the ordinary
    runtime regions, and retargets VTOR as defined by the linker/vendor crt0.
-3. `keyboard_setup()` mounts ERA NVM, and the split pre-init path reads the
-   hardware unique ID, before the first possible Core1 launch.
+3. `keyboard_setup()` consumes the install-reset receipt if that build profile
+   is enabled, then mounts ERA NVM. The split pre-init path reads the hardware
+   unique ID before the first possible Core1 launch. An unfinished/invalid
+   reset cannot pass this gate into settings parsing or peer service.
 4. The first Core1 launch occurs only from the post-init path after those boot
    facts exist. **No earlier Core1 launch entry point may be added.**
 

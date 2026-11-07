@@ -19,7 +19,7 @@ Split Firmware Guide
 한쪽씩 다음 절차를 반복합니다.
 
 1. 유닛을 Bootloader 모드로 진입시킵니다.
-2. PC에 RPI-RP2 드라이브가 나타나면 같은 .uf2 파일을 복사합니다.
+2. PC에 RPI-RP2 드라이브가 나타나면 같은 일반 펌웨어 .uf2를 복사합니다.
 3. 복사가 끝나면 유닛이 자동으로 재시작합니다.
 4. 반대쪽 유닛에도 같은 .uf2 파일을 플래시합니다.
 
@@ -30,16 +30,38 @@ Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
 - 해당 유닛의 Reset 버튼을 빠르게 두 번 누르거나 RST와 GND를 빠르게
   두 번 짧게 연결합니다. 각 연결 사이에는 완전히 떼십시오.
 
-Bootmagic으로 진입한 유닛은 저장된 키맵과 모든 설정이 공장 초기값으로
-돌아갑니다.
+설정 보존은 이 패키지의 펌웨어가 설치된 뒤의 진입 동작입니다. 이전 펌웨어의
+Bootmagic은 초기화할 수 있으므로 각 유닛의 첫 업데이트에는 VIA BOOT 또는
+Reset 두 번을 사용하십시오.
 
-일반 업데이트는 키맵·매크로·VIA 설정을 그대로 유지합니다. 저장 형식이 바뀐
-릴리스만 첫 부팅에서 설정을 공장 초기값으로 되돌리며, 그 사실을 릴리스 안내에
-적습니다. 업데이트나 EEPROM CLEAN 전에 VIA SAVE + LOAD로 키맵을 백업해
-두십시오.
+위의 어느 방법으로 진입해도 일반 업데이트는 유효한 같은 저장 형식의 키맵·
+매크로·설정을 유지합니다. 저장 형식 업그레이드나 유효하지 않은 저장 데이터는
+진입 방법과 관계없이 기본값으로 초기화될 수 있습니다. 업데이트나 EEPROM CLEAN
+전에 VIA SAVE + LOAD로 키맵을 백업해 두십시오. 일반 업데이트에 Reset.uf2를
+사용하지 마십시오.
 
 사용 중인 보드 이름과 일치하는 UF2를 사용하십시오. 업데이트 뒤 SYSTEM ->
 VERSION에서 각 유닛의 버전을 확인하십시오.
+
+■ 설정 복구 초기화
+
+같은 메이커·보드 ZIP의 Reset.uf2는 일반 펌웨어의 모든 기능을 포함합니다.
+설치 후 최초 실행에서만 현재 활성 설정 저장소의 키맵·매크로·사용자 설정을
+모두 초기화한 뒤 그대로 키보드로 사용할 수 있습니다. 가능하면 먼저 백업하십시오.
+스플릿 케이블을 분리하고 각 유닛을 따로 처리하십시오. 한쪽만 초기화하면
+초기화하지 않은 반대쪽이 이전 설정을 복원할 수 있습니다.
+
+1. 각 유닛을 Bootloader에 진입시켜 해당 ZIP의 같은 Reset.uf2를 복사합니다.
+2. 각 유닛의 초기화가 끝나고 키보드로 다시 연결될 때까지 기다립니다.
+3. 양쪽 모두 끝나면 스플릿 케이블을 다시 연결합니다.
+   일반 펌웨어를 다시 올리지 않고 새로 설정하여 그대로 사용합니다.
+
+이후 재부팅에는 새로 저장한 설정이 유지됩니다. 같은 Reset.uf2를 다시 설치하면
+다시 한 번 초기화됩니다. 전송 중단은 설치 완료가 아니며 다시 업로드해야 합니다.
+초기화 중 전원이 끊기면 완료 전 작업을 재시도합니다. 완료 표식 손상이나 IO
+실패로 정상 사용이 시작되지 않으면 해당 유닛의 하드웨어 Bootloader 진입 방법으로
+같은 Reset.uf2를 다시 업로드하십시오. 전체 칩, 부트로더 또는 이전 롤백 저장소를
+지우지 않으며 보안 삭제나 물리적 플래시 고장 수리를 보장하지 않습니다.
 
 ■ 키보드 설정
 
@@ -72,7 +94,7 @@ units. A pair left on different firmware versions is not supported.
 Repeat these steps for one unit at a time:
 
 1. Put the unit into Bootloader mode.
-2. When the RPI-RP2 drive appears, copy the same .uf2 file onto it.
+2. When the RPI-RP2 drive appears, copy the same normal firmware .uf2 onto it.
 3. The unit restarts automatically after the copy finishes.
 4. Flash the same .uf2 file to the other unit.
 
@@ -83,16 +105,38 @@ Use any of these methods to enter the bootloader:
 - Double-tap that unit's Reset, or briefly connect its RST to GND twice in
   quick succession. Fully release the connection between the two contacts.
 
-A unit entered through Bootmagic also resets its stored keymap and every
-setting to factory defaults.
+Entry preserves settings after this package's firmware is installed.
+Older firmware may erase settings through Bootmagic; use VIA BOOT or Reset
+double-tap for each unit's first update.
 
-A normal update keeps the keymap, macros and VIA settings. Only a release that
-changes the stored format resets settings to factory defaults on first boot,
-and its release notes say so. Back up the keymap with VIA SAVE + LOAD before
-updating or running EEPROM CLEAN.
+A normal update preserves valid keymaps, macros and settings in the same storage
+format with any entry method above. A storage-format upgrade or invalid store
+may independently cause defaults. Back up the keymap with VIA SAVE + LOAD before
+updating or running EEPROM CLEAN. Do not use Reset.uf2 for normal updates.
 
 Use the UF2 matching the board name. After updating, check the version under
 SYSTEM -> VERSION on each unit.
+
+■ Settings Reset Recovery
+
+Reset.uf2 from the matching maker and board ZIP includes all normal firmware
+features. Only its first execution after installation clears the active current
+settings store, including keymaps, macros and custom settings, then continues as
+a normal keyboard. Back up first if possible. Disconnect the split cable and
+handle each unit separately: an unwiped peer can restore old settings.
+
+1. Enter the bootloader on each unit and copy the same Reset.uf2 from that ZIP.
+2. Wait for initialization on each unit to finish and the keyboard to reconnect.
+3. Once both have finished, reconnect the split cable. Configure and keep using
+   them; no second normal-firmware upload is needed.
+
+Later reboots preserve newly saved settings. Installing the exact same Reset.uf2
+again triggers another one-time reset. An interrupted transfer is not a completed
+installation; upload again. An unfinished erase retries after power loss. If a
+damaged completion receipt or IO failure prevents normal use, enter that unit's
+hardware bootloader and re-upload Reset.uf2. This does not erase the entire chip,
+bootloader or legacy rollback store, and does not guarantee secure erasure or
+repair of physical flash faults.
 
 ■ Keyboard Configuration
 

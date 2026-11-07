@@ -65,6 +65,10 @@
 #    include "bootloader.h"
 #endif
 
+/* Bootloader entry is not factory recovery; the explicit Reset.uf2 image
+ * owns that destructive operation. */
+void bootmagic_reset_eeprom(void) {}
+
 void era_common_features_init(void) {
 #ifdef ERA_MACRO_ENABLE
     era_macro_cancel();

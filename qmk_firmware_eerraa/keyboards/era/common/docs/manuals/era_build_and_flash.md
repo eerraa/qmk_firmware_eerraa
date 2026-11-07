@@ -164,6 +164,40 @@ Build selectors and prerequisites are canonical in `era_build_options.md`.
 Gate semantics and additional validation owed by a change are in
 `era_performance_gates.md`.
 
+### Settings-reset recovery image
+
+The `reset` build variant uses the ordinary board/keymap and its complete
+keyboard/VIA features. Select it on an adopted ERA RP2040 target, including
+non-split boards, through the same frontend:
+
+```powershell
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak:via reset
+```
+
+The pre-mount bootstrap in `storage/era_settings_reset.c` consumes an
+installation-owned flash receipt. First execution clears and verifies the active
+ERA NVM region, records and verifies completion, then continues directly into
+ordinary settings initialization and keyboard/VIA/split service. Later boots
+preserve saved settings. The same UF2 installed again re-arms the receipt.
+Neither firmware version nor reset key identifies an installation.
+
+Pending erasure retries after reboot. Invalid/torn receipt bytes or failed IO
+stop before mount; use hardware BOOTSEL or the pre-copy RUN entry and re-upload
+the same Reset image. An interrupted UF2 transfer is not a completed installation;
+this feature does not make ROM updates transactional. Legacy rollback data and
+firmware sectors remain outside the erase owner. The receipt owner may only
+program its dedicated page, not erase an image sector.
+
+Package the manifest-selected recovery bytes as `Reset.uf2`, alongside the
+normal board firmware, and retain both artifact identities outside the ZIP.
+No second normal-firmware upload is needed. Split users disconnect the cable,
+install the same Reset image on both halves, and reconnect only after both
+finish, so a surviving peer cannot restore the settings being cleared.
+Bootmagic entry preserves settings on ERA RP2040 boards;
+explicit recovery and VIA CLEAN remain destructive. AVR targets are not part
+of this UF2 route. The resolved/compiled tuple includes the reset policy so
+normal and reset artifacts cannot silently exchange roles.
+
 ## Flashing
 
 Every ERA RP2040 board flashes as a UF2 mass-storage copy. There is no vendor
