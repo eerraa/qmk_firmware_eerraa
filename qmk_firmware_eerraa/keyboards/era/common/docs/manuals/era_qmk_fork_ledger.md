@@ -108,10 +108,15 @@ ERA's overrides leave legacy mode unchanged. Host evidence lives in
 
 ## QMK CLI Surface Outside The Five Directories
 
-The five-root checker does not cover `lib/python`. One departure lives there:
+The five-root checker does not cover `lib/python`.
 `lib/python/qmk/cli/generate/version_h.py` emits `QMK_BUILDDATE` only when the
 build has not defined it, so `storage/era_via_magic.h` pins the VIA EEPROM
-magic; other keyboards keep QMK's behavior. Re-derive this surface with
+magic; other keyboards keep QMK's behavior.
+`lib/python/qmk/submodules.py` normalizes repository-relative foreach log and
+tag paths using Git's component prefix before joining the component-local
+status and submodule list. This preserves standalone QMK and integrated-root metadata;
+the focused regression is `qmk.tests.test_submodules`.
+Re-derive this surface with
 `git diff c93ef27143 -- lib/python`.
 
 

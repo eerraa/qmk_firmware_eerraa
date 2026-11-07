@@ -21,10 +21,14 @@ usekb.cc Custom 앱에서 지원합니다.
 1. https://usevia.app 에 접속합니다.
 2. SETTINGS에서 Show Design tab을 켭니다.
 3. DESIGN -> Load Draft Definition에서 이 키보드의 VIA JSON을 불러옵니다.
-4. CONFIGURE에서 KEYMAP, LIGHTING, FEATURE, TAPDANCE, SYSTEM을 설정합니다.
+   L/R 파일이 있으면 현재 USB 유닛에 맞는 것을 사용하고, 양쪽을 각각 USB로
+   연결할 때는 두 JSON을 모두 불러옵니다.
+4. CONFIGURE의 Authorize device로 연결을 허용한 뒤 KEYMAP, LIGHTING,
+   FEATURE, TAPDANCE, SYSTEM을 설정합니다.
 
 TAPDANCE 입력창에 직접 keycode를 넣을 때는 같은 폴더의 via_keycodes.txt를
-참고하십시오. 키맵을 보관하려면 VIA의 SAVE + LOAD에서 백업하십시오.
+참고하십시오. 공식 VIA SAVE + LOAD는 키맵과 매크로를 백업하지만 모든 메뉴
+설정을 백업하지 않습니다. 다른 설정은 별도로 기록하십시오.
 
 일반 업데이트는 같은 저장 형식의 유효한 설정을 유지하지만 저장 형식 변경이나
 잘못된 저장 데이터는 초기화를 일으킬 수 있습니다. Reset.uf2는 일반 업데이트가
@@ -143,10 +147,8 @@ CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. 기본값은 꺼짐
 
 ■ LIGHTING
 
-CONFIGURE -> LIGHTING에는 키보드가 실제 지원하는 조명 메뉴만 표시됩니다.
-메뉴 이름은 LED가 있는 곳을 따릅니다: Per-Key RGB(키별 RGB), Underglow,
-Backlight, Badge, Riley의 RGB LEDs. 잠금 상태 표시는 Indicators에서
-설정합니다.
+CONFIGURE -> LIGHTING에서 화면에 표시되는 조명 항목의 밝기, 효과, 색상을
+설정합니다. 효과의 속도나 주기는 해당 효과에 제공되는 옵션으로 조정합니다.
 
 Backlight Pulse를 지원하는 보드의 효과 이름은 다음과 같습니다.
 
@@ -175,18 +177,11 @@ RGBLight 조명(Underglow, Badge, RGB LEDs)은 Effect 목록의 Twinkle 6 뒤에
 - Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
-7B75의 백라이트 레일은 두 잠금 표시등(기본 Caps Lock, Scroll Lock)만
-켭니다. 그래서 Indicators에서 Indicator Brightness와 위 여섯 효과(Indicator
-Effect)를, Badge에서 아크릴 배지의 RGB 효과/밝기/색/속도를 설정합니다.
-
 Indicators는 Caps/Scroll/Num Lock 상태 표시입니다. 표시할 상태는
 Indicator(여러 개면 Indicator 1, 2 …)에서 고릅니다. 0번 값은 표시 LED를
 RGB 효과와 함께 쓰는 보드에서는 RGB Effect(효과가 그대로 보임), 전용 LED
-보드에서는 Off입니다. 색은 사용자가 정하며, 스플릿 TOMAK의 링크·동기화
-STATUS 색상표를 논스플릿 키보드에 적용하지 않습니다.
-
-Riley에는 RGB LEDs와 Indicators 메뉴가 있습니다. RGB1/2/3은 Indicator
-1/2/3에 대응합니다. 각 Indicator는 다음 중 하나입니다.
+보드에서는 Off입니다. 표시 대상과 화면에 제공되는 밝기·색상 옵션을 선택하십시오.
+각 Indicator는 제공되는 다음 항목에서 선택합니다.
 
 - RGB Effect
 - Caps Lock
@@ -200,6 +195,17 @@ Indicator-Only를 켜면 Lock이 꺼진 표시 LED는 어두워지고, RGB Effec
 독립적으로 설정합니다.
 
 ■ SYSTEM
+
+화면에 SYNC와 LINK가 제공되면 다음과 같이 사용합니다.
+EEPROM SYNC는 저장 설정을 동기화합니다. INPUT SYNC와 RGB SYNC는 양쪽을
+각각 USB에 연결한 DUAL-HOST에서 입력 판정과 조명을 공유합니다. 세 설정은
+독립적이며 기본 On입니다. 한쪽만 USB에 연결한 HOST-PEER에서는 INPUT SYNC와
+RGB SYNC를 꺼도 입력과 조명 전달이 유지됩니다.
+
+LINK는 High(460800 bps / 1 ms, 기본값), Medium(230400 bps / 2 ms),
+Low(115200 bps / 4 ms) 중 선택한 뒤 Apply합니다. 연결된 양쪽은 합의한 시점에
+재부팅이나 USB 연결 해제 없이 함께 전환합니다. 공식 VIA 선택값은 적용 완료를
+뜻하지 않습니다. 실행·저장 속도와 결과는 usekb.cc Custom에서 확인하십시오.
 
 SYSTEM -> SLEEP에서 RGB와 백라이트의 자동 절전을 따로 설정합니다. 키보드에
 있는 조명의 항목만 표시됩니다.
@@ -224,7 +230,9 @@ VIA의 후속 처리와 응답 전송을 기다린 뒤 전환하며, 실행 후 
 재부팅하면 확인 상태가 모두 지워집니다.
 
 CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 모두 켜면
-저장된 키맵·매크로·모든 설정을 초기화하고 재시작합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
+저장된 키맵·매크로·모든 설정을 초기화하고 재시작합니다. 실행 전 VIA SAVE + LOAD로
+백업하고 다른 설정을 기록하십시오. 스플릿은 정상 통신 중이면 양쪽이 합의하여
+함께 초기화하고, 떨어진 유닛은 각각 로컬 CLEAN을 수행합니다.
 
 
 ----------------------------------------------------------------------
@@ -242,10 +250,14 @@ An older JSON for USB vendor ID 0x4552 does not match the new maker identity.
 1. Open https://usevia.app.
 2. Enable Show Design tab in SETTINGS.
 3. In DESIGN -> Load Draft Definition, load the VIA JSON for this keyboard.
-4. Use CONFIGURE for KEYMAP, LIGHTING, FEATURE, TAPDANCE, and SYSTEM.
+   If L/R files are supplied, use the current USB half's file; load both JSONs
+   when connecting both halves separately over USB.
+4. Use Authorize device in CONFIGURE, then configure KEYMAP, LIGHTING,
+   FEATURE, TAPDANCE, and SYSTEM.
 
 See via_keycodes.txt in the same folder when entering keycodes directly into
-TAPDANCE fields. Use VIA SAVE + LOAD to back up a keymap you want to keep.
+TAPDANCE fields. Official VIA SAVE + LOAD backs up keymaps and macros, not every
+menu setting. Record other settings separately.
 
 Normal updates preserve valid settings in the same storage format, but a format
 change or invalid store can cause defaults. Reset.uf2 is full-featured firmware
@@ -365,9 +377,9 @@ then cannot read the keyboard, turn it off again.
 
 ■ LIGHTING
 
-CONFIGURE -> LIGHTING shows only the lighting surfaces supported by the board.
-Menus are named for where the LEDs are: Per-Key RGB, Underglow, Backlight,
-Badge, and Riley's RGB LEDs. Lock indication is set in Indicators.
+In CONFIGURE -> LIGHTING, adjust the brightness, effect and color of the
+lighting options shown. Use the options provided for the chosen effect to set
+its speed or period.
 
 Boards with Backlight Pulse use these effect names:
 
@@ -397,19 +409,11 @@ use Velocikey to react to typing speed.
 - Pulse Off Press (Hold)
 - Pulse On Press (Hold)
 
-The 7B75 backlight rail lights only its two lock indicators (Caps Lock and
-Scroll Lock by default), so Indicators holds Indicator Brightness and the six
-effects above (Indicator Effect), and Badge holds the acrylic badge's RGB
-effect, brightness, colour, and speed.
-
 Indicators shows Caps/Scroll/Num Lock using the chosen colours; Indicator
 (Indicator 1, 2, … on boards with several) chooses the lock. Value 0 is RGB
 Effect where the indicator LED also shows the RGB effect, and Off on a
-dedicated LED. The split TOMAK link/synchronization STATUS colour meanings do
-not apply to non-split keyboards.
-
-Riley has RGB LEDs plus Indicators. RGB1/2/3 map to Indicator 1/2/3. Each
-Indicator is one of:
+dedicated LED. Choose the status and brightness/color options shown.
+Each Indicator offers the applicable choices:
 
 - RGB Effect
 - Caps Lock
@@ -423,6 +427,18 @@ Effect LED continues the RGB effect. Brightness/Color are independent for
 Indicator 1, 2, and 3.
 
 ■ SYSTEM
+
+If SYNC and LINK are shown, use them as follows.
+EEPROM SYNC synchronizes stored settings. INPUT SYNC and RGB SYNC share input
+decisions and lighting in DUAL-HOST, with both halves separately connected over
+USB. All three are independent and default On. In HOST-PEER with only one USB
+connection, input and lighting forwarding continue even with INPUT/RGB SYNC off.
+
+For LINK, select High (460800 bps / 1 ms, default), Medium (230400 bps / 2 ms),
+or Low (115200 bps / 4 ms), then Apply. Connected halves switch together at an
+agreed point without rebooting or disconnecting USB. The official VIA selection
+does not prove completion; check running/stored speed and results in usekb.cc
+Custom.
 
 SYSTEM -> SLEEP sets automatic sleep for RGB and backlight separately. Only the
 lighting the keyboard has is listed.
@@ -449,4 +465,6 @@ only that confirmation; restarting the keyboard clears all confirmations.
 
 Turn on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM
 to erase the stored keymap, macros and every setting and restart the
-keyboard. Back up the keymap with VIA SAVE + LOAD before running CLEAN.
+keyboard. Back up with VIA SAVE + LOAD and record other settings first.
+Connected, communicating split halves agree and reset together; disconnected
+halves each perform local CLEAN.
