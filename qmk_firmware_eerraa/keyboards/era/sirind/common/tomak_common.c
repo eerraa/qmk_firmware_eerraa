@@ -684,33 +684,6 @@ int8_t rgb_matrix_sync_output_gate_kb(uint8_t frame_flags) {
 void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags) {
     bool status_frame = (frame_flags & RGB_MATRIX_RENDER_FRAME_STATUS) != 0;
     (void)status_frame;
-#    if defined(ERA_SPLIT_EEPROM_SYNC_ENABLE) && defined(RGB_MATRIX_ENABLE)
-    /* LED truth for the storage-indicator stamps: every flushed frame reports
-       whether it was the EEPROM SYNC STATUS field — the core calls this on
-       every PWM push, zero-flag frames included, so this is panel truth rather
-       than producer truth. The packed state rides along so a mid-era breaker
-       frame is latched with the three facts that name its path. */
-    uint8_t panel_state = 0;
-    if (rgb_matrix_config.enable) {
-        panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_ENABLED;
-    }
-    if (rgb_matrix_get_suspend_state()) {
-        panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_SUSPENDED;
-    }
-    if (tomak_eeprom_sync_status_visible_cached) {
-        panel_state |= ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_STATUS_POLICY_ON;
-    }
-#        if defined(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE) || defined(ERA_TOMAK_SYNC_DIAG)
-    /* Diagnostic only: retain the selected STATUS producer and its phase
-       in the breaker latch, including a competing producer's black frame. */
-    panel_state |= (uint8_t)(tomak_status_policy_source << 4);
-    if (tomak_status_policy_on) {
-        panel_state |= 0x08;
-    }
-#        endif
-    bool eeprom_sync_status_frame = status_frame && tomak_status_policy_source == TOMAK_STATUS_SOURCE_EEPROM_SYNC;
-    era_split_eeprom_sync_note_status_frame_presence(eeprom_sync_status_frame, frame_flags, panel_state);
-#    endif
 #    if defined(RGB_MATRIX_ENABLE)
     /* Reached whenever RGB_MATRIX is built and not only when the storage
        engine is, because the launch report is the other producer and does not
@@ -725,9 +698,7 @@ void rgb_matrix_render_policy_flush_kb(uint8_t frame_flags) {
            zero-flag black fill from an RGB_MATRIX_NONE transition mid-era,
            which stranded the receiving half dark until the era ended because
            this proof survived it. Dropping the proof makes the next policy
-           pass re-render the field within one frame, and the presence note
-           above turns the event into a counted re-light (`rn`) instead of an
-           invisible one. */
+           pass re-render the field within one frame. */
         tomak_status_frame_valid = false;
     }
 #    endif

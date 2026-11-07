@@ -10,21 +10,13 @@
 
 #include "era_split_wire_protocol.h"
 
-// FA-2's split runtime unit: the cross-half tap-hold family's core0 state.
-// S1 contributes the speculative layer/mod counter sink; S2 owns the judgment
-// window, the local activity record, the advertised wire composition, the
-// peer cache the action-tapping seam consumes, and the family's counters.
+// The cross-half tap-hold family's Core0 judgment window, local activity,
+// advertised wire record, and peer cache consumed by action tapping.
 //
 // Everything here is core0's. Core1 sees only the copied wire bodies the
 // scheduler publishes (the standing plan and the responder snapshot), and the
 // peer cache is written only from core0's apply paths -- a cache update in
 // era_invariants.md's sense, never an HID event.
-
-// S1 counter sink, called from the action-tapping seam. The event values are
-// the ERA_SPECULATIVE_NOTE_* constants declared beside the caller in
-// quantum/action_tapping.c: 0 = activate, 1 = revert (tap settle),
-// 2 = abort (overflow clear).
-void era_split_tap_activity_note_speculative(uint8_t event);
 
 // Local key input, from the top of era_split_keyboard_process_record() before
 // every early return -- the Slice 11.5 producer's recorded position, because a
@@ -76,22 +68,3 @@ void era_split_tap_activity_wire_value(era_split_wire_activity_section_t *out);
 // Relation rotation: drops the peer cache and returns the advertised record
 // to the all-zero baseline the reopened peer's cleared cache assumes.
 void era_split_tap_activity_relation_reset(void);
-
-// Responder-confirmed activity send, from the wire's own section byte.
-void era_split_tap_activity_note_sent(void);
-void era_split_tap_activity_note_sent_bulk(uint32_t count);
-
-typedef struct {
-    uint32_t speculative_activate_count;
-    uint32_t speculative_revert_count;
-    uint32_t speculative_abort_count;
-    uint32_t window_open_count;
-    uint32_t judged_hold_hokp_count;
-    uint32_t judged_hold_ph_count;
-    uint32_t retro_cancel_count;
-    uint32_t advertise_change_count;
-    uint32_t sent_count;
-    uint32_t peer_update_count;
-} era_split_tap_activity_diagnostics_t;
-
-void era_split_tap_activity_get_diagnostics(era_split_tap_activity_diagnostics_t *out);

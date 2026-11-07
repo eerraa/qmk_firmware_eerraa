@@ -177,9 +177,10 @@ typedef struct {
     uint32_t                last_write_addr;
     bool                    ready;
     bool                    first_frame_pending;
-    /* Instrument counters, read by the diagnostics snapshot below. */
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     uint32_t torn_retry_count;
     uint32_t rearm_count;
+#endif
 } era_rp2040_matrix_pio_state_t;
 
 static era_rp2040_matrix_pio_state_t era_rp2040_matrix_pio_state;
@@ -416,7 +417,9 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
         /* The writer moved far enough during the copy to have reached the
            copied frame. Retry once with a fresh, fully bracketed selection;
            never publish a second torn copy as if it were a complete scan. */
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
         state->torn_retry_count++;
+#endif
     }
 
     /* A write pointer that has not moved since the last pass is a stalled
@@ -426,11 +429,15 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
     if (write_addr == state->last_write_addr) {
         if (era_rp2040_matrix_pio_channel_idle(state->sample_channel)) {
             era_rp2040_matrix_pio_channel_retrigger(state->sample_channel);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
             state->rearm_count++;
+#endif
         }
         if (era_rp2040_matrix_pio_channel_idle(state->pattern_channel)) {
             era_rp2040_matrix_pio_channel_retrigger(state->pattern_channel);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
             state->rearm_count++;
+#endif
         }
     }
     state->last_write_addr = write_addr;
@@ -448,6 +455,7 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
     return changed;
 }
 
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 void era_rp2040_matrix_pio_get_diagnostics(era_rp2040_matrix_pio_diagnostics_t *snapshot) {
     const era_rp2040_matrix_pio_state_t *state = &era_rp2040_matrix_pio_state;
     if (snapshot == NULL) {
@@ -481,3 +489,4 @@ void era_rp2040_matrix_pio_clear_fdebug(void) {
         pio1->fdebug = (1U << (24U + sm)) | (1U << (16U + sm)) | (1U << (8U + sm)) | (1U << sm);
     }
 }
+#endif

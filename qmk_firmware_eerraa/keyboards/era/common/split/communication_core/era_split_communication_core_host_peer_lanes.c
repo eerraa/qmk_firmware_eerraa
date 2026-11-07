@@ -13,7 +13,6 @@
 
 #include "era_split_communication_core_owner.h"
 #include "era_split_communication_core_standing.h"
-#include "../era_host_peer_transaction.h"
 #include "../era_split_matrix_frame.h"
 #include "../era_split_transaction_backend.h"
 #include "../era_split_transaction_engine.h"
@@ -116,93 +115,13 @@ static bool era_split_communication_core_initiator_encode(const era_split_commun
 }
 
 static void era_split_communication_core_initiator_note_failure(era_split_transaction_failure_t failure) {
-    switch (failure) {
-        case ERA_SPLIT_TRANSACTION_FAILURE_QUEUE_EXPIRED:
-            g_era_split_communication_core.initiator_queue_expired_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_OWNER:
-            g_era_split_communication_core.initiator_owner_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_EPOCH:
-            g_era_split_communication_core.initiator_epoch_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_CANCEL:
-            g_era_split_communication_core.initiator_cancel_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_RESET:
-            g_era_split_communication_core.initiator_reset_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_PIO_ERROR:
-            g_era_split_communication_core.initiator_pio_error_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_SEND_TIMEOUT:
-            g_era_split_communication_core.initiator_send_timeout_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_TIMEOUT:
-            g_era_split_communication_core.initiator_response_timeout_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME:
-            g_era_split_communication_core.initiator_partial_frame_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_IO:
-            g_era_split_communication_core.initiator_io_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_DECODE:
-            g_era_split_communication_core.initiator_decode_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_CONTRACT:
-            g_era_split_communication_core.initiator_response_contract_count++;
-            break;
-        default:
-            break;
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    if (failure == ERA_SPLIT_TRANSACTION_FAILURE_QUEUE_EXPIRED) {
+        g_era_split_communication_core.initiator_queue_expired_count++;
     }
-}
-
-/* The one gate every per-lane write goes through. An id outside the lane set
-   is the only way to reach a record that is not a lane's, so it is refused
-   here and nowhere else -- which is what lets every call site below be a plain
-   subscript. */
-static volatile era_split_communication_core_lane_state_t *era_split_communication_core_lane(uint8_t lane) {
-    if (lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_INVALID ||
-        lane >= ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_COUNT) {
-        return NULL;
-    }
-    return &g_era_split_communication_core.lane[lane];
-}
-
-static void era_split_communication_core_initiator_note_lane_result(uint8_t lane, era_split_transaction_engine_result_t result) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state == NULL) {
-        return;
-    }
-
-    switch (result) {
-        case ERA_SPLIT_TRANSACTION_RESULT_OK:
-            state->ok_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_RESULT_MISS:
-            state->miss_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_RESULT_BAD:
-            state->bad_count++;
-            break;
-        case ERA_SPLIT_TRANSACTION_RESULT_FAIL:
-            state->fail_count++;
-            break;
-        default:
-            break;
-    }
-}
-
-static void era_split_communication_core_initiator_note_transaction(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state == NULL) {
-        return;
-    }
-    state->transaction_count++;
-    if (lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
-        g_era_split_communication_core.source_push_rx_wait_mode = (uint8_t)ERA_SPLIT_COMMUNICATION_CORE_RX_WAIT_MODE_RESPONSE_WINDOW_POLL;
-    }
+#else
+    (void)failure;
+#endif
 }
 
 static bool era_split_communication_core_initiator_decode(const era_split_communication_core_initiator_request_t *request, const era_split_wire_frame_t *response, era_split_communication_core_initiator_result_t *result) {
@@ -245,41 +164,8 @@ static bool era_split_communication_core_initiator_decode(const era_split_commun
     return true;
 }
 
-static void era_split_communication_core_initiator_note_response(const era_split_communication_core_initiator_result_t *result) {
-    if (result->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
-        g_era_split_communication_core.lane[result->lane].last_response_kind  = result->response_kind;
-        g_era_split_communication_core.source_push_last_response_payload_len  = result->response_payload_len;
-        g_era_split_communication_core.source_push_last_response_section_byte = result->response_section_byte;
-        g_era_split_communication_core.source_push_last_lock_state_valid      = result->decoded.host_peer.host_source_lock_state_valid;
-        g_era_split_communication_core.source_push_last_lock_state            = result->decoded.host_peer.host_source_lock_state;
-        g_era_split_communication_core.source_push_last_visual_snapshot_valid = result->decoded.host_peer.host_source_visual_snapshot_valid;
-        g_era_split_communication_core.source_push_last_rgb_state_valid       = result->decoded.host_peer.host_source_rgb_state_valid;
-        g_era_split_communication_core.source_push_last_storage_news_valid    = result->decoded.host_peer.host_source_storage_news_valid;
-        g_era_split_communication_core.source_push_last_storage_news          = result->decoded.host_peer.host_source_storage_news;
-        if (result->response_kind == ERA_SPLIT_WIRE_PAYLOAD_HOST_PEER_HOST_SOURCE_RSP) {
-            g_era_split_communication_core.source_push_hsrsp_count++;
-            g_era_split_communication_core.source_push_response_section_or |= result->response_section_byte;
-        }
-        if (result->decoded.host_peer.host_source_visual_snapshot_valid) {
-            g_era_split_communication_core.source_push_visual_snapshot_count++;
-        }
-        if (result->decoded.host_peer.host_source_rgb_state_valid) {
-            g_era_split_communication_core.source_push_rgb_state_count++;
-        }
-        if (result->decoded.host_peer.host_source_storage_news_valid) {
-            g_era_split_communication_core.source_push_storage_news_count++;
-        }
-    }
-}
-
-static void era_split_communication_core_initiator_result_full(uint8_t lane) {
+static void era_split_communication_core_initiator_result_full(void) {
     g_era_split_communication_core.initiator_pending = 0;
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state == NULL) {
-        return;
-    }
-    state->pending = 0;
-    state->result_full_count++;
 }
 
 void era_split_communication_core_process_initiator(const era_split_communication_core_queue_record_t *record) {
@@ -346,10 +232,6 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
     memset(&response, 0, sizeof(response));
     bool                            request_sent = false;
     era_split_transaction_failure_t failure      = ERA_SPLIT_TRANSACTION_FAILURE_NONE;
-#ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-    era_split_transaction_engine_timing_begin_route(result.route_kind, result.route_reason);
-#endif
-    era_split_communication_core_initiator_note_transaction(request->lane);
     result.result = (uint8_t)era_split_transaction_engine_transact_compact_owned((era_split_wire_direction_t)request->request_direction,
                                                                                  payload,
                                                                                  payload_len,
@@ -363,9 +245,6 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
                                                                                  &failure);
     result.request_sent = request_sent ? 1 : 0;
     result.failure      = (uint8_t)failure;
-#ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-    era_split_transaction_engine_timing_end_route();
-#endif
     if (result.result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
         result.response_kind         = (uint8_t)response.kind;
         result.response_payload_len  = (uint8_t)response.payload_len;
@@ -375,74 +254,24 @@ void era_split_communication_core_process_initiator(const era_split_communicatio
             result.failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
         } else {
             era_split_transaction_engine_commit_received_frame(&response);
-            /* D1's cross-lane fold retired here with the second carrier (D3):
-               a response on this lane carries no section for it to fold. The
-               decode above stays, and so do its arrival counters -- they are
-               what says the suppression is in force, because a non-zero
-               `hsrsp`/`secor` on this lane after D3 means a section crossed
-               where none may. */
-            era_split_communication_core_initiator_note_response(&result);
         }
     }
 
 publish:
     era_split_communication_core_initiator_note_failure((era_split_transaction_failure_t)result.failure);
-    era_split_communication_core_initiator_note_lane_result(result.lane, (era_split_transaction_engine_result_t)result.result);
 
     era_split_communication_core_queue_record_t result_record = {
         .kind                   = ERA_SPLIT_COMMUNICATION_CORE_QUEUE_RECORD_INITIATOR_RESULT,
         .data.initiator_result = result,
     };
-    era_split_transaction_engine_publish_diagnostics_snapshot();
     if (!era_split_communication_core_result_push(&result_record)) {
-        era_split_communication_core_initiator_result_full(result.lane);
+        era_split_communication_core_initiator_result_full();
         return;
     }
 
     g_era_split_communication_core.initiator_result_ready = 1;
-    volatile era_split_communication_core_lane_state_t *published = era_split_communication_core_lane(result.lane);
-    if (published != NULL) {
-        published->result_ready = 1;
-    }
     __DMB();
     __SEV();
-}
-
-static void era_split_communication_core_initiator_note_submit(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state != NULL) {
-        state->submit_count++;
-    }
-}
-
-static void era_split_communication_core_initiator_note_full(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state != NULL) {
-        state->full_count++;
-    }
-}
-
-static void era_split_communication_core_initiator_note_start_fail(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state != NULL) {
-        state->start_fail_count++;
-    }
-}
-
-static void era_split_communication_core_initiator_note_accept(const era_split_communication_core_initiator_request_t *request) {
-    g_era_split_communication_core.initiator_pending = 1;
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(request->lane);
-    if (state == NULL) {
-        return;
-    }
-    state->pending          = 1;
-    state->generation       = request->request_generation;
-    state->accept_count++;
-    state->last_route_kind   = request->route_kind;
-    state->last_route_reason = request->route_reason;
-    if (request->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SOURCE_PUSH) {
-        g_era_split_communication_core.source_push_last_matrix_seq = request->semantic.source_push.matrix_seq;
-    }
 }
 
 bool era_split_communication_core_enqueue_initiator(const era_split_communication_core_initiator_request_t *request, uint32_t queue_window_us) {
@@ -451,14 +280,11 @@ bool era_split_communication_core_enqueue_initiator(const era_split_communicatio
     }
 
     era_split_communication_core_init();
-    era_split_communication_core_initiator_note_submit(request->lane);
     if (g_era_split_communication_core.initiator_pending || g_era_split_communication_core.initiator_result_ready ||
         era_split_communication_core_request_level() != 0 || era_split_communication_core_result_level() != 0) {
-        era_split_communication_core_initiator_note_full(request->lane);
         return false;
     }
     if (!era_split_communication_core_owner_ensure_core1()) {
-        era_split_communication_core_initiator_note_start_fail(request->lane);
         return false;
     }
 
@@ -472,21 +298,11 @@ bool era_split_communication_core_enqueue_initiator(const era_split_communicatio
      * signed delta, so zero is an ordinary absolute deadline. */
     record.data.initiator_request.not_after_us = timer_hw->timerawl + queue_window_us;
     if (!era_split_communication_core_request_push(&record, &g_era_split_communication_core.initiator_pending)) {
-        era_split_communication_core_initiator_note_full(request->lane);
         return false;
     }
 
-    era_split_communication_core_initiator_note_accept(&record.data.initiator_request);
     era_split_communication_core_wake();
     return true;
-}
-
-static void era_split_communication_core_initiator_clear_lane_flags(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state != NULL) {
-        state->pending      = 0;
-        state->result_ready = 0;
-    }
 }
 
 bool era_split_communication_core_poll_initiator_result(era_split_communication_core_initiator_result_t *result) {
@@ -506,22 +322,6 @@ bool era_split_communication_core_poll_initiator_result(era_split_communication_
     }
 
     *result = record.data.initiator_result;
-    era_split_communication_core_initiator_clear_lane_flags(result->lane);
-    volatile era_split_communication_core_lane_state_t *drained = era_split_communication_core_lane(result->lane);
-    if (drained != NULL) {
-        drained->last_result_generation = result->request_generation;
-        drained->result_count++;
-        drained->last_result       = result->result;
-        drained->last_request_sent = result->request_sent;
-        /* SESSION_STATUS is the only lane whose response is decoded into a
-           semantic value, so it is the only one with a failure class and a
-           decoded-validity flag worth keeping per attempt. */
-        if (result->lane == ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_SESSION_STATUS) {
-            drained->last_response_kind = result->response_kind;
-            g_era_split_communication_core.session_last_failure           = result->failure;
-            g_era_split_communication_core.session_last_peer_status_valid = result->decoded.session.valid;
-        }
-    }
     __DMB();
     return true;
 }
@@ -534,24 +334,7 @@ bool era_split_communication_core_initiator_result_ready(void) {
     return g_era_split_communication_core.initiator_result_ready != 0;
 }
 
-void era_split_communication_core_note_initiator_result_stale(uint8_t lane) {
-    volatile era_split_communication_core_lane_state_t *state = era_split_communication_core_lane(lane);
-    if (state != NULL) {
-        state->result_stale_count++;
-    }
-}
-
-/* The three per-lane apply counters retired with the lane apply they counted
-   (D3). Their arrival twins -- `visn`, `rgbn`, `mskn`, `hsrsp` and `secor` --
-   deliberately stay: a counter that can no longer move is dead weight, but a
-   counter that must now read zero is an instrument, and those five are what
-   say the response-section suppression is actually in force on this lane. */
-
 void era_split_communication_core_initiator_queue_flushed(void) {
     g_era_split_communication_core.initiator_pending      = 0;
     g_era_split_communication_core.initiator_result_ready = 0;
-    for (uint8_t lane = 0; lane < ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_COUNT; lane++) {
-        g_era_split_communication_core.lane[lane].pending      = 0;
-        g_era_split_communication_core.lane[lane].result_ready = 0;
-    }
 }

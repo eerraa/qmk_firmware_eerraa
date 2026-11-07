@@ -19,16 +19,7 @@ typedef struct {
     uint16_t peer_usb_epoch;
     uint16_t peer_host_open_generation;
     uint16_t peer_host_close_generation;
-    uint32_t peer_session_rx_count;
-    uint32_t peer_session_forget_count;
-
-    /* Only the two this half's own consumers read. The six that stood beside
-       them -- this half's accepted-authority pair, its matrix-ready flag and
-       its three USB-epoch/generation values -- were written on every snapshot
-       and never read: no console line ever carried them, so restoring one
-       means adding a field and a print, not a print. */
     uint8_t  local_bulk_page_supported;
-    uint32_t local_session_tx_count;
 } era_split_scheduler_session_diagnostics_t;
 
 void era_split_scheduler_session_init(void);
@@ -36,7 +27,6 @@ void era_split_scheduler_session_note_local_facts(const era_authority_snapshot_t
 void era_split_scheduler_session_forget_peer_from_scheduler(void);
 
 bool era_split_scheduler_session_build_local_status(bool response_requested, era_split_wire_session_status_t *status);
-void era_split_scheduler_session_note_local_status_sent(void);
 void era_split_scheduler_session_note_peer_status(const era_split_wire_session_status_t *status);
 
 /* The AUTHORITY wire section's two ends (Slice 11.6). Same facts, same cache,
@@ -58,8 +48,8 @@ void era_split_scheduler_session_note_peer_status(const era_split_wire_session_s
  * carries beyond this section, which is why the frame survives for discovery
  * and for nothing else. */
 bool era_split_scheduler_session_get_local_authority(era_split_wire_authority_section_t *authority);
-/* Returns whether the peer's authority record moved, which is what `app=auth`
-   counts. The apply itself stays unconditional -- reaching it means the
+/* Returns whether the peer's authority record moved.
+   The apply itself stays unconditional -- reaching it means the
    latest-state standing record changed in some field, not necessarily this
    one. */
 bool era_split_scheduler_session_note_peer_authority(const era_split_wire_authority_section_t *authority);

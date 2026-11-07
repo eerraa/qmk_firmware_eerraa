@@ -7,7 +7,7 @@ from test_boot_sequence import HERE, COMMON, source, functions, run_c
 
 def unit(case):
     sampler = source(COMMON + 'system/era_rp2040_matrix_pio.c')
-    sampler = sampler[sampler.index('#ifndef MATRIX_INPUT_PRESSED_STATE'):sampler.index('void era_rp2040_matrix_pio_get_diagnostics')]
+    sampler = sampler[sampler.index('#ifndef MATRIX_INPUT_PRESSED_STATE'):sampler.index('#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE\nvoid era_rp2040_matrix_pio_get_diagnostics')]
     text = (HERE / 'matrix_startup.c').read_text()
     text = text.replace('/* MATRIX_SAMPLER */', sampler)
     text = text.replace('/* BOOTMAGIC */', functions('quantum/bootmagic/bootmagic.c', 'bootmagic_should_reset bootmagic_scan'))

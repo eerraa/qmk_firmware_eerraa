@@ -104,17 +104,13 @@ static bool stored_elapsed(void *p,uint8_t id) {return stored_idle(p,id)!=0;}
 static void stored_report(void *p,uint8_t id,usb_fs_report_t *out) {*out=stored[(uintptr_t)p][id];}
 static void reset_storage(void *p) {memset(stored[(uintptr_t)p],0,sizeof(stored[0]));}
 static bool usb_endpoint_in_is_inactive(usb_endpoint_in_t *ep) {return ep->obqueue.count==0;}
-typedef uint8_t era_split_eeprom_sync_domain_t;
-enum { ERA_SPLIT_EEPROM_SYNC_DOMAIN_ERA_CONFIG=1, ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_RGB_MATRIX=2,
- ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_DEFAULT_LAYER=3, ERA_SPLIT_EEPROM_SYNC_DOMAIN_QMK_KEYMAP_CONFIG=4,
- ERA_SPLIT_EEPROM_SYNC_DOMAIN_VIA_LAYOUT_OPTIONS=5, ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_KEYMAP=6,
- ERA_SPLIT_EEPROM_SYNC_DOMAIN_DYNAMIC_MACRO=7 };
+#include "keyboards/era/common/split/era_split_eeprom_sync.h"
 static void tomak_reload_config_from_era_eeprom(void) {abort();}
 static void era_split_keyboard_reload_features_from_eeprom(void) {abort();}
 static void tomak_reload_rgb_matrix_from_eeprom_silent(void) {abort();}
 static uint32_t eeconfig_read_default_layer(void) {abort();}
 static void default_layer_set(uint32_t layer) {(void)layer;abort();}
-static void era_split_eeprom_sync_reload_domain_user(era_split_eeprom_sync_domain_t domain) {(void)domain;}
+void era_split_eeprom_sync_reload_domain_user(era_split_eeprom_sync_domain_t domain) {(void)domain;}
 static void tap_dance_cancel_all(void) { /* VIA cases have no active TD outputs. */ }
 void action_output_reset_hid(void) {}
 '''

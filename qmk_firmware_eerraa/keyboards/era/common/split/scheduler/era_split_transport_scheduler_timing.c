@@ -82,10 +82,6 @@ bool era_split_transport_scheduler_responder_silence_stale(bool peer_known) {
     if (watch_age_ms < stale_ms) {
         return false;
     }
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    era_host_peer_storage_cause_timeline_note_stale(watch_age_ms <= UINT16_MAX ? (uint16_t)watch_age_ms : UINT16_MAX,
-                                                    stale_ms <= UINT16_MAX ? (uint16_t)stale_ms : UINT16_MAX);
-#endif
     return true;
 }
 
@@ -437,9 +433,6 @@ bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now_ms) {
     uint32_t stale_deadline_ms = 0;
     if (era_split_transport_scheduler_responder_stale_deadline(now_ms, &stale_deadline_ms) && era_split_transport_scheduler_deadline_elapsed(now_ms, stale_deadline_ms)) {
         if (era_split_transport_scheduler_responder_silence_stale(era_split_scheduler_session_peer_known())) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-            era_tomak_sync_note_stale(2);
-#endif
             g_era_split_transport_scheduler.peer_session_stale = true;
             era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE);
             maintenance_performed = true;
@@ -452,9 +445,6 @@ bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now_ms) {
        dirty flag, same downstream: the planner's stale arm replans and the
        transfer meets R7's judgment. */
     if (era_split_transport_scheduler_initiator_silence_stale(era_split_scheduler_session_peer_known())) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        era_tomak_sync_note_stale(3);
-#endif
         g_era_split_transport_scheduler.peer_session_stale = true;
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE);
         maintenance_performed = true;
@@ -581,11 +571,6 @@ void era_split_transport_scheduler_select_owner_route(void) {
 
     era_split_route_selection_t selection;
     era_split_wire_router_select_owner(&input, &selection);
-    /* The two lines above are live route state -- ..._routes.c dispatches on
-       them -- and only the counter below is the instrument. */
     g_era_split_transport_scheduler.last_owner_route  = selection.kind;
     g_era_split_transport_scheduler.last_owner_reason = selection.reason;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.owner_step_count++;
-#endif
 }

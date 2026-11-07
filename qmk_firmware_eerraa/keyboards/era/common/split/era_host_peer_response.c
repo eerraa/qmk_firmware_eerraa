@@ -287,73 +287,6 @@ bool era_host_peer_transaction_apply_rgb_state(const era_host_peer_rgb_state_t *
 #endif
 }
 
-#if defined(SPLIT_KEYBOARD) && defined(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)
-/* The anchor watch, and it is a counter rather than a field because of who
-   applies the anchor. The applying half is the HOST-PEER PEER; a PEER has no
-   open USB host by construction, so it has no console, so every figure it
-   produces is read after promotion. A sampled `sync_timer` therefore proves
-   only the final state, and the leg's stated rejection is "the PEER's
-   sync_timer steps backwards **at any point**"
-   (era_performance_gates.md) -- which a sample structurally cannot see.
-
-   It sits in the setter rather than at the caller. That was load-bearing while
-   two carriers reached this setter -- instrumenting one caller would have
-   watched one and reported the other as silence, this project's recorded
-   failure mode -- and D3 left one carrier, the standing apply. It stays here
-   because the reason it was put here is the reason it should not move: a
-   counter at a caller is a counter that a second caller can be added behind.
-
-   The correction sits here for the same reason, and R2.1's rule is why the
-   second carrier could retire without the bound moving: the receive instant is
-   a parameter, so no caller can apply a raw timestamp. Watching both carriers
-   from one place while correcting only one of them is how a bound measured
-   across 1,020 applies came to describe one path. */
-static uint32_t g_era_host_peer_transaction_time_anchor_apply_count;
-static uint32_t g_era_host_peer_transaction_time_anchor_back_count;
-static uint32_t g_era_host_peer_transaction_time_anchor_back_max_ms;
-/* R6 criterion item 3's instrument: the signed step each refresh applied to
-   the shared clock, and the local-timer interval since the previous apply.
-   Their quotient is the drift rate, which is what lets the residual be
-   attributed rather than bounded once the send-side stamp removes the
-   delivery term. Signed, because drift has a direction and the direction is
-   the difference between "shorten the refresh" and "slew at the setter". */
-static int32_t  g_era_host_peer_transaction_time_anchor_last_correction_ms;
-static uint32_t g_era_host_peer_transaction_time_anchor_last_interval_ms;
-static uint32_t g_era_host_peer_transaction_time_anchor_last_apply_local_ms;
-static bool     g_era_host_peer_transaction_time_anchor_last_apply_valid;
-/* Which anchor the last apply carried, identified by core1's receive instant.
-   The standing record is latest-state and this setter is reached on every edge
-   of it, so the same cached anchor is re-applied many times per arrival -- by
-   design, since the held-time correction makes the re-apply idempotent, and
-   fatal to the instrument: `applies` counted re-applies, and `corr`'s interval
-   became the gap between two re-applies of one anchor rather than the gap
-   between two refreshes. Device-shown 2026-08-13 at 61 applies against 15
-   arrived sections, which turns the R6 drift quotient into noise. */
-static uint32_t g_era_host_peer_transaction_time_anchor_last_rx_us;
-static bool     g_era_host_peer_transaction_time_anchor_last_rx_valid;
-
-void era_host_peer_transaction_get_time_anchor_diagnostics(uint32_t *apply_count, uint32_t *back_count, uint32_t *back_max_ms) {
-    if (apply_count != NULL) {
-        *apply_count = g_era_host_peer_transaction_time_anchor_apply_count;
-    }
-    if (back_count != NULL) {
-        *back_count = g_era_host_peer_transaction_time_anchor_back_count;
-    }
-    if (back_max_ms != NULL) {
-        *back_max_ms = g_era_host_peer_transaction_time_anchor_back_max_ms;
-    }
-}
-
-void era_host_peer_transaction_get_time_anchor_refresh_diagnostics(int32_t *last_correction_ms, uint32_t *last_interval_ms) {
-    if (last_correction_ms != NULL) {
-        *last_correction_ms = g_era_host_peer_transaction_time_anchor_last_correction_ms;
-    }
-    if (last_interval_ms != NULL) {
-        *last_interval_ms = g_era_host_peer_transaction_time_anchor_last_interval_ms;
-    }
-}
-#endif
-
 static bool g_era_host_peer_transaction_time_anchor_adopted;
 
 bool era_host_peer_transaction_time_anchor_adopted(void) {
@@ -386,50 +319,6 @@ void era_host_peer_transaction_apply_time_anchor(uint32_t anchor_ms, uint32_t rx
     const uint32_t held_ms    = (uint32_t)((timer_hw->timerawl - rx_us) / 1000U);
     const uint32_t applied_ms = anchor_ms + held_ms;
     g_era_host_peer_transaction_time_anchor_adopted = true;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    /* Read before the write, and compared wrap-safely: `sync_timer_update()`
-       sets the shared clock absolutely, so a backwards step is a real clock
-       going backwards under every consumer and not a smaller number. */
-    const uint32_t previous_ms = sync_timer_read32();
-    /* `back` counts every apply that moves the shared clock backwards, re-apply
-       included, because a step backwards under the consumers is a step whoever
-       caused it.
-
-       **A re-apply produces one routinely, and the division is why.** The held
-       term is `(timerawl - rx_us) / 1000`, so between two re-applies of one
-       cached anchor the quotient advances in whole milliseconds while the shared
-       clock advances continuously -- and the truncation loses up to 1 ms every
-       time it rolls. Device-measured 2026-08-13: 578 backward steps against 31
-       arrived anchors on one half, none of them larger than the era's adoption.
-       So `back` is a truncation counter, and only `back_max_ms` carries the
-       reading the R6 bound wants. An earlier revision of this comment claimed
-       the re-apply could not step back; it was wrong. */
-    if ((int32_t)(applied_ms - previous_ms) < 0) {
-        const uint32_t back_ms = previous_ms - applied_ms;
-        g_era_host_peer_transaction_time_anchor_back_count++;
-        if (back_ms > g_era_host_peer_transaction_time_anchor_back_max_ms) {
-            g_era_host_peer_transaction_time_anchor_back_max_ms = back_ms;
-        }
-    }
-    /* Item 3's two readings (R6), taken at the one setter both carriers reach.
-       The correction is signed and the interval runs on the local timer, so
-       the pair survives the very step it measures -- and both are recorded per
-       ARRIVED anchor, so the quotient is the drift rate over a refresh period
-       rather than over a re-apply. `applies` counts the same unit. */
-    if (!g_era_host_peer_transaction_time_anchor_last_rx_valid ||
-        g_era_host_peer_transaction_time_anchor_last_rx_us != rx_us) {
-        g_era_host_peer_transaction_time_anchor_last_rx_us    = rx_us;
-        g_era_host_peer_transaction_time_anchor_last_rx_valid = true;
-        g_era_host_peer_transaction_time_anchor_apply_count++;
-        g_era_host_peer_transaction_time_anchor_last_correction_ms = (int32_t)(applied_ms - previous_ms);
-        g_era_host_peer_transaction_time_anchor_last_interval_ms =
-            g_era_host_peer_transaction_time_anchor_last_apply_valid
-                ? timer_elapsed32(g_era_host_peer_transaction_time_anchor_last_apply_local_ms)
-                : 0;
-        g_era_host_peer_transaction_time_anchor_last_apply_local_ms = timer_read32();
-        g_era_host_peer_transaction_time_anchor_last_apply_valid    = true;
-    }
-#endif
     sync_timer_update(applied_ms);
 }
 

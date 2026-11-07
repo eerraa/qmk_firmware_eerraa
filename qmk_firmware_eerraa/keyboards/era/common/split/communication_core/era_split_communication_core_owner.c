@@ -13,6 +13,9 @@
 #include "era_split_communication_core_lifecycle.h"
 #include "../era_split_transaction_backend.h"
 #include "../era_split_transaction_engine.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "../diagnostics/era_split_wire_cause.h"
+#endif
 
 #if !defined(MCU_RP)
 #    error "ERA split communication-core ownership requires RP2040."
@@ -52,15 +55,7 @@ typedef struct {
     volatile uint32_t revoke_word __attribute__((aligned(4)));
     volatile uint32_t release_word __attribute__((aligned(4)));
     volatile uint32_t ready_word __attribute__((aligned(4)));
-    volatile uint32_t transfer_count;
-    volatile uint32_t revoke_count;
-    volatile uint32_t release_count;
-    volatile uint32_t ready_count;
-    volatile uint32_t transfer_timeout_count;
-    volatile uint32_t ready_timeout_count;
-    volatile uint32_t init_fail_count;
     volatile uint32_t revoke_timeout_streak;
-    volatile uint32_t reclaim_count;
 } era_split_communication_core_owner_state_t;
 
 static era_split_communication_core_owner_state_t g_era_split_communication_core_owner;
@@ -113,7 +108,6 @@ static bool era_split_communication_core_owner_wait_word(volatile uint32_t *word
 static void era_split_communication_core_owner_publish_release(era_split_communication_core_backend_owner_t owner, uint16_t epoch) {
     __DMB();
     g_era_split_communication_core_owner.release_word = era_split_communication_core_owner_word(owner, epoch);
-    g_era_split_communication_core_owner.release_count++;
     __DMB();
     __SEV();
 }
@@ -121,7 +115,6 @@ static void era_split_communication_core_owner_publish_release(era_split_communi
 static void era_split_communication_core_owner_publish_ready(era_split_communication_core_backend_owner_t owner, uint16_t epoch) {
     __DMB();
     g_era_split_communication_core_owner.ready_word = era_split_communication_core_owner_word(owner, epoch);
-    g_era_split_communication_core_owner.ready_count++;
     __DMB();
     __SEV();
 }
@@ -225,14 +218,12 @@ bool era_split_communication_core_owner_core1_service(void) {
         } else if (role == ERA_SPLIT_TRANSACTION_BACKEND_ROLE_RESPONDER) {
             era_split_transaction_engine_init_responder_driver();
         } else {
-            g_era_split_communication_core_owner.init_fail_count++;
             era_split_transaction_engine_release_driver();
             era_split_communication_core_owner_publish_release(ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1, epoch);
             return false;
         }
         if (!era_split_transaction_backend_role_ready(role) ||
             era_split_communication_core_owner_backend_access(epoch) != ERA_SPLIT_COMMUNICATION_CORE_BACKEND_ACCESS_OK) {
-            g_era_split_communication_core_owner.init_fail_count++;
             era_split_transaction_engine_release_driver();
             era_split_communication_core_owner_publish_release(ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1, epoch);
             return false;
@@ -273,14 +264,12 @@ bool era_split_communication_core_owner_transfer_role(era_split_communication_co
             ERA_SPLIT_COMMUNICATION_CORE_OWNER_REVOKE |
             ERA_SPLIT_COMMUNICATION_CORE_OWNER_CANCEL |
             ERA_SPLIT_COMMUNICATION_CORE_OWNER_RESET;
-        g_era_split_communication_core_owner.revoke_count++;
         __DMB();
         __SEV();
 
         era_split_communication_core_wake();
 
         if (!era_split_communication_core_owner_wait_word(&g_era_split_communication_core_owner.release_word, release_word)) {
-            g_era_split_communication_core_owner.transfer_timeout_count++;
             g_era_split_communication_core_owner.revoke_timeout_streak++;
             if (g_era_split_communication_core_owner.revoke_timeout_streak < ERA_SPLIT_COMMUNICATION_CORE_OWNER_REVOKE_DEATH_STREAK) {
                 return false;
@@ -296,7 +285,6 @@ bool era_split_communication_core_owner_transfer_role(era_split_communication_co
                wrongly-judged core did after this line is epoch-refused —
                and it was reset one line ago, so it does nothing at all. */
             era_split_communication_core_declare_dead();
-            g_era_split_communication_core_owner.reclaim_count++;
             g_era_split_communication_core_owner.revoke_timeout_streak = 0;
         } else {
             g_era_split_communication_core_owner.revoke_timeout_streak = 0;
@@ -305,7 +293,6 @@ bool era_split_communication_core_owner_transfer_role(era_split_communication_co
 
     uint16_t next_epoch = era_split_communication_core_owner_next_epoch(current_epoch);
     if (next_owner == ERA_SPLIT_COMMUNICATION_CORE_BACKEND_OWNER_CORE1 && !era_split_communication_core_start()) {
-        g_era_split_communication_core_owner.init_fail_count++;
         return false;
     }
 
@@ -313,8 +300,10 @@ bool era_split_communication_core_owner_transfer_role(era_split_communication_co
     __DMB();
     g_era_split_communication_core_owner.role_word = era_split_communication_core_owner_role_word(next_role, next_epoch);
     __DMB();
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    era_split_wire_cause_owner(next_epoch);
+#endif
     g_era_split_communication_core_owner.lease_word = era_split_communication_core_owner_word(next_owner, next_epoch);
-    g_era_split_communication_core_owner.transfer_count++;
     __DMB();
     g_era_split_communication_core_owner.revoke_word = 0;
     __DMB();
@@ -328,7 +317,6 @@ bool era_split_communication_core_owner_transfer_role(era_split_communication_co
     era_split_communication_core_wake();
 
     if (!era_split_communication_core_owner_wait_word(&g_era_split_communication_core_owner.ready_word, ready_word)) {
-        g_era_split_communication_core_owner.ready_timeout_count++;
         /* R7 fix (2026-08-06): a launch whose core never publishes ready is a
            failure to bring core1 into service, whatever start() returned.
            Counting it here is what makes the per-boot cap reachable when a
@@ -401,36 +389,4 @@ bool era_split_communication_core_owner_core1_role_is_live(era_split_transaction
     era_split_communication_core_owner_init();
     __DMB();
     return era_split_communication_core_owner_lease_is_live_core1_role(role);
-}
-
-void era_split_communication_core_owner_get_diagnostics_snapshot(era_split_communication_core_owner_diagnostics_t *snapshot) {
-    era_split_communication_core_owner_init();
-    if (snapshot == NULL) {
-        return;
-    }
-
-    __DMB();
-    uint32_t lease_word   = g_era_split_communication_core_owner.lease_word;
-    uint32_t revoke_word  = g_era_split_communication_core_owner.revoke_word;
-    uint16_t owner_epoch  = era_split_communication_core_owner_word_epoch(lease_word);
-    uint8_t  revoke_flags = era_split_communication_core_owner_word_epoch(revoke_word) == owner_epoch ? (uint8_t)revoke_word : 0;
-    *snapshot = (era_split_communication_core_owner_diagnostics_t){
-        .owner                  = (uint8_t)era_split_communication_core_owner_word_owner(lease_word),
-        .backend_role           = (uint8_t)era_split_communication_core_owner_current_role(),
-        .revoke_pending         = (revoke_flags & ERA_SPLIT_COMMUNICATION_CORE_OWNER_REVOKE) != 0,
-        .cancel_pending         = (revoke_flags & ERA_SPLIT_COMMUNICATION_CORE_OWNER_CANCEL) != 0,
-        .reset_pending          = (revoke_flags & ERA_SPLIT_COMMUNICATION_CORE_OWNER_RESET) != 0,
-        .owner_epoch            = owner_epoch,
-        .released_epoch         = era_split_communication_core_owner_word_epoch(g_era_split_communication_core_owner.release_word),
-        .ready_epoch            = era_split_communication_core_owner_word_epoch(g_era_split_communication_core_owner.ready_word),
-        .transfer_count         = g_era_split_communication_core_owner.transfer_count,
-        .revoke_count           = g_era_split_communication_core_owner.revoke_count,
-        .release_count          = g_era_split_communication_core_owner.release_count,
-        .ready_count            = g_era_split_communication_core_owner.ready_count,
-        .transfer_timeout_count = g_era_split_communication_core_owner.transfer_timeout_count,
-        .ready_timeout_count    = g_era_split_communication_core_owner.ready_timeout_count,
-        .init_fail_count        = g_era_split_communication_core_owner.init_fail_count,
-        .reclaim_count          = g_era_split_communication_core_owner.reclaim_count,
-    };
-    __DMB();
 }

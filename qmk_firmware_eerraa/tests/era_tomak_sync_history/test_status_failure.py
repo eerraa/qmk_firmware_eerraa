@@ -46,7 +46,6 @@ static uint32_t timer_read32(void) { return now; }
 static uint32_t timer_elapsed32(uint32_t since) { return now - since; }
 static bool era_host_peer_storage_content_attempt_active(void) { return active_content; }
 static bool era_host_peer_storage_indicator_pending(void) { return indicator_pending; }
-static uint8_t era_host_peer_storage_indicator_diag(void) { return 0; }
 static void tomak_invalidate_indicator_render(void) {}
 static bool rgb_matrix_get_suspend_state(void) { return asleep; }
 static void rgb_matrix_set_color(unsigned i, uint8_t r, uint8_t g, uint8_t b) {
@@ -109,10 +108,7 @@ int main(void) {
     render(); colour(0,0,255);
     now=51; indicator_pending=false;
     render(); colour(0,255,0);
-    era_split_eeprom_sync_diagnostics_t span;
-    era_split_eeprom_sync_get_diagnostics_snapshot(&span);
-    assert(span.span_count==1 && span.span_rise_ms==10 && span.span_fall_ms==50);
-    assert(!span.visible);
+    assert(!tomak_eeprom_sync_status_visible_cached);
     tomak_link_reconcile_success_active_cached=false;
     assert(!(render().flags & RGB_MATRIX_RENDER_POLICY_STATUS_ACTIVE));
 
@@ -187,12 +183,7 @@ with tempfile.TemporaryDirectory(prefix="tomak-status-failure-") as directory:
     status_start = board.index("static bool    tomak_status_was_active;")
     status_end = board.index("#endif", status_start)
     unit = prefix + rgb_types + link_types + fixtures
-    sync_state_start = sync.index("typedef struct {")
-    sync_state_end = sync.index("bool era_split_eeprom_sync_indicator_visible_advance", sync_state_start)
-    unit += sync[sync_state_start:sync_state_end]
-    for name in ("era_split_eeprom_sync_indicator_visible_advance",
-                 "era_split_eeprom_sync_get_diagnostics_snapshot"):
-        unit += "\n" + function(sync, name)
+    unit += "\n" + function(sync, "era_split_eeprom_sync_indicator_visible_advance") + "\n"
     unit += board[state_start:state_end] + "\n" + board[status_start:status_end]
     for name in ("era_split_link_apply_feedback_set", "era_split_link_apply_report_advance"):
         unit += "\n" + function(link, name)

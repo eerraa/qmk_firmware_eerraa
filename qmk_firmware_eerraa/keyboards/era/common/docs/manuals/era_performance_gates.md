@@ -7,21 +7,21 @@ not regress
 
 ## Diagnostic Images And Measurement Authority
 
-Build-variant definitions and diagnostic-axis defaults are source-owned by
-`keyboards/era/era_build_options.mk`; selection rules are in
-`era_build_options.md`. `standard` is the release image with the diagnostic
-axes off. Diagnostic variants are measurement fixtures, not a second
-implementation path, and are built through `era_build.py` only when their gate
-calls for them, as described in `era_build_and_flash.md`.
+Selection rules are in `era_build_options.md`. The canonical variants are
+`standard`, `reset`, and `wire`; only `wire` has a diagnostic console and
+observer. It is a minimal measurement fixture, not a second implementation
+path or a replacement for every retired instrument. Build through
+`era_build.py` as described in `era_build_and_flash.md`.
 
-The shipped TOMAK capture fixture is source-owned by
-`keyboards/era/sirind/tomak/keymaps/via/keymap.c`; temporary bindings on another
-board must be restored after measurement. Decode diagnostic output with
-`era_capture_reading.md`.
+Temporary diagnostic bindings must be restored after measurement. Decode
+diagnostic output with `era_capture_reading.md`.
 
 **Do not infer a measured figure from source.** A constant is not a device
 reading. **Fixed Baselines** below contain only rules or measurements that still
-constrain later changes.
+constrain later changes. Historical instrument results are comparison inputs,
+not fresh measurements of the minimal wire image. Where a gate requires
+details this reporter cannot provide, obtain independent device/protocol
+evidence; missing fields are not a pass. No deleted variant is required.
 
 ## What A Change Owes
 
@@ -86,8 +86,11 @@ USB/HID readiness and first LED output still need device evidence.
 Build-variant identity is the exception worth spelling out:
 `tests/era_build_variant_rules/test_variant_rules.sh` checks the make-layer
 selection rules, while `common/tools/era_qmk_build.sh` binds the resolved tuple
-to the linked ELF and manifest. A make-only variant pass is not launcher
-evidence.
+to host-side linked-ELF witnesses and the manifest, not a flashed ABI. A
+make-only variant pass is not launcher evidence. An instrumentation change's
+final representative RP2040 split candidate covers `standard`,
+`reset`, and `wire`, affected functional tests and frontend gates; device
+gates remain user-requested only. Real frontend linking determines SRAM fit.
 
 A Tap Dance ownership or Caps feedback change also runs `python3` on
 `tests/era_backlight_pulse/td_ownership_selftest.py` and
@@ -128,8 +131,12 @@ endpoint, suspend or split results; unrun legs remain unmeasured.
 
 | | |
 | --- | --- |
-| Entry | the same storage-changing workload in both DUAL-HOST directions and with each physical half taking the HOST-PEER PEER role, at High, Medium and Low, on a `cause` image |
+| Entry | the same storage-changing workload in both DUAL-HOST directions and with each physical half taking the HOST-PEER PEER role, at High, Medium and Low |
 | Pass | `QUEUE_EXPIRED`=0, storage core `fail`=0, `claim == tx == rx == publish`; Core1 dead/cap/reclaim/service-failure counters do not advance; each operation advances storage transfer/complete/apply exactly once; abort, storage timeout, integrity, version, domain and queue-publication failures stay 0 |
+
+The minimal wire report exposes only part of this evidence. Independently
+observe the remaining ownership, transfer, completion and failure conditions;
+do not infer them from its compact counters.
 
 The scale matrix is mandatory: queue freshness is derived from the runtime
 wire scale, while the lifecycle progress word advances only after the
@@ -177,8 +184,8 @@ must veto a step. Verify no persistence from search. Measure the deliberate
 no-cable probe increase against the configured completion-to-next-probe
 interval, including actual TX/wait time and the initial ten-miss bootstrap.
 There must be no independent Right send and no steady-relation cadence change.
-Compare Core0 scan rate and Core1 parked time on like-for-like diagnostic
-images with the long-park caveat in `era_capture_reading.md`'s **The qwin Window**.
+Compare Core0 scan rate on like-for-like wire images; Core1 parked time requires
+independent device evidence because the minimal report does not measure it.
 Host-injected arrivals prove policy, not CPU percentages or electrical margins.
 `tests/era_split_link_lifecycle/test_discovery_cadence.py` compiles the actual
 sender period, due, reset and completion functions against controlled time.
@@ -232,16 +239,20 @@ Entry: identical non-default layout and macro on both halves; High DUAL-HOST
 both command directions and HOST-PEER with each half as PEER; then the two
 DUAL-HOST directions at Low after High passes.
 
-For every serviced CLEAN, compact phase evidence must order one REQUEST,
+For every serviced CLEAN, independent device/protocol evidence must order one REQUEST,
 reboot-durable local PREPARED on both halves, one COMMIT carrying a nonzero
 common deadline, responder COMMIT_ARMED, and the initiator's adoption of
 that same deadline. Neither half may hold a commit deadline before both
 PREPARED states, and no storage claim, transmit, receive, capture, transfer,
 Apply or responder admission may begin after the first PREPARED and before
-reset. On each half's live `wire clean` lines, `cq` and `hs` remain
-bit-for-bit unchanged from event 4 through its last pre-reset event;
-request/result/ready generations and storage-active are already zero at
-event 4. Both halves disconnect and boot; ordinary boot mount recovers
+reset. On each half, the storage claim/transmit/receive/result-publication
+activity and transfer/Apply/completion/failure activity must remain unchanged
+from local durable preparation through reset. Outstanding request/result/ready
+generations and storage-active must already be zero when
+`era_split_restart_agreement.c` sets `clean_local_prepared`.
+The minimal report has no CLEAN trace; this boundary requires independent
+device/protocol evidence when that device gate is requested. Both
+halves disconnect and boot; ordinary boot mount recovers
 MAGIC_OFF; QMK's init path formats ERA NVM and rebuilds defaults; then
 relation-open convergence closes all seven domains as MATCH with `xfer=0`
 and `apply=0`. Storage abort, timeout, integrity, version, domain,
@@ -356,9 +367,9 @@ The contract's **Verification** section points here; this procedure is
 | --- | --- |
 | mixing | do not change layout while functional source is changing |
 | enforced gate | `era_residency_gate.sh` on each RP2040 keymap's ELF for the three enforced checks |
-| objdump/nm | every ALLOC section VMA in ram0/ram4/ram5 except boot2 and the flash LMA image; vectors LMA at exactly `0x10000100`; flash startup carve-out closed; no linked symbol outside that carve-out fetched from XIP after crt0; the load image's four redefined init/fini array symbols present; veneer map on a first link |
+| objdump/nm | every ALLOC section VMA in ram0/ram4/ram5 except boot2, startup and the flash LMA image; vectors LMA at exactly `0x10000100`; flash startup carve-out closed; no linked symbol outside that carve-out fetched from XIP after crt0; the load image's four redefined init/fini array symbols present; veneer map on a first link |
 | double-tap magic | not accepted from an inferred placement. Confirm `magic_location == __bss_end__ == __era_bootloader_magic_base__` and `__era_bootloader_magic_end__ - __era_bootloader_magic_base__ == 4`. Why the word survives a reset is the residency contract's. Disassemble `early_hardware_init_pre()` (`system/era_boot_core1_halt.c`) and require no call into `.sram_image`; the flash carve-out permits only the two established post-copy crt0 veneers |
-| smoke | both-orientation storage, typing, RGB and recovery smoke on the exact selected load image, plus a fresh no-cable qwin comparison point. Scan rates are never compared across a layout change |
+| smoke | when requested, both-orientation storage, typing, RGB and recovery smoke on the exact selected load image, plus a fresh no-cable wire comparison point. Scan rates are never compared across a layout change |
 
 ## Fixed Baselines
 
@@ -371,9 +382,9 @@ its own gate.
 | --- | --- | --- | --- |
 | ERA RP2040 matrix timing | family default select 128 / release 64 cycles, followed by bounded all-row/column GPIO recovery checks in `era_rp2040_matrix_pio_recovery.h` | Owner-selected release baseline after TOMAK79H shorting tests and qwin: recovery checking with 128/64 suppressed the observed extra-key input. This is device-specific evidence, not a measured electrical margin for every board. Earlier fixed-delay TOMAK tests rejected select `32` and `64`. Further reductions require device evidence | matrix / typing; PIO instruction-model tests |
 | Split USART | `ERA_SPLIT_SERIAL_USART_SPEED` 460800 baud. `split/era_split_via_link.c` `#error`s any other High | `576000` and `748800` produced source-push ACK gaps under high-rate typing; stay rejected until separate signal-margin work proves otherwise | wire / typing |
-| Performance floor | 18 kHz on each half, cable or no cable | This standing usability floor moves only with its own controlled real-device gate | qwin |
+| Performance floor | 18 kHz on each half, cable or no cable | This standing usability floor moves only with its own controlled real-device gate | wire scan window |
 | Core0 process stack | `USE_PROCESS_STACKSIZE` 0xA00 (2560 B), set in `features/era_tapdance_rules.mk`; SRAM4 keeps 224 B free. A Tap Dance action running `QK_BOOT` can flush pending config to ERA NVM through a chain exceeding QMK's 2048 B default; retain the larger reservation | Static call-chain evidence only; actual high-water remains a device gate | `common/tools/era_core1_stack_walk.py <elf> <root>` per segment, joined at the actual dance callback (an indirect call the walker does not follow). Re-derive the current image's frames and untracked paths; distinguish SRAM4 placement slack from process-stack headroom. The comparison buffer in `drivers/eeprom/eeprom_driver.c:eeprom_update_block()` is fixed-size and belongs in its measured frame |
-| PIO sampler frame rate | GPIO recovery makes slot duration input-dependent; qwin `smp_hz` is the measured frame rate and `scan_hz` is the separate Core0 pass rate | `ovr=0 rearm=0 fd1=0` on every window; any of them non-zero is a finding. These fields do not count recovery-check timeouts | qwin / PIO; `era_rp2040_matrix_pio` |
+| PIO sampler frame rate | GPIO recovery makes slot duration input-dependent; valid `pio_hz` is the sampler frame rate and `hz` is the separate Core0 scan rate | The historical `ovr=0 rearm=0 fd1=0` requirement remains; the minimal report does not expose the old overrun field. A rearm or debug finding and unavailable independent overrun evidence cannot be treated as a pass. These fields do not count recovery-check timeouts | wire / independent PIO evidence; `era_rp2040_matrix_pio` |
 | Render chunk | `c + LEDs × e` with `led_process_limit` 4 on TOMAK79H (`keyboard.json`); **c ≈ 8–11 µs** a chunk; **e ≈ 2.97 µs** an LED on a non-reactive effect; **e ≈ 14.9 µs** on the heaviest reactive effect (five-fold in `e`, `c` unchanged) | the fixed term is the per-chunk policy update, effect dispatch and `rgb_matrix_indicators_advanced()` call in `quantum/rgb_matrix/rgb_matrix.c`, so it does not shrink when the chunk does. Worst chunk `c + L·e` falls linearly in `L` while the frame's fixed cost `ceil(n/L)·c` rises as `1/L`. Between the shipping four and a hypothetical three the marginal price of a microsecond of worst case rises **six-fold** | RGB / chunk |
 | RGB frame rate | 62.34 fps with the idle gate, against 62.50 without it | the 0.26 % is the gate sampling a millisecond clock at a period one pass longer than a millisecond, and is the whole of the mechanism's behavioural residue. **It does not reach animation speed**: effect phase is computed from `g_rgb_timer` | RGB |
 

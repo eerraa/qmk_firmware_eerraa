@@ -140,9 +140,9 @@ Omitting the variant means `standard` on every keyboard. Diagnostic names are
 board-independent; make preconditions refuse an incompatible selection:
 
 ```powershell
-python keyboards/era/common/tools/era_build.py build era/sirind/tomak:via cause
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak:via wire
 python keyboards/era/common/tools/era_build.py build era/sirind/tomak79h:via wire
-python keyboards/era/common/tools/era_build.py build era/sirind/tomak79h:via standard wire qwin cause --show-options
+python keyboards/era/common/tools/era_build.py build era/sirind/tomak79h:via standard reset wire --show-options
 ```
 
 The frontend owns synchronization and artifact return to the selected edit
@@ -236,8 +236,8 @@ artifact.
 
 ### Exact image and definitions
 
-Build `era/sirind/tomak:via standard` for the acceptance image. Build `wire` or
-`cause` separately only when the corresponding diagnostic evidence is needed.
+Build `era/sirind/tomak:via standard` for the acceptance image. Build `wire`
+separately only when its diagnostic evidence is needed.
 For every leg, use the artifact whose manifest names the current edit tree and
 target; never select an artifact by modification time and never substitute a
 different TOMAK-family target.

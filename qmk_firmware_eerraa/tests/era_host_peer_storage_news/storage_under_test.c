@@ -88,9 +88,6 @@ uint32_t era_test_news_retry_delay(void) {
 
 void era_test_news_reset(void) {
     era_split_communication_core_storage_capacity_init();
-#ifdef ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
-    memset(&g_era_host_peer_storage_timing, 0, sizeof(g_era_host_peer_storage_timing));
-#endif
     macro_open = false;
     retirement_ready = true;
     attempt_starts = failure_receipts = 0;
@@ -99,7 +96,6 @@ void era_test_news_reset(void) {
     memset(&g_era_host_peer_storage_runtime, 0, sizeof(g_era_host_peer_storage_runtime));
     memset(g_era_host_peer_storage_manifest, 0, sizeof(g_era_host_peer_storage_manifest));
     memset(g_era_host_peer_storage_image, 0, sizeof(g_era_host_peer_storage_image));
-    memset(&era_split_eeprom_sync_state, 0, sizeof(era_split_eeprom_sync_state));
     g_era_host_peer_storage_local.initialized = 1;
     g_era_host_peer_storage_relation.indicator_bits = ERA_HOST_PEER_STORAGE_INDICATOR_GATE;
     g_era_host_peer_storage_relation.runtime_service_active = 1;

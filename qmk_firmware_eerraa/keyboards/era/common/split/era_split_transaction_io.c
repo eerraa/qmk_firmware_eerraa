@@ -4,6 +4,9 @@
 #include "era_split_transaction_io.h"
 
 #include "era_split_wire_frame.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "diagnostics/era_split_wire_cause.h"
+#endif
 
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
 #    include "timer.h"
@@ -62,6 +65,9 @@ era_split_transaction_engine_result_t era_split_transaction_io_send_compact_owne
     }
 #endif
     if (!sent) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_SEND, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_SEND_TIMEOUT);
         if (*failure == ERA_SPLIT_TRANSACTION_FAILURE_NONE) {
             *failure = ERA_SPLIT_TRANSACTION_FAILURE_IO;
@@ -95,6 +101,9 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_compact_o
     era_split_transaction_backend_wait_result_t     wait_result;
     era_split_transaction_backend_response_window_t window;
     if (!era_split_transaction_backend_response_window_begin(owner_epoch, response_window_ms, &window, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_RESPONSE_BEGIN, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_TIMEOUT);
         if (*failure == ERA_SPLIT_TRANSACTION_FAILURE_NONE) {
             *failure = ERA_SPLIT_TRANSACTION_FAILURE_IO;
@@ -104,6 +113,9 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_compact_o
 
     uint8_t wire[ERA_SPLIT_WIRE_MAX_FRAME_LEN];
     if (!era_split_transaction_backend_receive_response_window_until(&window, &wire[0], 1, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_RESPONSE_FIRST, wait_result);
+#endif
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
         if (timing != NULL) {
             timing->wait_rx_us = era_split_transaction_io_timing_elapsed_us(wait_start_us);
@@ -122,6 +134,11 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_compact_o
     uint8_t payload_len = wire[0] & ERA_SPLIT_WIRE_FRAME_LENGTH_MASK;
     if ((wire[0] & ERA_SPLIT_WIRE_FRAME_MARKER_MASK) != ERA_SPLIT_WIRE_FRAME_MARKER ||
         payload_len == ERA_SPLIT_WIRE_BULK_LENGTH_ESCAPE || payload_len > ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_phase(ERA_CAUSE_RESPONSE_FIRST);
+        era_split_wire_cause_reject((wire[0] & ERA_SPLIT_WIRE_FRAME_MARKER_MASK) != ERA_SPLIT_WIRE_FRAME_MARKER ? ERA_CAUSE_RX_MARKER : ERA_CAUSE_RX_LENGTH,
+                                    payload_len, ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN, wire[0]);
+#endif
         *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
         if (timing != NULL) {
@@ -133,6 +150,9 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_compact_o
 
     uint8_t remaining = (uint8_t)(payload_len + 1U);
     if (!era_split_transaction_backend_receive_response_window_until(&window, &wire[1], remaining, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_RESPONSE_BODY, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
         if (timing != NULL) {
@@ -144,6 +164,12 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_compact_o
 
     uint8_t frame_len = (uint8_t)(payload_len + 2U);
     if (!era_split_wire_decode_compact_frame(wire, frame_len, frame) || frame->direction != expected_direction) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        /* A codec rejection already owns the pending record; only a decoded
+         * frame reaches the direction comparison. Do not decode it twice. */
+        era_split_wire_cause_reject(ERA_CAUSE_DIRECTION, expected_direction,
+                                    (wire[0] & ERA_SPLIT_WIRE_FRAME_DIRECTION_BIT) != 0, wire[0]);
+#endif
         *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
 #ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
         if (timing != NULL) {
@@ -176,6 +202,9 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_idle_owne
     era_split_transaction_backend_wait_result_t     wait_result = ERA_SPLIT_TRANSACTION_BACKEND_WAIT_OK;
     era_split_transaction_backend_response_window_t window;
     if (!era_split_transaction_backend_responder_idle_window_begin(owner_epoch, first_byte_timeout_ms, &window, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_IDLE_BEGIN, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_TIMEOUT);
         return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
     }
@@ -184,12 +213,19 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_idle_owne
         if (wait_result == ERA_SPLIT_TRANSACTION_BACKEND_WAIT_TIMEOUT) {
             return ERA_SPLIT_TRANSACTION_RESULT_NONE;
         }
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_IDLE_FIRST, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_RESPONSE_TIMEOUT);
         return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
     }
 
     uint8_t length_field = wire[0] & ERA_SPLIT_WIRE_FRAME_LENGTH_MASK;
     if ((wire[0] & ERA_SPLIT_WIRE_FRAME_MARKER_MASK) != ERA_SPLIT_WIRE_FRAME_MARKER) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_phase(ERA_CAUSE_IDLE_FIRST);
+        era_split_wire_cause_reject(ERA_CAUSE_RX_MARKER, length_field, wire_capacity, wire[0]);
+#endif
         *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
         return ERA_SPLIT_TRANSACTION_RESULT_BAD;
     }
@@ -211,28 +247,50 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_idle_owne
          * against a caller that passes 20; the figure was wrong before the
          * level made the premise visible. */
         if (wire_capacity < (uint16_t)(ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN + 7U)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_phase(ERA_CAUSE_IDLE_FIRST);
+            era_split_wire_cause_reject(ERA_CAUSE_RX_CAPACITY, ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN + 7U, wire_capacity, wire[0]);
+#endif
             *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
             return ERA_SPLIT_TRANSACTION_RESULT_BAD;
         }
         if (!era_split_transaction_backend_responder_frame_window_begin(&window, frame_timeout_ms, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_wait(ERA_CAUSE_FRAME_BEGIN, wait_result);
+#endif
             *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
             return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
         }
         if (!era_split_transaction_backend_receive_responder_until(&window, &wire[1], 2, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_wait(ERA_CAUSE_BULK_HEADER, wait_result);
+#endif
             *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
             return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
         }
         uint16_t bulk_payload_len = era_split_wire_get16(&wire[1]);
         if (bulk_payload_len == 0 || bulk_payload_len > ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_phase(ERA_CAUSE_BULK_HEADER);
+            era_split_wire_cause_reject(ERA_CAUSE_RX_LENGTH, bulk_payload_len, ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN, wire[0]);
+#endif
             *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
             return ERA_SPLIT_TRANSACTION_RESULT_BAD;
         }
         if (!era_split_transaction_backend_receive_responder_until(&window, &wire[3], (size_t)bulk_payload_len + 4U, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_wait(ERA_CAUSE_BULK_BODY, wait_result);
+#endif
             *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
             return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
         }
         uint16_t bulk_frame_len = (uint16_t)(bulk_payload_len + 7U);
         if (!era_split_wire_decode_bulk_page_frame(wire, bulk_frame_len, frame) || frame->direction != expected_direction) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+            era_split_wire_cause_phase(ERA_CAUSE_BULK_BODY);
+            era_split_wire_cause_reject(ERA_CAUSE_DIRECTION, expected_direction,
+                                        (wire[0] & ERA_SPLIT_WIRE_FRAME_DIRECTION_BIT) != 0, wire[0]);
+#endif
             *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
             return ERA_SPLIT_TRANSACTION_RESULT_BAD;
         }
@@ -246,18 +304,29 @@ era_split_transaction_engine_result_t era_split_transaction_io_receive_idle_owne
     }
 
     if (!era_split_transaction_backend_responder_frame_window_begin(&window, frame_timeout_ms, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_FRAME_BEGIN, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
         return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
     }
 
     uint8_t remaining = (uint8_t)(payload_len + 1U);
     if (!era_split_transaction_backend_receive_responder_until(&window, &wire[1], remaining, &wait_result)) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_COMPACT_BODY, wait_result);
+#endif
         *failure = era_split_transaction_backend_failure_from_wait(wait_result, ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME);
         return ERA_SPLIT_TRANSACTION_RESULT_FAIL;
     }
 
     uint8_t frame_len = (uint8_t)(payload_len + 2U);
     if (!era_split_wire_decode_compact_frame(wire, frame_len, frame) || frame->direction != expected_direction) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_phase(ERA_CAUSE_COMPACT_BODY);
+        era_split_wire_cause_reject(ERA_CAUSE_DIRECTION, expected_direction,
+                                    (wire[0] & ERA_SPLIT_WIRE_FRAME_DIRECTION_BIT) != 0, wire[0]);
+#endif
         *failure = ERA_SPLIT_TRANSACTION_FAILURE_DECODE;
         return ERA_SPLIT_TRANSACTION_RESULT_BAD;
     }

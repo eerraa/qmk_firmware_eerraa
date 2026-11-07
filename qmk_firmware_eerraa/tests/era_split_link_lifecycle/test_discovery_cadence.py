@@ -59,10 +59,9 @@ static struct {
     uint8_t attach_status_miss_streak;
 } g_era_split_transport_scheduler;
 static uint32_t now;
-static unsigned sent, revalidations;
+static unsigned revalidations;
 static uint32_t timer_read32(void) { return now; }
 static uint32_t timer_elapsed32(uint32_t start) { return now-start; }
-static void era_split_scheduler_session_note_local_status_sent(void) { ++sent; }
 static void era_split_transport_scheduler_begin_revalidation(uint32_t at_ms) {
     (void)at_ms;
     ++revalidations;
@@ -85,14 +84,12 @@ int main(void) {
         assert(!SHOULD_SEND()); now+=period-1; assert(!SHOULD_SEND());
         now++; assert(SHOULD_SEND());
     }
-    assert(sent==10);
     /* Completion, not request construction, owns the next interval. */
     now+=80; COMPLETE(TEST_TIMEOUT,true,false);
     now+=99; assert(!SHOULD_SEND()); now++; assert(SHOULD_SEND());
     /* Unsent failures still cannot create a tight retry loop. */
-    unsigned before=sent;
     COMPLETE(TEST_TIMEOUT,false,false);
-    assert(sent==before && !SHOULD_SEND());
+    assert(!SHOULD_SEND());
     now+=100; assert(SHOULD_SEND());
     /* Success removes pending bootstrap; an explicit reset reopens it. */
     COMPLETE(ERA_SPLIT_TRANSACTION_RESULT_OK,true,false);

@@ -164,15 +164,6 @@ bool era_host_peer_transaction_time_anchor_adopted(void);
    create a new shared-clock deadline; it deliberately does not step or clear
    sync_timer itself. The next TIME_ANCHOR apply re-establishes readiness. */
 void era_host_peer_transaction_forget_time_anchor(void);
-#if defined(SPLIT_KEYBOARD) && defined(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)
-/* Anchor applies, backwards steps, and the worst backwards step in ms. Read
-   after a PEER era, because the half that applies an anchor has no console
-   while it is applying one. */
-void era_host_peer_transaction_get_time_anchor_diagnostics(uint32_t *apply_count, uint32_t *back_count, uint32_t *back_max_ms);
-/* R6 criterion item 3: the last signed per-refresh correction and the local
-   inter-refresh interval, whose quotient is the drift rate. */
-void era_host_peer_transaction_get_time_anchor_refresh_diagnostics(int32_t *last_correction_ms, uint32_t *last_interval_ms);
-#endif
 /* The ACTIVITY apply (FA-2 S2): into the tap activity unit's peer cache, a
    cache update in the invariant's sense -- the tapping engine consumes it on
    its own passes and no HID event is produced here. */

@@ -42,15 +42,6 @@
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 #    include "diagnostics/era_split_wire_diagnostics.h"
 #endif
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-#    include "diagnostics/era_via_macro_diagnostics.h"
-#endif
-#ifdef ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE
-#    include "diagnostics/era_split_qwin_diagnostics.h"
-#endif
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-#    include "../system/era_pass_phase_diagnostics.h"
-#endif
 #define ERA_SPLIT_USB_REMOTE_WAKEUP_ENABLED 2U
 
 static bool    era_split_keyboard_usb_configure_state_valid;
@@ -65,13 +56,6 @@ static bool era_split_keyboard_lighting_sleep_owner_valid;
 static bool era_split_keyboard_lighting_sleep_owner_is_wire;
 static bool era_split_keyboard_wire_lighting_sleep_valid;
 static bool era_split_keyboard_wire_lighting_sleep;
-/* The sleep decision's rising-edge stamp, for the breaker hunt: the brk latch
-   named a NONE frame with clean flush-time state, and the only mid-operation
-   writer that can raise suspend is the resolve above this — so the question
-   one operation answers is whether the decision pulsed true near `brkms`.
-   Edge-only, diagnostics-read, no behavior. */
-static uint16_t era_split_keyboard_lighting_sleep_true_count;
-static uint32_t era_split_keyboard_lighting_sleep_true_ms;
 
 static bool era_split_keyboard_local_sleep_state(void) {
 #if defined(ERA_RGB_SLEEP_MASTER_ENABLE) && defined(ERA_LIGHTING_SLEEP_ENABLE)
@@ -191,11 +175,6 @@ static bool era_split_keyboard_note_lighting_sleep(bool sleep) {
         era_split_keyboard_lighting_sleep = sleep;
     }
 
-    if (changed && sleep) {
-        era_split_keyboard_lighting_sleep_true_count++;
-        era_split_keyboard_lighting_sleep_true_ms = timer_read32();
-    }
-
 #ifdef RGB_MATRIX_ENABLE
     /* Reconcile the physical gate every time, not only on a logical edge. QMK's
        wake path is allowed to clear this flag, and board presentation code must
@@ -270,16 +249,6 @@ bool era_split_keyboard_note_wire_lighting_sleep(bool sleep) {
         era_split_keyboard_wire_lighting_sleep       = sleep;
     }
     return changed;
-}
-
-/* Diagnostics view of the sleep decision's rising edges: how many times the
-   resolved decision went true since boot, and the local ms of the last rise.
-   Read cold at the console print; pairs with the shim led line's `brk`. */
-uint16_t era_split_keyboard_lighting_sleep_true_diag(uint32_t *last_ms) {
-    if (last_ms != NULL) {
-        *last_ms = era_split_keyboard_lighting_sleep_true_ms;
-    }
-    return era_split_keyboard_lighting_sleep_true_count;
 }
 
 /* What the HOST-PEER HOST publishes to its PEER: the resolved decision, never
@@ -396,30 +365,8 @@ layer_state_t layer_state_set_kb(layer_state_t state) {
 }
 
 void era_split_keyboard_task(void) {
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    /* Closes the loop-tail segment: everything QMK's main loop ran between the
-       end of keyboard_task() and this hook -- protocol_post_task, the raw-HID
-       and console tasks, deferred exec, and housekeeping_task down to the split
-       skeleton. This is the first ERA-owned point after keyboard_task() ends. */
-    era_pass_phase_mark(ERA_PASS_PHASE_LOOP);
-    /* The HK sub-span opens here, on the stamp the mark above just took. The
-       four parts tile HK so its 153 us maximum gets an owner; the fourth is
-       derived by the reader as HK minus these three. */
-    era_pass_phase_hk_open();
-#endif
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    /* raw_hid_task() ran earlier in this main-loop pass. Polling the RAW IN
-     * endpoint here separates response enqueue time from actual queue drain. */
-    era_via_macro_diagnostics_task();
-#endif
     era_common_features_task();
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_hk_mark(ERA_PASS_PHASE_HK_FEATURES);
-#endif
     (void)era_split_transport_scheduler_task();
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_hk_mark(ERA_PASS_PHASE_HK_SCHED);
-#endif
     /* Unconditional since 2026-08-11, where it used to run only on a pass the
        scheduler reported work for. The frame-loss arm of the local predicate
        goes true on its own timer with nothing on the wire to report - a dead
@@ -452,22 +399,13 @@ void era_split_keyboard_task(void) {
         if ((uint32_t)(now_us - resolve_last_us) >= 1000) {
             resolve_last_us = now_us;
             (void)era_split_keyboard_resolve_lighting_sleep();
-#ifdef ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE
-            era_split_qwin_diagnostics_tick_1ms();
-#endif
         }
     }
 #else
     (void)era_split_keyboard_resolve_lighting_sleep();
 #endif
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_hk_mark(ERA_PASS_PHASE_HK_TICK);
-#endif
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     era_split_wire_diagnostics_task();
-#endif
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_mark(ERA_PASS_PHASE_HK);
 #endif
 }
 
@@ -526,11 +464,6 @@ bool era_split_keyboard_process_record(uint16_t keycode, keyrecord_t *record) {
     }
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     if (!era_split_wire_diagnostics_process_record(keycode, record)) {
-        return false;
-    }
-#endif
-#ifdef ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE
-    if (!era_split_qwin_diagnostics_process_record(keycode, record)) {
         return false;
     }
 #endif

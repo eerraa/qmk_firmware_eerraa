@@ -161,7 +161,8 @@ cannot measure the target.
 The standing requirements are:
 
 - every nonempty ALLOC section must fit wholly inside its physical SRAM bank
-  outside the ROM scratch reservation, or the flash startup carve-out; allocations, including the elastic `.heap`
+  outside the ROM scratch reservation, or the flash startup carve-out;
+  allocations, including the elastic `.heap`
   filler, must not overlap;
 - linked resident main-SRAM usage and unused capacity must be reported for
   every variant; `.heap` is excluded from resident usage;

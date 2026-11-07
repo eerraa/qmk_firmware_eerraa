@@ -31,8 +31,6 @@ void era_test_lighting_reset(void) {
     era_split_keyboard_lighting_sleep_owner_is_wire = false;
     era_split_keyboard_wire_lighting_sleep_valid = false;
     era_split_keyboard_wire_lighting_sleep = false;
-    era_split_keyboard_lighting_sleep_true_count = 0;
-    era_split_keyboard_lighting_sleep_true_ms = 0;
     test_wire_owned = false;
     test_local_loss = false;
     usb_device_state_init();

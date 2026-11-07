@@ -2,7 +2,6 @@
 // Keep the existing storage fixture's platform substitutes, but use this
 // target's real EEPROM adapter, NVM, VIA dispatcher and keymap geometry.
 #define ERA_TEST_REAL_EEPROM
-#define ERA_TOMAK_SYNC_STATE_DIAGNOSTICS
 #define ERA_STORAGE_QUIET_DEFER_MS 500
 #define RGB_MATRIX_LED_COUNT 1
 #define era_host_peer_storage_execution_pending era_test_storage_execution_pending
@@ -28,6 +27,7 @@ void era_test_storage_deferred_approve(bool first) {
     eeconfig_schedule_deferred_flush_rgb_matrix();
 }
 void era_test_storage_deferred_flush(void) { eeconfig_run_deferred_flush_rgb_matrix(); }
+uint32_t era_test_storage_deferred_token(void) { return deferred_operation_rgb_matrix; }
 void era_test_storage_approve_then_fail_immediate(void) {
     EECONFIG_SEMANTIC_BEGIN();
     era_test_storage_deferred_approve(true);

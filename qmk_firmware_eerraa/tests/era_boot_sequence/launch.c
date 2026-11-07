@@ -95,7 +95,6 @@ static void era_split_transport_scheduler_sync_peer_matrix_projection(void) {}
 static bool era_split_transport_scheduler_local_initiator_available(void) { return g_era_split_transport_scheduler.local_wire_available && g_era_split_transport_scheduler.local_wire_initiator; }
 static unsigned era_split_wire_eligible_sections(unsigned mode, unsigned direction) { (void)mode; (void)direction; return 0; }
 static void era_split_transport_scheduler_publish_standing_plan(void) {}
-static void era_split_transport_scheduler_note_transport_step_call(void) {}
 static bool era_split_input_source_gate(bool open, uint16_t owner, uint16_t relation) { (void)open; (void)owner; (void)relation; return false; }
 static void era_split_input_receiver_gate(bool open, uint16_t owner, uint16_t relation) { (void)open; (void)owner; (void)relation; }
 static bool era_matrix_engine_copy_local_rows(matrix_row_t *rows) { (void)rows; return false; }

@@ -94,5 +94,4 @@ Cross-build non-reuse and the unresolved mode 5/6 question are owned by
 
 | Responsibility | First source file / symbol | Contract / check |
 | --- | --- | --- |
-| wire/scheduler diagnostic fields | `split/diagnostics/era_split_wire_diagnostics.h`; `split/era_split_transport_scheduler_diagnostics.h` | decode and field semantics: `manuals/era_capture_reading.md` |
-| pass-phase ids | `system/era_pass_phase_diagnostics.h` | `manuals/era_capture_reading.md` **The `qwin_phase` rung** |
+| minimal wire report and trigger keys | `split/diagnostics/era_split_wire_diagnostics.c` | decode and field semantics: `manuals/era_capture_reading.md` |

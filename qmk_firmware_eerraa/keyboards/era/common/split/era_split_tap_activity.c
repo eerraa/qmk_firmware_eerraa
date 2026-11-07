@@ -57,8 +57,6 @@ static struct {
     era_split_wire_activity_section_t advertised;
     era_split_wire_activity_section_t peer;
     bool                              peer_valid;
-
-    era_split_tap_activity_diagnostics_t counters;
 } g_era_split_tap_activity;
 
 // Map the original 32-bit local event instant to the shared clock.
@@ -85,7 +83,6 @@ static void era_split_tap_activity_publish_if_changed(void) {
     }
     if (!era_split_wire_activity_equal(&next, &g_era_split_tap_activity.advertised)) {
         g_era_split_tap_activity.advertised = next;
-        g_era_split_tap_activity.counters.advertise_change_count++;
         era_split_transport_scheduler_note_local_activity_change();
     }
 }
@@ -104,7 +101,6 @@ static void era_split_tap_activity_cancel_retro(void) {
     retro_tap_curr_key = 0;
 #endif
     g_era_split_tap_activity.retro_cancelled = true;
-    g_era_split_tap_activity.counters.retro_cancel_count++;
 }
 
 // True when the peer's cached press activity postdates the window open --
@@ -126,22 +122,6 @@ static bool era_split_tap_activity_peer_release_in_window(void) {
     return g_era_split_tap_activity.peer_valid &&
            g_era_split_tap_activity.peer.release_count != g_era_split_tap_activity.snapshot_release_count &&
            (int32_t)(g_era_split_tap_activity.peer.last_release_ms - g_era_split_tap_activity.window_open_ms) >= 0;
-}
-
-void era_split_tap_activity_note_speculative(uint8_t event) {
-    switch (event) {
-        case 0:
-            g_era_split_tap_activity.counters.speculative_activate_count++;
-            break;
-        case 1:
-            g_era_split_tap_activity.counters.speculative_revert_count++;
-            break;
-        case 2:
-            g_era_split_tap_activity.counters.speculative_abort_count++;
-            break;
-        default:
-            break;
-    }
 }
 
 void era_split_tap_activity_note_record(bool pressed, keypos_t key, uint32_t event_time, uint16_t keycode, uint8_t tap_count) {
@@ -212,7 +192,6 @@ void era_split_tap_activity_engine_window(bool in_flight, keypos_t key, uint32_t
             g_era_split_tap_activity.retro_cancelled        = false;
             g_era_split_tap_activity.snapshot_press_count   = g_era_split_tap_activity.peer.press_count;
             g_era_split_tap_activity.snapshot_release_count = g_era_split_tap_activity.peer.release_count;
-            g_era_split_tap_activity.counters.window_open_count++;
         }
     } else if (g_era_split_tap_activity.window_open &&
                g_era_split_tap_activity.phase == ERA_SPLIT_TAP_ACTIVITY_PHASE_ENGINE) {
@@ -249,7 +228,6 @@ bool era_split_tap_activity_judge_hold(bool own_release, uint32_t own_release_ev
 
     bool settle = false;
     if ((g_era_split_tap_activity.window_options & ERA_SPLIT_TAP_ACTIVITY_OPTION_HOKP) != 0) {
-        g_era_split_tap_activity.counters.judged_hold_hokp_count++;
         settle = true;
     } else if ((g_era_split_tap_activity.window_options & ERA_SPLIT_TAP_ACTIVITY_OPTION_PH) != 0 &&
                era_split_tap_activity_peer_release_in_window() &&
@@ -262,7 +240,6 @@ bool era_split_tap_activity_judge_hold(bool own_release, uint32_t own_release_ev
         // pairs the press, where single-keyboard permissive hold can -- and
         // latest-state carries one stamp per
         // edge, so a multi-event image is judged by its newest instants.
-        g_era_split_tap_activity.counters.judged_hold_ph_count++;
         settle = true;
     }
     // The in-window peer press cancels a pending retro tap whether or not it
@@ -291,7 +268,6 @@ void era_split_tap_activity_dance_hold(bool held, keypos_t key, uint32_t press_e
         g_era_split_tap_activity.retro_cancelled        = false;
         g_era_split_tap_activity.snapshot_press_count   = g_era_split_tap_activity.peer.press_count;
         g_era_split_tap_activity.snapshot_release_count = g_era_split_tap_activity.peer.release_count;
-        g_era_split_tap_activity.counters.window_open_count++;
     } else {
         if (!g_era_split_tap_activity.window_open ||
             g_era_split_tap_activity.phase != ERA_SPLIT_TAP_ACTIVITY_PHASE_RETRO_PENDING ||
@@ -313,7 +289,6 @@ void era_split_tap_activity_apply_peer(const era_split_wire_activity_section_t *
     }
     g_era_split_tap_activity.peer       = *activity;
     g_era_split_tap_activity.peer_valid = true;
-    g_era_split_tap_activity.counters.peer_update_count++;
 
     // A pre-window stamp proves every event this image counts on that edge is
     // freeze-gap backlog -- the stamp is the newest of them -- so re-anchor
@@ -358,18 +333,4 @@ void era_split_tap_activity_relation_reset(void) {
     // stay silent.
     memset(&g_era_split_tap_activity.advertised, 0, sizeof(g_era_split_tap_activity.advertised));
     era_split_tap_activity_publish_if_changed();
-}
-
-void era_split_tap_activity_note_sent(void) {
-    g_era_split_tap_activity.counters.sent_count++;
-}
-
-void era_split_tap_activity_note_sent_bulk(uint32_t count) {
-    g_era_split_tap_activity.counters.sent_count += count;
-}
-
-void era_split_tap_activity_get_diagnostics(era_split_tap_activity_diagnostics_t *out) {
-    if (out != NULL) {
-        *out = g_era_split_tap_activity.counters;
-    }
 }

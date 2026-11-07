@@ -5,6 +5,7 @@
 EEPROM_DRIVER = custom
 INTROSPECTION_KEYMAP_C = keymap.c
 SRC += tests/era_split_link_lifecycle/link_under_test.c
+SRC += tests/era_split_link_lifecycle/storage_observer.c
 SRC += keyboards/era/common/storage/era_nvm.c
 OPT_DEFS += -DEEPROM_SIZE=24576 -DVIA_ENABLE -DERA_VIA_SYSTEM_ENABLE
 OPT_DEFS += -DSERIAL_USART_SPEED=460800

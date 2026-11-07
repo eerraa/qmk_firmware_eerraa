@@ -221,16 +221,22 @@ static void startup_after_standing_stop(void) {
     assert(standing_requests == before);
     test_core = 0; assert(era_split_communication_core_resume_standing(7, 9, stop));
     test_core = 1;
-    assert(!era_split_communication_core_standing_service_once(7)); // A/B still excludes standing traffic
     era_split_communication_core_process_initiator(&record);
     assert(standing_requests == before + 1 && input_result.request_sent);
     assert(input_result.result == ERA_SPLIT_TRANSACTION_RESULT_OK);
     test_core = 0; era_split_input_source_complete(&input_result.input, true, input_result.input_status);
     assert(source.phase == SOURCE_BIND);
+    /* FENCE needs no intervening standing exchange. The barrier still permits
+     * bare relation liveness, whose hints must not restart this incarnation. */
+    test_core = 1;
+    assert(era_split_communication_core_standing_service_once(7));
+    assert(standing_requests == before + 2 && last_request_length == 1);
+    assert(source.phase == SOURCE_BIND && era_split_input_source_control_active());
+    test_core = 0;
     assert(era_split_input_source_prepare(&record.data.initiator_request.semantic.source_push.input, clock_us));
     record.data.initiator_request.expected_kind = ERA_SPLIT_WIRE_PAYLOAD_INPUT_BIND_RSP;
     test_core = 1; era_split_communication_core_process_initiator(&record);
-    assert(standing_requests == before + 2 && input_result.result == ERA_SPLIT_TRANSACTION_RESULT_OK);
+    assert(standing_requests == before + 3 && input_result.result == ERA_SPLIT_TRANSACTION_RESULT_OK);
     test_core = 0; era_split_input_source_complete(&input_result.input, true, input_result.input_status);
     assert(source.phase == SOURCE_BASELINE && !era_split_input_source_control_active());
     standing(); // the ordinary standing publication retires the visible stop
@@ -240,7 +246,7 @@ static void startup_after_standing_stop(void) {
     drop_answer = true; standing(); drop_answer = false;
     assert(era_split_communication_core_standing_input_blocked(7, 9));
     test_core = 0; assert(!era_split_communication_core_resume_standing(7, 9, stop));
-    puts("PASS first input after exact SESSION recovery: no A/B deadlock, no intervening standing frame, stale/foreign ACKs refused");
+    puts("PASS exact SESSION recovery: FENCE needs no standing exchange, bare liveness preserves BIND, stale/foreign ACKs refused");
 }
 
 int main(void) {

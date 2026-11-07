@@ -12,11 +12,6 @@
 #include "../era_split_transaction_engine.h"
 #include "era_split_communication_core_responder_internal.h"
 
-enum {
-    ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SNAPSHOT_SOURCE_NONE  = 0,
-    ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SNAPSHOT_SOURCE_CORE0 = 2,
-};
-
 _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS >= 2U, "ERA responder general result ring is too small.");
 
 era_split_communication_core_responder_snapshot_t g_era_split_communication_core_responder_snapshot;
@@ -117,24 +112,10 @@ bool era_split_communication_core_publish_responder_snapshot(const era_split_com
     __DMB();
 
     g_era_split_communication_core.responder_snapshot_valid       = 1;
-    g_era_split_communication_core_responder_refresh_due = false;
-    g_era_split_communication_core.responder_snapshot_source      = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_SNAPSHOT_SOURCE_CORE0;
-    g_era_split_communication_core.responder_owner_gate_ready     = published.owner_gate_ready;
+    g_era_split_communication_core_responder_refresh_due          = false;
     g_era_split_communication_core.responder_owner_epoch          = published.owner_epoch;
     g_era_split_communication_core.responder_relation_generation  = published.relation_generation;
     g_era_split_communication_core.responder_snapshot_generation  = generation;
-    g_era_split_communication_core.responder_snapshot_publish_count++;
-    if (published.owner_gate_ready) {
-        g_era_split_communication_core.responder_owner_gate_ready_count++;
-    } else {
-        g_era_split_communication_core.responder_owner_gate_block_count++;
-    }
-    g_era_split_communication_core.responder_last_request_kind_flags =
-        (published.heartbeat_allowed ? 0x01U : 0U) |
-        (published.host_matrix_admitted ? 0x02U : 0U) |
-        (published.runtime_allowed ? 0x04U : 0U);
-    g_era_split_communication_core.responder_last_response_section_mask = published.response_section_mask;
-    g_era_split_communication_core.responder_last_visual_reason         = published.visual_reason;
     return true;
 }
 
@@ -150,8 +131,6 @@ static bool era_split_communication_core_responder_result_pop(era_split_communic
     *result = g_era_split_communication_core_responder_general_results[read];
     __DMB();
     g_era_split_communication_core_responder_general_read = era_split_communication_core_responder_ring_next(read, ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS);
-    g_era_split_communication_core.responder_drain_count++;
-    g_era_split_communication_core.responder_last_result_generation = result->snapshot_generation;
     __DMB(); return true;
 }
 
@@ -168,14 +147,10 @@ bool era_split_communication_core_responder_result_matches_current(const era_spl
     }
 
     __DMB();
-    bool matches = g_era_split_communication_core.responder_snapshot_valid &&
-                   result->owner_epoch == g_era_split_communication_core.responder_owner_epoch &&
-                   result->relation_generation == g_era_split_communication_core.responder_relation_generation &&
-                   result->snapshot_generation == g_era_split_communication_core.responder_snapshot_generation;
-    if (!matches) {
-        g_era_split_communication_core.responder_accept_stale_count++;
-    }
-    return matches;
+    return g_era_split_communication_core.responder_snapshot_valid &&
+           result->owner_epoch == g_era_split_communication_core.responder_owner_epoch &&
+           result->relation_generation == g_era_split_communication_core.responder_relation_generation &&
+           result->snapshot_generation == g_era_split_communication_core.responder_snapshot_generation;
 }
 
 /* The responder's own clear retired with the scaffold that called it (D3

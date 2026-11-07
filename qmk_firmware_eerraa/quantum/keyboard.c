@@ -600,26 +600,6 @@ static inline void generate_tick_event(void) {
     }
 }
 
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-/* The ERA pass-phase instrument (keyboards/era/common/system/
-   era_pass_phase_diagnostics.h) charges every microsecond of a pass to one of
-   twelve contiguous segments; five of them end in this file. Declared here
-   rather than included, the treatment quantum/action_layer.c's ERA accessor
-   takes: keyboards/era is not on core's include path, and widening it for a
-   diagnostics hook would couple core to the ERA layer permanently. Named
-   entries rather than one function with an id, so the segment ids keep a single
-   home in that header.
-
-   Compile-time gated and set by no release image, so these calls and the unit
-   that defines them compile away together; a build defining the macro without
-   the unit fails the link by name. */
-void era_pass_phase_mark_difference(void);
-void era_pass_phase_mark_action(void);
-void era_pass_phase_mark_quantum(void);
-void era_pass_phase_mark_rgb(void);
-void era_pass_phase_mark_keyboard_tail(void);
-#endif
-
 #ifdef ERA_SPLIT_INPUT_HISTORY_ENABLE
 void era_split_input_action_begin(bool action_open);
 void era_split_input_action_end(void);
@@ -656,10 +636,6 @@ static bool matrix_task(void) {
     }
 
     matrix_scan_perf_task();
-
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_mark_difference();
-#endif
 
     // Short-circuit the complete matrix processing if it is not necessary
     if (!matrix_changed) {
@@ -800,16 +776,7 @@ void keyboard_task(void) {
         activity_has_occurred = true;
     }
 
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    /* One site for all three of matrix_task()'s returns. */
-    era_pass_phase_mark_action();
-#endif
-
     quantum_task();
-
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_mark_quantum();
-#endif
 
 #if defined(SPLIT_WATCHDOG_ENABLE)
     split_watchdog_task();
@@ -824,12 +791,6 @@ void keyboard_task(void) {
 #endif
 #ifdef RGB_MATRIX_ENABLE
     rgb_matrix_task();
-#endif
-
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    /* Outside the RGB guard on purpose: the twelve segments have to tile the
-       pass on a board with no RGB Matrix too, where this one reads zero. */
-    era_pass_phase_mark_rgb();
 #endif
 
 #if defined(BACKLIGHT_ENABLE)
@@ -903,7 +864,4 @@ void keyboard_task(void) {
     os_detection_task();
 #endif
 
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    era_pass_phase_mark_keyboard_tail();
-#endif
 }

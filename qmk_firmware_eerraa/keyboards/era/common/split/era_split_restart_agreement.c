@@ -13,12 +13,6 @@
 #endif
 #include "sync_timer.h"
 #include "timer.h"
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-#    include "print.h"
-#    ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-#        include "communication_core/era_split_communication_core_storage.h"
-#    endif
-#endif
 #ifdef ERA_SPLIT_RESTART_AGREEMENT_TEST
 #    include <string.h>
 #endif
@@ -141,78 +135,6 @@ static void era_split_restart_agreement_retire_arm(void) {
     g_era_split_restart_agreement.waiting_disarm = true;
     era_split_restart_agreement_new_generation();
 }
-
-enum {
-    ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST = 1,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_RX,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARED,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_FAIL,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_TX,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_RX,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_ECHO,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_DISARM,
-    ERA_SPLIT_RESTART_CLEAN_TRACE_RESET,
-};
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-static void era_split_restart_agreement_clean_trace(uint8_t event) {
-    uint32_t core_claim    = 0;
-    uint32_t core_tx       = 0;
-    uint32_t core_rx       = 0;
-    uint32_t core_publish  = 0;
-    uint32_t core_fail     = 0;
-    uint16_t request_claim = 0;
-    uint16_t result_claim  = 0;
-    uint16_t result_ready  = 0;
-    uint32_t transfer      = 0;
-    uint32_t apply         = 0;
-    uint32_t complete      = 0;
-    uint32_t abort         = 0;
-    uint32_t timeout       = 0;
-    uint8_t  storage_active = 0;
-#    ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    era_split_communication_core_storage_probe_diagnostics_t core;
-    era_host_peer_storage_diagnostics_t                      storage;
-    era_split_communication_core_storage_get_probe_diagnostics(&core);
-    era_host_peer_storage_get_diagnostics_snapshot(&storage);
-    core_claim     = core.claim_count;
-    core_tx        = core.tx_count;
-    core_rx        = core.rx_count;
-    core_publish   = core.publish_count;
-    core_fail      = core.failure_count;
-    request_claim  = core.request_claim_generation;
-    result_claim   = core.result_claim_generation;
-    result_ready   = core.result_ready_generation;
-    transfer       = storage.transfer_count;
-    apply          = storage.apply_count;
-    complete       = storage.complete_count;
-    abort          = storage.abort_count;
-    timeout        = storage.timeout_count;
-    storage_active = storage.active;
-#    endif
-    uprintf("wire clean ev=%u t=%lu i=%u l=%u lp=%u pp=%u pa=%u ap=%u dl=%lu cq=%lu/%lu/%lu/%lu/%lu/%u/%u/%u hs=%lu/%lu/%lu/%lu/%lu/%u\r\n",
-            (unsigned)event, (unsigned long)timer_read32(),
-            (unsigned)g_era_split_restart_agreement.relation_initiator,
-            (unsigned)g_era_split_restart_agreement.relation_local_left,
-            (unsigned)g_era_split_restart_agreement.clean_local_prepared,
-            (unsigned)(g_era_split_restart_agreement.peer_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN &&
-                       g_era_split_restart_agreement.peer_param == ERA_SPLIT_RESTART_CLEAN_PARAM_PREPARED &&
-                       g_era_split_restart_agreement.peer_armed),
-            (unsigned)g_era_split_restart_agreement.peer_param,
-            (unsigned)(g_era_split_restart_agreement.arm_live ? g_era_split_restart_agreement.arm_param : 0),
-            (unsigned long)g_era_split_restart_agreement.commit_local_ms,
-            (unsigned long)core_claim, (unsigned long)core_tx,
-            (unsigned long)core_rx, (unsigned long)core_publish,
-            (unsigned long)core_fail, (unsigned)request_claim,
-            (unsigned)result_claim, (unsigned)result_ready,
-            (unsigned long)transfer, (unsigned long)apply,
-            (unsigned long)complete, (unsigned long)abort,
-            (unsigned long)timeout, (unsigned)storage_active);
-}
-#else
-#    define era_split_restart_agreement_clean_trace(event) ((void)(event))
-#endif
 
 static bool era_split_restart_agreement_act_valid(uint8_t act) {
     return act != ERA_SPLIT_RESTART_ACT_NONE && act <= ERA_SPLIT_RESTART_ACT_MAX;
@@ -431,7 +353,6 @@ void era_split_restart_agreement_note_restart_receipt(uint32_t generation) {
                                                g_era_split_restart_agreement.arm_param,
                                                g_era_split_restart_agreement.commit_local_ms, true);
         if (g_era_split_restart_agreement.arm_act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
-            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_ECHO);
         }
     } else {
         g_era_split_restart_agreement.commit_agreed = true;
@@ -517,7 +438,6 @@ void era_split_restart_agreement_note_peer_arm(uint8_t act, uint8_t param, uint3
             g_era_split_restart_agreement.pending        = false;
             g_era_split_restart_agreement.request_live   = false;
             if (first_prepare) {
-                era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_RX);
             }
             return;
         }
@@ -536,7 +456,6 @@ void era_split_restart_agreement_note_peer_arm(uint8_t act, uint8_t param, uint3
         era_split_restart_agreement_arm_commit(ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN,
                                                ERA_SPLIT_RESTART_CLEAN_PARAM_COMMIT, timer_read32() + (uint32_t)remaining_ms, true);
         g_era_split_restart_agreement.request_live = false;
-        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_RX);
         return;
     }
 
@@ -721,7 +640,6 @@ static void era_split_restart_agreement_clean_arm_commit(void) {
     g_era_split_restart_agreement.commit_local_ms      = era_split_restart_agreement_new_deadline();
     g_era_split_restart_agreement.arm_started_ms = timer_read32();
     g_era_split_restart_agreement.clean_waiting_disarm           = false;
-    era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_COMMIT_TX);
 }
 
 static void era_split_restart_agreement_commit(void);
@@ -753,11 +671,9 @@ static bool era_split_restart_agreement_clean_task(void) {
             g_era_split_restart_agreement.commit_armed          = false;
             g_era_split_restart_agreement.request_live          = false;
             g_era_split_restart_agreement.pending               = false;
-            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARE_FAIL);
             return true;
         }
         g_era_split_restart_agreement.clean_local_prepared = true;
-        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_PREPARED);
     }
 
     if (g_era_split_restart_agreement.clean_standalone) {
@@ -800,7 +716,6 @@ static bool era_split_restart_agreement_clean_task(void) {
                    deadline cannot restore pre-CLEAN storage. */
                 era_split_restart_agreement_retire_arm();
                 g_era_split_restart_agreement.clean_waiting_disarm            = true;
-                era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_DISARM);
             }
             return true;
         }
@@ -844,7 +759,6 @@ static void era_split_restart_agreement_commit(void) {
     }
     if (era_split_restart_act_rules[act].resets) {
         if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
-            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_RESET);
         }
         soft_reset_keyboard();
     }
@@ -881,8 +795,6 @@ static void era_split_restart_agreement_raise(uint8_t act, uint8_t param) {
                physical boot-replay proof. */
             g_era_split_restart_agreement.clean_selected   = true;
             g_era_split_restart_agreement.clean_standalone = true;
-            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST);
-            era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED);
             return;
         }
         era_split_restart_agreement_arm_commit(act, param, era_split_restart_agreement_new_deadline(), false);
@@ -894,7 +806,6 @@ static void era_split_restart_agreement_raise(uint8_t act, uint8_t param) {
     g_era_split_restart_agreement.request_param      = param;
     g_era_split_restart_agreement.request_started_ms = timer_read32();
     if (act == ERA_SPLIT_RESTART_ACT_EEPROM_CLEAN) {
-        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_REQUEST);
     }
 
     if (!era_split_restart_act_rules[act].requires_confirmation) {
@@ -1046,7 +957,6 @@ void era_split_restart_agreement_task(void) {
         g_era_split_restart_agreement.pending        = false;
         g_era_split_restart_agreement.request_live   = false;
         era_split_restart_agreement_clean_arm_prepare();
-        era_split_restart_agreement_clean_trace(ERA_SPLIT_RESTART_CLEAN_TRACE_SELECTED);
         return;
     }
     if (era_split_restart_act_rules[target_act].requires_peer && !g_era_split_restart_agreement.relation_serviced) {

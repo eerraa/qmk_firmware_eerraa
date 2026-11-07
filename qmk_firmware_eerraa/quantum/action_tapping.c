@@ -92,11 +92,6 @@ typedef struct {
 static era_speculative_layer_t era_speculative_layers[ERA_SPECULATIVE_LAYERS_SIZE] = {};
 static uint8_t                 era_num_speculative_layers                          = 0;
 
-#            define ERA_SPECULATIVE_NOTE_ACTIVATE 0
-#            define ERA_SPECULATIVE_NOTE_REVERT 1
-#            define ERA_SPECULATIVE_NOTE_ABORT 2
-void era_split_tap_activity_note_speculative(uint8_t event);
-
 static void era_speculative_layer_press(keyrecord_t *record);
 static bool era_speculative_layer_settled(keyrecord_t *record);
 static void era_speculative_layer_abort(void);
@@ -1050,7 +1045,6 @@ static void era_speculative_layer_press(keyrecord_t *record) {
             .layer = layer,
         };
         ++era_num_speculative_layers;
-        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_ACTIVATE);
 
         ac_dprintf("Speculative Layer: on %u\n", layer);
     }
@@ -1082,9 +1076,6 @@ static bool era_speculative_layer_settled(keyrecord_t *record) {
         era_speculative_layers[j] = era_speculative_layers[j + 1];
     }
 
-    if (record->tap.count > 0) {
-        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_REVERT);
-    }
     return true;
 }
 
@@ -1092,7 +1083,6 @@ static void era_speculative_layer_abort(void) {
     while (era_num_speculative_layers > 0) {
         --era_num_speculative_layers;
         layer_off(era_speculative_layers[era_num_speculative_layers].layer);
-        era_split_tap_activity_note_speculative(ERA_SPECULATIVE_NOTE_ABORT);
     }
 }
 #        endif // ERA_SPECULATIVE_LAYER_ENABLE

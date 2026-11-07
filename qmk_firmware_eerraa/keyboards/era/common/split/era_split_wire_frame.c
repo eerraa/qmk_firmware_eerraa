@@ -6,6 +6,9 @@
 #include <string.h>
 
 #include "era_split_wire_payload.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "diagnostics/era_split_wire_cause.h"
+#endif
 
 uint8_t era_split_wire_crc8(const uint8_t *data, uint8_t length) {
     uint8_t crc = 0;
@@ -44,9 +47,16 @@ uint8_t era_split_wire_control_byte(uint8_t tx_seq, uint8_t ack_seq, bool ext) {
 
 bool era_split_wire_encode_compact_frame(era_split_wire_direction_t direction, const uint8_t *payload, uint8_t payload_len, uint8_t *frame, uint8_t *frame_len) {
     if (payload == NULL || frame == NULL || frame_len == NULL || payload_len == 0 || payload_len > ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_reject(ERA_CAUSE_ENCODE_ARGS, payload_len, ERA_SPLIT_WIRE_MAX_PAYLOAD_LEN,
+                                    (payload == NULL) | ((frame == NULL) << 1) | ((frame_len == NULL) << 2));
+#endif
         return false;
     }
     if ((payload[0] & ERA_SPLIT_WIRE_CONTROL_RESERVED) != 0 || (payload[0] & ERA_SPLIT_WIRE_CONTROL_TX_SEQ_MASK) == 0) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_reject(ERA_CAUSE_ENCODE_CONTROL, payload_len, 0, payload[0]);
+#endif
         return false;
     }
 
@@ -75,6 +85,9 @@ bool era_split_wire_decode_compact_frame(const uint8_t *frame, uint8_t frame_len
         return false;
     }
     if (era_split_wire_crc8(frame, (uint8_t)(payload_len + 1)) != frame[payload_len + 1]) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_reject(ERA_CAUSE_COMPACT_CRC, frame_len, payload_len, frame[0]);
+#endif
         return false;
     }
 
@@ -93,7 +106,13 @@ bool era_split_wire_decode_compact_frame(const uint8_t *frame, uint8_t frame_len
     decoded->tx_seq  = decoded->payload[0] & ERA_SPLIT_WIRE_CONTROL_TX_SEQ_MASK;
     decoded->ack_seq = (decoded->payload[0] & ERA_SPLIT_WIRE_CONTROL_ACK_SEQ_MASK) >> 3;
 
-    return era_split_wire_classify_payload(decoded->payload, decoded->payload_len, decoded->lane, &decoded->kind);
+    bool classified = era_split_wire_classify_payload(decoded->payload, decoded->payload_len, decoded->lane, &decoded->kind);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    if (!classified) {
+        era_split_wire_cause_reject(ERA_CAUSE_COMPACT_PAYLOAD, frame_len, payload_len, decoded->payload[0]);
+    }
+#endif
+    return classified;
 }
 
 bool era_split_wire_encode_bulk_page_frame(era_split_wire_direction_t direction, const uint8_t *payload, uint16_t payload_len, uint8_t *frame, uint16_t *frame_len) {
@@ -131,6 +150,9 @@ bool era_split_wire_decode_bulk_page_frame(const uint8_t *frame, uint16_t frame_
         return false;
     }
     if (era_split_wire_crc32(frame, (uint16_t)(payload_len + 3)) != era_split_wire_get32(&frame[payload_len + 3])) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_reject(ERA_CAUSE_BULK_CRC, frame_len, payload_len, frame[0]);
+#endif
         return false;
     }
 
@@ -142,5 +164,11 @@ bool era_split_wire_decode_bulk_page_frame(const uint8_t *frame, uint16_t frame_
     decoded->tx_seq  = decoded->payload[0] & ERA_SPLIT_WIRE_CONTROL_TX_SEQ_MASK;
     decoded->ack_seq = (decoded->payload[0] & ERA_SPLIT_WIRE_CONTROL_ACK_SEQ_MASK) >> 3;
 
-    return era_split_wire_classify_payload(decoded->payload, decoded->payload_len, decoded->lane, &decoded->kind);
+    bool classified = era_split_wire_classify_payload(decoded->payload, decoded->payload_len, decoded->lane, &decoded->kind);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    if (!classified) {
+        era_split_wire_cause_reject(ERA_CAUSE_BULK_PAYLOAD, frame_len, payload_len, decoded->payload[0]);
+    }
+#endif
+    return classified;
 }

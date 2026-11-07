@@ -26,9 +26,5 @@ bool era_split_keyboard_lighting_sleep_state(void);
 /* Core0 relation-retirement hook, including rotations that keep PEER role.
    Incoming wire publications must already pass the transport identity fence. */
 void era_split_keyboard_forget_wire_lighting_sleep(void);
-/* Diagnostics only: rising edges of the resolved sleep decision since boot,
-   and the local ms of the last rise (breaker-hunt pairing with `brk`). */
-uint16_t era_split_keyboard_lighting_sleep_true_diag(uint32_t *last_ms);
-
 bool era_split_keyboard_process_record(uint16_t keycode, keyrecord_t *record);
 bool era_split_keyboard_handle_via_command(uint8_t *data, uint8_t length);

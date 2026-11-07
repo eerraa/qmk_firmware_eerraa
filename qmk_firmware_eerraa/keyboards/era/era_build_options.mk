@@ -211,24 +211,8 @@ ERA_SPLIT_EEPROM_SYNC_ENABLE ?= no
 # 0 is stock ChibiOS.
 ERA_SPLIT_RP_USB_SLEEP_SYNC ?= 1
 # --- Split diagnostics: console images, never flashed to an owner ----------
-# Full wire and raw-scan diagnostics. Forces CONSOLE_ENABLE.
+# Minimal scan/sampler window and passive health. Forces CONSOLE_ENABLE.
 ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE ?= no
-# Count-only scan-rate diagnostics. Not to be combined with the line above.
-ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE ?= no
-# The pass, itemised: every microsecond of a keyboard pass charged to one of
-# twelve contiguous segments (scan, debounce, transport step, difference loop,
-# quantum task, RGB task, main-loop tail, housekeeping ...), printed on the qwin
-# line as `ph=`/`us=`. Requires the count-only instrument above, which owns that
-# line. Its own axis rather than a rider on either diagnostics selector,
-# because twelve counter reads per pass cost scan rate and folding them into
-# `qwin` would move the comparison point: the qwin_phase profile carries it, and
-# the cost is read as scan_hz(qwin) - scan_hz(qwin_phase) in one sitting.
-ERA_PASS_PHASE_DIAGNOSTICS_ENABLE ?= no
-# Storage cause timeline. Requires wire diagnostics and EEPROM sync.
-ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE ?= no
-# Injection, never a production image: every era-boundary mirror read takes its
-# fallback so a block must report meas=0. Requires wire diagnostics.
-ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE ?= no
 
 # --- Split timing: empty means the C file's default applies ----------------
 # Put a number here only to override the #ifndef that holds the default. The

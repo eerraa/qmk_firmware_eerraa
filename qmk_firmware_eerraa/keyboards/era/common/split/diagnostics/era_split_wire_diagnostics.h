@@ -5,20 +5,6 @@
 
 #include "quantum.h"
 
-#include "../era_split_transport_scheduler_diagnostics.h"
-
-typedef struct {
-    uint32_t print_count;
-    uint32_t last_print_ms;
-    uint32_t raw_matrix_scan_count;
-    uint32_t raw_matrix_scan_hz;
-    uint32_t raw_matrix_read_us_total;
-    uint32_t raw_matrix_read_us_max;
-    uint32_t host_peer_source_push_hz;
-    uint32_t host_peer_ack_status_hz;
-    era_split_transport_scheduler_diagnostics_snapshot_t scheduler;
-} era_split_wire_diagnostics_snapshot_t;
-
 extern uint32_t era_split_wire_diagnostics_raw_matrix_scan_count;
 
 void era_split_wire_diagnostics_task(void);

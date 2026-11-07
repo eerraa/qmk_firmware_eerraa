@@ -66,7 +66,6 @@ bool era_split_communication_core_request_push(const era_split_communication_cor
     if (next == read) {
         return false;
     }
-    uint8_t level = era_split_communication_core_ring_level(read, next);
 
     __DMB();
     g_era_split_communication_core_request_queue[write] = *record;
@@ -76,10 +75,6 @@ bool era_split_communication_core_request_push(const era_split_communication_cor
     __DMB();
     g_era_split_communication_core_request_write = next;
     __DMB();
-
-    if (level > g_era_split_communication_core.queue_high_water) {
-        g_era_split_communication_core.queue_high_water = level;
-    }
 
     return true;
 }
@@ -95,7 +90,6 @@ bool era_split_communication_core_result_push(const era_split_communication_core
     if (next == read) {
         return false;
     }
-    uint8_t level = era_split_communication_core_ring_level(read, next);
 
     __DMB();
     g_era_split_communication_core_result_queue[write] = *record;
@@ -103,9 +97,6 @@ bool era_split_communication_core_result_push(const era_split_communication_core
     g_era_split_communication_core_result_write = next;
     __DMB();
 
-    if (level > g_era_split_communication_core.queue_result_high_water) {
-        g_era_split_communication_core.queue_result_high_water = level;
-    }
     return true;
 }
 
@@ -152,11 +143,7 @@ bool era_split_communication_core_queue_reset(void) {
     g_era_split_communication_core_request_write = 0;
     g_era_split_communication_core_result_read   = 0;
     g_era_split_communication_core_result_write  = 0;
-    g_era_split_communication_core.queue_high_water        = 0;
-    g_era_split_communication_core.queue_result_high_water = 0;
-    g_era_split_communication_core.queue_generation++;
     era_split_communication_core_initiator_queue_flushed();
-    g_era_split_communication_core.queue_flush_count++;
     __DMB();
     return true;
 }

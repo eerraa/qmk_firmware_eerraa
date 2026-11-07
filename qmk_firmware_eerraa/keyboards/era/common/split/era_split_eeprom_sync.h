@@ -118,56 +118,10 @@ typedef enum {
 
 #define ERA_HOST_PEER_STORAGE_ALL_DOMAINS_MASK ((uint8_t)((1U << ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT) - 1U))
 
-typedef struct {
-    uint32_t span_count;
-    uint32_t span_rise_ms;
-    uint32_t span_fall_ms;
-    uint32_t red_era_count;
-    uint32_t red_on_ms;
-    uint32_t red_off_ms;
-    uint32_t break_ms;
-    uint8_t  break_count;
-    uint8_t  break_flags;
-    uint8_t  break_state;
-    uint8_t  pending_bits;
-    uint8_t  visible;
-} era_split_eeprom_sync_diagnostics_t;
-
-/* The breaker latch's panel-state bits, packed by the board flush hook at
-   the instant it reports a frame: the three facts that discriminate which
-   path produced a statusless frame while the lamp was commanded visible. */
-#define ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_ENABLED 0x01
-#define ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_RGB_SUSPENDED 0x02
-#define ERA_SPLIT_EEPROM_SYNC_BREAK_STATE_STATUS_POLICY_ON 0x04
-
 /* The one indicator predicate, family-wide (2026-08-14 redesign): the
    storage engine's pending fact — this half's own arm plus the peer's
-   wire-carried mirror, era_host_peer_storage_indicator_pending() — held to
-   the rise-anchored minimum-visible floor above. No trailing delay exists
-   anywhere in this path: the lamp rises with the operation (the edited
-   half's dirty note; the peer within a poll of settle), holds through
-   transfer and durable write on the engine's own state, and both halves
-   fall within one poll of the initiator's last close, because the
-   responder's fall is the mirror's zero crossing rather than a local
-   clock's guess. The fixed 1500 ms bridge this replaces padded the mirror's
-   absence with time, which is why no value of it could be right. */
+   wire-carried mirror, era_host_peer_storage_indicator_pending() — with no
+   trailing delay anywhere in this path. */
 bool era_split_eeprom_sync_indicator_visible_advance(void);
-/* Diagnostics-only LED truth, called by the board's render-policy flush hook
-   on EVERY flushed frame with whether that frame was the EEPROM SYNC STATUS
-   field, the frame's raw flags, and the packed panel-state bits above.
-   Edge-only: stamps the first SYNC STATUS flush of an era (`ron`) and the first
-   non-SYNC-STATUS flush after it (`roff`) — the moment the storage indication
-   actually left the panel, which no predicate stamp can see. A STATUS era that
-   breaks while the lamp is still commanded visible is the healed-trigger frame
-   (the span's own end always breaks with the lamp already dark), and the note
-   latches that frame's identity — flags and panel state — because four
-   bracketed samples correlate with the durable-writer's flash-activity window
-   but the count alone cannot say which path rendered the statusless frame: a
-   higher-priority STATUS report, zero-flag NONE/suspend fill, an enable drop,
-   or an effect frame the arbitration stripped. One breaker readout names it.
-   The diagnostic member names `red_*` are retained as capture ABI only; colour
-   is presentation policy and current TOMAK paints EEPROM SYNC blue. */
-void era_split_eeprom_sync_note_status_frame_presence(bool status_frame, uint8_t frame_flags, uint8_t panel_state_bits);
 void era_split_eeprom_sync_reload_domain_kb(era_split_eeprom_sync_domain_t domain);
 void era_split_eeprom_sync_reload_domain_user(era_split_eeprom_sync_domain_t domain);
-void era_split_eeprom_sync_get_diagnostics_snapshot(era_split_eeprom_sync_diagnostics_t *snapshot);

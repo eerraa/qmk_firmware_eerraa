@@ -11,7 +11,7 @@ ERA_BUILD_VARIANT_RULES_INCLUDED := yes
 # EEPROM magic joins every image (storage/era_via_magic.h).
 CONFIG_H += keyboards/era/common/storage/era_via_magic.h
 
-ERA_BUILD_VARIANTS := standard reset wire qwin cause stale qwin_phase
+ERA_BUILD_VARIANTS := standard reset wire
 
 ifneq ($(strip $(ERA_TOMAK79H_BUILD_PROFILE)),)
     $(error ERA_TOMAK79H_BUILD_PROFILE has retired; use the board-independent ERA_BUILD_VARIANT)
@@ -45,10 +45,10 @@ endif
 # `override` inside the selected fragment is intentional: command-line option
 # assignments, MAKEFLAGS, exported variables, and make -e may select a variant
 # name, but none may mutate one axis underneath that name.
-ERA_BUILD_VARIANT_TUPLE := wire=$(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)),qwin=$(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE)),phase=$(strip $(ERA_PASS_PHASE_DIAGNOSTICS_ENABLE)),cause=$(strip $(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE)),stale=$(strip $(ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE)),reset=$(ERA_SETTINGS_RESET_IMAGE)
+ERA_BUILD_VARIANT_TUPLE := wire=$(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)),reset=$(ERA_SETTINGS_RESET_IMAGE)
 
-ifneq ($(words $(filter yes no,$(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE) $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE) $(ERA_PASS_PHASE_DIAGNOSTICS_ENABLE) $(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE) $(ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE) $(ERA_SETTINGS_RESET_IMAGE))),6)
-    $(error ERA_BUILD_VARIANT=$(ERA_BUILD_VARIANT) did not resolve to six yes/no axes: $(ERA_BUILD_VARIANT_TUPLE))
+ifneq ($(words $(filter yes no,$(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE) $(ERA_SETTINGS_RESET_IMAGE))),2)
+    $(error ERA_BUILD_VARIANT=$(ERA_BUILD_VARIANT) did not resolve to two yes/no axes: $(ERA_BUILD_VARIANT_TUPLE))
 endif
 
 ifeq ($(strip $(ERA_BUILD_IDENTITY_REPORT)),yes)

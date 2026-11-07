@@ -21,25 +21,6 @@ typedef enum {
     ERA_SPLIT_COMMUNICATION_CORE_BACKEND_ACCESS_RESET,
 } era_split_communication_core_backend_access_t;
 
-typedef struct {
-    uint8_t  owner;
-    uint8_t  backend_role;
-    uint8_t  revoke_pending;
-    uint8_t  cancel_pending;
-    uint8_t  reset_pending;
-    uint16_t owner_epoch;
-    uint16_t released_epoch;
-    uint16_t ready_epoch;
-    uint32_t transfer_count;
-    uint32_t revoke_count;
-    uint32_t release_count;
-    uint32_t ready_count;
-    uint32_t transfer_timeout_count;
-    uint32_t ready_timeout_count;
-    uint32_t init_fail_count;
-    uint32_t reclaim_count;
-} era_split_communication_core_owner_diagnostics_t;
-
 bool era_split_communication_core_owner_transfer_role(era_split_communication_core_backend_owner_t next_owner, era_split_transaction_backend_role_t next_role);
 /* Admit an initiator request only under an already assigned, non-revoked
    CORE1 initiator lease. May repair missing readiness in that same role;
@@ -60,4 +41,3 @@ era_split_communication_core_backend_access_t era_split_communication_core_owner
 uint16_t                                      era_split_communication_core_owner_epoch(void);
 era_split_communication_core_backend_owner_t era_split_communication_core_owner_current(void);
 era_split_transaction_backend_role_t          era_split_communication_core_owner_current_role(void);
-void                                          era_split_communication_core_owner_get_diagnostics_snapshot(era_split_communication_core_owner_diagnostics_t *snapshot);

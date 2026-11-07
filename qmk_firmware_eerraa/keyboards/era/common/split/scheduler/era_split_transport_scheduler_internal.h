@@ -9,10 +9,7 @@
 #include "../era_split_authority_reducer.h"
 #include "../era_split_mode_planner.h"
 #include "../communication_core/era_split_communication_core_responder.h"
-/* For the maintenance-source indices: the state below sizes an array from them
-   and the accessor that reads it is public, so the constants live there. */
 #include "../era_split_transport_scheduler.h"
-#include "../era_split_transport_scheduler_diagnostics.h"
 #include "../era_split_wire_router.h"
 
 #ifndef ERA_SPLIT_WIRE_BOOTSTRAP_PERIOD_MS
@@ -211,19 +208,6 @@ typedef struct {
        relation has. Traced rather than assumed: the four readers were the two
        due predicates and the two deadlines, all in this scheduler's timing
        unit, and all four left with them. */
-    uint32_t host_peer_visual_snapshot_rx_count;
-    uint32_t host_peer_rgb_state_rx_count;
-    /* The third of the six response sections that now counts on the applying
-       half. AUTHORITY and RGB were the two that rested on the sender's tx
-       counters plus observed behaviour, which is a waiver rather than a reading;
-       RGB always had this counter and could not be printed, and AUTHORITY had
-       none. Both are on `wire sect` now, which is the line a promoted PEER can
-       actually read. */
-    uint32_t host_peer_authority_rx_count;
-    /* The INPUT-class family's apply leg (storage version 4), the counter
-       that makes the layer byte readable the way app=rgb made RGB readable:
-       distinct applied peer-layer values, counted inside the policy gate. */
-    uint32_t host_peer_input_layer_apply_count;
     /* The INPUT and RGB policy bits as last consumed, so the
        DIRTY_SYNC_POLICY edge hook can tell a toggle from an unrelated policy
        change -- and so the scan-path visual arming reads a cached bool
@@ -280,7 +264,7 @@ typedef struct {
     /* How many of core1's unpublished bare-ACK responses this half has already
        folded into its diagnostic projection. A watermark, not a counter. */
     uint32_t responder_quiet_folded;
-    era_split_communication_core_responder_coalesced_counts_t responder_coalesced_folded;
+    uint32_t responder_coalesced_folded;
 
     bool     local_wire_available;
     bool     local_wire_initiator;
@@ -317,67 +301,12 @@ typedef struct {
     uint8_t  maintenance_due_flags;
 
     era_split_mode_t         mode;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    /* The relation this half was in before the current one. It is an
-       instrument and not a scheduler input -- nothing decides on it, it prints
-       as `prev=` on the `wire pc=` line -- so it is resident only where
-       something can read it. */
-    era_split_mode_t         previous_mode;
-#endif
     era_authority_snapshot_t authority_snapshot;
     era_split_route_kind_t   last_owner_route;
     era_split_route_reason_t last_owner_reason;
     uint8_t                  scheduler_dirty_flags;
     uint8_t                  route_due_flags;
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    /* `initwork`/`hkwork`/`plan` on `wire sched` and `owner` on `wire route`.
-       They sat outside this block and were counted in every profile, which put
-       four load-add-stores on the plan pass, the owner-route selection and the
-       productive housekeeping tail of a release image that has no way to read
-       them -- the accretion the gated counters below were written to avoid. */
-    uint32_t init_call_count;
-    uint32_t housekeeping_task_count;
-    uint32_t plan_count;
-    uint32_t owner_step_count;
-    /* `hkwork` says how often core0 did housekeeping work and not which of the
-       seven contributors asked for it, which is the question the SESSION_STATUS
-       lane redesign turns on: the 5 ms authority-poll deadline is what lets the
-       task body run at all, so a lane change that removes SESSION_STATUS need
-       not remove core0's periodic wake. `entry` counts bodies that passed the
-       due gate; `src[]` counts, per contributor, the passes it was true on.
-       Diagnostics-only and outside the scan path -- the task body is already
-       deadline-gated. */
-    uint32_t housekeeping_entry_count;
-    uint32_t maintenance_source_count[ERA_SPLIT_SCHEDULER_MAINT_SOURCE_COUNT];
-    uint32_t dual_runtime_tx_count;
-    uint32_t dual_runtime_rx_count;
-    uint32_t responder_snapshot_publish_retry_count;
-    /* The peer's storage news value as last delivered by the relation's lane
-       (Slice 11.7 gave it that carrier; D2 changed what the carrier means). It
-       prints as `pnews=` on `wire sess`, and era_capture_reading.md is the
-       authority on how to read it: compare against the peer's own `news`, and
-       only for equality.
-
-       It replaced the `phint` bit, which said only that the responder had
-       something. This comment then said the replacement "names the domains,
-       which is what a storage gate leg has to check against `chg`" -- true of
-       the seven-bit per-domain mask Slice 11.7 shipped, and false since D2
-       made the value a forward-only counter with no domain identity in it at
-       all. No gate leg checks this against `chg`, and none can: a session that
-       tries is reading a post-D2 field by a pre-D2 rule.
-
-       Latest-value and never cleared inside an era, so it reads as "the last
-       thing the peer claimed" rather than "what it claims now". */
-    uint8_t  peer_storage_news_observed;
-    uint32_t transport_step_call_count;
-    /* Boot instants, in ms since timer_init() at the top of keyboard_init(), at
-       which the explicit launch step was entered and at which it returned.
-       Saturating: a boot that reaches post-init later than 65 s is not a case
-       these are measuring. */
-    uint16_t communication_core_start_entry_ms;
-    uint16_t communication_core_start_exit_ms;
-#endif
 } era_split_transport_scheduler_state_t;
 
 extern era_split_transport_scheduler_state_t g_era_split_transport_scheduler;

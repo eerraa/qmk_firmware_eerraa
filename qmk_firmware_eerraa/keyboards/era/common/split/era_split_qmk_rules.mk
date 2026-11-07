@@ -64,9 +64,8 @@ OPT_DEFS += -DLAYER_STATE_8BIT
 
 # FA-2's cross-half tap-hold family: upstream Speculative Hold (the mod-tap
 # half), the ERA layer-tap half beside it, and the split unit that owns the
-# family's state and counters. One block because they are one fact — the two
-# selectors make quantum/action_tapping.c reach this unit's counter sink, and
-# setting either without the SRC line fails the link on the undefined symbol.
+# family's runtime policy. The selectors and policy source belong together:
+# quantum/action_tapping.c reaches the split policy through this unit.
 # Split-only by the same reasoning as the peer layer: the seam the family
 # serves is the split one, and a non-split board keeps exact single-keyboard
 # tap-hold semantics. Arming is runtime and derived (era_tapping's
@@ -118,73 +117,17 @@ endif
 SRC += keyboards/era/common/split/era_split_transport.c
 SRC += keyboards/era/common/split/era_split_usb_identity.c
 
-# Core1's park instrument -- how many times and for how long core1 slept on
-# WFE -- is a fact both diagnostic images want and the release image must not
-# pay for (two timer reads per park). Derived here from the two selectors
-# rather than declared: there is no third answer for a build to give.
-ifneq ($(filter yes,$(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)) $(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE))),)
-    OPT_DEFS += -DERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-endif
-
-ifeq ($(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE)), yes)
-    OPT_DEFS += -DERA_SPLIT_QWIN_COUNT_ONLY_ENABLE
-    OPT_DEFS += -DMATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE
-    OPT_DEFS += -DCONSOLE_IN_CAPACITY=16
-    CONSOLE_ENABLE = yes
-    SRC += keyboards/era/common/split/diagnostics/era_split_wire_diagnostics_counter.c
-    SRC += keyboards/era/common/split/diagnostics/era_split_qwin_diagnostics.c
-endif
-
-# The pass-phase instrument (declared in the manifest). The twelve segments are
-# marked in era_rp2040_matrix_core.c, era_split_keyboard.c and quantum/
-# keyboard.c, and printed on the qwin line -- so the count-only instrument is a
-# hard requirement rather than a pairing, and saying so by name here is what
-# stops a profile from setting a selector whose output has nowhere to go.
-ifeq ($(strip $(ERA_PASS_PHASE_DIAGNOSTICS_ENABLE)), yes)
-    ifneq ($(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE)), yes)
-        $(error ERA_PASS_PHASE_DIAGNOSTICS_ENABLE requires ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes; the qwin line is where it prints)
-    endif
-    OPT_DEFS += -DERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-    SRC += keyboards/era/common/system/era_pass_phase_diagnostics.c
-endif
-
+# The window counts scans without a timer read on each scan. Generic QMK
+# debug traffic is suppressed so only the requested report uses the console.
 ifeq ($(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)), yes)
     OPT_DEFS += -DERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    OPT_DEFS += -DERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-    ifneq ($(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE)), yes)
-        OPT_DEFS += -DMATRIX_SCAN_RAW_DIAGNOSTICS_ENABLE
-    endif
+    OPT_DEFS += -DMATRIX_SCAN_COUNT_DIAGNOSTICS_ENABLE
     OPT_DEFS += -DCONSOLE_IN_CAPACITY=16
+    OPT_DEFS += -DNO_DEBUG
     CONSOLE_ENABLE = yes
-    ifneq ($(strip $(ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE)), yes)
-        SRC += keyboards/era/common/split/diagnostics/era_split_wire_diagnostics_counter.c
-    endif
-endif
-
-ifeq ($(strip $(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE)), yes)
-    ifneq ($(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)), yes)
-        $(error ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE requires ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes)
-    endif
-    ifneq ($(strip $(ERA_SPLIT_EEPROM_SYNC_ENABLE)), yes)
-        $(error ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE requires ERA_SPLIT_EEPROM_SYNC_ENABLE=yes)
-    endif
-    ifneq ($(strip $(ERA_HOST_PEER_STORAGE_V1_ENABLE)), yes)
-        $(error ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE requires ERA_HOST_PEER_STORAGE_V1_ENABLE=yes)
-    endif
-    OPT_DEFS += -DERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    SRC += keyboards/era/common/split/diagnostics/era_via_macro_diagnostics.c
-endif
-
-# Injection selector, never a production surface: it compiles the accept path
-# out of the transaction-engine diagnostics mirror read so every read takes
-# the fallback. Its only purpose is to prove that an era block declares a
-# boundary it could not measure (`meas=0`) instead of reporting the identical
-# zero that failure produces. The whole surface it reaches is diagnostics.
-ifeq ($(strip $(ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE)), yes)
-    ifneq ($(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)), yes)
-        $(error ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE requires ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes)
-    endif
-    OPT_DEFS += -DERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE
+    SRC += keyboards/era/common/split/diagnostics/era_split_wire_diagnostics_counter.c
+    SRC += keyboards/era/common/split/diagnostics/era_split_wire_diagnostics.c
+    SRC += keyboards/era/common/split/diagnostics/era_split_wire_cause.c
 endif
 
 
@@ -373,18 +316,5 @@ ifeq ($(strip $(ERA_SPLIT_EEPROM_SYNC_ENABLE)), yes)
 endif
 
 SRC += keyboards/era/common/split/era_split_authority_reducer.c
-
-ifeq ($(strip $(ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE)), yes)
-    # The scheduler's snapshot/baseline unit belongs here rather than beside its
-    # siblings above: both of its exports are reached only from
-    # era_split_wire_diagnostics.c, so the standard variant compiled it only for
-    # gc-sections to discard it again. Its declarations in
-    # era_split_transport_scheduler.h stay ungated on purpose — a future
-    # release-side caller then fails the link instead of silently pulling the
-    # whole unit back into the image.
-    SRC += keyboards/era/common/split/scheduler/era_split_transport_scheduler_diagnostics.c
-    SRC += keyboards/era/common/split/diagnostics/era_split_transport_scheduler_role_diagnostics.c
-    SRC += keyboards/era/common/split/diagnostics/era_split_wire_diagnostics.c
-endif
 
 include keyboards/era/common/split/era_split_usb_sleep_rules.mk

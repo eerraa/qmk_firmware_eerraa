@@ -43,7 +43,6 @@ bool era_split_restart_prepare_local(era_split_restart_act_t act,uint8_t param) 
 bool era_split_restart_arm_ready(era_split_restart_act_t act) { (void)act;return true; }
 void soft_reset_keyboard(void) { ++resets; }
 void era_split_communication_core_init(void) {}
-void era_host_peer_matrix_link_note_ack_status_sent(void) {}
 era_split_communication_core_backend_access_t era_split_communication_core_owner_backend_access(uint16_t owner) {
     (void)owner; return ERA_SPLIT_COMMUNICATION_CORE_BACKEND_ACCESS_OK;
 }

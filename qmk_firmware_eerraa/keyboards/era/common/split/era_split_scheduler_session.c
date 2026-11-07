@@ -31,9 +31,6 @@ typedef struct {
     bool                               peer_generation_changed;
     era_split_scheduler_status_cache_t local;
     era_split_scheduler_status_cache_t peer;
-    uint32_t                           local_session_tx_count;
-    uint32_t                           peer_session_rx_count;
-    uint32_t                           peer_session_forget_count;
 } era_split_scheduler_session_state_t;
 
 static era_split_scheduler_session_state_t g_era_split_scheduler_session;
@@ -102,7 +99,6 @@ void era_split_scheduler_session_forget_peer_from_scheduler(void) {
         memset(&g_era_split_scheduler_session.peer, 0, sizeof(g_era_split_scheduler_session.peer));
         g_era_split_scheduler_session.peer_known              = false;
         g_era_split_scheduler_session.peer_generation_changed = false;
-        g_era_split_scheduler_session.peer_session_forget_count++;
     }
 }
 
@@ -135,13 +131,6 @@ bool era_split_scheduler_session_build_local_status(bool response_requested, era
         status->host_close_generation     = g_era_split_scheduler_session.local.host_close_generation;
     }
     return true;
-}
-
-void era_split_scheduler_session_note_local_status_sent(void) {
-    era_split_scheduler_session_init();
-    ATOMIC_BLOCK_RESTORESTATE {
-        g_era_split_scheduler_session.local_session_tx_count++;
-    }
 }
 
 /* The three fields that decide "the peer's authority moved", shared by both
@@ -182,7 +171,6 @@ void era_split_scheduler_session_note_peer_status(const era_split_wire_session_s
         g_era_split_scheduler_session.peer.host_close_generation = status->host_close_generation;
         g_era_split_scheduler_session.peer_known                 = true;
         g_era_split_scheduler_session.peer_generation_changed |= generation_changed;
-        g_era_split_scheduler_session.peer_session_rx_count++;
         peer_mode_status_changed = generation_changed;
     }
     if (peer_mode_status_changed) {
@@ -367,9 +355,6 @@ void era_split_scheduler_session_get_diagnostics_snapshot(era_split_scheduler_se
         snapshot->peer_usb_epoch              = g_era_split_scheduler_session.peer.usb_epoch;
         snapshot->peer_host_open_generation   = g_era_split_scheduler_session.peer.host_open_generation;
         snapshot->peer_host_close_generation  = g_era_split_scheduler_session.peer.host_close_generation;
-        snapshot->peer_session_rx_count       = g_era_split_scheduler_session.peer_session_rx_count;
-        snapshot->peer_session_forget_count   = g_era_split_scheduler_session.peer_session_forget_count;
         snapshot->local_bulk_page_supported   = g_era_split_scheduler_session.local.bulk_page_supported ? 1 : 0;
-        snapshot->local_session_tx_count      = g_era_split_scheduler_session.local_session_tx_count;
     }
 }

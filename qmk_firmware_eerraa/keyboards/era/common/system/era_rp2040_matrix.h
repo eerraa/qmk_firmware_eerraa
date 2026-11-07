@@ -22,6 +22,7 @@ void era_rp2040_matrix_init_pins(void);
    row differs from the previous call -- the debounce runtime's `changed`. */
 bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]);
 
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 typedef struct {
     uint8_t  ready;
     uint8_t  fdebug;       /* PIO1 FDEBUG for the sampler's SM: TXSTALL:TXOVER:RXUNDER:RXSTALL in bits 3..0, sticky */
@@ -33,3 +34,4 @@ typedef struct {
 
 void era_rp2040_matrix_pio_get_diagnostics(era_rp2040_matrix_pio_diagnostics_t *snapshot);
 void era_rp2040_matrix_pio_clear_fdebug(void);
+#endif

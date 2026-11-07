@@ -13,10 +13,6 @@
 
 #include "../era_split_wire_frame.h"
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-#    include "../era_split_transport_scheduler_diagnostics.h"
-#endif
-
 typedef struct {
     era_split_communication_core_storage_initiator_request_t record;
     volatile uint32_t                                        publication_seq;
@@ -50,11 +46,6 @@ typedef struct {
 #define ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_RETIRED UINT32_MAX
 
 enum {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES = sizeof(era_split_communication_core_storage_probe_diagnostics_t),
-#else
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES = 0,
-#endif
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES =
         sizeof(era_split_communication_core_storage_initiator_request_slot_t) +
         sizeof(era_split_communication_core_storage_initiator_result_slot_t) +
@@ -62,98 +53,20 @@ enum {
         sizeof(era_split_communication_core_storage_responder_result_slot_t) +
         (ERA_SPLIT_COMMUNICATION_CORE_STORAGE_ALIGN4(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_WIRE_FRAME_BYTES) * 2U) +
         ERA_SPLIT_COMMUNICATION_CORE_STORAGE_ALIGN4(ERA_HOST_PEER_STORAGE_CHUNK_BYTES) +
-        sizeof(era_split_communication_core_storage_lane_diagnostics_t) +
-        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES +
         ERA_SPLIT_COMMUNICATION_CORE_STORAGE_ALIGN4(sizeof(era_split_wire_frame_t)),
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PUBLICATION_READ_RETRIES = 4,
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES = ERA_HOST_PEER_STORAGE_DIAGNOSTICS_BYTES + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES,
-#else
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES = 0,
-#endif
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES = ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_STATIC_BYTES,
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES = ERA_HOST_PEER_STORAGE_CAUSE_EDGE_STATIC_BYTES,
-#else
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES = 0,
-    ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES = 0,
-#endif
     ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES =
         ERA_HOST_PEER_STORAGE_IMAGE_BYTES +
         (ERA_SPLIT_EEPROM_SYNC_DOMAIN_COUNT * ERA_HOST_PEER_STORAGE_MANIFEST_ENTRY_BYTES) +
-        ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES + ERA_HOST_PEER_STORAGE_DIAGNOSTICS_BYTES + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES +
-        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_DIAGNOSTIC_COPY_BYTES +
-        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_TIMELINE_BYTES +
-        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_CAUSE_EDGE_BYTES,
+        ERA_HOST_PEER_STORAGE_CORE0_STATE_BYTES + ERA_HOST_PEER_STORAGE_DIAGNOSTICS_BYTES +
+        ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES,
 };
 
-/* 274 until the write-only `subtype` byte left the frame record. The struct's
-   alignment is 2 (its widest member is `payload_len`), so the byte does not
-   vanish into padding: 274 -> 272, and `ALIGN4` of it 276 -> 272, which is the
-   whole of the -4 in the budget below. Both figures are equalities rather than
-   bounds on purpose — a frame record that grows silently is what these catch,
-   and they caught this one. */
 _Static_assert(sizeof(era_split_wire_frame_t) == 272U, "ERA storage decoded semantic frame budget changed.");
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES ==
-                   1548U + ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DIAGNOSTIC_BYTES +
-                       (ERA_SPLIT_COMMUNICATION_CORE_STORAGE_INITIATOR_REQUEST_BYTES - 40U),
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_STATIC_BYTES == 1540U,
                "ERA communication-core storage capacity budget changed.");
-/* The cap guard is unconditional. It used to live in the non-cause arm only, so
-   the one profile that exceeds ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES was
-   also the one profile with no cap check — its equality against an over-cap
-   constant read as review rather than as an overage. The cause timeline's
-   records are now an explicit addition to the profile budget instead of a
-   silent exemption. ERA NVM removes the old flash-write edge record entirely;
-   physical program/erase failures are counted by the NVM engine instead. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES <= ERA_HOST_PEER_STORAGE_PROFILE_BUDGET_BYTES,
-               "ERA HOST-PEER storage static budget exceeds the profile cap.");
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-/* 18544 -> 18672 when the timeline was resized to span a macro episode: its
-   two records went 48 -> 112 bytes each, so the addition over the then
-   18448-byte wire-diagnostics aggregate went 96 -> 224. Then 18672 -> 18676
-   with that aggregate's own move to 18452, and 18676 -> 18672 at D2 as it
-   moved back, 18672 -> 18668 with the frame record's `subtype` byte, and
-   18668 -> 18660 with the core0 state's two write-only fields (2026-08-11),
-   and 18660 -> 18668 with the indicator redesign's core0 state move
-   136 -> 144 (2026-08-14), 18668 -> 18660 when the wire-reset edge record
-   lost the two `hbmiss` counters with the heartbeat lane, and 18660 -> 19988
-   for the interval-scoped indicator/write edge recorder, then 19988 -> 20024
-   for the replacement-Apply slice swap's 36-byte staged-old state, and
-   20024 -> 20048 for two copies of the 12-byte retained Core1 failure detail,
-   and 20048 -> 20124 for the diagnostic request timestamp and two copies of
-   the 36-byte retained queue/preceding-route context. ERA NVM then removes the
-   40-byte slice/raw-facade state and the 8-byte flash-edge live/snapshot pair:
-   20124 -> 20076. The cause-only STORAGE_PENDING path probe adds four rise/fall
-   timestamp pairs, a raw-hardware interval epoch, and stage-local validity/level
-   bytes to each edge record (664 -> 696), so the two live/snapshot records add
-   64 bytes: 20076 -> 20140. The stage-local bytes deliberately avoid cross-core
-   read-modify-write masks; the raw epoch lets Core1 stay off ChibiOS timers.
-   Deliberate arithmetic on a selector-gated variant that is never an
-   acceptance build. */
-/* V260909R1: the independent Core0 relation audit receipt adds four bytes. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 20316U,
-               "ERA HOST-PEER cause diagnostic budget changed.");
-#else
-#    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-/* 18452 -> 18448 at D2, the core0 state's four bytes coming back, and
-   18448 -> 18444 when the write-only `subtype` byte left the frame record and
-   took four bytes of its ALIGN4 with it, and 18444 -> 18436 when the core0
-   state's two write-only fields left the local truth record (2026-08-11), and
-   18436 -> 18444 at the 2026-08-14 indicator redesign — the changed shadow in
-   local truth and the indicator bits in the relation record, the RAM the
-   retired 1500 ms lamp bridge's job now lives in, and 18444 -> 18436 when the
-   wire-reset edge record lost its two `hbmiss` counters with the heartbeat
-   lane (2026-08-17), 18436 -> 18472 for the replacement-Apply slice swap's
-   36-byte staged-old state, 18472 -> 18496 for two copies of the 12-byte
-   retained Core1 failure detail, and 18496 -> 18572 for the diagnostic
-   request timestamp and two copies of the 36-byte retained queue/preceding-
-   route context. ERA NVM removes the 40-byte slice/raw-facade state and the
-   8-byte flash-edge live/snapshot pair, 18572 -> 18524. */
-/* V260909R1: the same receipt, without cause instrumentation. */
-_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == 18700U,
-               "ERA HOST-PEER wire-diagnostics static budget changed.");
-#    endif
-#endif
+_Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_AGGREGATE_STATIC_BYTES == ERA_HOST_PEER_STORAGE_STATIC_BUDGET_BYTES,
+               "ERA HOST-PEER storage static budget changed.");
 _Static_assert(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_COMPACT_PAYLOAD_BYTES == ERA_SPLIT_WIRE_COMPACT_MAX_PAYLOAD_LEN,
                "ERA storage compact payload must fill the compact lane.");
 _Static_assert(12U + ERA_HOST_PEER_STORAGE_CHUNK_BYTES == ERA_SPLIT_WIRE_BULK_PAGE_MAX_PAYLOAD_LEN,
@@ -166,10 +79,6 @@ static era_split_communication_core_storage_responder_result_slot_t g_era_split_
 static uint8_t g_era_split_communication_core_storage_wire_frame[ERA_SPLIT_COMMUNICATION_CORE_STORAGE_WIRE_FRAME_BYTES] __attribute__((aligned(4)));
 static uint8_t g_era_split_communication_core_storage_decoded_frame[ERA_SPLIT_COMMUNICATION_CORE_STORAGE_WIRE_FRAME_BYTES] __attribute__((aligned(4)));
 static uint8_t g_era_split_communication_core_storage_chunk_scratch[ERA_HOST_PEER_STORAGE_CHUNK_BYTES] __attribute__((aligned(4)));
-static era_split_communication_core_storage_lane_diagnostics_t g_era_split_communication_core_storage_lane_diagnostics __attribute__((aligned(4)));
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-static era_split_communication_core_storage_probe_diagnostics_t g_era_split_communication_core_storage_probe_diagnostics __attribute__((aligned(4)));
-#endif
 static era_split_wire_frame_t g_era_split_communication_core_storage_decoded_semantic_frame __attribute__((aligned(4)));
 
 static bool era_split_communication_core_storage_reserved_zero(const uint8_t *payload, uint16_t first, uint16_t last) {
@@ -1036,113 +945,6 @@ bool era_split_communication_core_storage_retire_publications(void) {
     return true;
 }
 
-void era_split_communication_core_storage_note_responder_full(void) {
-    g_era_split_communication_core_storage_lane_diagnostics.responder_full_count++;
-    __DMB();
-}
-
-void era_split_communication_core_storage_note_replay(void) {
-    g_era_split_communication_core_storage_lane_diagnostics.replay_count++;
-    __DMB();
-}
-
-void era_split_communication_core_storage_get_lane_diagnostics(era_split_communication_core_storage_lane_diagnostics_t *snapshot) {
-    if (snapshot == NULL) {
-        return;
-    }
-    __DMB();
-    *snapshot = g_era_split_communication_core_storage_lane_diagnostics;
-    __DMB();
-}
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-void era_split_communication_core_storage_note_initiator_probe(era_split_communication_core_storage_probe_stage_t stage,
-                                                               bool success,
-                                                               const era_split_communication_core_storage_initiator_result_t *result) {
-    g_era_split_communication_core_storage_probe_diagnostics.last_stage = (uint8_t)stage;
-    if (result != NULL) {
-        g_era_split_communication_core_storage_probe_diagnostics.last_result    = result->result;
-        g_era_split_communication_core_storage_probe_diagnostics.last_failure   = result->failure;
-        g_era_split_communication_core_storage_probe_diagnostics.last_operation = result->operation;
-        g_era_split_communication_core_storage_probe_diagnostics.last_status    = result->status;
-    }
-    if (!success) {
-        g_era_split_communication_core_storage_probe_diagnostics.failure_count++;
-    }
-    switch (stage) {
-        case ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_CLAIM:
-            if (success) {
-                g_era_split_communication_core_storage_probe_diagnostics.claim_count++;
-            }
-            break;
-        case ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_TX:
-            if (success) {
-                g_era_split_communication_core_storage_probe_diagnostics.tx_count++;
-            }
-            break;
-        case ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_RX:
-            if (success) {
-                g_era_split_communication_core_storage_probe_diagnostics.rx_count++;
-            }
-            break;
-        case ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH:
-            if (success) {
-                g_era_split_communication_core_storage_probe_diagnostics.publish_count++;
-            }
-            break;
-        default:
-            break;
-    }
-    __DMB();
-}
-
-void era_split_communication_core_storage_note_initiator_failure(era_split_communication_core_storage_probe_stage_t stage,
-                                                                 const era_split_communication_core_storage_initiator_result_t *result,
-                                                                 uint8_t request_operation,
-                                                                 uint8_t classification,
-                                                                 uint8_t access,
-                                                                 int32_t deadline_delta_us,
-                                                                 const era_split_communication_core_storage_probe_failure_context_t *failure_context) {
-    /* Write the retained detail before failure_count becomes the visible
-     * commit marker in note_initiator_probe(). A print racing this tiny window
-     * may see new detail with the old count, never a new count with stale
-     * detail; the next paced line is coherent in either case. */
-    g_era_split_communication_core_storage_probe_diagnostics.failure_stage             = (uint8_t)stage;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_result            = result != NULL ? result->result : 0;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_failure           = result != NULL ? result->failure : 0;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_operation         = request_operation;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_status            = result != NULL ? result->status : 0;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_classification    = classification;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_access            = access;
-    g_era_split_communication_core_storage_probe_diagnostics.failure_deadline_delta_us = deadline_delta_us;
-    if (failure_context != NULL) {
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context = *failure_context;
-    } else {
-        memset(&g_era_split_communication_core_storage_probe_diagnostics.failure_context, 0,
-               sizeof(g_era_split_communication_core_storage_probe_diagnostics.failure_context));
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context.queue_delay_us                 = UINT32_MAX;
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context.queue_window_us                = INT32_MIN;
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_start_delta_us     = INT32_MIN;
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_end_delta_us       = INT32_MIN;
-        g_era_split_communication_core_storage_probe_diagnostics.failure_context.prior_route_to_failure_delta_us = INT32_MIN;
-    }
-    __DMB();
-    era_split_communication_core_storage_note_initiator_probe(stage, false, result);
-}
-
-void era_split_communication_core_storage_get_probe_diagnostics(era_split_communication_core_storage_probe_diagnostics_t *snapshot) {
-    if (snapshot == NULL) {
-        return;
-    }
-    __DMB();
-    *snapshot = g_era_split_communication_core_storage_probe_diagnostics;
-    snapshot->request_claim_generation = (uint16_t)g_era_split_communication_core_storage_initiator_request.claim_generation;
-    snapshot->result_claim_generation  = (uint16_t)g_era_split_communication_core_storage_initiator_result.claim_generation;
-    snapshot->result_ready_generation  = (uint16_t)g_era_split_communication_core_storage_initiator_result.ready_generation;
-    __DMB();
-}
-#endif
-
 uint8_t *era_split_communication_core_storage_wire_frame_scratch(void) {
     return g_era_split_communication_core_storage_wire_frame;
 }
@@ -1181,9 +983,6 @@ bool era_split_communication_core_storage_publish_initiator_request(const era_sp
     era_split_communication_core_storage_initiator_request_t published = *request;
     uint32_t published_at_us = timer_hw->timerawl;
     published.not_after_us   = published_at_us + queue_window_us;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    published.published_at_us = published_at_us;
-#endif
     g_era_split_communication_core_storage_initiator_request.record = published;
     era_split_communication_core_storage_publication_finish(&g_era_split_communication_core_storage_initiator_request.publication_seq, odd_seq);
     return true;
@@ -1212,9 +1011,6 @@ bool era_split_communication_core_storage_claim_initiator_request(era_split_comm
         g_era_split_communication_core_storage_initiator_request.claim_generation = request->request_generation;
         __DMB();
         if (second_seq == g_era_split_communication_core_storage_initiator_request.publication_seq) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_CLAIM, true, NULL);
-#endif
             return true;
         }
         g_era_split_communication_core_storage_initiator_request.claim_generation = 0;
@@ -1246,31 +1042,11 @@ bool era_split_communication_core_storage_publish_initiator_result(const era_spl
     if (result == NULL || result->request_generation == 0 ||
         g_era_split_communication_core_storage_initiator_request.claim_generation != result->request_generation ||
         g_era_split_communication_core_storage_initiator_result.claim_generation != result->request_generation) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_failure(
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH,
-            result,
-            result != NULL ? result->operation : 0,
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
-            INT32_MIN,
-            NULL);
-#endif
         return false;
     }
 
     uint32_t odd_seq;
     if (!era_split_communication_core_storage_publication_begin(&g_era_split_communication_core_storage_initiator_result.publication_seq, &odd_seq)) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        era_split_communication_core_storage_note_initiator_failure(
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH,
-            result,
-            result->operation,
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
-            ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_DETAIL_NONE,
-            INT32_MIN,
-            NULL);
-#endif
         return false;
     }
     if (result != &g_era_split_communication_core_storage_initiator_result.record) {
@@ -1279,9 +1055,6 @@ bool era_split_communication_core_storage_publish_initiator_result(const era_spl
     era_split_communication_core_storage_publication_finish(&g_era_split_communication_core_storage_initiator_result.publication_seq, odd_seq);
     era_split_communication_core_storage_result_publish_ready(&g_era_split_communication_core_storage_initiator_result.ready_generation, result->request_generation);
     era_split_communication_core_storage_release_initiator_request(result->request_generation);
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    era_split_communication_core_storage_note_initiator_probe(ERA_SPLIT_COMMUNICATION_CORE_STORAGE_PROBE_STAGE_PUBLISH, true, result);
-#endif
     return true;
 }
 

@@ -48,7 +48,7 @@ static struct {
     unsigned host_peer_rgb_state_rx_count;
     unsigned host_peer_visual_snapshot_rx_count;
 } g_era_split_transport_scheduler;
-static unsigned sessions;
+static unsigned sessions, observed;
 static void era_split_scheduler_session_note_peer_status(const era_split_wire_session_status_t *status) {
     assert(status->accepted_host_open && status->status_response_requested);
     ++sessions;
@@ -68,9 +68,7 @@ bool era_host_peer_transaction_apply_rgb_state(const era_host_peer_rgb_state_t *
 void era_host_peer_transaction_apply_activity(const era_split_wire_activity_section_t *activity) { assert(0); }
 void era_host_peer_transaction_apply_visual_snapshot(const era_host_peer_visual_snapshot_t *visual) { assert(0); }
 static void era_split_transport_scheduler_commit_communication_core_host_response(const era_split_communication_core_responder_result_t *result) { assert(0); }
-static void era_split_responder_projection_note_result(bool session, bool push, bool sent, uint8_t sections, uint8_t result) {
-    assert(session && !push && sent && result==ERA_SPLIT_TRANSACTION_RESULT_OK);
-}
+static void era_split_responder_projection_note_received(uint32_t count) { observed += count; }
 """
 
 cases = r"""
@@ -112,7 +110,7 @@ int main(void) {
         .peer_status={.accepted_host_open=true, .status_response_requested=true},
     };
     era_split_transport_scheduler_apply_communication_core_responder_result(&session);
-    assert(sessions==1);
+    assert(sessions==1 && observed==1);
     plan=prepare(0);
     assert(plan.send_storage_news && plan.storage_news==0);
     sent(&plan);

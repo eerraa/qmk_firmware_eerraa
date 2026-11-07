@@ -326,14 +326,6 @@ __attribute__((weak)) bool via_command_kb(uint8_t *data, uint8_t length) {
     return false;
 }
 
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-/* Cause-variant hooks are declared here rather than by including a keyboard
- * header into QMK core. They compile away from every other image. */
-void era_via_macro_diagnostics_receive(uint8_t command_id);
-void era_via_macro_diagnostics_response_begin(void);
-void era_via_macro_diagnostics_response_end(void);
-#endif
-
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 static bool via_semantic_mutation(const uint8_t *data, uint8_t length) {
     if (length != 32) return false;
@@ -357,10 +349,6 @@ static bool via_semantic_mutation(const uint8_t *data, uint8_t length) {
 #endif
 
 void raw_hid_receive(uint8_t *data, uint8_t length) {
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    era_via_macro_diagnostics_receive(data[0]);
-#endif
-
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     bool semantic = via_semantic_mutation(data, length);
     if (semantic) EECONFIG_SEMANTIC_BEGIN();
@@ -590,13 +578,7 @@ void via_command_execute(uint8_t *data, uint8_t length) {
 #endif
     // Return the same buffer, optionally with values changed
     // (i.e. returning state to the host, or the unhandled state).
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    era_via_macro_diagnostics_response_begin();
-#endif
     raw_hid_send(data, length);
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    era_via_macro_diagnostics_response_end();
-#endif
 }
 
 #if defined(BACKLIGHT_ENABLE)

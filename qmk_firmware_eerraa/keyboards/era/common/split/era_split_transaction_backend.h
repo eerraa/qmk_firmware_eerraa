@@ -71,13 +71,6 @@ typedef struct {
     uint32_t deadline_us;
 } era_split_transaction_backend_response_window_t;
 
-#ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-typedef struct {
-    uint32_t tx_us;
-    uint32_t wait_rx_us;
-} era_split_transaction_backend_send_timing_t;
-#endif
-
 void era_split_transaction_backend_init(void);
 /* The wire's rate, as a baud, and everything derived from it. Core0 pushes the
    number in; the backend never learns that levels exist, which is what keeps
@@ -142,12 +135,3 @@ void era_split_transaction_backend_core1_deadline_irq(void);
  * paying. */
 void era_split_transaction_backend_arm_core1_idle_wake(uint32_t deadline_us);
 void era_split_transaction_backend_get_diagnostics_snapshot(era_split_transaction_backend_diagnostics_t *snapshot);
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-/* Boot-cumulative: how many times the backend parked core1 on WFE inside a
- * wait -- the responder's windows, and the initiator's response window, TX
- * FIFO-full wait and drain -- and the
- * microseconds those parks lasted in total. The lifecycle's own idle park is
- * counted separately (era_split_communication_core_diagnostics.h); a reader
- * takes deltas of both against the elapsed window for core1's sleep share. */
-void era_split_transaction_backend_get_park_diagnostics(uint32_t *count, uint32_t *us);
-#endif

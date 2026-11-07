@@ -47,6 +47,3 @@ era_nvm_result_t era_eeprom_driver_maintenance_task(bool *did_work);
  * permitted while a macro upload is staged. */
 bool era_eeprom_driver_macro_transaction_open(void);
 void era_eeprom_driver_get_nvm_diagnostics(era_nvm_diagnostics_t *diagnostics);
-#ifdef ERA_TOMAK_SYNC_TIMING
-uint32_t era_eeprom_driver_timing_generation(void);
-#endif

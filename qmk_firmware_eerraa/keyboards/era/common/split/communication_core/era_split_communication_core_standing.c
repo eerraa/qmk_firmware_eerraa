@@ -13,9 +13,6 @@
 
 #include "era_split_communication_core_internal.h"
 #include "era_split_communication_core_owner.h"
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-#    include "../era_host_peer_storage.h"
-#endif
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_backend.h"
 #include "../era_split_transaction_engine.h"
@@ -380,13 +377,6 @@ static bool era_split_communication_core_standing_due(uint32_t now_us) {
     return (int32_t)(now_us - g_era_split_communication_core_standing_private.next_due_us) >= 0;
 }
 
-#ifdef ERA_TOMAK_SYNC_DIAG
-static volatile uint32_t tomak_sync_control_beats;
-static volatile uint32_t tomak_sync_standing_fault;
-uint32_t era_tomak_sync_control_keepalive_count(void) { return tomak_sync_control_beats; }
-uint32_t era_tomak_sync_standing_fault(void) { return tomak_sync_standing_fault; }
-#endif
-
 bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     era_split_communication_core_standing_plan_t plan;
     if (!era_split_communication_core_read_standing_plan(&plan)) {
@@ -637,11 +627,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
        own counters by the time this returns. It stays because the engine
        refuses a NULL one; `request_sent` did not have to, so it does not. */
     era_split_transaction_failure_t failure = ERA_SPLIT_TRANSACTION_FAILURE_NONE;
-#ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-    era_split_transaction_engine_timing_begin_route((uint8_t)ERA_SPLIT_ROUTE_HOST_PEER_HEARTBEAT,
-                                                    push_sections != 0 ? (uint8_t)ERA_SPLIT_ROUTE_REASON_RUNTIME_SECTION_PUSH
-                                                                       : (uint8_t)ERA_SPLIT_ROUTE_REASON_RUNTIME_RESPONSE_POLL);
-#endif
     era_split_transaction_engine_result_t result =
         era_split_transaction_engine_transact_compact_owned(ERA_SPLIT_WIRE_DIRECTION_PRIMARY_TO_SECONDARY,
                                                             payload,
@@ -655,14 +640,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
                                                             &response,
                                                             NULL,
                                                             &failure);
-#ifdef ERA_TOMAK_SYNC_DIAG
-    if (hp_control && result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
-        tomak_sync_control_beats++;
-    }
-#endif
-#ifdef ERA_SPLIT_TRANSACTION_TIMING_DIAGNOSTICS_ENABLE
-    era_split_transaction_engine_timing_end_route();
-#endif
 
     era_split_communication_core_standing_state_t state = g_era_split_communication_core_standing_state;
     bool identity_changed = state.owner_epoch != owner_epoch || state.relation_generation != plan.relation_generation;
@@ -670,25 +647,19 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         /* A late old result may have overwritten the publication after Core0
            revoked its grant. Never relabel that cache with the new identity.
            This reset has the same sole writer as ordinary state publication. */
-        uint32_t exchanges = state.exchange_count, tx = state.tx_section_count, rx = state.rx_section_count;
+        uint32_t exchanges = state.exchange_count;
         uint8_t visual_seq = state.peer_visual_seq;
         memset(&state, 0, sizeof(state));
         /* Delivery identity, not cached peer state: an owner-only restart
            does not reset Core0's applied-visual receipt. Reusing sequence 1
            would suppress the first fresh visual snapshot after that restart. */
         state.peer_visual_seq = visual_seq;
-        state.exchange_count = exchanges;
-        state.tx_section_count = tx;
-        state.rx_section_count = rx;
+        state.exchange_count  = exchanges;
     }
     state.owner_epoch         = owner_epoch;
     state.relation_generation = plan.relation_generation;
 
     if (result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        tomak_sync_standing_fault = (uint32_t)result | ((uint32_t)failure << 8) |
-            (hp_control ? 0x10000U : 0U) | (cadence_granted ? 0x20000U : 0U);
-#endif
         /* A non-OK exchange does not confirm the request, but neither does it
          * prove that the request missed the peer. RESTART_ARM is destructive
          * state: if the peer accepted this body and the plan later returns to
@@ -729,21 +700,11 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
     state.exchange_count++;
     g_era_split_communication_core_standing_private.due_valid   = 1;
     g_era_split_communication_core_standing_private.next_due_us = now_us + (uint32_t)period_ms * 1000U;
-    /* `rt` counts runtime *sections*, never polls, so a frame carrying two
-       sections counts two. That is what keeps the steady-state legs readable
-       under a constant cadence. */
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_INPUT_LAYER) != 0) {
         g_era_split_communication_core_standing_private.sent_input_layer       = plan.input_layer;
         g_era_split_communication_core_standing_private.sent_input_layer_valid = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        era_host_peer_storage_cause_note_pending_path(
-            ERA_HOST_PEER_STORAGE_CAUSE_PENDING_INITIATOR_TX,
-            (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0,
-            0);
-#endif
         uint8_t sent_pending =
             (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0 ? 1U : 0U;
         if (!state.local_storage_pending_valid || state.local_storage_pending != sent_pending) {
@@ -753,22 +714,18 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         state.local_storage_pending_valid = 1;
         g_era_split_communication_core_standing_private.sent_storage_pending       = plan.storage_pending;
         g_era_split_communication_core_standing_private.sent_storage_pending_valid = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_AUTHORITY) != 0) {
         g_era_split_communication_core_standing_private.sent_authority       = plan.authority;
         g_era_split_communication_core_standing_private.sent_authority_valid = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RGB_STATE) != 0) {
         g_era_split_communication_core_standing_private.sent_rgb       = plan.rgb;
         g_era_split_communication_core_standing_private.sent_rgb_valid = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_ACTIVITY) != 0) {
         g_era_split_communication_core_standing_private.sent_activity       = plan.activity;
         g_era_split_communication_core_standing_private.sent_activity_valid = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM) != 0) {
         g_era_split_communication_core_standing_private.sent_restart_act       = plan.restart_act;
@@ -776,13 +733,11 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         g_era_split_communication_core_standing_private.sent_restart_commit_ms = plan.restart_commit_ms;
         g_era_split_communication_core_standing_private.sent_restart_generation = plan.restart_generation;
         g_era_split_communication_core_standing_private.sent_restart_valid     = 1;
-        state.tx_section_count++;
     }
     if ((push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_VISUAL) != 0) {
         memcpy(g_era_split_communication_core_standing_private.sent_visual, plan.visual_baseline,
                ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_VISUAL_RESYNC_BASELINE_BYTES);
         g_era_split_communication_core_standing_private.sent_visual_valid = 1;
-        state.tx_section_count++;
     }
 
     /* The accept-clip, core1's half. Core0 re-asks the same question against
@@ -821,7 +776,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         (!state.peer_input_layer_valid || state.peer_input_layer != decoded.host_source_input_layer)) {
         state.peer_input_layer       = decoded.host_source_input_layer;
         state.peer_input_layer_valid = 1;
-        state.rx_section_count++;
         notify                       = true;
     }
     /* The edge that decides whether this lane works at all. An authority
@@ -832,7 +786,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         (!state.peer_authority_valid || !era_split_wire_authority_equal(&state.peer_authority, &decoded.host_source_authority))) {
         state.peer_authority       = decoded.host_source_authority;
         state.peer_authority_valid = 1;
-        state.rx_section_count++;
         notify                     = true;
     }
     /* The storage hint, on the identical edge (Slice 11.7). **The all-clear is
@@ -856,8 +809,7 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         (!state.peer_storage_news_valid || state.peer_storage_news != decoded.host_source_storage_news)) {
         state.peer_storage_news       = decoded.host_source_storage_news;
         state.peer_storage_news_valid = 1;
-        state.rx_section_count++;
-        notify                              = true;
+        notify                        = true;
     }
     /* The remaining response sections (R2), each on the identical edge rule and
        each behind this relation's own eligibility. The edge is not an
@@ -872,7 +824,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         (!state.peer_lock_state_valid || state.peer_lock_state != decoded.host_source_lock_state)) {
         state.peer_lock_state       = decoded.host_source_lock_state;
         state.peer_lock_state_valid = 1;
-        state.rx_section_count++;
         notify                      = true;
     }
     /* The one section whose apply is an event, so its edge also carries a
@@ -888,7 +839,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         state.peer_visual_snapshot = decoded.host_source_visual_snapshot;
         state.peer_visual_valid    = 1;
         state.peer_visual_seq++;
-        state.rx_section_count++;
         notify                     = true;
     }
     if (decoded.host_source_rgb_state_valid &&
@@ -897,7 +847,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
          !era_split_communication_core_standing_rgb_equal(&state.peer_rgb_state, &decoded.host_source_rgb_state))) {
         state.peer_rgb_state       = decoded.host_source_rgb_state;
         state.peer_rgb_state_valid = 1;
-        state.rx_section_count++;
         notify                     = true;
     }
     /* The anchor stores its own receive instant beside it, which is what turns a
@@ -911,7 +860,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
         state.peer_time_anchor_ms    = decoded.host_source_time_anchor_ms;
         state.peer_time_anchor_rx_us = timer_hw->timerawl;
         state.peer_time_anchor_valid = 1;
-        state.rx_section_count++;
         notify                       = true;
     }
     /* The responder's tap-hold activity (FA-2 S2), on the identical edge. Its
@@ -923,7 +871,6 @@ bool era_split_communication_core_standing_service_once(uint16_t owner_epoch) {
          !era_split_wire_activity_equal(&state.peer_activity, &decoded.host_source_activity))) {
         state.peer_activity       = decoded.host_source_activity;
         state.peer_activity_valid = 1;
-        state.rx_section_count++;
         notify                    = true;
     }
     era_split_transaction_engine_commit_received_frame(&response);

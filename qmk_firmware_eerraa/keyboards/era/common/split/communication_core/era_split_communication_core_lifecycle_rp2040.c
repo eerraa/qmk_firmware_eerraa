@@ -170,28 +170,12 @@ static bool era_split_communication_core_fifo_read_timeout(uint32_t *data, uint3
     return true;
 }
 
-enum {
-    ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_NONE  = 0,
-    ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_WRITE = 1,
-    ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_READ  = 2,
-    ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_ECHO  = 3,
-};
-
-static void era_split_communication_core_note_launch_error(uint8_t stage, uint8_t phase) {
-    g_era_split_communication_core.launch_error       = 1;
-    g_era_split_communication_core.launch_error_stage = stage;
-    g_era_split_communication_core.launch_error_phase = phase;
+static void era_split_communication_core_note_launch_error(void) {
     g_era_split_communication_core.launch_error_count++;
 }
 
 static void era_split_communication_core_note_entry_timeout(void) {
-    g_era_split_communication_core.entry_timeout = 1;
     g_era_split_communication_core.entry_timeout_count++;
-}
-
-static void era_split_communication_core_note_stop_timeout(void) {
-    g_era_split_communication_core.stop_timeout = 1;
-    g_era_split_communication_core.stop_timeout_count++;
 }
 
 static bool era_split_communication_core_wait_state(volatile uint8_t *value, uint8_t expected, uint32_t timeout_us) {
@@ -214,7 +198,6 @@ static void era_split_communication_core_entry(void) {
     for (;;) {
         __DMB();
         bool backend_owner_ready = era_split_communication_core_owner_core1_service();
-        era_split_transaction_engine_publish_diagnostics_snapshot();
         if (g_era_split_communication_core.stop_requested) {
             (void)era_split_communication_core_owner_core1_service();
             if (g_era_split_communication_core.running) {
@@ -222,7 +205,6 @@ static void era_split_communication_core_entry(void) {
                 __DMB();
                 __SEV();
             }
-            g_era_split_communication_core.idle_count++;
             __DMB();
             __WFE();
             continue;
@@ -235,7 +217,6 @@ static void era_split_communication_core_entry(void) {
         }
         if (g_era_split_communication_core.wake_pending) {
             g_era_split_communication_core.wake_pending = 0;
-            g_era_split_communication_core.wake_observed_count++;
         }
         era_split_transaction_backend_role_t backend_role = era_split_communication_core_owner_current_role();
         bool processed_queue = backend_owner_ready && backend_role == ERA_SPLIT_TRANSACTION_BACKEND_ROLE_INITIATOR &&
@@ -260,25 +241,13 @@ static void era_split_communication_core_entry(void) {
         if (responder_active) {
             (void)era_split_communication_core_responder_service_once(era_split_communication_core_owner_epoch());
         }
-        if (processed_queue || processed_storage || processed_standing || responder_active) {
-            era_split_transaction_engine_publish_diagnostics_snapshot();
-        }
         g_era_split_communication_core.loop_count++;
         __DMB();
         if (processed_queue || processed_storage || processed_standing || responder_active) {
             continue;
         }
-        g_era_split_communication_core.idle_count++;
         __DMB();
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-        /* The idle park's duration, for the sleep-share instrument. Diagnostic
-           images only, and the two timer reads sit outside the pass. */
-        uint32_t idle_start_us = timer_hw->timerawl;
         __WFE();
-        g_era_split_communication_core.idle_us += (uint32_t)(timer_hw->timerawl - idle_start_us);
-#else
-        __WFE();
-#endif
     }
 }
 
@@ -333,11 +302,11 @@ static bool era_split_communication_core_launch_sequence(void) {
             fifoFlushRead();
         }
         if (!era_split_communication_core_fifo_write_timeout(command, ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_TIMEOUT_US)) {
-            era_split_communication_core_note_launch_error(seq, ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_WRITE);
+            era_split_communication_core_note_launch_error();
             return false;
         }
         if (!era_split_communication_core_fifo_read_timeout(&response, ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_TIMEOUT_US)) {
-            era_split_communication_core_note_launch_error(seq, ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_READ);
+            era_split_communication_core_note_launch_error();
             return false;
         }
         if (response == command) {
@@ -345,10 +314,7 @@ static bool era_split_communication_core_launch_sequence(void) {
             continue;
         }
         if (restarts >= ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_MAX_RESTARTS) {
-            /* Report the step the final mismatch happened at, not the zero it
-               would have reset to: that is what separates "never answered the
-               first word" from "walked most of the sequence and then broke". */
-            era_split_communication_core_note_launch_error(seq, ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_ECHO);
+            era_split_communication_core_note_launch_error();
             return false;
         }
         restarts = (uint8_t)(restarts + 1U);
@@ -415,7 +381,9 @@ void era_split_communication_core_declare_dead(void) {
     g_era_split_communication_core.running        = 0;
     g_era_split_communication_core.stop_requested = 0;
     g_era_split_communication_core.wake_pending   = 0;
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     g_era_split_communication_core.dead_declared_count++;
+#endif
     __DMB();
 }
 
@@ -478,20 +446,12 @@ bool era_split_communication_core_start(void) {
            the next plan pass notices. */
         return false;
     }
-    g_era_split_communication_core.start_count++;
-    g_era_split_communication_core.stop_requested      = 0;
-    g_era_split_communication_core.wake_pending        = 1;
-    g_era_split_communication_core.launch_error        = 0;
-    g_era_split_communication_core.launch_error_stage  = 0;
-    g_era_split_communication_core.launch_error_phase  = ERA_SPLIT_COMMUNICATION_CORE_LAUNCH_ERROR_PHASE_NONE;
-    g_era_split_communication_core.entry_timeout       = 0;
-    g_era_split_communication_core.stop_timeout        = 0;
+    g_era_split_communication_core.stop_requested = 0;
+    g_era_split_communication_core.wake_pending   = 1;
     __DMB();
 
     if (!g_era_split_communication_core.launched) {
-        g_era_split_communication_core.launch_attempted = 1;
         if (!era_split_communication_core_launch()) {
-            g_era_split_communication_core.launch_attempted = 0;
             era_split_communication_core_note_launch_failure();
             return false;
         }
@@ -537,14 +497,11 @@ bool era_split_communication_core_request_quiesce(void) {
                                                            ERA_SPLIT_TRANSACTION_BACKEND_ROLE_DISABLED)) {
         return false;
     }
-    g_era_split_communication_core.stop_count++;
     g_era_split_communication_core.stop_requested = 1;
-    g_era_split_communication_core.stop_timeout   = 0;
     __DMB();
     __SEV();
 
     if (g_era_split_communication_core.launched && !era_split_communication_core_wait_state(&g_era_split_communication_core.running, 0, ERA_SPLIT_COMMUNICATION_CORE_STATE_TIMEOUT_US)) {
-        era_split_communication_core_note_stop_timeout();
         return false;
     }
 
@@ -553,7 +510,6 @@ bool era_split_communication_core_request_quiesce(void) {
 
 void era_split_communication_core_wake(void) {
     era_split_communication_core_init();
-    g_era_split_communication_core.wake_count++;
     g_era_split_communication_core.wake_pending = 1;
     __DMB();
     __SEV();

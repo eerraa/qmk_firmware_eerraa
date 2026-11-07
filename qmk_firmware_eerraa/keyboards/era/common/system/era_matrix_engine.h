@@ -12,7 +12,7 @@
  *
  * This is the whole of the engine a non-split build sees. Everything below is
  * the split relation's view of the same engine — the peer rows, the source-push
- * lane, the projection, and their diagnostics — and none of it has a non-split
+ * lane and the projection — and none of it has a non-split
  * caller. The guard is the boundary rather than a convenience: the declarations
  * used to sit outside it while their definitions sat inside, so the non-split
  * path had never been compiled and did not build at all when first tried. */
@@ -32,18 +32,6 @@ typedef enum {
     ERA_MATRIX_ENGINE_PEER_MATRIX_COPIED,
 } era_matrix_engine_peer_matrix_copy_result_t;
 
-typedef struct {
-    uint8_t  local_matrix_ready;
-    uint8_t  local_source_push_forced;
-    uint8_t  peer_cache_valid;
-    uint8_t  local_current_seq8;
-    uint8_t  local_host_known_seq8;
-    uint8_t  peer_matrix_seq8;
-    uint32_t peer_cache_update_count;
-    uint32_t peer_cache_project_count;
-    uint32_t peer_cache_flush_count;
-} era_matrix_engine_host_peer_diagnostics_t;
-
 /* This is the split relation's view of the engine, and only that: a
    declaration earns a place here by having a caller outside
    era_rp2040_matrix_core.c. The engine's own peer-row bookkeeping —
@@ -61,6 +49,5 @@ bool                                       era_matrix_engine_peer_projection_sca
 bool                                       era_matrix_engine_peer_closure_pending(void);
 void                                       era_matrix_engine_request_peer_closure(void);
 void                                       era_matrix_engine_flush_host_peer_relation(void);
-void                                       era_matrix_engine_get_host_peer_diagnostics(era_matrix_engine_host_peer_diagnostics_t *snapshot);
 
 #endif /* SPLIT_KEYBOARD */

@@ -31,9 +31,7 @@
 
 #if defined(RGB_MATRIX_IDLE_GATE_ENABLE) && defined(MCU_RP)
 /* ERA, the idle arm's millisecond gate. The register struct only, never
-   pico-sdk's hardware/timer.h, which collides with the ChibiOS TIMER macro --
-   the note keyboards/era/common/system/era_pass_phase_diagnostics.c and
-   keyboards/era/common/split/era_split_keyboard.c carry for the same include. */
+   pico-sdk's hardware/timer.h, which collides with the ChibiOS TIMER macro. */
 #    include "hardware/structs/timer.h"
 
 /* Microseconds between two evaluations of the SYNCING arm. The default lives
@@ -803,27 +801,6 @@ static void rgb_matrix_task_render_with_policy(uint8_t effect) {
 }
 #endif
 
-#ifdef ERA_PASS_PHASE_DIAGNOSTICS_ENABLE
-/* ERA pass-phase instrument (keyboards/era/common/system/
-   era_pass_phase_diagnostics.h). Declared here rather than included, the
-   treatment quantum/keyboard.c's marks and quantum/action_layer.c's accessor
-   take: keyboards/era is not on core's include path.
-
-   The ids are the header's; the five below tile this task. Exactly one arm runs
-   per pass, so an arm's maximum is that arm's own cost -- and the render arm's
-   cost is what bounds how long moving this task to core1 may delay a wire
-   exchange, which in HOST-PEER carries half the keyboard's keys. */
-#    define ERA_PASS_PHASE_RGB_TIMERS 0U
-#    define ERA_PASS_PHASE_RGB_START 1U
-#    define ERA_PASS_PHASE_RGB_RENDER 2U
-#    define ERA_PASS_PHASE_RGB_FLUSH 3U
-#    define ERA_PASS_PHASE_RGB_SYNC 4U
-void era_pass_phase_rgb_mark(uint8_t part);
-#    define ERA_RGB_PHASE_MARK(part) era_pass_phase_rgb_mark(part)
-#else
-#    define ERA_RGB_PHASE_MARK(part) ((void)0)
-#endif
-
 void rgb_matrix_task(void) {
 #if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
     /* A board policy edge is a frame deadline of its own. Consume the external
@@ -858,14 +835,12 @@ void rgb_matrix_task(void) {
     }
 #endif
     rgb_task_timers();
-    ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_TIMERS);
 
     uint8_t effect = rgb_current_effect;
 
     switch (rgb_task_state) {
         case STARTING:
             rgb_task_start();
-            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_START);
             break;
         case RENDERING:
 #if defined(RGB_MATRIX_RENDER_POLICY_ENABLE)
@@ -886,15 +861,12 @@ void rgb_matrix_task(void) {
                 rgb_matrix_indicators_advanced(&rgb_effect_params);
             }
 #endif
-            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_RENDER);
             break;
         case FLUSHING:
             rgb_task_flush(effect);
-            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_FLUSH);
             break;
         case SYNCING:
             rgb_task_sync();
-            ERA_RGB_PHASE_MARK(ERA_PASS_PHASE_RGB_SYNC);
             break;
     }
 }

@@ -7,7 +7,7 @@ include keyboards/era/era_build_identity_options.mk
 # What did this build actually use?
 #
 #   qmk compile -kb era/sirind/tomak -km via \
-#       -e ERA_BUILD_VARIANT=cause -e ERA_SHOW_OPTIONS=yes
+#       -e ERA_BUILD_VARIANT=wire -e ERA_SHOW_OPTIONS=yes
 #
 # prints every ERA build option with its value and where the value came from --
 # `file` for a default or a board line, `command line` for a -e, `environment`

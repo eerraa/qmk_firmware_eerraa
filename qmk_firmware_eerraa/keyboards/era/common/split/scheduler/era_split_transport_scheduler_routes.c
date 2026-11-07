@@ -12,7 +12,6 @@
 #include "../era_host_peer_transaction.h"
 #include "../era_split_link.h"
 #include "../era_split_transaction_backend.h"
-#include "../communication_core/era_split_communication_core_diagnostics.h"
 #include "../communication_core/era_split_communication_core_initiator.h"
 #include "../communication_core/era_split_communication_core_lifecycle.h"
 #include "../communication_core/era_split_communication_core_owner.h"
@@ -27,6 +26,9 @@
 #include "../era_split_transaction_engine.h"
 #include "../era_split_wire_payload.h"
 #include "timer.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "../diagnostics/era_split_wire_cause.h"
+#endif
 #include "../../system/era_matrix_engine.h"
 
 /* A queued request cannot preempt the transaction Core1 has already begun.
@@ -73,9 +75,6 @@ uint32_t era_split_transport_scheduler_core1_request_queue_window_us(void) {
    so the two callers were choosing between clearing a field with no reader and
    not clearing it. */
 static void era_split_transport_scheduler_mark_peer_stale_revalidation(void) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-    era_tomak_sync_note_stale(1);
-#endif
     g_era_split_transport_scheduler.peer_session_stale          = true;
     g_era_split_transport_scheduler.local_status_pending        = true;
     g_era_split_transport_scheduler.attach_status_last_tx_valid = false;
@@ -112,9 +111,6 @@ bool era_split_transport_scheduler_check_revalidation(uint32_t now_ms) {
 }
 
 static void era_split_transport_scheduler_note_attach_status_request_attempt(era_split_transaction_engine_result_t result, bool request_sent, bool known_peer) {
-    if (request_sent) {
-        era_split_scheduler_session_note_local_status_sent();
-    }
     g_era_split_transport_scheduler.attach_status_last_tx_ms    = timer_read32();
     g_era_split_transport_scheduler.attach_status_last_tx_valid = true;
     if (result == ERA_SPLIT_TRANSACTION_RESULT_OK) {
@@ -130,12 +126,6 @@ static void era_split_transport_scheduler_note_attach_status_request_attempt(era
         era_split_transport_scheduler_begin_revalidation(timer_read32());
     }
 }
-
-/* The apply-summary counters retired with the path they counted (D3). They
-   were the second half of a deliberate double-count -- the same three
-   `*_rx_count` fields the standing apply increments -- kept so that a section
-   arriving on either path could not read as silence on the other. There is one
-   path now, so `wire sect app=` reads the same totals from one producer. */
 
 bool era_split_transport_scheduler_core1_initiator_pending(void) {
     return g_era_split_transport_scheduler.core1_initiator_async_pending ||
@@ -157,6 +147,11 @@ bool era_split_transport_scheduler_cancel_core1_initiator(void) {
 }
 
 bool era_split_transport_scheduler_stop_communication_core_for_flash_write(void) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    era_split_wire_cause_context(era_split_communication_core_owner_epoch(),
+                                 g_era_split_transport_scheduler.core1_initiator_relation_generation,
+                                 g_era_split_transport_scheduler.mode, 0x80);
+#endif
     if (!era_split_transport_scheduler_cancel_core1_initiator()) {
         return false;
     }
@@ -235,12 +230,6 @@ static bool era_split_transport_scheduler_submit_core1_request(const era_split_c
     return true;
 }
 
-#ifdef ERA_TOMAK_SYNC_DIAG
-static uint32_t tomak_session_submit, tomak_session_fail_ms, tomak_session_fail_detail;
-void era_tomak_sync_session_tx_diag(uint32_t *ms, uint32_t *detail) {
-    *ms = tomak_session_fail_ms; *detail = tomak_session_fail_detail;
-}
-#endif
 static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
     era_split_wire_session_status_t local_status;
     if (!era_split_scheduler_session_build_local_status(true, &local_status)) {
@@ -260,37 +249,8 @@ static bool era_split_transport_scheduler_try_enqueue_attach_status(void) {
     if (submitted && peer_known_before_request) {
         era_split_transport_scheduler_begin_revalidation(timer_read32());
     }
-#ifdef ERA_TOMAK_SYNC_DIAG
-    if (submitted) {
-        /* Freeze request provenance, not the state after its result arrives. */
-        tomak_session_submit = (peer_known_before_request ? 1U : 0U) |
-            (g_era_split_transport_scheduler.standing_stopped ? 2U : 0U) |
-            (g_era_split_transport_scheduler.local_status_pending ? 4U : 0U) |
-            ((uint32_t)g_era_split_transport_scheduler.mode << 8);
-    }
-#endif
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    if (submitted) {
-        era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_SUBMIT,
-                                                  peer_known_before_request ? 1 : 0);
-    }
-#endif
     return submitted;
 }
-
-/* The heartbeat enqueuer is gone with the two routes that selected it (R2).
-   Core1's standing service builds the identical frame -- one compact control
-   byte, GRANT_ACK expected with HOST_PEER_HOST_SOURCE_RSP as the alternate --
-   from its own period rather than from a queued request, which is the whole of
-   what moved. The core0 HEARTBEAT *lane* enumerator is gone
-   (era_split_communication_core_initiator.h); live initiator lanes are
-   INVALID, SESSION_STATUS, SOURCE_PUSH, and those lanes keep per-lane
-   ok/miss/bad/fail. Standing HEARTBEAT remains the wire operation
-   (era_split_communication_core_standing.c stamps
-   ERA_SPLIT_ROUTE_HOST_PEER_HEARTBEAT) and the responder result kind is live
-   (era_split_communication_core_responder.h). Wire-diag `hb=` is the
-   HEARTBEAT_ACK timing bucket in era_split_wire_diagnostics.c, not a retired
-   initiator-lane counter. */
 
 static bool era_split_transport_scheduler_try_enqueue_host_peer_source_push(void) {
     era_split_communication_core_initiator_request_t request;
@@ -331,24 +291,9 @@ static bool era_split_transport_scheduler_core1_result_matches(const era_split_c
 static void era_split_transport_scheduler_apply_core1_session_result(const era_split_communication_core_initiator_result_t *result) {
     bool request_sent = result->request_sent != 0;
     era_split_transaction_engine_result_t transaction_result = (era_split_transaction_engine_result_t)result->result;
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-    uint8_t cause_detail = (uint8_t)transaction_result;
-    if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_OK && !result->decoded.session.valid) {
-        cause_detail = 5;
-    }
-    era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_RESULT, cause_detail);
-#endif
     if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_OK && !result->decoded.session.valid) {
         transaction_result = ERA_SPLIT_TRANSACTION_RESULT_BAD;
     }
-#ifdef ERA_TOMAK_SYNC_DIAG
-    if (transaction_result != ERA_SPLIT_TRANSACTION_RESULT_OK) {
-        tomak_session_fail_ms = timer_read32();
-        tomak_session_fail_detail = (uint32_t)transaction_result |
-            ((uint32_t)result->failure << 8) | (request_sent ? 0x10000U : 0U) |
-            ((tomak_session_submit & 7U) << 17) | ((tomak_session_submit >> 8) << 24);
-    }
-#endif
     era_split_transport_scheduler_note_attach_status_request_attempt(transaction_result,
                                                                     request_sent,
                                                                     g_era_split_transport_scheduler.core1_initiator_peer_known_before_request);
@@ -376,7 +321,6 @@ static void era_split_transport_scheduler_apply_core1_session_result(const era_s
 
 static void era_split_transport_scheduler_apply_core1_host_peer_result(const era_split_communication_core_initiator_result_t *result) {
     bool ok = result->result == ERA_SPLIT_TRANSACTION_RESULT_OK;
-    if (result->request_sent) era_host_peer_matrix_link_note_source_push_sent();
     era_split_input_source_complete(&result->input, ok, result->input_status);
     if (ok) {
         if (result->input_status == ERA_INPUT_ACCEPTED || result->input_status == ERA_INPUT_ACCEPTED_STOP)
@@ -421,9 +365,6 @@ bool era_split_transport_scheduler_poll_core1_initiator(void) {
     g_era_split_transport_scheduler.core1_initiator_pending_lane              = ERA_SPLIT_COMMUNICATION_CORE_INITIATOR_LANE_INVALID;
     if (!matches) {
         g_era_split_transport_scheduler.core1_initiator_peer_known_before_request = false;
-        if (drained) {
-            era_split_communication_core_note_initiator_result_stale(result.lane);
-        }
         return true;
     }
 

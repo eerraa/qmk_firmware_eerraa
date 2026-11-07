@@ -106,9 +106,9 @@ enum tomak_keycodes {
     TD5,
     TD6,
     TD7,
-    WIRE_DIAG,   // scheduler-owned passive split wire diagnostics
-    WIRE_DIAG_2, // communication-core stop/probe split wire diagnostics
-    WIRE_QWIN    // fixed-window QMK scan counter diagnostics
+    WIRE_DIAG,   // start/stop the minimal measurement window
+    WIRE_DIAG_2, // reserved: no fault injection
+    WIRE_QWIN    // same measurement trigger; preserve stored keycode numbers
 };
 
 #ifdef VIA_ENABLE

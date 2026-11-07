@@ -17,9 +17,6 @@
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
 #    include "era_split_communication_core_storage.h"
 #    include "era_split_communication_core_storage_service.h"
-#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-#        include "../era_host_peer_storage.h"
-#    endif
 #endif
 #include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_engine.h"
@@ -75,7 +72,6 @@ static bool era_split_communication_core_claim_responder_snapshot(era_split_comm
         g_era_split_communication_core_responder_snapshot_claim_generation = 0;
         __DMB();
     }
-    g_era_split_communication_core.responder_accept_stale_count++;
     return false;
 }
 
@@ -152,10 +148,8 @@ static bool era_split_communication_core_responder_prepare_result_slot(bool sour
     *next = era_split_communication_core_responder_ring_next(*write, ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_GENERAL_RESULT_SLOTS);
     __DMB();
     if (*next == g_era_split_communication_core_responder_general_read) {
-        g_era_split_communication_core.responder_slot_full_count++;
-        g_era_split_communication_core.responder_noack_count++; return false;
+        return false;
     }
-    g_era_split_communication_core.responder_slot_reserve_count++;
     return true;
 }
 /* Core1 is the sole writer of the general SPSC ring and Core0 only advances
@@ -194,7 +188,6 @@ static void era_split_communication_core_responder_publish_result_slot(bool sour
     (void)source_push;
     g_era_split_communication_core_responder_general_results[write] = *result;
     __DMB(); g_era_split_communication_core_responder_general_write = next;
-    g_era_split_communication_core.responder_accept_count++;
     __DMB();
 }
 
@@ -342,10 +335,6 @@ static bool era_split_communication_core_prepare_responder_response_payload(cons
            R6's drift measurement needs separated out. */
         uint32_t hold_us   = timer_hw->timerawl - plan->time_anchor_stamp_us;
         uint32_t anchor_ms = plan->time_anchor_ms + hold_us / 1000U;
-        g_era_split_communication_core.responder_anchor_hold_last_us = hold_us;
-        if (hold_us > g_era_split_communication_core.responder_anchor_hold_max_us) {
-            g_era_split_communication_core.responder_anchor_hold_max_us = hold_us;
-        }
         payload[2] |= ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_TIME_ANCHOR;
         era_split_wire_put32(&payload[*payload_len], anchor_ms);
         *payload_len = (uint8_t)(*payload_len + ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_TIME_ANCHOR_BYTES);
@@ -379,7 +368,6 @@ static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bo
     }
     if (!encoded) {
         result->result = ERA_SPLIT_TRANSACTION_RESULT_BAD;
-        g_era_split_communication_core.responder_response_prepare_fail_count++;
         return false;
     }
 
@@ -387,8 +375,6 @@ static bool era_split_communication_core_responder_send(uint16_t owner_epoch, bo
         payload[0] |= ERA_SPLIT_WIRE_CONTROL_EXT; payload[1] = flow_response;
         if (payload_len == 1) payload_len = 2;
     }
-    g_era_split_communication_core.responder_response_prepare_count++;
-    g_era_split_communication_core.responder_last_response_payload_len = payload_len;
     era_split_transaction_failure_t failure = ERA_SPLIT_TRANSACTION_FAILURE_NONE;
     result->result        = era_split_transaction_engine_send_compact_response_owned(ERA_SPLIT_WIRE_DIRECTION_SECONDARY_TO_PRIMARY, payload, payload_len, response_tx_seq, owner_epoch, &failure);
     result->response_sent = result->result == ERA_SPLIT_TRANSACTION_RESULT_OK ? 1 : 0;
@@ -399,7 +385,6 @@ static void era_split_communication_core_responder_note_receive_failure(era_spli
     if (transaction_result == ERA_SPLIT_TRANSACTION_RESULT_NONE) {
         return;
     }
-    g_era_split_communication_core.responder_noack_count++;
     if (failure == ERA_SPLIT_TRANSACTION_FAILURE_PIO_ERROR || failure == ERA_SPLIT_TRANSACTION_FAILURE_PARTIAL_FRAME || failure == ERA_SPLIT_TRANSACTION_FAILURE_DECODE) {
         /* Counted before the access check, not inside it: the arrival is a
            fact about the wire whether or not this epoch may still touch the
@@ -412,18 +397,6 @@ static void era_split_communication_core_responder_note_receive_failure(era_spli
     }
 }
 
-#ifdef ERA_TOMAK_SYNC_DIAG
-#include "timer.h"
-static volatile uint32_t tomak_session_rx, tomak_session_sent, tomak_session_fault_ms, tomak_session_fault;
-void era_tomak_sync_session_rx_diag(uint32_t *rx, uint32_t *sent, uint32_t *ms, uint32_t *fault) {
-    *rx = tomak_session_rx; *sent = tomak_session_sent;
-    *ms = tomak_session_fault_ms; *fault = tomak_session_fault;
-}
-static void tomak_session_rx_reject(uint8_t reason) {
-    tomak_session_fault_ms = timer_read32();
-    tomak_session_fault = reason;
-}
-#endif
 bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     era_split_wire_frame_t *frame = era_split_communication_core_storage_decoded_semantic_frame_scratch();
@@ -451,10 +424,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
     // accepts is peer-liveness evidence for the cold silence watch,
     // regardless of which lane consumes it below.
     g_era_split_communication_core.responder_accepted_rx_count++;
-#ifdef ERA_TOMAK_SYNC_DIAG
-    bool diag_session = frame->kind == ERA_SPLIT_WIRE_PAYLOAD_SESSION_STATUS;
-    if (diag_session) tomak_session_rx++;
-#endif
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_EEPROM_SYNC) {
@@ -464,20 +433,11 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
 
     era_split_communication_core_responder_snapshot_t snapshot;
     if (!era_split_communication_core_claim_responder_snapshot(&snapshot)) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        if (diag_session) tomak_session_rx_reject(1);
-#endif
         era_split_communication_core_release_responder_snapshot();
-        g_era_split_communication_core.responder_noack_count++;
         return true;
     }
     if (!era_split_communication_core_responder_snapshot_matches(&snapshot, owner_epoch)) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        if (diag_session) tomak_session_rx_reject(2);
-#endif
         era_split_communication_core_release_responder_snapshot();
-        g_era_split_communication_core.responder_accept_stale_count++;
-        g_era_split_communication_core.responder_noack_count++;
         return true;
     }
 
@@ -548,11 +508,7 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
            the two decoded bools cannot come back equal. Re-testing it here
            read as a third pass over one rule and could only ever be false. */
         if (!snapshot.session_allowed || !era_split_wire_decode_session_status(frame, &result.peer_status) || !result.peer_status.status_response_requested) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-            tomak_session_rx_reject(!snapshot.session_allowed ? 3 : 4);
-#endif
             era_split_communication_core_release_responder_snapshot();
-            g_era_split_communication_core.responder_noack_count++;
             return true;
         }
     } else if (frame->kind == ERA_SPLIT_WIRE_PAYLOAD_GRANT_ACK) {
@@ -565,7 +521,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         result.kind = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_HEARTBEAT;
         if (!snapshot.heartbeat_allowed) {
             era_split_communication_core_release_responder_snapshot();
-            g_era_split_communication_core.responder_noack_count++;
             return true;
         }
         era_split_communication_core_responder_plan_from_snapshot(&snapshot, &result.response_plan);
@@ -580,7 +535,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         if (!era_split_wire_layout_source_push(frame->payload, frame->payload_len, &push_layout) ||
             (push_layout.sections & (uint8_t)~snapshot.eligible_push_sections) != 0) {
             era_split_communication_core_release_responder_snapshot();
-            g_era_split_communication_core.responder_noack_count++;
             return true;
         }
 
@@ -592,7 +546,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         result.kind = ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_RUNTIME_PUSH;
         if (!snapshot.runtime_push_allowed) {
             era_split_communication_core_release_responder_snapshot();
-            g_era_split_communication_core.responder_noack_count++;
             return true;
         }
 
@@ -605,12 +558,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
                 (uint8_t)(frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING)] &
                           ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_MASK);
             result.peer_storage_pending_valid = 1;
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-            era_host_peer_storage_cause_note_pending_path(
-                ERA_HOST_PEER_STORAGE_CAUSE_PENDING_RESPONDER_RX,
-                result.peer_storage_pending != 0,
-                0);
-#endif
         }
         if (era_split_wire_section_present(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)) {
             const uint8_t *arm_body       = &frame->payload[era_split_wire_section_offset(&push_layout, ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RESTART_ARM)];
@@ -647,7 +594,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         era_split_communication_core_responder_plan_from_snapshot(&snapshot, &result.response_plan);
     } else {
         era_split_communication_core_release_responder_snapshot();
-        g_era_split_communication_core.responder_noack_count++;
         return true;
     }
 
@@ -698,9 +644,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
     uint32_t next  = 0;
     if (result_slot_needed &&
         !era_split_communication_core_responder_prepare_result_slot(source_push, &write, &next)) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        if (diag_session) tomak_session_rx_reject(5);
-#endif
         era_split_communication_core_release_responder_snapshot();
         return true;
     }
@@ -711,16 +654,7 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
         g_era_split_communication_core_responder_restart_fence.snapshot_generation = snapshot.snapshot_generation;
     }
     era_split_transaction_engine_commit_received_frame(frame);
-    if (!era_split_communication_core_responder_send(owner_epoch, result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION, source_push, &snapshot, &result, flow_response)) {
-#ifdef ERA_TOMAK_SYNC_DIAG
-        if (diag_session) tomak_session_rx_reject(6);
-#endif
-        g_era_split_communication_core.responder_noack_count++;
-    }
-#ifdef ERA_TOMAK_SYNC_DIAG
-    if (diag_session && result.response_sent) tomak_session_sent++;
-#endif
-    era_split_transaction_engine_publish_diagnostics_snapshot();
+    (void)era_split_communication_core_responder_send(owner_epoch, result.kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION, source_push, &snapshot, &result, flow_response);
 
     /* Publish the result only when core0 has something to do with it.
      *
@@ -758,32 +692,6 @@ bool era_split_communication_core_responder_service_once(uint16_t owner_epoch) {
          * removed. Keep physical traffic in separate monotonic counters for a
          * later cold fold. */
         g_era_split_communication_core.responder_coalesced_heartbeat_count++;
-        if (result.result == ERA_SPLIT_TRANSACTION_RESULT_BAD) {
-            g_era_split_communication_core.responder_coalesced_bad_count++;
-        }
-        if (result.response_sent) {
-            uint8_t section_mask = result.response_section_mask;
-            g_era_split_communication_core.responder_coalesced_response_count++;
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_VISUAL_RESYNC) != 0) {
-                g_era_split_communication_core.responder_coalesced_visual_count++;
-            }
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_RGB_STATE) != 0) {
-                g_era_split_communication_core.responder_coalesced_rgb_count++;
-            }
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_INPUT_LAYER) != 0) {
-                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
-            }
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY) != 0) {
-                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
-            }
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_RGB_STATE) != 0) {
-                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
-            }
-            if ((section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_ACTIVITY) != 0) {
-                g_era_split_communication_core.responder_coalesced_runtime_section_count++;
-                g_era_split_communication_core.responder_coalesced_activity_count++;
-            }
-        }
     } else {
         g_era_split_communication_core.responder_quiet_count++;
     }
@@ -803,18 +711,6 @@ uint32_t era_split_communication_core_responder_quiet_count(void) {
     return g_era_split_communication_core.responder_quiet_count;
 }
 
-void era_split_communication_core_responder_get_coalesced_counts(era_split_communication_core_responder_coalesced_counts_t *counts) {
-    if (counts == NULL) {
-        return;
-    }
-    /* Core1 is the sole writer and every field is one aligned monotonic word.
-       A boundary landing between fields is folded on this or the next Core0
-       pass, exactly like the existing quiet-count watermark. */
-    counts->heartbeat_count       = g_era_split_communication_core.responder_coalesced_heartbeat_count;
-    counts->response_count        = g_era_split_communication_core.responder_coalesced_response_count;
-    counts->visual_count          = g_era_split_communication_core.responder_coalesced_visual_count;
-    counts->rgb_count             = g_era_split_communication_core.responder_coalesced_rgb_count;
-    counts->runtime_section_count = g_era_split_communication_core.responder_coalesced_runtime_section_count;
-    counts->activity_count        = g_era_split_communication_core.responder_coalesced_activity_count;
-    counts->bad_count             = g_era_split_communication_core.responder_coalesced_bad_count;
+uint32_t era_split_communication_core_responder_coalesced_count(void) {
+    return g_era_split_communication_core.responder_coalesced_heartbeat_count;
 }

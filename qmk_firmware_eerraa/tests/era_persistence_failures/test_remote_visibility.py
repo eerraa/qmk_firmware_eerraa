@@ -38,7 +38,6 @@ static struct { uint32_t domain, owner_epoch, relation_generation, policy_genera
 static struct { bool image_stale, image_valid;
  uint32_t episode_operation_generation;
  era_host_peer_storage_operation_t operation, successor; } g_era_host_peer_storage_local;
-static struct { unsigned integrity_reject_count, apply_count, timeout_count; } g_era_host_peer_storage_diagnostics;
 static uint8_t g_era_host_peer_storage_image[16384];
 static bool refuse_manifest;
 static bool era_host_peer_storage_domain_valid(unsigned domain) { return domain == 0; }
@@ -73,7 +72,6 @@ int main(void) {
     memset(&g_era_host_peer_storage_runtime,0,sizeof(g_era_host_peer_storage_runtime));
     g_era_host_peer_storage_runtime.episode_deadline_ms = 1000;
     memset(&g_era_host_peer_storage_local,0,sizeof(g_era_host_peer_storage_local));
-    memset(&g_era_host_peer_storage_diagnostics,0,sizeof(g_era_host_peer_storage_diagnostics));
     memset(g_era_host_peer_storage_image,0,sizeof(g_era_host_peer_storage_image));
     g_era_host_peer_storage_image[0] = 0x62;
     g_era_host_peer_storage_runtime.image_size = g_era_host_peer_storage_runtime.staged_bytes = sizeof(g_era_host_peer_storage_image);
@@ -85,7 +83,6 @@ int main(void) {
     assert(result == (failure == 0));
     assert(eeprom_read_byte((void *)801) == (failure == 2 ? 0x31 : 0x62));
     assert(era_state_sync_macro_revision() == (failure == 2 ? 1 : 2));
-    assert(g_era_host_peer_storage_diagnostics.apply_count == (failure == 0));
  }
  puts("PASS remote Apply visibility survives manifest failure; storage failure publishes no revision, both roles");
  return 0;
@@ -103,7 +100,9 @@ class RemoteVisibility(unittest.TestCase):
                 text = '    era_state_sync_note_storage_domain((uint8_t)domain);'
                 self.assertIn(text, body)
                 body = body.replace(text, '')
-                body = body.replace('    g_era_host_peer_storage_diagnostics.apply_count++;', text + '\n    g_era_host_peer_storage_diagnostics.apply_count++;')
+                after_publication = '    if (host_push) {\n        era_host_peer_storage_note_domain_converged(domain, committed_crc32);'
+                self.assertIn(after_publication, body)
+                body = body.replace(after_publication, text + '\n' + after_publication, 1)
             (out / 'remote.c').write_text(PRELUDE + body + EPILOGUE, encoding='utf-8')
             sources = ['drivers/eeprom/eeprom_driver.c', 'keyboards/era/common/storage/era_eeprom_config_io.c', 'keyboards/era/common/system/era_state_sync.c']
             exe = out / 'remote.exe'

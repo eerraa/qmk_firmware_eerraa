@@ -29,16 +29,12 @@ expect_fail() {
 }
 
 declare -A tuples=(
-    [standard]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=no'
-    [reset]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=yes'
-    [wire]='wire=yes,qwin=no,phase=no,cause=no,stale=no,reset=no'
-    [qwin]='wire=no,qwin=yes,phase=no,cause=no,stale=no,reset=no'
-    [cause]='wire=yes,qwin=no,phase=no,cause=yes,stale=no,reset=no'
-    [stale]='wire=yes,qwin=no,phase=no,cause=no,stale=yes,reset=no'
-    [qwin_phase]='wire=no,qwin=yes,phase=yes,cause=no,stale=no,reset=no'
+    [standard]='wire=no,reset=no'
+    [reset]='wire=no,reset=yes'
+    [wire]='wire=yes,reset=no'
 )
 
-for variant in standard reset wire qwin cause stale qwin_phase; do
+for variant in standard reset wire; do
     expect_line "normal $variant" "variant=$variant tuple=${tuples[$variant]}" \
         make --no-print-directory -f "$fixture" "ERA_BUILD_VARIANT=$variant" print
 done
@@ -47,27 +43,21 @@ done
 # have higher precedence than ordinary makefile assignments. The selected
 # fragment uses GNU make's `override` specifically so each attack still emits
 # the canonical tuple for its name.
-expect_line 'direct option overrides' "variant=cause tuple=${tuples[cause]}" \
-    make --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=cause \
-        ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=no ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes \
-        ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=yes ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=no \
-        ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes ERA_SETTINGS_RESET_IMAGE=yes print
+expect_line 'direct option overrides' "variant=wire tuple=${tuples[wire]}" \
+    make --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=wire \
+        ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=no ERA_SETTINGS_RESET_IMAGE=yes print
 
 expect_line 'MAKEFLAGS overrides' "variant=standard tuple=${tuples[standard]}" \
-    env 'MAKEFLAGS=ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=yes ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes' \
+    env 'MAKEFLAGS=ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes ERA_SETTINGS_RESET_IMAGE=yes' \
         make --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=standard print
 
 expect_line 'exported environment overrides' "variant=wire tuple=${tuples[wire]}" \
-    env ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=no ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=yes \
-        ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=yes ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes \
-        ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes \
+    env ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=no ERA_SETTINGS_RESET_IMAGE=yes \
         make --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=wire print
 
-expect_line 'make -e overrides' "variant=qwin_phase tuple=${tuples[qwin_phase]}" \
-    env ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes ERA_SPLIT_QWIN_COUNT_ONLY_ENABLE=no \
-        ERA_PASS_PHASE_DIAGNOSTICS_ENABLE=no ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE=yes \
-        ERA_SPLIT_ERA_MIRROR_FORCE_STALE_ENABLE=yes \
-        make -e --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=qwin_phase print
+expect_line 'make -e overrides' "variant=reset tuple=${tuples[reset]}" \
+    env ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE=yes ERA_SETTINGS_RESET_IMAGE=no \
+        make -e --no-print-directory -f "$fixture" ERA_BUILD_VARIANT=reset print
 
 # Reset must work on non-split RP2040 too.
 expect_line 'non-split standard' "variant=standard tuple=${tuples[standard]}" \

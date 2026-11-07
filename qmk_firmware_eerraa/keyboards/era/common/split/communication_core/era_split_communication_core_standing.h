@@ -224,11 +224,6 @@ typedef struct {
      * struct) to say something only a `wire cstd` line that does not exist
      * could have shown. */
     uint32_t exchange_count;
-    /* Runtime *sections*, never polls. That is what keeps the steady-state
-     * legs readable under a constant cadence: an idle window reads 0/0 while
-     * the frame counter rises at the poll rate. */
-    uint32_t tx_section_count;
-    uint32_t rx_section_count;
 } era_split_communication_core_standing_state_t;
 
 /* core0 side. The publish early-outs when the plan is identical to the

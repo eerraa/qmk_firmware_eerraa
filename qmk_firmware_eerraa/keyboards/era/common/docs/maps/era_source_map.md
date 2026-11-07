@@ -32,7 +32,7 @@ layout, or function behavior; inspect the named source for implementation facts.
 | boot pre-copy halt and first Core1 launch | `system/era_boot_core1_halt.c` — `__early_init`; `split/era_split_keyboard.c` | `contracts/era_invariants.md` **Boot Safety**; `contracts/era_sram_residency_contract.md`; `manuals/era_performance_gates.md` |
 | SRAM-resident load image | `keyboards/era/ld/ERA_RP2040_SRAM_RESIDENT.ld`; `system/era_sram_resident_rules.mk` | `contracts/era_sram_residency_contract.md`; `manuals/era_performance_gates.md` **Layout Checks** |
 | build selector / variant ownership | `keyboards/era/era_build_options.mk`; `system/era_build_variant_rules.mk` | `manuals/era_build_options.md`; `tests/era_build_variant_rules/` |
-| diagnostic field production | `split/diagnostics/era_split_wire_diagnostics.h`; `system/era_pass_phase_diagnostics.h` | `manuals/era_capture_reading.md`; `manuals/era_performance_gates.md` |
+| minimal wire report | `split/diagnostics/era_split_wire_diagnostics.c` | `manuals/era_capture_reading.md`; `manuals/era_performance_gates.md` |
 | QMK matrix fork seam | `quantum/matrix.c` | `contracts/era_invariants.md` **QMK Fork Hygiene**; `manuals/era_qmk_fork_ledger.md`; `manuals/era_performance_gates.md` **Source Gate** |
 
 For a source-unit split/merge, wrapper, or structural refactor, read

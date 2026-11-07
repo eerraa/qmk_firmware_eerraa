@@ -6,8 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "era_split_transport_scheduler_diagnostics.h"
-
 // Policy only: plans the relation and the wire role, and opens no wire.
 void era_split_transport_scheduler_init(void);
 // The single boot entry point that opens the wire and launches core1. Returns
@@ -34,34 +32,6 @@ void era_split_transport_scheduler_mark_host_peer_rgb_state_due(void);
    gate. Every other relation, including the HOST-PEER HOST, owns it locally.
    The rule is canonical in era_authority_contract.md. */
 bool era_split_transport_scheduler_lighting_sleep_owner_is_wire(void);
-#ifdef ERA_TOMAK_SYNC_DIAG
-typedef struct {
-    uint32_t recovery_count;
-    uint32_t recovery_ms;
-    uint32_t first_link_ms;
-    uint32_t loss_count;
-    uint32_t return_count;
-    uint32_t loss_ms;
-    uint32_t loss_reason;
-    uint32_t control_beats;
-    uint32_t session_fail_ms, session_fail_detail;
-    uint32_t session_rx, session_sent, session_rx_fault_ms, session_rx_fault;
-    uint32_t standing_fault;
-    uint32_t return_ms;
-    uint16_t relation;
-    uint8_t mode;
-    uint8_t flags;
-    uint8_t misses;
-} era_tomak_sync_relation_diag_t;
-void era_tomak_sync_relation_diag(era_tomak_sync_relation_diag_t *out);
-/* First writer of the current sticky stale claim: 1 SESSION response,
- * 2 responder silence, 3 initiator progress, 4 queued request watchdog. */
-void era_tomak_sync_note_stale(uint8_t source);
-uint32_t era_tomak_sync_control_keepalive_count(void);
-uint32_t era_tomak_sync_standing_fault(void);
-void era_tomak_sync_session_tx_diag(uint32_t *ms, uint32_t *detail);
-void era_tomak_sync_session_rx_diag(uint32_t *rx, uint32_t *sent, uint32_t *ms, uint32_t *fault);
-#endif
 /* The local layer edge: the one runtime section that is due immediately and
    the whole runtime producer since Slice 11.5. layer_state changes in
    keyboard_task(), not on the scan path, so its producer is the layer hook
@@ -89,38 +59,8 @@ bool era_split_transport_scheduler_rotate_storage_relation(void);
 void era_split_transport_scheduler_force_storage_recovery(bool revalidate_session);
 #endif
 
-void era_split_transport_scheduler_get_diagnostics_snapshot(era_split_transport_scheduler_diagnostics_snapshot_t *snapshot);
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-/* Free-running runtime section counts, read by the DUAL-HOST era block. An
-   accessor rather than a reach into the scheduler's private header, for the
-   same reason storage exposes a snapshot getter: the era block is a diagnostics
-   unit and must not carry the scheduler's internal state layout. */
-void era_split_transport_scheduler_get_dual_runtime_counts(uint32_t *tx_count, uint32_t *rx_count);
-
-/* Index order is the order the housekeeping task body evaluates them, so a
-   capture reads top to bottom against the source. Public rather than internal
-   because the accessor below is, and its caller needs the array length. */
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STORAGE 0
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_RESPONDER_DRAIN 1
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STANDING_STATE 2
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_CORE1_INITIATOR 3
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_TIME_TOKENS 4
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_MODE 5
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_ROUTE_DUE 6
-#define ERA_SPLIT_SCHEDULER_MAINT_SOURCE_COUNT 7
-
-/* Which of the housekeeping task's contributors asked for the work `hkwork`
-   counts. Read cold at print time and deliberately not in the fixed diagnostic
-   record: it answers one design question -- whether core0's periodic wake
-   belongs to the SESSION_STATUS lane or to the 5 ms authority-poll deadline
-   that gates the task body -- and the record does not grow for it.
-   `counts` receives ERA_SPLIT_SCHEDULER_MAINT_SOURCE_COUNT entries. */
-void era_split_transport_scheduler_get_maintenance_source_counts(uint32_t *entry_count, uint32_t *counts);
-uint32_t era_split_transport_scheduler_get_responder_snapshot_retry_count(void);
-#endif
-void era_split_transport_scheduler_reset_diagnostics_era_baselines(void);
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void);
+uint8_t era_split_transport_scheduler_diagnostic_mode(void);
 #endif
 bool era_split_transport_scheduler_publish_communication_core_responder_snapshot(void);
 bool era_split_transport_scheduler_drain_communication_core_responder_results(void);

@@ -14,6 +14,9 @@
 #include "hardware/structs/timer.h"
 #include "pico/platform.h"
 #include "communication_core/era_split_communication_core_owner.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "diagnostics/era_split_wire_cause.h"
+#endif
 
 
 #if !defined(MCU_RP)
@@ -149,14 +152,6 @@ enum {
 };
 
 static void era_split_transaction_backend_park_until(uint32_t deadline_us, uint8_t wake_mask);
-
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-/* How often and for how long this backend parked core1. Diagnostic images
-   only: two timer reads a park is nothing against a park, but the release
-   image does not carry instruments it does not print. */
-static volatile uint32_t era_split_transaction_backend_park_count;
-static volatile uint32_t era_split_transaction_backend_park_us;
-#endif
 
 static era_split_transaction_backend_wait_result_t era_split_transaction_backend_access_result(uint16_t owner_epoch) {
     switch (era_split_communication_core_owner_backend_access(owner_epoch)) {
@@ -730,6 +725,9 @@ bool era_split_transaction_backend_send_owned(const uint8_t *source, size_t size
         if (*wait_result == ERA_SPLIT_TRANSACTION_BACKEND_WAIT_OK) {
             *wait_result = ERA_SPLIT_TRANSACTION_BACKEND_WAIT_IO_ERROR;
         }
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_wait(ERA_CAUSE_SEND_ADMISSION, *wait_result);
+#endif
         return false;
     }
 
@@ -741,15 +739,40 @@ bool era_split_transaction_backend_send_owned(const uint8_t *source, size_t size
 
     era_split_transaction_backend_leave_rx_state();
     bool sent = era_split_transaction_backend_send_impl_owned(source, size, owner_epoch, wait_result);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    era_split_transaction_backend_wait_result_t send_wait = *wait_result;
+    if (!sent) {
+        era_split_wire_cause_wait(ERA_CAUSE_SEND, send_wait);
+    }
+#endif
     bool rx_ready = era_split_transaction_backend_enter_rx_state_owned(owner_epoch, wait_result);
     if (!sent || !rx_ready) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        bool pc_valid = era_split_transaction_backend_rx_sm >= 0 && era_split_transaction_backend_rx_program_offset >= 0;
+        era_split_wire_cause_send(send_wait, *wait_result,
+                                  pc_valid ? pio_sm_get_pc(era_split_transaction_backend_pio, era_split_transaction_backend_rx_sm) : 0,
+                                  pc_valid ? era_split_transaction_backend_rx_program_offset : 0, pc_valid);
+#endif
         era_split_transaction_backend_force_rx_state();
         return false;
     }
 
     *wait_result = era_split_transaction_backend_access_result(owner_epoch);
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    if (*wait_result != ERA_SPLIT_TRANSACTION_BACKEND_WAIT_OK) {
+        era_split_wire_cause_wait(ERA_CAUSE_SEND_FINAL, *wait_result);
+        era_split_wire_cause_send(send_wait, ERA_SPLIT_TRANSACTION_BACKEND_WAIT_OK, 0, 0, false);
+    }
+#endif
     return *wait_result == ERA_SPLIT_TRANSACTION_BACKEND_WAIT_OK;
 }
+
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+void era_split_transaction_backend_cause_facts(era_split_wire_cause_record_t *record) {
+    record->baud = g_era_split_transaction_backend_baud;
+    record->role = g_era_split_transaction_backend_rp2040.transaction_backend_role;
+}
+#endif
 
 bool era_split_transaction_backend_response_window_begin(uint16_t owner_epoch, uint16_t timeout_ms, era_split_transaction_backend_response_window_t *window, era_split_transaction_backend_wait_result_t *wait_result) {
     if (window == NULL || wait_result == NULL) {
@@ -886,14 +909,7 @@ static void era_split_transaction_backend_park_until(uint32_t deadline_us, uint8
     if (expired) {
         return;
     }
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-    uint32_t park_start_us = timer_hw->timerawl;
-#endif
     __WFE();
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-    era_split_transaction_backend_park_us += (uint32_t)(timer_hw->timerawl - park_start_us);
-    era_split_transaction_backend_park_count++;
-#endif
     irq_state = era_split_transaction_backend_irq_save();
     era_split_transaction_backend_set_rx_fifo_irq_enabled(false);
     era_split_transaction_backend_set_tx_fifo_irq_enabled(false);
@@ -901,17 +917,6 @@ static void era_split_transaction_backend_park_until(uint32_t deadline_us, uint8
     era_split_transaction_backend_disarm_core1_deadline();
     __DMB();
 }
-
-#ifdef ERA_SPLIT_CORE1_PARK_DIAGNOSTICS_ENABLE
-void era_split_transaction_backend_get_park_diagnostics(uint32_t *count, uint32_t *us) {
-    if (count != NULL) {
-        *count = era_split_transaction_backend_park_count;
-    }
-    if (us != NULL) {
-        *us = era_split_transaction_backend_park_us;
-    }
-}
-#endif
 
 static bool era_split_transaction_backend_responder_window_ready(uint16_t owner_epoch, era_split_transaction_backend_wait_result_t *wait_result) {
     *wait_result = era_split_transaction_backend_access_result(owner_epoch);

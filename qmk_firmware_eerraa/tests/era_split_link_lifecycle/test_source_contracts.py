@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import json
 import unittest
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMON = ROOT / "keyboards/era/common"
@@ -123,7 +124,7 @@ class SourceContracts(unittest.TestCase):
         self.assertRegex(tomak, r"case TOMAK_STATUS_SOURCE_EEPROM_SYNC:\s*blue = 255;")
         self.assertRegex(tomak, r"case TOMAK_STATUS_SOURCE_LINK_FALLBACK:\s*default:\s*red = 255;")
         self.assertIn("tomak_status_policy_source != tomak_status_frame_source", tomak)
-        self.assertIn("status_frame && tomak_status_policy_source == TOMAK_STATUS_SOURCE_EEPROM_SYNC", tomak)
+        self.assertIn("tomak_status_frame_source = tomak_status_policy_source;", tomak)
 
     def test_local_apply_feedback_observes_without_owning_execution(self):
         observe = body("split/era_split_link.c", "era_split_link_apply_feedback_task")
@@ -227,9 +228,11 @@ class SourceContracts(unittest.TestCase):
                 for value_id in (64, 65, 66):
                     self.assertNotIn((9, value_id), channels)
         self.assertEqual(seen, 6)
-        header = source("split/era_split_via_link.h")
+        unit = '#include "keyboards/era/common/split/era_split_via_link.h"\n'
         for name, value in (("RUNTIME", 64), ("STORED", 65), ("RESULT", 66)):
-            self.assertRegex(header, rf"#define ERA_SPLIT_VIA_LINK_{name}_VALUE_ID {value}\b")
+            unit += f'_Static_assert(ERA_SPLIT_VIA_LINK_{name}_VALUE_ID == {value}, "wire compatibility");\n'
+        subprocess.run(["cc", "-std=c11", "-fsyntax-only", "-I", str(ROOT), "-x", "c", "-"],
+                       input=unit, text=True, check=True)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

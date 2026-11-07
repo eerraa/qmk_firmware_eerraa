@@ -5,15 +5,13 @@
 #define ERA_SPLIT_SCHEDULER_DIRTY_SYNC_POLICY 2
 #define ERA_SPLIT_SCHEDULER_DIRTY_MATRIX_READY 16
 #define ERA_SPLIT_SCHEDULER_MAINT_DUE_AUTHORITY_SAMPLE 1
-#define ERA_SPLIT_SCHEDULER_MAINT(source, expression) (expression)
 
 static bool era_split_transport_scheduler_local_status_revalidation_due(void) { return true; }
 /* MATRIX_READY_FUNCTIONS */
 
 static struct {
-    unsigned stop_count, stop_requested, stop_timeout;
+    unsigned stop_requested;
     uint8_t launched, running;
-    unsigned queue_high_water, queue_result_high_water, queue_generation, queue_flush_count;
 } g_era_split_communication_core;
 static unsigned g_era_split_communication_core_request_read, g_era_split_communication_core_request_write;
 static unsigned g_era_split_communication_core_result_read, g_era_split_communication_core_result_write;
@@ -23,7 +21,6 @@ static bool era_split_communication_core_wait_state(volatile uint8_t *p, uint8_t
     *p = value;
     return true;
 }
-static void era_split_communication_core_note_stop_timeout(void) { assert(false); }
 static void era_split_communication_core_initiator_queue_flushed(void) {}
 static bool era_split_communication_core_initiator_pending(void) { return false; }
 static bool era_split_communication_core_initiator_result_ready(void) { return false; }
@@ -56,10 +53,9 @@ static bool era_split_transport_scheduler_poll_core1_initiator(void) { return fa
 static bool era_split_transport_scheduler_refresh_time_due_tokens(uint32_t now) { (void)now; return false; }
 static void era_split_transport_scheduler_note_sync_policy_edge(void) {}
 static bool run_cancellation_housekeeping(void) {
-    bool maintenance_performed = false, authority_changed = false;
+    bool authority_changed = false;
     uint32_t now_ms = 0;
     /* HOUSEKEEPING_CANCELLATION */
-    (void)maintenance_performed;
     (void)authority_changed;
     return true;
 }
@@ -71,6 +67,10 @@ static void prepare_cancellation(bool physical_left, bool initiator) {
     policy_initiator = physical_left;
     policy_authority_changed = policy_mode_changed = false;
     memset(&g_era_split_communication_core, 0, sizeof g_era_split_communication_core);
+    g_era_split_communication_core_request_read = 1;
+    g_era_split_communication_core_request_write = 2;
+    g_era_split_communication_core_result_read = 1;
+    g_era_split_communication_core_result_write = 2;
     keyboard_init();
     // Both HOST orientations eventually assign the PEER an initiator lease.
     assert(era_split_transport_scheduler_reset_serial_for_transport_role(true, initiator, false));
@@ -106,9 +106,11 @@ int main(void) {
             prepare_cancellation(side == 0, true);
             dirty = non_role_dirty[d];
             g_era_split_transport_scheduler.core1_initiator_async_pending = true;
-            unsigned flushes = g_era_split_communication_core.queue_flush_count;
             assert(run_cancellation_housekeeping());
-            assert(g_era_split_communication_core.queue_flush_count == flushes + 1);
+            assert(g_era_split_communication_core_request_read == 0 &&
+                   g_era_split_communication_core_request_write == 0 &&
+                   g_era_split_communication_core_result_read == 0 &&
+                   g_era_split_communication_core_result_write == 0);
             assert(!g_era_split_transport_scheduler.core1_initiator_async_pending);
             bool cancellation_restored_current_initiator = era_split_communication_core_owner_core1_role_is_live(ERA_SPLIT_TRANSACTION_BACKEND_ROLE_INITIATOR);
             assert(cancellation_restored_current_initiator);
@@ -121,7 +123,10 @@ int main(void) {
         prepare_cancellation(side == 0, false);
         dirty = ERA_SPLIT_SCHEDULER_DIRTY_MATRIX_READY;
         assert(run_cancellation_housekeeping());
-        assert(g_era_split_communication_core.queue_flush_count == 0);
+        assert(g_era_split_communication_core_request_read == 1 &&
+               g_era_split_communication_core_request_write == 2 &&
+               g_era_split_communication_core_result_read == 1 &&
+               g_era_split_communication_core_result_write == 2);
         assert(era_split_communication_core_owner_core1_role_is_live(ERA_SPLIT_TRANSACTION_BACKEND_ROLE_RESPONDER));
         assert(!era_split_communication_core_owner_ensure_core1());
     }
@@ -131,7 +136,10 @@ int main(void) {
     g_era_split_transport_scheduler.core1_initiator_async_pending = true;
     assert(run_cancellation_housekeeping());
     assert(g_era_split_transport_scheduler.core1_initiator_async_pending);
-    assert(g_era_split_communication_core.queue_flush_count == 0);
+    assert(g_era_split_communication_core_request_read == 1 &&
+           g_era_split_communication_core_request_write == 2 &&
+           g_era_split_communication_core_result_read == 1 &&
+           g_era_split_communication_core_result_write == 2);
 
     // Failed revoke keeps the original dirty fact and retries through policy;
     // request admission must not revive the revoked owner in between.

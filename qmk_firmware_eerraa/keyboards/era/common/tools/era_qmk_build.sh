@@ -11,7 +11,7 @@ Internal launcher used by the host-side era_build.py frontend.
 TARGET is explicit and has the form keyboard:keymap, for example:
 
   era/sirind/tomak:via
-  era/sirind/tomak:via cause
+  era/sirind/tomak:via wire
 
 VARIANT defaults to standard for every target. The common make layer owns the
 accepted names and refuses a variant whose prerequisites the target lacks.
@@ -158,7 +158,7 @@ resolved_variant=$(sed -n 's/^ERA_BUILD_IDENTITY variant=\([^ ]*\) tuple=.*/\1/p
 resolved_tuple=$(sed -n 's/^ERA_BUILD_IDENTITY variant=[^ ]* tuple=\(.*\)$/\1/p' <<<"$identity_line")
 [[ $resolved_variant == "$variant" ]] ||
     fail "requested variant $variant resolved as $resolved_variant" 1
-[[ $resolved_tuple =~ ^wire=(yes|no),qwin=(yes|no),phase=(yes|no),cause=(yes|no),stale=(yes|no),reset=(yes|no)$ ]] ||
+[[ $resolved_tuple =~ ^wire=(yes|no),reset=(yes|no)$ ]] ||
     fail "invalid resolved tuple for $resolved_variant: $resolved_tuple" 1
 
 build_base="$repo_root/.build/$target_stem"
@@ -173,10 +173,8 @@ symbol_enabled() {
     fi
 }
 
-# Each axis has a link-visible production witness. The stale injection's
-# witness is deliberately explicit; the other witnesses are entry points
-# required by the diagnostic or the install-reset bootstrap.
-compiled_tuple="wire=$(symbol_enabled era_split_wire_diagnostics_task),qwin=$(symbol_enabled era_split_qwin_diagnostics_tick_1ms),phase=$(symbol_enabled era_pass_phase_mark),cause=$(symbol_enabled era_host_peer_storage_get_cause_timeline_snapshot),stale=$(symbol_enabled era_split_era_mirror_force_stale_compiled),reset=$(symbol_enabled era_settings_reset_bootstrap)"
+# Each axis has an entry point retained by the linked image.
+compiled_tuple="wire=$(symbol_enabled era_split_wire_diagnostics_task),reset=$(symbol_enabled era_settings_reset_bootstrap)"
 [[ $compiled_tuple == "$resolved_tuple" ]] ||
     fail "compiled tuple $compiled_tuple disagrees with resolved tuple $resolved_tuple" 1
 firmware_format=""

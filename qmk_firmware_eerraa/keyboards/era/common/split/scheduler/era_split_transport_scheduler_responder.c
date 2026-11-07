@@ -78,9 +78,6 @@ static void era_split_transport_scheduler_snapshot_response_plan(era_split_commu
            own lamp dark, and a second policy read here would be the same
            fact fetched twice. */
         bool storage_pending = era_host_peer_storage_advertised_pending();
-#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        era_host_peer_storage_cause_note_advertised(storage_pending);
-#    endif
         if (storage_pending) {
             storage_news |= ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING;
         }
@@ -321,9 +318,6 @@ bool era_split_transport_scheduler_publish_communication_core_responder_snapshot
             g_era_split_transport_scheduler.responder_snapshot_publish_due = true;
             g_era_split_transport_scheduler.next_scheduler_deadline_valid  = false;
         }
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        g_era_split_transport_scheduler.responder_snapshot_publish_retry_count++;
-#endif
         return false;
     }
     return true;
@@ -352,49 +346,12 @@ static void era_split_transport_scheduler_commit_communication_core_host_respons
             (result->response_plan.storage_news & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING) != 0);
     }
 #endif
-    if (response.ack_status_sent) {
-        era_host_peer_matrix_link_note_ack_status_sent();
-    }
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    /* Counted from the section byte the wire carried, not from the plan: a
-       response that dropped its runtime section must not read as one that sent
-       it, or the silence leg passes on a frame it should have counted.
-
-       `rt` counts runtime *sections*, never polls, and that is what keeps the
-       steady-state leg readable under a constant cadence: an idle window still
-       reads rt=0/0 while `io` rises at the poll rate. The ACTIVITY marker used
-       to count here too, which would have broken exactly that. */
-    if (result->response_sent &&
-        (result->response_section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_INPUT_LAYER) != 0) {
-        g_era_split_transport_scheduler.dual_runtime_tx_count++;
-    }
-    if (result->response_sent &&
-        (result->response_section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY) != 0) {
-        g_era_split_transport_scheduler.dual_runtime_tx_count++;
-    }
-    if (result->response_sent &&
-        (result->response_section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_RGB_STATE) != 0) {
-        g_era_split_transport_scheduler.dual_runtime_tx_count++;
-    }
-    if (result->response_sent &&
-        (result->response_section_mask & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_ACTIVITY) != 0) {
-        g_era_split_transport_scheduler.dual_runtime_tx_count++;
-        era_split_tap_activity_note_sent();
-    }
-#endif
 }
 
 static void era_split_transport_scheduler_apply_communication_core_responder_result(const era_split_communication_core_responder_result_t *result) {
     bool session     = result->kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SESSION;
     bool source_push = result->kind == ERA_SPLIT_COMMUNICATION_CORE_RESPONDER_RESULT_SOURCE_PUSH;
     if (session) {
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        uint8_t cause_detail = (uint8_t)result->result & 0x07U;
-        if (result->response_sent) {
-            cause_detail |= 0x08U;
-        }
-        era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_RX, cause_detail);
-#endif
         era_split_scheduler_session_note_peer_status(&result->peer_status);
         era_host_peer_transaction_force_responder_lock_state_response();
         era_split_communication_core_refresh_responder_snapshot();
@@ -420,17 +377,10 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
            rely on one check. */
         if (result->peer_input_layer_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_INPUT_LAYER) != 0) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#endif
-            /* Arrival before the gate (the RGB arm's order): rt moves either
-               way, the apply and its counter only when this half's own INPUT
-               bit requests it (storage version 4). */
+            /* The receiver's INPUT policy gates application, not reception. */
             bool input_sync_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_INPUT, &input_sync_requested) && input_sync_requested) {
-                if (era_split_peer_layer_apply((layer_state_t)result->peer_input_layer)) {
-                    g_era_split_transport_scheduler.host_peer_input_layer_apply_count++;
-                }
+                (void)era_split_peer_layer_apply((layer_state_t)result->peer_input_layer);
             }
         }
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
@@ -442,9 +392,6 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
         if (result->peer_storage_pending_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
             era_host_peer_storage_note_peer_pending(result->peer_storage_pending != 0);
-#    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#    endif
         }
 #endif
         /* The initiator's authority, on the same accept-clip. It reaches the
@@ -466,42 +413,20 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
         if (result->peer_authority_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_AUTHORITY) != 0) {
             era_split_restart_agreement_note_peer_authority(&result->peer_authority);
-            /* No `app=auth` arm here, deliberately: that counter has one
-               producer, the standing apply, and one producer is what makes it
-               path-complete by construction (era_capture_reading.md). */
             (void)era_split_scheduler_session_note_peer_authority(&result->peer_authority);
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#endif
         }
-        /* The initiator's RGB config from the push cell (Slice 12), on the
-           same accept-clip. The arrival counts before the policy gate and the
-           apply counts after it, which is what makes "sent but not applied"
-           read differently from "applied" on the console: `rt` moves either
-           way, `app=rgb` only on an apply. The receiver's own requested bit is
-           the gate -- the EEPROM precedent's apply arm -- and the sleep bit is
-           skipped, both per era_authority_contract.md. */
+        /* The receiver's requested RGB policy gates application. The sleep
+           bit is skipped, per era_authority_contract.md. */
         if (result->peer_rgb_state_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_RGB_STATE) != 0) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#endif
             bool rgb_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_RGB, &rgb_requested) && rgb_requested) {
-                if (era_host_peer_transaction_apply_rgb_state(&result->peer_rgb_state, false)) {
-                    g_era_split_transport_scheduler.host_peer_rgb_state_rx_count++;
-                }
+                (void)era_host_peer_transaction_apply_rgb_state(&result->peer_rgb_state, false);
             }
         }
-        /* The initiator's tap-hold activity (FA-2 S2), on the same accept-clip.
-           The arrival counts on `rt`'s rx side; the apply counts inside the tap
-           activity unit, so a body the unit refuses reads as "sent but not
-           applied" on the console rather than as silence. */
+        /* Tap-hold activity uses the same eligibility and INPUT policy gate. */
         if (result->peer_activity_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_ACTIVITY) != 0) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#endif
             /* Behind the INPUT-class apply arm, the layer byte's twin. */
             bool input_sync_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_INPUT, &input_sync_requested) && input_sync_requested) {
@@ -514,22 +439,14 @@ static void era_split_transport_scheduler_apply_communication_core_responder_res
            diff-replay apply runs at most once per received frame. */
         if (result->peer_visual_valid &&
             (eligible_push & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_VISUAL) != 0) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-            g_era_split_transport_scheduler.dual_runtime_rx_count++;
-#endif
             bool rgb_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_RGB, &rgb_requested) && rgb_requested) {
                 era_host_peer_transaction_apply_visual_snapshot(&result->peer_visual_snapshot);
-                g_era_split_transport_scheduler.host_peer_visual_snapshot_rx_count++;
             }
         }
         era_split_transport_scheduler_commit_communication_core_host_response(result);
     }
-    era_split_responder_projection_note_result(session,
-                                                       source_push,
-                                                       result->response_sent != 0,
-                                                       result->response_section_mask,
-                                                       result->result);
+    era_split_responder_projection_note_received(1);
 }
 
 /* The bulk fold for requests core1 answered without publishing a result. They
@@ -547,32 +464,13 @@ static void era_split_transport_scheduler_fold_quiet_responses(void) {
     if (current != folded) {
         uint32_t delta = current - folded;
         g_era_split_transport_scheduler.responder_quiet_folded = current;
-        era_split_responder_projection_note_quiet(delta);
-        era_host_peer_matrix_link_note_ack_status_sent_bulk(delta);
+        era_split_responder_projection_note_received(delta);
     }
 
-    era_split_communication_core_responder_coalesced_counts_t coalesced;
-    era_split_communication_core_responder_get_coalesced_counts(&coalesced);
-    era_split_communication_core_responder_coalesced_counts_t *coalesced_folded =
-        &g_era_split_transport_scheduler.responder_coalesced_folded;
-    uint32_t heartbeat_delta = coalesced.heartbeat_count - coalesced_folded->heartbeat_count;
-    uint32_t response_delta  = coalesced.response_count - coalesced_folded->response_count;
-    uint32_t visual_delta    = coalesced.visual_count - coalesced_folded->visual_count;
-    uint32_t rgb_delta       = coalesced.rgb_count - coalesced_folded->rgb_count;
-    uint32_t runtime_delta   = coalesced.runtime_section_count - coalesced_folded->runtime_section_count;
-    uint32_t activity_delta  = coalesced.activity_count - coalesced_folded->activity_count;
-    uint32_t bad_delta       = coalesced.bad_count - coalesced_folded->bad_count;
-    *coalesced_folded = coalesced;
-
-    era_split_responder_projection_note_coalesced(heartbeat_delta, visual_delta, rgb_delta, bad_delta);
-    era_host_peer_matrix_link_note_ack_status_sent_bulk(response_delta);
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.dual_runtime_tx_count += runtime_delta;
-    era_split_tap_activity_note_sent_bulk(activity_delta);
-#else
-    (void)runtime_delta;
-    (void)activity_delta;
-#endif
+    uint32_t coalesced = era_split_communication_core_responder_coalesced_count();
+    uint32_t heartbeat_delta = coalesced - g_era_split_transport_scheduler.responder_coalesced_folded;
+    g_era_split_transport_scheduler.responder_coalesced_folded = coalesced;
+    era_split_responder_projection_note_received(heartbeat_delta);
 }
 
 bool era_split_transport_scheduler_drain_communication_core_responder_results(void) {

@@ -26,12 +26,10 @@
 /* The Core1 transaction-orchestration API is deliberately absent: this unit
    names nothing in it, and core0 has no wire entry point of its own
    (era_source_map.md). */
-#include "diagnostics/era_split_transport_scheduler_role_diagnostics.h"
 #include "era_split_sync_policy.h"
 #include "era_split_wire_payload.h"
 #include "era_split_wire_router.h"
 #include "era_split_tap_activity.h"
-#include "communication_core/era_split_communication_core_diagnostics.h"
 /* For era_split_communication_core_initiator_result_ready(): the housekeeping
    due gate reads a published result rather than a pending request since Slice
    11.6. */
@@ -47,15 +45,16 @@
 #include "scheduler/era_split_transport_scheduler_timing.h"
 #include "sync_timer.h"
 #include "timer.h"
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+#    include "diagnostics/era_split_wire_cause.h"
+#endif
 
 /* Bits 5 and 6 of the dirty word whose bits 0-4 belong to
    `era_split_scheduler_dirty_flags_t` (`era_split_scheduler_events.h`). They
    live here because no producer outside this unit raises them, but the bit
    space is one: a new bit is chosen against both lists, and a retired bit
    stays unassigned rather than being recycled, the same rule the route-due
-   word beside that header enum states for itself. Their numeric values are
-   read off a capture -- they are the top two bits of `dirty=` on
-   `wire sched` -- so they may be moved but never renumbered. */
+   word beside that header enum states for itself. */
 enum {
     ERA_SPLIT_SCHEDULER_DIRTY_MODE      = 1U << 5,
     ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE = 1U << 6,
@@ -76,18 +75,6 @@ _Static_assert(ERA_SPLIT_RESTART_COMMIT_DELAY_MS > ERA_SPLIT_RESTART_ARM_TIMEOUT
                "The commit deadline must sit far enough past the arm timeout for the retire to reach a responder that armed on a lost answer.");
 
 era_split_transport_scheduler_state_t g_era_split_transport_scheduler;
-#ifdef ERA_TOMAK_SYNC_DIAG
-static bool tomak_sync_link_seen;
-static uint32_t tomak_sync_first_link_ms, tomak_sync_loss_count, tomak_sync_return_count;
-static uint32_t tomak_sync_loss_ms, tomak_sync_return_ms;
-static uint32_t tomak_sync_loss_reason;
-static uint8_t tomak_sync_stale_source;
-void era_tomak_sync_note_stale(uint8_t source) {
-    if (!g_era_split_transport_scheduler.peer_session_stale) {
-        tomak_sync_stale_source = source;
-    }
-}
-#endif
 
 static bool                                       era_split_transport_scheduler_reset_serial_for_transport_role(bool local_wire_available, bool local_wire_initiator, bool relation_rotation_required);
 static inline void __attribute__((always_inline)) era_split_transport_scheduler_flush_host_peer_relation(void);
@@ -100,19 +87,9 @@ static inline void __attribute__((always_inline)) era_split_transport_scheduler_
 static void                                              era_split_transport_scheduler_mark_responder_snapshot_due(void);
 
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-static uint16_t era_split_transport_scheduler_edge_u16(uint32_t value) {
-    return value > UINT16_MAX ? UINT16_MAX : (uint16_t)value;
+uint8_t era_split_transport_scheduler_diagnostic_mode(void) {
+    return (uint8_t)g_era_split_transport_scheduler.mode;
 }
-
-/* Milliseconds since timer_init(), which quantum/keyboard.c runs as the first
-   statement of keyboard_init(). Everything this measures - split_pre_init, the
-   matrix/quantum/RGB init the wire now waits behind, and the launch step
-   itself - happens after that call, so the reading is an elapsed boot interval
-   and not an absolute clock. */
-static uint16_t era_split_transport_scheduler_boot_ms(void) {
-    return era_split_transport_scheduler_edge_u16(timer_read32());
-}
-
 #endif
 
 void era_split_transport_scheduler_mark_dirty(uint8_t flags) {
@@ -260,9 +237,6 @@ static void era_split_transport_scheduler_build_standing_plan(era_split_communic
        operator action, not per pass. */
     if ((plan->eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
         bool storage_pending = era_host_peer_storage_advertised_pending();
-#    ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        era_host_peer_storage_cause_note_advertised(storage_pending);
-#    endif
         plan->storage_pending = storage_pending ? ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING : 0;
     }
 #endif
@@ -384,27 +358,7 @@ static bool era_split_transport_scheduler_publish_standing_plan(void) {
        review that forced this found the ungated watch firing every 100 ms
        on a healthy powered-without-USB pair. */
     g_era_split_transport_scheduler.standing_plan_granted = plan.relation_generation != 0;
-    bool published = era_split_communication_core_publish_standing_plan(&plan);
-#if defined(ERA_HOST_PEER_STORAGE_V1_ENABLE) && defined(ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE)
-    if (published &&
-        (plan.eligible_push_sections & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_SECTION_STORAGE_PENDING) != 0) {
-        uint8_t context = 0;
-        if (plan.enabled) {
-            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_ENABLED;
-        }
-        if (g_era_split_transport_scheduler.local_status_pending) {
-            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_STATUS_PENDING;
-        }
-        if (era_host_peer_storage_route_exclusive()) {
-            context |= ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PUBLISH_EXCLUSIVE;
-        }
-        era_host_peer_storage_cause_note_pending_path(
-            ERA_HOST_PEER_STORAGE_CAUSE_PENDING_PLAN_PUBLISH,
-            (plan.storage_pending & ERA_SPLIT_WIRE_HOST_PEER_SOURCE_PUSH_STORAGE_PENDING_FLAG_PENDING) != 0,
-            context);
-    }
-#endif
-    return published;
+    return era_split_communication_core_publish_standing_plan(&plan);
 }
 
 /* The other half of the grant: what core1 reports back. Latest-state, so a
@@ -447,13 +401,7 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
     }
     if (input_sync_requested && state.peer_input_layer_valid &&
         (eligible_rsp & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_INPUT_LAYER) != 0) {
-        /* The apply stays unconditional; the counter takes its answer. Every
-           counter in this block does, and the reason is the same one the
-           unconditional apply is written on below: reaching here means some
-           field of the latest-state record moved, not necessarily this one. */
-        if (era_split_peer_layer_apply((layer_state_t)state.peer_input_layer)) {
-            g_era_split_transport_scheduler.host_peer_input_layer_apply_count++;
-        }
+        (void)era_split_peer_layer_apply((layer_state_t)state.peer_input_layer);
     }
 
     /* The responder's authority, which is the news this lane exists to carry:
@@ -462,9 +410,7 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
        reaching here at all means the record changed. */
     if (state.peer_authority_valid &&
         (eligible_rsp & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_AUTHORITY) != 0) {
-        if (era_split_scheduler_session_note_peer_authority(&state.peer_authority)) {
-            g_era_split_transport_scheduler.host_peer_authority_rx_count++;
-        }
+        (void)era_split_scheduler_session_note_peer_authority(&state.peer_authority);
         /* The responder's restart intent off the same body, and deliberately
            not behind the session record's own change test: that test ignores
            these fields, because a restart intent is not a session edge. Core1's
@@ -537,13 +483,6 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
            (NEWS_VALUE_MAX), so the raw byte is handed over unchanged. */
         era_host_peer_storage_note_peer_pending(
             (state.peer_storage_news & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_FLAG_PENDING) != 0);
-#    ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-        /* Value bits only: `pnews=` is read against the peer's own `news=`
-           for equality, and the pending flag's console truth is the shim's
-           `mir` bit -- one fact per field. */
-        g_era_split_transport_scheduler.peer_storage_news_observed =
-            (uint8_t)(state.peer_storage_news & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_STORAGE_NEWS_VALUE_MASK);
-#    endif
     }
 #endif
 
@@ -564,16 +503,8 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
        and the RGB apply compares before writing both the config and the suspend
        state.
 
-       The two visible arrival counters move from here as well, and that is the
-       point of counting them here rather than an extra. `wire hp role=peer
-       vis=/rgb=` is the only instrument the Active-Cable gate has for "HSRSP
-       visual-resync and RGB-state apply", and the per-exchange drain that used
-       to feed it stops carrying HSRSP in this relation once the response poll
-       retires. A counter that freezes because its carrier moved reads exactly
-       like a section that stopped arriving. What does change is the unit: core1
-       reports these on an edge, so they now count distinct applied states
-       rather than every frame that repeated one, and `rt`'s rx side is what
-       counts the arrivals. */
+       Core1 reports these on a latest-state edge, not necessarily an edge of
+       the particular section being applied. */
     if (state.peer_lock_state_valid &&
         (eligible_rsp & ERA_SPLIT_WIRE_HOST_PEER_HOST_SOURCE_RSP_SECTION_LOCK_STATE) != 0) {
         era_host_peer_transaction_apply_lock_state(state.peer_lock_state);
@@ -590,12 +521,10 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
         if (g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_DUAL_HOST_LEFT) {
             bool rgb_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_RGB, &rgb_requested) && rgb_requested) {
-                if (era_host_peer_transaction_apply_rgb_state(&state.peer_rgb_state, false)) {
-                    g_era_split_transport_scheduler.host_peer_rgb_state_rx_count++;
-                }
+                (void)era_host_peer_transaction_apply_rgb_state(&state.peer_rgb_state, false);
             }
-        } else if (era_host_peer_transaction_apply_rgb_state(&state.peer_rgb_state, true)) {
-            g_era_split_transport_scheduler.host_peer_rgb_state_rx_count++;
+        } else {
+            (void)era_host_peer_transaction_apply_rgb_state(&state.peer_rgb_state, true);
         }
     }
     /* The visual snapshot is the exception, and the sequence is why. Its reason
@@ -616,11 +545,9 @@ static bool era_split_transport_scheduler_apply_standing_state(void) {
             bool visual_rgb_requested = false;
             if (era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_RGB, &visual_rgb_requested) && visual_rgb_requested) {
                 era_host_peer_transaction_apply_visual_snapshot(&state.peer_visual_snapshot);
-                g_era_split_transport_scheduler.host_peer_visual_snapshot_rx_count++;
             }
         } else {
             era_host_peer_transaction_apply_visual_snapshot(&state.peer_visual_snapshot);
-            g_era_split_transport_scheduler.host_peer_visual_snapshot_rx_count++;
         }
     }
     /* The anchor, corrected for the time it spent in this record. Core1 stamped
@@ -748,41 +675,6 @@ void era_split_transport_scheduler_note_local_activity_change(void) {
         era_split_transport_scheduler_mark_responder_snapshot_due();
     }
 }
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-/* One line, two writers, and a half is only ever one of them. The responder
-   counts into the scheduler's own fields from the response it sent; the
-   initiator's counts live in the standing state, because core1 is what sends
-   and applies there now. Summing is correct rather than lazy: a DUAL-HOST Left
-   never touches the responder fields and a Right never runs the standing
-   service, so exactly one side of each sum is zero. */
-void era_split_transport_scheduler_get_dual_runtime_counts(uint32_t *tx_count, uint32_t *rx_count) {
-    era_split_communication_core_standing_state_t state;
-    if (!era_split_communication_core_read_standing_state(&state, NULL)) {
-        memset(&state, 0, sizeof(state));
-    }
-    if (tx_count != NULL) {
-        *tx_count = g_era_split_transport_scheduler.dual_runtime_tx_count + state.tx_section_count;
-    }
-    if (rx_count != NULL) {
-        *rx_count = g_era_split_transport_scheduler.dual_runtime_rx_count + state.rx_section_count;
-    }
-}
-
-void era_split_transport_scheduler_get_maintenance_source_counts(uint32_t *entry_count, uint32_t *counts) {
-    if (entry_count != NULL) {
-        *entry_count = g_era_split_transport_scheduler.housekeeping_entry_count;
-    }
-    if (counts != NULL) {
-        memcpy(counts, g_era_split_transport_scheduler.maintenance_source_count, sizeof(g_era_split_transport_scheduler.maintenance_source_count));
-    }
-}
-
-uint32_t era_split_transport_scheduler_get_responder_snapshot_retry_count(void) {
-    return g_era_split_transport_scheduler.responder_snapshot_publish_retry_count;
-}
-
-#endif
 
 void era_split_transport_scheduler_mark_host_peer_rgb_state_due(void) {
     ATOMIC_BLOCK_RESTORESTATE {
@@ -942,10 +834,6 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
     era_authority_snapshot_t      auth;
     era_split_mode_peer_session_t peer_session;
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.plan_count++;
-#endif
-
     era_split_authority_reducer_get_snapshot(&auth);
 
     bool authority_changed = era_split_transport_scheduler_authority_changed(&auth);
@@ -969,20 +857,6 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
        answer, because neither is a relation worth holding. */
     bool peer_no_host_only  = peer_session.known && !peer_session.accepted_host_open && peer_session.accepted_no_host;
     bool peer_session_stale = (local_host_closed && !peer_no_host_only) || g_era_split_transport_scheduler.peer_session_stale || era_split_communication_core_launch_capped() || era_split_transport_scheduler_responder_silence_stale(peer_session.known);
-#ifdef ERA_TOMAK_SYNC_DIAG
-    /* Preserve the actual short-circuit decision before forgetting the peer
-       or resetting the sticky claim. Do not invoke either silence watch again. */
-    uint8_t loss_primary = (local_host_closed && !peer_no_host_only) ? 1 :
-                          g_era_split_transport_scheduler.peer_session_stale ? 2 :
-                          peer_session_stale && era_split_communication_core_launch_capped() ? 4 :
-                          peer_session_stale ? 8 : 0;
-    uint32_t loss_reason = loss_primary |
-        ((uint32_t)(loss_primary == 2 ? tomak_sync_stale_source : 0) << 8) |
-        ((uint32_t)auth.usb_state << 16) |
-        ((uint32_t)(peer_session.known | (peer_session.accepted_host_open << 1) |
-                    (peer_session.accepted_no_host << 2)) << 24) |
-        ((uint32_t)auth.valid << 28);
-#endif
 
     era_split_mode_planner_input_t input = {
         .local_authority         = auth,
@@ -1000,10 +874,6 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
 
     era_split_mode_planner_result_t result;
     era_split_mode_planner_decide(&input, &result);
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    era_split_transport_scheduler_role_diagnostics_note_mode_change(g_era_split_transport_scheduler.mode, result.next_mode);
-#endif
 
     if (authority_changed) {
         era_split_transport_scheduler_reset_session_probe_backoff();
@@ -1032,6 +902,11 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
        below), while the backend teardown/rebuild runs only when the wire lease
        itself needs it. */
     if (authority_changed || result.mode_changed || wire_role_changed || repair_wire) {
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+        era_split_wire_cause_context(era_split_communication_core_owner_epoch(),
+                                     g_era_split_transport_scheduler.core1_initiator_relation_generation,
+                                     result.next_mode, dirty_flags);
+#endif
         if (!era_split_transport_scheduler_reset_serial_for_transport_role(next_local_wire_available, next_local_wire_initiator, authority_changed || result.mode_changed)) {
             era_split_transport_scheduler_mark_dirty(dirty_flags);
             return true;
@@ -1043,9 +918,6 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
         era_host_peer_transaction_force_responder_lock_state_response();
     }
     if (result.peer_session_forget_required) {
-#ifdef ERA_HOST_PEER_STORAGE_CAUSE_TIMELINE_ENABLE
-        era_host_peer_storage_cause_timeline_note(ERA_HOST_PEER_STORAGE_CAUSE_EVENT_SESSION_FORGET, 0);
-#endif
         era_split_scheduler_session_forget_peer_from_scheduler();
         g_era_split_transport_scheduler.peer_session_stale = false;
         era_split_transport_scheduler_reset_responder_silence_watch();
@@ -1114,24 +986,9 @@ static bool era_split_transport_scheduler_update_mode(bool repair_wire) {
     }
 
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.previous_mode            = g_era_split_transport_scheduler.mode;
-#endif
-#ifdef ERA_TOMAK_SYNC_DIAG
-    /* Count at the committed mode edge, not at the 20 ms sampler. Initial
-       discovery is excluded; a later return from LOCAL_NO_LINK is recovery. */
-    if (result.next_mode != ERA_SPLIT_MODE_LOCAL_NO_LINK && !tomak_sync_link_seen) {
-        tomak_sync_link_seen = true;
-        tomak_sync_first_link_ms = timer_read32();
-    } else if (g_era_split_transport_scheduler.mode != ERA_SPLIT_MODE_LOCAL_NO_LINK &&
-               result.next_mode == ERA_SPLIT_MODE_LOCAL_NO_LINK) {
-        tomak_sync_loss_count++;
-        tomak_sync_loss_ms = timer_read32();
-        tomak_sync_loss_reason = loss_reason;
-    } else if (tomak_sync_link_seen &&
-               g_era_split_transport_scheduler.mode == ERA_SPLIT_MODE_LOCAL_NO_LINK &&
-               result.next_mode != ERA_SPLIT_MODE_LOCAL_NO_LINK) {
-        tomak_sync_return_count++;
-        tomak_sync_return_ms = timer_read32();
+    if (result.mode_changed) {
+        era_split_wire_cause_relation(era_split_communication_core_owner_epoch(),
+                                      g_era_split_transport_scheduler.core1_initiator_relation_generation, result.next_mode);
     }
 #endif
     g_era_split_transport_scheduler.mode                     = result.next_mode;
@@ -1175,6 +1032,11 @@ static void era_split_transport_scheduler_rotate_core1_relation(void) {
     if (g_era_split_transport_scheduler.core1_initiator_relation_generation == 0) {
         g_era_split_transport_scheduler.core1_initiator_relation_generation = 1;
     }
+#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
+    era_split_wire_cause_relation(era_split_communication_core_owner_epoch(),
+                                 g_era_split_transport_scheduler.core1_initiator_relation_generation,
+                                 g_era_split_transport_scheduler.mode);
+#endif
     /* The shared-clock adoption is relation-scoped for the same reason every
        peer cache below is. A sequential firmware reflash can leave the Left
        alive long enough to adopt the old Right's uptime, then reboot Right to
@@ -1325,42 +1187,7 @@ done:
 }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-#    ifdef ERA_TOMAK_SYNC_DIAG
-static uint32_t tomak_sync_recovery_count;
-static uint32_t tomak_sync_recovery_ms;
-static bool tomak_sync_revalidate;
-void era_tomak_sync_relation_diag(era_tomak_sync_relation_diag_t *out) {
-    *out = (era_tomak_sync_relation_diag_t){
-        .recovery_count = tomak_sync_recovery_count,
-        .recovery_ms = tomak_sync_recovery_ms,
-        .first_link_ms = tomak_sync_first_link_ms,
-        .loss_count = tomak_sync_loss_count,
-        .loss_reason = tomak_sync_loss_reason,
-        .control_beats = era_tomak_sync_control_keepalive_count(),
-        .standing_fault = era_tomak_sync_standing_fault(),
-        .return_count = tomak_sync_return_count,
-        .loss_ms = tomak_sync_loss_ms,
-        .return_ms = tomak_sync_return_ms,
-        .relation = g_era_split_transport_scheduler.core1_initiator_relation_generation,
-        .mode = g_era_split_transport_scheduler.mode,
-        .flags = (g_era_split_transport_scheduler.local_wire_initiator ? 1 : 0) |
-                 (g_era_split_transport_scheduler.local_status_pending ? 2 : 0) |
-                 (era_split_transport_scheduler_relation_fast_recovery(g_era_split_transport_scheduler.local_wire_initiator) ? 4 : 0) |
-                 (era_split_transport_scheduler_lighting_sleep_owner_is_wire() ? 8 : 0) |
-                 (tomak_sync_revalidate ? 16 : 0),
-        .misses = g_era_split_transport_scheduler.attach_status_miss_streak,
-    };
-    era_tomak_sync_session_tx_diag(&out->session_fail_ms, &out->session_fail_detail);
-    era_tomak_sync_session_rx_diag(&out->session_rx, &out->session_sent,
-                                  &out->session_rx_fault_ms, &out->session_rx_fault);
-}
-#    endif
 void era_split_transport_scheduler_force_storage_recovery(bool revalidate_session) {
-#    ifdef ERA_TOMAK_SYNC_DIAG
-    tomak_sync_recovery_count++;
-    tomak_sync_recovery_ms = timer_read32();
-    tomak_sync_revalidate = revalidate_session;
-#    endif
     /* Storage completion does not retire the input incarnation. Actual
        owner/relation changes retain their separate endpoint teardown path. */
     era_host_peer_transaction_force_responder_lock_state_response();
@@ -1413,30 +1240,6 @@ _Static_assert(ERA_SPLIT_LINK_UPGRADE_CONFIRM_MS >= 2U * ERA_SPLIT_RESPONDER_SIL
 /* The cold transition is shared verbatim with the host fault-injection
  * fixture. No extra runtime owner or public abstraction is introduced. */
 #include "scheduler/era_split_transport_scheduler_link.inc"
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-bool era_split_transport_scheduler_flush_communication_core_for_diagnostics(void) {
-    era_split_transport_scheduler_ensure_initialized();
-
-    if (!era_split_transport_scheduler_stop_communication_core_for_flash_write()) {
-        era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-        return false;
-    }
-
-    bool flushed = era_split_communication_core_queue_reset();
-    bool restored = era_split_transport_scheduler_reset_serial_for_transport_role(g_era_split_transport_scheduler.local_wire_available,
-                                                                                    g_era_split_transport_scheduler.local_wire_initiator,
-                                                                                    true);
-    if (!restored) {
-        era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-#ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
-    } else {
-        era_split_transport_scheduler_force_storage_recovery(true);
-#endif
-    }
-    return flushed && restored;
-}
-#endif
 
 /* The clock-free half of the housekeeping gate. Every arm below is an event, a
    latch or a published word, and not one of them needs to know what time it
@@ -1660,14 +1463,8 @@ void era_split_transport_scheduler_init(void) {
         return;
     }
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.init_call_count++;
-#endif
     era_split_scheduler_session_init();
     g_era_split_transport_scheduler.mode          = ERA_SPLIT_MODE_LOCAL_NO_LINK;
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.previous_mode = ERA_SPLIT_MODE_LOCAL_NO_LINK;
-#endif
     (void)era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_INPUT,
                                               &g_era_split_transport_scheduler.input_sync_requested_cached);
     (void)era_split_sync_policy_get_requested(ERA_SPLIT_SYNC_POLICY_FIELD_RGB,
@@ -1700,9 +1497,6 @@ bool era_split_transport_scheduler_start_communication_core(void) {
     if (g_era_split_transport_scheduler.communication_core_started) {
         return true;
     }
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.communication_core_start_entry_ms = era_split_transport_scheduler_boot_ms();
-#endif
 
     if (!g_era_split_transport_scheduler.initialized) {
         era_split_transport_scheduler_init();
@@ -1741,23 +1535,8 @@ bool era_split_transport_scheduler_start_communication_core(void) {
 
     (void)era_split_transport_scheduler_refresh_route_due_flags();
     era_split_transport_scheduler_update_next_deadline();
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.communication_core_start_exit_ms = era_split_transport_scheduler_boot_ms();
-#endif
     return started;
 }
-
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-static inline bool era_split_transport_scheduler_note_maintenance_source(uint8_t source, bool performed) {
-    if (performed) {
-        g_era_split_transport_scheduler.maintenance_source_count[source]++;
-    }
-    return performed;
-}
-#    define ERA_SPLIT_SCHEDULER_MAINT(source, expr) era_split_transport_scheduler_note_maintenance_source((source), (expr))
-#else
-#    define ERA_SPLIT_SCHEDULER_MAINT(source, expr) (expr)
-#endif
 
 /* The two halves of this entry point are two jobs, and they run at rates three
    orders of magnitude apart: the gate below decides on every matrix scan pass,
@@ -1796,11 +1575,6 @@ bool era_split_transport_scheduler_task(void) {
 }
 
 static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    g_era_split_transport_scheduler.housekeeping_entry_count++;
-#endif
-
-    bool maintenance_performed = false;
     bool authority_changed      = false;
     /* Pair-pending presentation ordering: consume both wire roles' successful
        local-pending confirmations before storage_runtime_task() below is
@@ -1810,8 +1584,8 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
        Core0 close could again make this panel dark while the peer still held a
        previously confirmed pending=1. This is an ordering constraint, not a
        diagnostic preference (era_host_peer_storage_contract.md). */
-    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_RESPONDER_DRAIN, era_split_transport_scheduler_drain_communication_core_responder_results()) || maintenance_performed;
-    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STANDING_STATE, era_split_transport_scheduler_apply_standing_state()) || maintenance_performed;
+    (void)era_split_transport_scheduler_drain_communication_core_responder_results();
+    (void)era_split_transport_scheduler_apply_standing_state();
     era_split_transport_scheduler_publish_host_peer_responder_rgb_state(now_ms);
     /* R7.1: an in-flight initiator request that core1 has neither consumed
        nor expired for the whole unresponsive bound is the request-lane face
@@ -1833,9 +1607,6 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         !era_split_communication_core_initiator_result_ready() &&
         timer_elapsed32(g_era_split_transport_scheduler.core1_initiator_pending_since_ms) >= ERA_SPLIT_CORE1_UNRESPONSIVE_MS) {
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-#ifdef ERA_TOMAK_SYNC_DIAG
-        era_tomak_sync_note_stale(4);
-#endif
         g_era_split_transport_scheduler.peer_session_stale = true;
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_PEER_STALE);
     }
@@ -1847,11 +1618,10 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
            not change our wire role (for example matrix readiness). Restore the
            lease through the explicit policy pass, never request admission. */
         era_split_transport_scheduler_mark_dirty(ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE);
-        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_CORE1_INITIATOR, true);
     } else {
-        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_CORE1_INITIATOR, era_split_transport_scheduler_poll_core1_initiator()) || maintenance_performed;
+        (void)era_split_transport_scheduler_poll_core1_initiator();
     }
-    maintenance_performed      = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_TIME_TOKENS, era_split_transport_scheduler_refresh_time_due_tokens(now_ms)) || maintenance_performed;
+    (void)era_split_transport_scheduler_refresh_time_due_tokens(now_ms);
 
     uint8_t maintenance_due_flags = era_split_transport_scheduler_consume_maintenance_due_flags();
     if ((maintenance_due_flags & ERA_SPLIT_SCHEDULER_MAINT_DUE_AUTHORITY_SAMPLE) != 0) {
@@ -1862,7 +1632,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
         era_split_transport_scheduler_note_sync_policy_edge();
     }
     if (pending_dirty_flags != 0) {
-        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_MODE, era_split_transport_scheduler_update_mode((pending_dirty_flags & ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE) != 0)) || maintenance_performed;
+        (void)era_split_transport_scheduler_update_mode((pending_dirty_flags & ERA_SPLIT_SCHEDULER_DIRTY_WIRE_ROLE) != 0);
     }
 
     /* The agreed restart runs here rather than on the scan path, and the
@@ -1881,13 +1651,13 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
        not the previous one's. */
     uint8_t link_step_level;
     if (era_split_link_step_due(&link_step_level)) {
-        maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_MODE, era_split_transport_scheduler_apply_link_step(link_step_level, true)) || maintenance_performed;
+        (void)era_split_transport_scheduler_apply_link_step(link_step_level, true);
     }
 
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     /* Cold capture can write NVM. Drain disarm/authority facts and execute a
      * due LINK transition first; cold work itself yields during timed arms. */
-    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_STORAGE, era_host_peer_storage_task(timer_read32())) || maintenance_performed;
+    (void)era_host_peer_storage_task(timer_read32());
     now_ms = timer_read32();
     era_split_sync_policy_snapshot_t policy;
     era_split_scheduler_session_diagnostics_t session;
@@ -1935,8 +1705,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
                                          1 :
                                          0,
     };
-    maintenance_performed = era_host_peer_storage_runtime_task(&storage_context) ||
-                            maintenance_performed;
+    (void)era_host_peer_storage_runtime_task(&storage_context);
 #endif
     /* One recompute, after everything above that can move a due fact. It sat
        twice: once before the storage block and once at its end, with the first
@@ -1946,7 +1715,7 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
        have been wrong, because it was outside the `#ifdef` and was the only
        one on a build with storage disabled; moving the survivor out is what
        leaves exactly one in both configurations. */
-    maintenance_performed = ERA_SPLIT_SCHEDULER_MAINT(ERA_SPLIT_SCHEDULER_MAINT_SOURCE_ROUTE_DUE, era_split_transport_scheduler_refresh_route_due_flags()) || maintenance_performed;
+    (void)era_split_transport_scheduler_refresh_route_due_flags();
     if (g_era_split_transport_scheduler.route_due_flags == 0) {
         era_split_transport_scheduler_clear_owner_route();
     }
@@ -1960,11 +1729,6 @@ static bool era_split_transport_scheduler_housekeeping_body(uint32_t now_ms) {
        free when nothing moved, because the publish compares first. */
     (void)era_split_transport_scheduler_publish_standing_plan();
     era_split_transport_scheduler_update_next_deadline();
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-    if (maintenance_performed) {
-        g_era_split_transport_scheduler.housekeeping_task_count++;
-    }
-#endif
     return authority_changed;
 }
 
@@ -2047,14 +1811,6 @@ static bool era_split_transport_scheduler_transport_slow(void) {
     return true;
 }
 
-#ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
-static inline void __attribute__((always_inline)) era_split_transport_scheduler_note_transport_step_call(void) {
-    g_era_split_transport_scheduler.transport_step_call_count++;
-}
-#else
-static inline void __attribute__((always_inline)) era_split_transport_scheduler_note_transport_step_call(void) {}
-#endif
-
 /* The scan path's whole transport step, one body for every half. The
    master/slave pair this replaces differed only in which diagnostics counter
    it stepped and whether it returned transport_slow()'s bool - a return every
@@ -2065,7 +1821,6 @@ static inline void __attribute__((always_inline)) era_split_transport_scheduler_
    arms it. */
 void era_split_transport_scheduler_transport_step(void) {
     era_split_transport_scheduler_ensure_initialized();
-    era_split_transport_scheduler_note_transport_step_call();
 #ifdef ERA_HOST_PEER_STORAGE_V1_ENABLE
     bool input_storage_closed = era_host_peer_storage_route_exclusive();
 #else

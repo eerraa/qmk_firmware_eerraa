@@ -6,18 +6,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "../era_host_peer_transaction.h"
 #include "../era_split_transaction_types.h"
 #include "../era_split_wire_protocol.h"
 #include "../era_split_input.h"
 #ifdef ERA_TOMAK_SYNC_ENABLE
 #    include "../era_tomak_sync_wire.h"
 #endif
-
-typedef enum {
-    ERA_SPLIT_COMMUNICATION_CORE_RX_WAIT_MODE_NONE                 = 0,
-    ERA_SPLIT_COMMUNICATION_CORE_RX_WAIT_MODE_RESPONSE_WINDOW_POLL = 1,
-} era_split_communication_core_rx_wait_mode_t;
 
 /* The lanes core0 may queue a request on. A HEARTBEAT lane stood between the
    two below and had no enqueuer at all: core1's standing service builds the
@@ -99,7 +93,6 @@ typedef struct {
     uint8_t  failure;
     union {
         era_split_communication_core_session_result_t session;
-        era_host_peer_transaction_result_t            host_peer;
 #ifdef ERA_TOMAK_SYNC_ENABLE
         era_tomak_sync_wire_t sync;
 #endif
@@ -110,4 +103,3 @@ bool era_split_communication_core_enqueue_initiator(const era_split_communicatio
 bool era_split_communication_core_poll_initiator_result(era_split_communication_core_initiator_result_t *result);
 bool era_split_communication_core_initiator_pending(void);
 bool era_split_communication_core_initiator_result_ready(void);
-void era_split_communication_core_note_initiator_result_stale(uint8_t lane);

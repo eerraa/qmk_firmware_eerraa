@@ -2,307 +2,154 @@
 
 Genre: manual
 Canonical for: capture prerequisites, sample-time model, units and denominators,
-comparison windows, and cross-field interpretation needed to read ERA diagnostics
-without turning source-owned fields into a second specification
+comparison windows, and interpretation of the minimal wire report
 
-Field spellings, enum values, bit masks, thresholds, and producer locations are
-source-owned. Start a single-field lookup at `maps/era_identifier_map.md` and the
-source it names. This manual owns the rules that combine multiple observations.
+Field spellings, values and producers belong to
+`split/diagnostics/era_split_wire_diagnostics.c` and its source owners.
 Acceptance figures and device pass/fail rules live in
-`manuals/era_performance_gates.md`.
-
-## Source Anchors, Not A Field Inventory
-
-Use these as first owners, then follow the live producer for the field in
-question:
-
-| Diagnostic family | First source anchor |
-| --- | --- |
-| WIRE_DIAG snapshot and printing | `split/diagnostics/era_split_wire_diagnostics.c`, `split/diagnostics/era_split_wire_diagnostics.h` |
-| scheduler/runtime diagnostic state | `split/era_split_transport_scheduler_diagnostics.h` |
-| storage state and interval diagnostics | `split/era_host_peer_storage.c` |
-| pass-phase/qwin phase ids | `system/era_pass_phase_diagnostics.h` |
-| VIA macro interval diagnostics | `split/diagnostics/era_via_macro_diagnostics.c` |
-| CLEAN transition breadcrumb | `split/era_split_restart_agreement.c` |
-
-Route periods and admission semantics are owned by
-`contracts/era_route_contract.md`; wire markers, bodies, and section eligibility
-by `contracts/era_wire_contract.md`; storage durability and arbitration by
-`contracts/era_host_peer_storage_contract.md`. Do not copy those tables here.
+`manuals/era_performance_gates.md`. Route, wire and storage safety requirements
+remain in their respective contracts.
 
 ## Capture Preconditions
 
-Use the diagnostic image and binding required by
-`manuals/era_performance_gates.md`. Temporary bindings must be restored, and a
-before/after comparison must use the same resolved diagnostic variant unless the
-variant itself is the axis under test.
+Use the `wire` image and restore temporary bindings after measurement. Record
+manifest/build identity, physical half, relation and logical role, link level,
+USB/cable topology, policy, lighting/suspend state, workload and window.
+Compare matching conditions and window lengths unless a difference is the
+tested axis. A historical instrument result is a comparison input, not a
+fresh measurement of this image.
 
-Name each sitting by relation and logical role, not only by physical half. Record
-the manifest/build identity, link level, USB/cable topology, policy state,
-lighting/suspend state, workload, and intended observation window. If one of
-those is deliberately changed, hold the others fixed or state why the captures
-are not directly comparable.
+`WIRE_DIAG` and `WIRE_QWIN` occupy their existing keycode slots and start and
+stop the same window. The first pressed event starts silently; the next pressed
+event of either key closes it. Releases are ignored. Triggers while output is
+pending are ignored. `WIRE_DIAG_2` retains its numeric slot but is inert; it
+does not inject a fault. The trigger is part of the observed execution.
 
-A `WIRE_DIAG` press is part of the observed execution. The snapshot is taken
-from the keyboard task before later housekeeping, and printing is paced
-afterward. Treat the trigger and console output as instrumentation, not as an
-invisible observer. A visual state observed while capturing is therefore not a
-pure counter measurement.
+No output is printed during the window. After it closes, the compact report
+prints at least 20 ms apart: `wire scan`, `wire core`, `wire link`, and, when
+storage is enabled, `wire storage`. Captured values stay frozen across those
+lines. Individual counter reads are aligned but do not constitute an atomic
+multi-Core1 snapshot. Missing output is missing evidence, not zero.
 
-The TOMAK `sync_state` keymap is a single-Save diagnostic fixture, not a fix.
-It preserves the first operation/upload ceiling's accounting, last proof,
-metadata result and latest runtime-context sample before terminal cleanup.
-After the failure, F24 freezes the existing `tm9` timing spans and then prints
-the latched `ts1` state through `ts1 end`. No timeout prints `ts1 timeout=0`
-followed by the same terminator.
-Only four timing spans are retained to leave SRAM for this capture; reboot
-before the one-Save reproduction. These records contain no macro payload.
-The context timestamp identifies its sample age when another cold caller
-reaches the ceiling before the next runtime pass. The fixture does not alter
-deadlines, proof eligibility, release gates or the EEPROM/wire formats.
+After these unchanged lines, `wire cause` identifies the detail schema,
+available slots, occupied slots and `unavailable` count. One `wire detail`
+line per occupied slot follows at the same pacing. The ledger is frozen with
+the report, not read again while printing. This extends the one `wire` variant;
+it neither changes the trigger/keycodes nor creates another profile.
 
-`WIRE_DIAG_2` exercises local communication-core stop, queue reset and owner
-restoration, then captures the result. It is a recovery fault injection, not a
-passive snapshot. Its local success does not prove peer input convergence:
-hold a PEER key across a HOST-side trigger, check the closure and restored held
-state, then release it and check the final release. Also exercise queued input
-and a source waiting for capacity. Recovery uses the same input implementation
-as release builds. A failed local operation still produces a snapshot and must
-not be recorded as a successful reset. The trigger and diagnostic output are
-compiled out when wire diagnostics are disabled.
+## Reading The Window
 
-For an enforced-silence bracket, the frozen state can describe the pre-trigger
-interval, but trigger-counted state may still move because of the capture key.
-Prove "no workload" with an independent work/transfer observation rather than a
-counter whose own boundary is opened by the trigger.
+`wire scan` reports elapsed milliseconds, Core0 scan count and rate, PIO
+validity and frame rate, sampler retry and rearm deltas, and the PIO debug
+flags. Core0 scans and PIO sampler frames are distinct populations. PIO rate
+is valid only if the sampler is ready at both endpoints, the same nonzero
+frame-word count applies, and no DMA rearm occurred during the window.
+An invalid rate of zero is flagged unavailable, not a measured zero.
 
-### Frozen snapshot versus paced live lines
+`wire core` reports relation mode and owner health; `wire link` reports compact
+transaction health; `wire storage` reports storage state/status and failure
+counts. Health counts are cumulative since their owner reset or boot, not
+automatically window-differenced. Compare two captures only within the same
+owner lifetime, accounting for resets and wrap according to the producer.
+States are samples, not event counts. A healthy survivor's counters cannot
+prove that a silent peer never wedged.
 
-Scheduler, authority, EEPROM, and storage snapshot families are frozen together.
-Communication-core families are sampled again when their later lines are
-printed. The exact line interval and line ordering are source-owned by
-`split/diagnostics/era_split_wire_diagnostics.c`.
+Idle does not mean zero wire traffic: standing liveness and discovery may be
+valid. A transmission does not prove peer acceptance or application. Storage
+state observed during an operation is intermediate; convergence of a public
+value alone does not prove lifecycle release or durable completion. Use
+independent peer, protocol, persistence or device evidence when those facts
+must be established.
 
-Consequences:
+The report does not expose park/CPU occupancy, phase durations or maxima,
+keypath histograms, cause timelines, edge traces, macro RAW timing, CLEAN
+traces, or the former timing/state fixtures. A required device gate without
+adequate evidence remains unverified;
+absence of an old field is not a pass.
 
-- Do not subtract a later live line from a frozen field as though both were read
-  at one instant.
-- If two facts must be simultaneous, use fields from the same frozen family or
-  an explicitly shared timestamp.
-- A clock value printed on a paced line includes the print distance from the
-  frozen capture unless the producer explicitly compensates it.
-- Missing output from a half that stopped running is missing evidence, not a
-  zero-valued diagnostic result.
+## First-cause detail (schema 1)
 
-Several diagnostic families reset their interval baseline when a capture is
-taken. In particular, relation-era counters and storage/VIA interval traces must
-be read as the interval they already represent. Do not take a second delta of an
-interval-reset field.
+`split/diagnostics/era_split_wire_cause.h` owns the dense cause and phase
+numbers; they are capture identifiers, not wire operations. Decode them with
+the image's manifest/source revision. The inventory covers local compact
+encoder arguments/control, compact and bulk checksum versus payload
+classification, RX marker/length/capacity, direction, response kind, ACK, and
+simultaneous kind/ACK failure. Wait causes distinguish original send timeout,
+initial response timeout, partial frame, RX cleanup timeout, PIO, IO, and each
+administrative owner/epoch/cancel/reset interruption. Shared causes pool
+occurrences across phases; the first record preserves its exact phase, not
+the distribution of later phases. Impossible codec entry predicates are not
+allocated slots. Unattributed counted failures have an explicit unavailable
+slot rather than inheriting a preceding attempt's detail.
 
-## Units, Denominators, And Windows
+The ledger starts at the first Core1 counted transaction and resets only on
+firmware reboot. It is not an event ring: administrative interruptions cannot
+evict a checksum or ACK record. Each slot keeps its first immutable record and
+a saturating 32-bit `n`; saturation means at least that many occurrences.
+Owner transfers, relation rotations, rate changes and captures do not clear
+it. Only the existing engine MISS/BAD/FAIL counting point commits a record.
+Uncounted early returns and idle receive timeout remain uncounted. RX still
+increments before the response kind/ACK check; a BAD count does not by itself
+mean a bad checksum or prove that the counter is bogus.
 
-Before calculating anything, classify the field by its source semantics.
+Read detail fields as follows:
 
-| Metric class | Valid reading rule |
-| --- | --- |
-| boot-cumulative count | subtract two captures from the same boot, then divide by the elapsed capture time only when a rate is required |
-| role/capture-era count | already represents its own interval; do not difference successive captures |
-| qwin/window count | use the window's own elapsed value and reset boundary |
-| accumulated duration | divide the duration delta by the matching event/pass count for a per-event value, or by elapsed time only for an occupancy/share question |
-| window maximum | read as an absolute maximum for that window; never difference maxima |
-| histogram/band counts | normalize by the matching sample population and read the distribution, not only its mean |
-| state/latch/mask | interpret as state at its sample instant; it is not a rate |
-| timestamp/age | compare only values in the same clock domain or after applying the documented clock relationship |
+- `us`: RP2040 hardware `timerawl`, microseconds modulo 2^32 (wrap about
+  71.6 minutes), sampled on the rejection path. It is neither QMK uptime nor
+  the relation's synchronized clock. Zero is valid; timestamps alone cannot
+  order records across a wrap or different halves.
+- `ep`: attempt/observed owner epochs. `rel`, `mode`, `why`: epoch-tagged Core0
+  context sampled with a bounded odd/even publication read. `why` is the last
+  requested scheduler dirty-flag mask, or `0x80` for a requested quiesce via
+  the flash-write boundary (also used by link transitions). It is concurrent
+  context, not proof of the reason for the failure. Relation rotation may
+  preserve an owner lease; these identities are not interchangeable.
+- `v`: validity bits named in the cause header: context, wait, original send,
+  cleanup and RX PC. Ignore context values without context validity, including
+  when Core0 was concurrently publishing or its epoch did not match. Failed
+  context reads never block transport. `role` and `baud` are backend facts,
+  not live USB/QMK/EEPROM reads.
+- `ph` and `end`: rejection phase and terminal engine result/failure.
+  `wait` is the rejection's backend wait result when valid. `send` and `clean`
+  have separate validity and retain the original send-stage result and RX
+  turnaround result. A failed send followed by successful cleanup can still
+  produce the existing generic IO terminal failure: instrumentation preserves
+  that functional behavior deliberately.
+- `pc`: RX state-machine PC/program start immediately before the existing
+  failed-send forced recovery, when available. Cleanup result describes
+  `enter_rx_state_owned`, not an electrical verification of force-RX.
+- `len`: rejection-specific operands: frame/payload lengths for codec
+  rejection, received/allowed length for length rejection, required/available
+  bytes for capacity, or expected/observed direction. `flags` holds only the
+  framing/control byte, or null-argument bits for local encoding. No key
+  matrix, macro text, storage body or other payload contents are retained.
+- `kind`: expected/alternative/observed classifier kinds; `seq`: request TX
+  and received ACK. Separate kind-only, ACK-only and both-failed slots preserve
+  both predicates even when the functional check short-circuits.
 
-For ordinary boot-cumulative rates, the elapsed denominator is the delta of the
-capture timestamp on `wire pc`, whose producer is in
-`split/diagnostics/era_split_wire_diagnostics.c`. Raw-matrix accumulated time
-is not an elapsed-window substitute. A counter regression, boot-only timestamp
-change, or source-defined reset invalidates a plain delta unless the source
-explicitly defines wrap handling.
+First-record data is release-published before an aligned nonzero count;
+Core0 acquires the count before copying immutable data. A halt before that
+publication cannot expose a partial record. Counts and old health totals are
+independent reads, not an atomic capture. Successful traffic takes no new
+timestamps, payload copies, publications or per-frame counters; the wire image
+does have private attempt bookkeeping and must not be called cycle-identical
+to standard firmware. Standard/reset compile out the new ledger and observers.
 
-Keep units attached to the producer. Counts, microseconds, milliseconds, and
-section counts are not interchangeable. A rate is meaningful only when numerator
-and denominator cover the same interval and ownership era.
-
-Treat a source-defined sentinel as unavailable/context-absent, not as a numeric
-sample to average or difference. Likewise, preserve the producer's radix and
-format: a decimal status value beside hexadecimal masks does not become hex by
-proximity. Resolve the exact sentinel and format at the source anchor.
-
-## Comparison Validity
-
-A direct comparison requires all of the following unless the differing item is
-the tested axis:
-
-- same firmware/build identity and diagnostic instrumentation;
-- same relation and logical role for the measured half;
-- same link level and host/cable topology;
-- same relevant policy, RGB/effect, suspend, and feature state;
-- same workload definition and comparable observation-window length;
-- no reboot, role rotation, or relation-generation boundary inside a cumulative
-  delta;
-- the same sampling family, or an explicit correction for paced-line skew.
-
-LEFT versus RIGHT is not itself a valid comparison key. A role-scoped counter is
-comparable only while each sample owns the same role. Off-role retained state is
-history, not a current-role measurement.
-
-Do not reuse a historical rate signature to identify the relation. Read the
-captured relation/role state and then apply the current source and contracts.
-
-## Reading A Cause Across Multiple Counters
-
-For a cross-wire value, separate these legs:
-
-1. local value or plan became eligible;
-2. a carrier actually sent it;
-3. the peer accepted the carrier;
-4. the receiver policy admitted it;
-5. the peer applied the value.
-
-Use the source-owned counters for those legs. An advertisement counter does not
-prove a send; a receive counter does not prove an apply; an apply counter does
-not identify which carrier produced it without relation context. This distinction
-is the default way to separate "didn't send", "sent but not applied", and
-"applied".
-
-Idle does not imply zero wire traffic. Standing liveness, refresh, discovery, or
-time-anchor work may be valid in a serviced relation. A silence claim must name
-the traffic class being excluded and use the counter that owns that class.
-
-Runtime-section counters count sections, not polls or transactions. One carrier
-can contain more than one section, so section totals and exchange totals do not
-share a denominator unless the source explicitly makes them equivalent.
-
-A source-defined measurement-valid bit or latch that is false means the
-measurement is unavailable, not that traffic was zero. Likewise, a drained
-queue/mask reading of zero cannot prove that no event occurred earlier in the
-window.
-
-## Storage And CLEAN Captures
-
-Storage snapshots taken while an operation is open or active are intermediate
-state. For end-of-operation conclusions, wait for the close/terminal boundary or
-pair the observation with the other half's evidence as required by
-`contracts/era_host_peer_storage_contract.md`.
-
-Storage news and content-divergence facts answer different questions. A
-forwarded news value can advance even when content later returns to its previous
-value. Peer-news mirrors are useful for equality/convergence checks, not as
-independent rates. Drained probe/push/conflict masks are transient state; zero
-after drain does not prove that the path was unused.
-
-For a macro or Save/SYNC capture, convergence of the public value does not
-alone prove lifecycle release. Interpret `RELEASING` together with the
-source-owned input, live-claim retirement, and recovery guards. A responder's
-raw pending status is not an executable `SESSION_STATUS` prerequisite: status
-revalidation is role- and availability-scoped, and an impossible responder
-debt must not block release. Do not treat a pending responder value as a
-reason to wait out a ceiling or as evidence of successful release.
-
-Cause-timeline, storage-edge, and VIA-macro traces are interval-scoped. An
-intermediate capture can rotate or clear the very interval being investigated.
-For a bracketed operation, take the planned baseline and result captures without
-injecting extra snapshots unless the test explicitly requires them.
-
-Synchronous ERA NVM replacement can block Core0 between its begin/end
-breadcrumbs. The absence of a keyboard-loop sample inside that bracket does not
-prove that scan, routing, or persistence completed early. Wall-clock persistence
-evidence and acceptance belong to `manuals/era_performance_gates.md`.
-
-The live CLEAN line is a pre-reset breadcrumb. Decode its individual fields from
-`split/era_split_restart_agreement.c`; judge ordering, bilateral preparation,
-quarantine, and reboot-durable proof with the storage/route contracts and the
-EEPROM CLEAN device gate. A final pre-reset print may itself be lost to reset, so
-do not replace the gate with "last line was present".
+This is attribution evidence, not an electrical diagnosis. In particular a
+force-RX PC sample does not establish that an ISR/PC mismatch caused a physical
+error. Neither this feature nor a quiet capture reproduces the original errors.
 
 ## The shared clock and the time anchor
 
-The wire contract makes the responder the time authority in both serviced
-relations. The initiator applies the received anchor.
-
-The capture timestamp is frozen once, while later runtime-section lines are
-printed after paced delay. Therefore a raw difference between local capture time
-and a later printed shared-clock value includes the print distance. Do not call
-that difference an anchor offset without accounting for the sampling skew.
-
-Anchor-apply count, correction information, and backward/truncation diagnostics
-have different denominators. In particular, a truncation/backward counter is not
-a one-for-one count of arrived anchors. No numeric pass threshold should be
-invented from that ratio; any acceptance threshold belongs in
-`manuals/era_performance_gates.md`.
-
-## The qwin Window
-
-`WIRE_QWIN` defines an explicit start/end observation window. Use the window's
-own elapsed value for its rates and compare windows with matched relation, role,
-variant, workload, and duration.
-
-If the changed path is reactive to typing, rendering, or another active workload,
-a quiet qwin does not bound that path. Exercise the workload that reaches the
-changed path rather than promoting an idle window into a general result.
-
-Core0 pass rate and any sampler/frame rate are different populations. Do not use
-one as the denominator for the other.
-
-Parked time is credited to the window in which the park ends. A park that begins
-before the window can therefore make a short-window sleep share misleading or
-even larger than the nominal window. Use occupancy/share only when boundary
-parks are short relative to the window or when their boundary contribution is
-explicitly accounted for.
-
-Infer relation/role from captured state, not from a remembered loop-rate shape.
-
-### The `qwin_phase` rung
-
-A phase-instrumented window is not its own performance baseline. Compare it with
-a plain qwin window of the same length and matched conditions.
-
-Phase duration sums are per-pass only after division by the phase-pass
-population. Window maxima are absolute values reset with the window, not deltas.
-Threshold-band counts are nested and sensitive to samples near a boundary, so a
-LEFT/RIGHT count difference is not sufficient evidence of a path regression;
-inspect the corresponding maxima/distribution and the affected phase first.
-
-Phase names and the current execution partition are source-owned by
-`system/era_pass_phase_diagnostics.h`.
-
-## Key-Path And Distribution Readings
-
-The key-path diagnostic spans source-publish through acknowledgement/apply
-boundaries defined by `split/era_host_peer_matrix_link.c`. Do not relabel the
-entire span as key-to-host latency. Read its histogram as a distribution; an
-average alone can hide a changed tail or a bucket-edge effect.
-
-The exact bucket edges and producer fields are source-owned. This manual keeps
-only the rule for comparing them: same population, same relation/role, same
-window, and distribution before mean.
-
-## Time, Reset, And Missing-Evidence Traps
-
-Boot-only values must stay stable across captures from one boot. A change means
-the pair is not one continuous measurement window.
-
-Role/relation reset edges split ownership eras. Do not carry a delta across such
-an edge unless the producer explicitly defines the field across generations.
-
-A healthy survivor's zero failure counter does not prove that a peer never
-wedged; a wedged peer may be unable to print its own failure state. Combine
-survivor state, missing output, relation transition, and the relevant liveness
-gate before concluding that a failure did or did not occur.
-
-For response-section bytes or other overloaded diagnostic values, first verify
-the response/message kind that gives the byte its interpretation. Decode the
-bits from `contracts/era_wire_contract.md` or the source only after that kind is
-known. A zero byte in the wrong kind is not an empty section mask.
+The responder is the time authority in both serviced relations and the
+initiator applies the received anchor. The minimal report does not expose
+held-time correction or anchor timing. An offset or correction claim requires
+independent evidence in the appropriate clock domains.
 
 ## Reporting A Capture
 
-A useful capture report states the build/manifest identity, relation and role,
-topology, diagnostic variant, start/end condition, elapsed window, workload, and
-the exact source/contract used to interpret any non-obvious field.
-
-Report measured values as measured values. Do not turn source constants into
-device measurements, do not promote one historical capture into a baseline, and
-do not create a new threshold because two counters happened to differ once.
+Report measured values with their units and source/contract interpretation,
+including start/end conditions and the workload. Exercise the relevant active
+path; a quiet window does not bound typing or rendering. Do not infer device
+timing from constants, invent thresholds, or promote an old capture to a
+measurement of the current image.

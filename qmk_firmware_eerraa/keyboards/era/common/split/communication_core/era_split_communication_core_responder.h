@@ -168,16 +168,6 @@ typedef struct {
    was coalesced behind an already-pending exact successful result. The reply
    still crossed the wire, so cold Core0 diagnostics fold these monotonic
    counts later instead of misclassifying it as a bare ACK. */
-typedef struct {
-    uint32_t heartbeat_count;
-    uint32_t response_count;
-    uint32_t visual_count;
-    uint32_t rgb_count;
-    uint32_t runtime_section_count;
-    uint32_t activity_count;
-    uint32_t bad_count;
-} era_split_communication_core_responder_coalesced_counts_t;
-
 bool era_split_communication_core_publish_responder_snapshot(const era_split_communication_core_responder_snapshot_t *snapshot);
 /* Cold Core0 restart-apply receipt: the next safe publish must acquire a new
  * generation even when a drained ARM -> IDLE leaves the same final bytes. */
@@ -193,6 +183,6 @@ uint32_t era_split_communication_core_responder_accepted_rx_count(void);
    (split/era_split_link.c). */
 uint32_t era_split_communication_core_responder_undecodable_rx_count(void);
 /* Free-running count of requests answered without publishing a result, for the
-   bulk diagnostic fold on core0. */
+   Core0 liveness fold. */
 uint32_t era_split_communication_core_responder_quiet_count(void);
-void era_split_communication_core_responder_get_coalesced_counts(era_split_communication_core_responder_coalesced_counts_t *counts);
+uint32_t era_split_communication_core_responder_coalesced_count(void);

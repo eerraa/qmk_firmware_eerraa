@@ -95,6 +95,15 @@ split dependencies and diagnostic-axis dependencies are in
 selector defaults here. Read those files for the current predicate instead of
 copying dependency truth tables here.
 
+The canonical variants are `standard`, `reset`, and `wire`. The first two
+have no diagnostic console or observer; `wire` is the sole minimal diagnostic
+image, not an alias for retired instruments. Its rules derive console enable,
+input capacity 16, `NO_DEBUG`, and matrix scan counting without per-axis
+switches. The identity tuple is `wire=yes/no,reset=yes/no`: the launcher uses
+host-side `nm` witnesses in the linked ELF, not a flashed ABI. Removal of
+diagnostic-only writers is permitted in standard and reset; byte-identical UF2
+output is not required.
+
 ## The VIA surface and its gate
 
 A build without VIA links no ERA VIA surface. The gate is the
