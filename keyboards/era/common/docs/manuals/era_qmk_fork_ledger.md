@@ -21,6 +21,7 @@ required seam or behavior actually remains in a QMK-owned file.
 
 | Files | Current ERA reason | Gate / scope |
 | --- | --- | --- |
+| `quantum/keyboard.c` | Reset builds consume the verified installation receipt before EEPROM mount; standard builds omit the call. | `tests/era_boot_sequence` and release recovery builds. |
 | `platforms/eeprom.h` | Additive transaction/receipt API and native AVR readback wrappers; public write signatures remain void. | Native EEPROM failure/cut fixtures and AVR builds. |
 | `drivers/eeprom/eeprom_driver.[ch]` | Bounded update comparison, range-aware skip and write-start/result observer hooks preserve macro receipt events and semantic recovery ownership; lifecycle hooks retire RAM upload proof. | Production custom/WL adapter fixtures and `tests/era_persistence_failures`. |
 | `drivers/eeprom/eeprom_wear_leveling.c`, `quantum/wear_leveling/wear_leveling.[ch]` | Retain complete desired intent after failure, repair equal retries, and publish recovered durable spans only after persistence. Macro public-value notifications separately cover desired bytes and completion-marker visibility. | Wear-leveling and production macro/State Sync fixtures. |

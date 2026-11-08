@@ -29,15 +29,16 @@ expect_fail() {
 }
 
 declare -A tuples=(
-    [standard]='wire=no,qwin=no,phase=no,cause=no,stale=no'
-    [wire]='wire=yes,qwin=no,phase=no,cause=no,stale=no'
-    [qwin]='wire=no,qwin=yes,phase=no,cause=no,stale=no'
-    [cause]='wire=yes,qwin=no,phase=no,cause=yes,stale=no'
-    [stale]='wire=yes,qwin=no,phase=no,cause=no,stale=yes'
-    [qwin_phase]='wire=no,qwin=yes,phase=yes,cause=no,stale=no'
+    [reset]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=yes'
+    [standard]='wire=no,qwin=no,phase=no,cause=no,stale=no,reset=no'
+    [wire]='wire=yes,qwin=no,phase=no,cause=no,stale=no,reset=no'
+    [qwin]='wire=no,qwin=yes,phase=no,cause=no,stale=no,reset=no'
+    [cause]='wire=yes,qwin=no,phase=no,cause=yes,stale=no,reset=no'
+    [stale]='wire=yes,qwin=no,phase=no,cause=no,stale=yes,reset=no'
+    [qwin_phase]='wire=no,qwin=yes,phase=yes,cause=no,stale=no,reset=no'
 )
 
-for variant in standard wire qwin cause stale qwin_phase; do
+for variant in standard reset wire qwin cause stale qwin_phase; do
     expect_line "normal $variant" "variant=$variant tuple=${tuples[$variant]}" \
         make --no-print-directory -f "$fixture" "ERA_BUILD_VARIANT=$variant" print
 done
@@ -76,5 +77,10 @@ expect_fail 'non-split diagnostic variant' \
     make --no-print-directory -f "$fixture" SPLIT_KEYBOARD=no ERA_BUILD_VARIANT=wire print
 expect_fail 'retired board profile' \
     make --no-print-directory -f "$fixture" ERA_TOMAK79H_BUILD_PROFILE=wire print
+
+expect_line 'non-split reset' "variant=reset tuple=${tuples[reset]}" \
+    make --no-print-directory -f "$fixture" SPLIT_KEYBOARD=no ERA_BUILD_VARIANT=reset print
+expect_fail 'AVR recovery' \
+    make --no-print-directory -f "$fixture" MCU_SERIES=AVR ERA_BUILD_VARIANT=reset print
 
 echo 'era-build-variant-test: all cases passed'
