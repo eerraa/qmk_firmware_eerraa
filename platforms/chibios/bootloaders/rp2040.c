@@ -35,8 +35,8 @@ __attribute__((weak)) void mcu_reset(void) {
 void bootloader_jump(void) {
 #if defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET) && defined(RP2040_BOOTLOADER_DOUBLE_TAP_RESET_NONBLOCKING)
     // Leaving the magic armed here strands the board in the bootloader. The
-    // bootmagic caller runs from quantum_init(), inside keyboard_init() and so
-    // before the first loop pass that would clear it, meaning the board reaches
+    // bootmagic caller runs during setup/init, before the first loop pass
+    // that would clear it, meaning the board reaches
     // BOOTSEL still armed; the bootrom then resets into the freshly written
     // image, __late_init() reads the magic it left behind, and the new firmware
     // bounces straight back into the bootloader instead of starting.

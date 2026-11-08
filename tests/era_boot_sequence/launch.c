@@ -138,7 +138,11 @@ static void led_init_ports(void) {}
 static void rgb_matrix_init(void) { lighting_ready = true; }
 static void split_post_init(void) { era_split_transport_scheduler_ensure_initialized(); }
 static void keyboard_post_init_quantum(void) {
+#ifdef ERA_BOOTMAGIC_EARLY
+    assert(scans == 0 && lighting_ready);
+#else
     assert(scans == 2 && lighting_ready);
+#endif
     assert(early_starts == 0);
     post_init = true;
     bool started = era_split_transport_scheduler_start_communication_core();

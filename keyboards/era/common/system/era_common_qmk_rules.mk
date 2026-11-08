@@ -157,6 +157,12 @@ ifeq ($(strip $(ERA_RP2040_MATRIX_ENABLE)), yes)
     # backend to select; why not is era_build_options.md's.
     OPT_DEFS += -DRP_DMA_REQUIRED=TRUE
     SRC += keyboards/era/common/system/era_rp2040_matrix_pio.c
+    # Derived placement of the existing QMK feature, not a second option.
+    # The sampler supplies bootmagic_scan(); AVR retains QMK's late scan.
+    # QMK also enables Bootmagic for VIA in common_features.mk, after this file.
+    ifneq ($(filter yes,$(strip $(BOOTMAGIC_ENABLE)) $(strip $(VIA_ENABLE))),)
+        OPT_DEFS += -DERA_BOOTMAGIC_EARLY
+    endif
 endif
 
 ifeq ($(strip $(ERA_SOCD_ENABLE)), yes)

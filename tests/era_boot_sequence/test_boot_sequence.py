@@ -184,7 +184,9 @@ def suspend_unit():
 
 class BootSequence(unittest.TestCase):
     def test_bootmagic_and_owner_lifetime(self):
-        for flags in ([], ['-DERA_HOST_PEER_STORAGE_V1_ENABLE']):
+        for flags in ([], ['-DERA_HOST_PEER_STORAGE_V1_ENABLE'],
+                      ['-DERA_BOOTMAGIC_EARLY'],
+                      ['-DERA_BOOTMAGIC_EARLY', '-DERA_HOST_PEER_STORAGE_V1_ENABLE']):
             with self.subTest(flags=flags):
                 run_c(launch_unit(), flags)
 
