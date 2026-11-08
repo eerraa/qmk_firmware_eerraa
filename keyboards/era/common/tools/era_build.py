@@ -321,6 +321,11 @@ class Repository:
         main = os.fsdecode(worktrees[0][len(b"worktree "):])
         repository.main = Path(main).resolve()
         repository.name = repository.main.name
+        candidates = [component for component in (Path("qmk_firmware_eerraa"), Path("."))
+                      if (root / component / LAUNCHER).is_file()]
+        if len(candidates) != 1:
+            raise BuildError(f"expected one firmware launcher in the integrated or historical layout: {root}")
+        repository.component = candidates[0]
         repository.head = text(repository.git("rev-parse", "HEAD"))
         return repository
 
@@ -482,7 +487,7 @@ def sync_tree(backend, repository, tree):
     git("checkout", "--quiet", "--force", ".")
     # No -x: ignored .build and .era-artifacts survive. Explicit exclusions also
     # protect the build cache, artifacts and lock if ignore rules change.
-    git("clean", "--quiet", "-fd", "-e", ".build", "-e", ".era-artifacts")
+    git("clean", "--quiet", "-ffd", "-e", ".build", "-e", ".era-artifacts")
 
     copy, gone = set(), set()
     for status, path, old in records:
@@ -612,7 +617,7 @@ def main(argv=None):
         if path == repository.root or repository.root in path.parents:
             raise profile_error(path, "$", "machine profile must be outside the repository", profile["backend"])
         with contextlib.redirect_stdout(sys.stderr):
-            backend = validate_environment(profile, path, repository.root / LAUNCHER)
+            backend = validate_environment(profile, path, repository.root / repository.component / LAUNCHER)
         if backend is None:
             raise BuildError("environment validation failed; no sync or build attempted")
         tree = build_tree(backend, repository)
@@ -620,7 +625,7 @@ def main(argv=None):
         with BuildLock(backend, tree):
             sync_tree(backend, repository, tree)
             if arguments.command == "sync":
-                print(tree)
+                print(str(PurePosixPath(tree) / repository.component.as_posix()))
                 return 0
             summaries = []
             for variant in arguments.variants:
@@ -634,18 +639,19 @@ def main(argv=None):
                 command = ["bash", LAUNCHER, arguments.target, variant]
                 if arguments.show_options:
                     command.append("--show-options")
-                result = backend.run(command, cwd=tree, env=env, check=False)
+                component_tree = str(PurePosixPath(tree) / repository.component.as_posix())
+                result = backend.run(command, cwd=component_tree, env=env, check=False)
                 print(text(result.stdout), flush=True)
                 if result.stderr:
                     print(text(result.stderr), file=sys.stderr, flush=True)
                 if result.returncode:
                     raise BuildError(f"launcher refused or failed ({result.returncode}); no artifacts returned for {variant}")
                 manifest, firmware, fields = return_artifacts(
-                    backend, tree, repository.root, manifest_from_output(result.stdout),
+                    backend, component_tree, repository.root / repository.component, manifest_from_output(result.stdout),
                 )
                 print(f"Returned manifest: {manifest}\nReturned firmware: {firmware}")
                 summaries.append((variant, firmware, fields))
-            print(f"\n=== returned to {repository.root / '.era-artifacts'} ===")
+            print(f"\n=== returned to {repository.root / repository.component / '.era-artifacts'} ===")
             for variant, firmware, fields in summaries:
                 print(f"  {variant:<12} dirty={fields.get('worktree_dirty', ''):<3} "
                       f"edit_tree={fields.get('edit_tree_check', ''):<28} "

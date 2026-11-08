@@ -8,58 +8,27 @@ Firmware Guide
 
 ■ 펌웨어 업데이트
 
-V261019R1은 행 전환 시 GPIO 복귀 확인을 추가하고 매트릭스 타이밍을
-128/64사이클로 조정합니다. 저장 형식은 V261015R1과 같아 설정을 유지합니다.
+사용 중인 키보드에 맞는 펌웨어 ZIP 파일을 사용하십시오. 업데이트·백업 안내와 기능별 도움말(Help)은 https://usekb.cc 에서 확인할 수 있습니다.
 
-V261015R1은 VIA 프로토콜 13을 지원합니다. 이 배포본의 JSON을 공식
-VIA(usevia.app)에서 쓰면 키코드 경고 없이 조명 키가 표시됩니다. 저장 형식은
-V261005R1과 같아 키맵·매크로·설정을 유지합니다.
+1. 키보드를 Bootloader 모드로 전환합니다.
+   - 설정 화면: SYSTEM -> BOOT -> Jump To BOOT
+   - 키맵의 QK_BOOT 키
+   - 가장 왼쪽 위 물리 키를 누른 채 USB 연결(Bootmagic)
+   - 보드 Reset 버튼 두 번 연타(또는 RST-GND 두 번 짧게 연결)
+2. RPI-RP2 드라이브에 일반 펌웨어 .uf2를 복사합니다(완료 후 자동 재시작).
+3. 업데이트 후 SYSTEM -> VERSION에서 버전을 확인합니다.
 
-V261004R1은 MOUSE 정밀 설정을 위해 EEPROM 형식을 변경합니다. 이전 버전에서
-업데이트하면 키맵·매크로·모든 설정이 초기화됩니다. 먼저 백업하십시오.
+스플릿 보드는 양쪽 유닛에 같은 .uf2 파일을 설치하십시오. 전송이 중단되거나 정상 작동하지 않으면 Bootloader로 다시 진입해 같은 파일을 다시 복사하십시오. 일반 업데이트는 같은 저장 형식의 유효한 설정을 유지하지만, 형식 변경이나 잘못된 저장 데이터는 초기화를 일으킬 수 있으므로 먼저 백업하십시오. 이전 펌웨어는 Bootmagic 진입 시 초기화될 수 있으므로 첫 업데이트에는 VIA BOOT나 Reset 두 번을 사용하십시오.
 
-V260916R1 및 그 이전 배포본에서 V260929R1 이후 버전으로 처음 업데이트하면 저장 형식
-변경으로 키맵·매크로·설정이 초기화됩니다. 먼저 공식 VIA의 SAVE + LOAD로
-키맵·매크로를 백업하고, 이 백업에 포함되지 않는 기능 설정과 탭댄스는 따로
-기록하십시오.
-이 배포본은 레이어 6개(0–5)를 지원합니다. usekb.cc에서 예전 4레이어 백업을
-불러오면 파일에 없는 레이어 4·5는 현재 키보드의 값을 유지합니다.
-V260929R1부터 메이커별 USB 식별자를 사용합니다. 메이커와 보드 이름이 모두
-일치하는 ZIP을 사용하고, 업데이트 후 브라우저에서 기기 연결을 다시 허용하십시오.
+■ Reset.uf2 주의 (설정 초기화)
 
-1. 키보드를 Bootloader 모드로 진입시킵니다.
-2. PC에 RPI-RP2 드라이브가 나타나면 제공된 .uf2 파일을 복사합니다.
-3. 복사가 끝나면 키보드가 자동으로 재시작합니다.
+설정 초기화가 필요할 때만 같은 ZIP의 Reset.uf2를 설치하십시오. 설치 후 최초 실행에서만 키맵·매크로·사용자 설정을 모두 초기화하며, 일반 펌웨어를 다시 올릴 필요 없이 그대로 사용합니다. 이후 재부팅에는 새 설정이 유지되고, 같은 Reset.uf2를 다시 설치하면 다시 한 번 초기화됩니다. 전송 중단은 설치 완료가 아닙니다. 초기화 중 전원이 끊기면 재시도하며, 정상 사용이 시작되지 않으면 하드웨어 Bootloader로 같은 파일을 다시 설치하십시오. 보안 삭제나 물리적 플래시 고장 수리를 보장하지 않습니다.
 
-Bootloader 진입 방법은 다음 중 하나를 사용하십시오.
-- 키보드 설정 화면의 SYSTEM -> BOOT -> Jump To BOOT
-- 키맵에 배치한 QK_BOOT
-- 가장 왼쪽 위 물리 키를 누른 채 USB 연결(Bootmagic)
-- 보드의 Reset 버튼을 빠르게 두 번 누르거나 RST와 GND를 빠르게 두 번
-  짧게 연결합니다. 각 연결 사이에는 완전히 떼십시오.
-
-Bootmagic으로 진입하면 저장된 키맵과 모든 설정이 공장 초기값으로 돌아갑니다.
-
-일반 업데이트는 키맵·매크로·VIA 설정을 그대로 유지합니다. 저장 형식이 바뀐
-릴리스만 첫 부팅에서 설정을 공장 초기값으로 되돌리며, 그 사실을 릴리스 안내에
-적습니다. 업데이트나 EEPROM CLEAN 전에 VIA SAVE + LOAD로 키맵을 백업해
-두십시오.
-
-사용 중인 보드 이름과 일치하는 UF2를 사용하십시오. 업데이트 뒤 SYSTEM ->
-VERSION에서 버전을 확인할 수 있습니다.
+스플릿 보드를 초기화할 때는 양쪽 연결을 분리하고 각각 같은 Reset.uf2 설치와 초기화를 모두 마친 뒤 다시 연결하십시오.
 
 ■ 키보드 설정
 
-일반 사용자는 https://usekb.cc 를 권장합니다.
-각 설정 메뉴 옆에 Help가 있으므로 별도의 상세 설명서 없이 기능과 설정 방법을
-확인할 수 있습니다.
-Tap Dance의 고급 입력 모드와 홀드 설정은 usekb.cc에서 사용합니다. 공식 VIA는
-Legacy 슬롯의 기본 동작과 Term만 편집하고, 고급 슬롯에는 usekb.cc 안내만 표시합니다.
-
-공식 VIA(https://usevia.app)를 직접 사용하려면 배포 ZIP의 usevia.app/ 폴더를
-참고하십시오. 그 폴더의 usevia.txt에 Draft Definition을 불러오는 방법과
-펌웨어 기능별 설명이 들어 있습니다.
-
+키보드 설정과 고급 기능은 https://usekb.cc 와 각 메뉴 옆 Help를 사용하십시오. 공식 VIA(https://usevia.app) 사용법은 usevia.app/usevia.txt를 참고하십시오.
 
 ----------------------------------------------------------------------
 English
@@ -67,56 +36,24 @@ English
 
 ■ Firmware Update
 
-V261019R1 adds GPIO recovery checks between matrix rows and uses 128/64-cycle
-timing. The storage format is unchanged from V261015R1; settings are retained.
+Use the firmware ZIP file that matches your keyboard. Update and backup instructions as well as per-feature Help are available at https://usekb.cc.
 
-V261015R1 supports VIA protocol 13. With the JSON in this package, official
-VIA (usevia.app) shows the lighting keys without a keycode warning. The storage
-format is the same as V261005R1, so keymaps, macros and settings are kept.
+1. Switch the keyboard to Bootloader mode.
+   - Settings screen: SYSTEM -> BOOT -> Jump To BOOT
+   - QK_BOOT key on the keymap
+   - Connect USB while holding the top-left physical key (Bootmagic)
+   - Double-press the board Reset button quickly (or briefly short RST-GND twice)
+2. Copy the standard firmware .uf2 to the RPI-RP2 drive (restarts automatically when finished).
+3. After updating, check the version in SYSTEM -> VERSION.
 
-V261004R1 changes the MOUSE storage format. Updating from an older version
-resets all keymaps, macros and settings. Back up first.
+For split boards, install the same .uf2 file on both halves. If the transfer is interrupted or the keyboard does not work properly, re-enter the Bootloader and copy the same file again. A standard update keeps valid settings of the same storage format, but a format change or invalid saved data may trigger a reset, so back up beforehand. Earlier firmware may reset settings when entering via Bootmagic, so use VIA BOOT or double-press Reset for the first update.
 
-The first upgrade from V260916R1 or earlier to V260929R1 or later resets
-keymaps, macros and settings because the stored format changed. First back up
-keymaps and macros with official VIA SAVE + LOAD; separately record feature
-settings and Tap Dance actions, which that backup does not include.
-This release supports six layers (0–5). When usekb.cc imports an older four-layer
-backup, layers 4 and 5 keep their current values on the keyboard.
-Since V260929R1, releases use maker-specific USB identities. Choose the ZIP matching both
-the maker and board, then authorize the keyboard again in the browser.
+■ Reset.uf2 Caution (Settings Reset)
 
-1. Put the keyboard into Bootloader mode.
-2. When the RPI-RP2 drive appears, copy the provided .uf2 file onto it.
-3. The keyboard restarts automatically after the copy finishes.
+Install Reset.uf2 from the same ZIP only when you need to reset settings. It resets all keymaps, macros, and user settings only on the first run after installation, and you can continue using the keyboard as is without flashing the standard firmware again. Subsequent reboots keep new settings, and reinstalling the same Reset.uf2 resets settings once more. An interrupted transfer is not a completed installation. If power is lost during reset, it will retry; if normal operation does not start, re-install the same file via hardware Bootloader entry. It does not guarantee secure erasure or repair of physical flash hardware faults.
 
-Use any of these methods to enter the bootloader:
-- SYSTEM -> BOOT -> Jump To BOOT in the keyboard configuration UI
-- QK_BOOT if it is present in your keymap
-- Hold the physical top-left key while connecting USB (Bootmagic)
-- Double-tap Reset, or briefly connect RST to GND twice in quick succession.
-  Fully release the connection between the two contacts.
-
-Entering through Bootmagic also resets the stored keymap and every setting to
-factory defaults.
-
-A normal update keeps the keymap, macros and VIA settings. Only a release that
-changes the stored format resets settings to factory defaults on first boot,
-and its release notes say so. Back up the keymap with VIA SAVE + LOAD before
-updating or running EEPROM CLEAN.
-
-Use the UF2 matching the board name. After updating, check the version under
-SYSTEM -> VERSION.
+When resetting a split board, disconnect the link between both halves, complete installing the same Reset.uf2 and finishing the reset on each half separately, and then reconnect them.
 
 ■ Keyboard Configuration
 
-For normal use, https://usekb.cc is recommended.
-Each configuration menu has Help beside it, so a separate detailed manual is
-not required.
-Advanced Tap Dance input modes and hold settings use usekb.cc. Official VIA
-edits basic actions and Term only for Legacy slots; advanced slots show only
-the usekb.cc guidance.
-
-If you want to use the official VIA app at https://usevia.app directly, see the
-usevia.app/ folder in the distribution ZIP. Its usevia.txt explains how to load
-the Draft Definition and describes the firmware-specific controls.
+For keyboard configuration and advanced features, use https://usekb.cc and Help next to each menu. For official VIA (https://usevia.app) instructions, see usevia.app/usevia.txt.

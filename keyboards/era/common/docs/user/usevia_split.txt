@@ -2,130 +2,80 @@
 Split Official VIA Guide
 ======================================================================
 
-이 문서는 공식 VIA(https://usevia.app)를 직접 사용하는 경우의 안내입니다.
-일반 사용자는 https://usekb.cc 를 권장합니다. usekb.cc에서는 각 메뉴 옆 Help로
-같은 기능을 바로 확인할 수 있습니다.
-
 ----------------------------------------------------------------------
 한국어
 ----------------------------------------------------------------------
 
-스톡 VIA는 기본 설정을 지원합니다. 복잡한 고급 편집과 자동 갱신 상태 표시는
-usekb.cc Custom 앱에서 지원합니다.
+이 문서는 공식 VIA(https://usevia.app)를 직접 사용할 때의 안내입니다. 일반 설정과 고급 편집, 자동 갱신 상태 표시는 https://usekb.cc 와 각 메뉴 옆 Help를 권장합니다.
 
 ■ 공식 VIA 시작
 
-이 릴리스와 같은 메이커·보드 ZIP에 동봉된 JSON을 사용하십시오.
-이전 USB 식별자 0x4552용 JSON은 새 메이커 식별자와 맞지 않습니다.
+사용 중인 키보드에 맞는 배포 ZIP 안의 JSON을 사용하십시오.
 
 1. https://usevia.app 에 접속합니다.
 2. SETTINGS에서 Show Design tab을 켭니다.
-3. DESIGN -> Load Draft Definition에서 현재 USB에 연결할 유닛의 VIA JSON을
-   불러옵니다. L 파일은 왼쪽 유닛, R 파일은 오른쪽 유닛용입니다.
-4. DUAL-HOST로 양쪽 유닛을 각각 USB에 연결한다면 L/R 두 JSON을 모두
-   불러옵니다.
+3. DESIGN -> Load Draft Definition에서 현재 USB에 연결할 유닛의 VIA JSON을 불러옵니다. L 파일은 왼쪽 유닛, R 파일은 오른쪽 유닛용입니다.
+4. DUAL-HOST로 양쪽 유닛을 각각 USB에 연결한다면 L/R 두 JSON을 모두 불러옵니다.
 5. CONFIGURE에서 KEYMAP, LIGHTING, FEATURE, TAPDANCE, SYSTEM을 설정합니다.
 
-TAPDANCE 입력창에 직접 keycode를 넣을 때는 같은 폴더의 via_keycodes.txt를
-참고하십시오. 키맵을 보관하려면 VIA의 SAVE + LOAD에서 백업하십시오.
+TAPDANCE 입력창에 직접 keycode를 넣을 때는 같은 폴더의 via_keycodes.txt를 참고하십시오. 키맵을 보관하려면 VIA의 SAVE + LOAD에서 백업하십시오.
+
+일반 업데이트는 같은 저장 형식의 유효한 설정을 유지하지만 저장 형식 변경이나 잘못된 저장 데이터는 초기화를 일으킬 수 있습니다. Reset.uf2는 일반 업데이트가 아닌 설치 후 최초 한 번 모든 현재 설정을 지우는 전체 기능 펌웨어입니다. 초기화 후 그대로 사용하며 새 설정은 재부팅에도 유지됩니다. 같은 파일을 다시 설치하면 다시 초기화됩니다. 케이블을 분리하고 양쪽을 모두 초기화해야 합니다. 백업과 복구 절차는 배포 ZIP의 readme.txt를 따르십시오.
 
 ■ VERSION
 
-CONFIGURE -> SYSTEM -> VERSION은 현재 USB로 연결한 유닛의 펌웨어 버전을
-YYMMDDRn 형식으로 표시합니다. 연·월·일과 리비전을 유닛에서 읽어 오는 값이며
-VIA에서 수정할 수 없습니다. 양쪽 유닛은 같은 버전을 사용해야 합니다.
+CONFIGURE -> SYSTEM -> VERSION은 현재 USB로 연결한 유닛의 펌웨어 버전을 YYMMDDRn 형식으로 표시하며 VIA에서 수정할 수 없습니다. 양쪽 유닛은 같은 버전을 사용해야 합니다.
 
 ■ MATRIX TEST
 
-260916R1 이후의 VIA 펌웨어는 VIA의 Matrix Test에서 현재 USB 유닛이 구성한
-물리 매트릭스 눌림을 표시합니다. 이 기능을 위해 VIA Raw HID를 사용할 수 있는
-호스트 프로그램은 현재 눌린 매트릭스 위치를 조회할 수 있습니다. 신뢰할 수 있는
-PC에서 사용하십시오.
+VIA의 Matrix Test는 현재 USB 유닛이 구성한 물리 매트릭스 눌림을 표시합니다. VIA Raw HID를 사용할 수 있는 호스트 프로그램은 현재 눌린 매트릭스 위치를 조회할 수 있으므로 신뢰할 수 있는 PC에서 사용하십시오.
 
 ■ TAPDANCE
 
-CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번호를
-원하는 위치에 배치합니다. TD 키를 실제 키맵에 배치하기 전에는 설정한 동작이
-실행되지 않습니다.
+CONFIGURE -> TAPDANCE에서 TD0~TD7을 설정한 뒤 KEYMAP에서 같은 TD 번호를 원하는 위치에 배치합니다. TD 키를 실제 키맵에 배치하기 전에는 설정한 동작이 실행되지 않습니다.
 
 - On Tap: 짧게 탭했을 때의 keycode
 - On Hold: 길게 눌렀을 때의 keycode
 - On Double Tap: Term 안에 두 번 탭했을 때의 keycode
 - Tap+Hold: 한 번 탭한 뒤 이어서 길게 눌렀을 때의 keycode
-- Term: 동작을 판정하는 시간. 공식 VIA에서는 100~500ms를 20ms 단위로 선택합니다.
+- Term: 여러 입력 동작을 판정하는 시간. 공식 VIA에서는 100~500ms를 20ms 단위로 선택합니다.
 
-Legacy에서 On Double Tap과 Tap+Hold를 비워 둔 슬롯은 키를 떼는 순간 탭이 입력되고,
-Term은 홀드 판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는
-순간 입력됩니다.
+Legacy에서 On Double Tap과 Tap+Hold를 비워 둔 슬롯은 키를 떼는 순간 탭이 입력되고, Term은 홀드 판정에만 쓰입니다. On Double Tap을 설정하면 두 번째 탭을 떼는 순간 입력됩니다.
 
-공식 VIA에서는 Legacy 모드의 기본 동작과 Term만 편집합니다. 고급 모드의 슬롯은
-usekb.cc 안내만 표시합니다. 알 수 없는 모드값에도 같은 안내를 표시하며,
-이 상태에서는 기본 동작도 편집하지 않습니다.
-
-입력 모드 변경, 독립 홀드 시간과 다른 키 누름 시 홀드 설정은 https://usekb.cc 의
-Custom 앱에서 사용하십시오. 공식 VIA를 열거나 정의를 불러오는 것만으로 슬롯의
-모드나 동작을 바꾸지는 않습니다.
+공식 VIA는 Legacy 모드의 기본 동작과 Term만 편집합니다. 고급 모드나 알 수 없는 모드값의 슬롯에는 usekb.cc 안내만 표시하며 기본 동작도 편집하지 않습니다. 입력 모드 변경, 독립 홀드 시간, 다른 키 누름 시 홀드 설정은 https://usekb.cc 에서 사용하십시오. 공식 VIA를 열거나 정의를 불러오는 것만으로 슬롯의 모드나 동작을 바꾸지는 않습니다.
 
 ■ SOCD
 
-CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키(좌/우, 상/하)를 지정하고,
-두 키를 함께 누르고 있을 때 PC로 보낼 키를 Mode에서 고릅니다.
+CONFIGURE -> FEATURE -> SOCD에서 서로 반대되는 두 키(좌/우, 상/하)를 지정하고, 두 키를 함께 누르고 있을 때 PC로 보낼 키를 Mode에서 고릅니다.
 
-- Last Input: 나중에 누른 키만 보냅니다. 그 키를 떼면 아직 누르고 있는 다른
-  키가 곧바로 다시 입력됩니다(스냅 탭). 기본값입니다.
+- Last Input: 나중에 누른 키만 보냅니다. 그 키를 떼면 아직 누르고 있는 다른 키가 곧바로 다시 입력됩니다(스냅 탭). 기본값입니다.
 - Neutral: 두 키 모두 보내지 않습니다.
 - First Input: 먼저 누른 키를 유지합니다.
-- Left/Up Priority, Right/Down Priority: 누른 순서와 상관없이 지정한 쪽을
-  보냅니다.
+- Left/Up Priority, Right/Down Priority: 누른 순서와 상관없이 지정한 쪽을 보냅니다.
 
-키에는 일반 키나 modifier 키를 지정하십시오. 판정은 PC로 나가는 키를 기준으로
-하므로 Tap Dance나 매크로가 낸 키에도 적용됩니다. 한 쌍의 두 칸에 같은 키를
-넣으면 그 쌍은 동작하지 않습니다. 두 쌍을 모두 켜고 유효한 키를 지정했을 때
-같은 키를 공유하면 두 쌍 모두 동작하지 않습니다. 꺼진 쌍의 키 지정은 다른 쌍을
-막지 않습니다. DUAL-HOST에서는
-두 유닛이 각자 PC로 보내므로 한 쌍의 두 키가 같은 유닛에 있어야 적용됩니다.
-일부 게임과 대회는 SOCD 사용을 제한하므로 규정을 확인하십시오.
+키에는 일반 키나 modifier 키를 지정하십시오. PC로 나가는 키를 기준으로 판정하므로 Tap Dance나 매크로가 낸 키에도 적용됩니다. 한 쌍의 두 칸에 같은 키를 넣으면 동작하지 않고, 켜진 두 쌍이 유효한 같은 키를 공유하면 두 쌍 모두 동작하지 않습니다. 꺼진 쌍의 키 지정은 다른 쌍을 막지 않습니다. DUAL-HOST에서는 두 유닛이 각자 PC로 보내므로 한 쌍의 두 키가 같은 유닛에 있어야 적용됩니다. 일부 게임과 대회는 SOCD 사용을 제한하므로 규정을 확인하십시오.
 
 ■ KKUK
 
-CONFIGURE -> FEATURE -> KKUK에서 사용합니다. 일반 키 두 개 이상을 계속 누르면
-눌린 키 묶음을 Delay/Repeat 설정에 따라 주기적으로 뗐다가 다시 누릅니다.
-예를 들어 A, S, D를 계속 누르면 일반적인 "asdddd..." 자동 반복 대신 보통
-"asdasdasd..."처럼 입력됩니다. 문자열 매크로나 매트릭스 ghosting 방지 기능이
-아닙니다. 켜져 있고 유효하며 다른 쌍과 겹치지 않는 SOCD 쌍의 키만 반복
-대상에서 제외됩니다. 꺼진 쌍이나 무효·충돌한 쌍의 키는 제외하지 않습니다.
+CONFIGURE -> FEATURE -> KKUK에서 사용합니다. 일반 키 두 개 이상을 계속 누르면 눌린 키 묶음을 Delay/Repeat 설정에 따라 주기적으로 뗐다가 다시 누릅니다. 예를 들어 A, S, D를 계속 누르면 일반적인 "asdddd..." 자동 반복 대신 "asdasdasd..."처럼 입력됩니다. 문자열 매크로나 매트릭스 ghosting 방지 기능이 아닙니다. 켜져 있고 유효하며 다른 쌍과 겹치지 않는 SOCD 쌍의 키만 반복 대상에서 제외되며, 꺼진 쌍이나 무효·충돌한 쌍의 키는 제외하지 않습니다.
 
 ■ DEBOUNCE
 
-CONFIGURE -> FEATURE -> DEBOUNCE에서 스위치 채터링 필터를 조정합니다.
-기본값은 Balanced, 5 ms입니다. 한 번 눌렀는데 여러 번 입력되는 증상이 있다면
-관련 시간을 조금씩 늘리십시오. 채터링 문제가 없다면 기본 설정을 유지하는 것을
-권장합니다.
+CONFIGURE -> FEATURE -> DEBOUNCE에서 스위치 채터링 필터를 조정합니다. 기본값은 Balanced, 5 ms입니다. 한 번 눌렀는데 여러 번 입력되는 증상이 있을 때만 관련 시간을 조금씩 늘리고, 문제가 없다면 기본 설정을 유지하십시오.
 
 ■ TAPPING
 
-CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap/Layer-Tap의 탭·홀드 판정을
-조정합니다. Tapping Term의 기본값은 200 ms입니다. 짧을수록 홀드가 빨리
-걸리지만 빠른 타이핑이 의도치 않은 홀드로 판정될 수 있고, 길수록 안정적이지만
-홀드가 늦게 들어옵니다.
+CONFIGURE -> FEATURE -> TAPPING에서 Mod-Tap/Layer-Tap의 탭·홀드 판정을 조정합니다. Tapping Term의 기본값은 200 ms입니다. 짧을수록 홀드가 빨리 걸리지만 빠른 타이핑이 의도치 않은 홀드로 판정될 수 있고, 길수록 안정적이지만 홀드가 늦게 들어옵니다.
 
-- Permissive Hold: 다른 키를 눌렀다 뗄 때까지 탭·홀드 키를 계속 누르고 있으면
-  홀드로 판정합니다.
-- Hold On Other Key Press: 다른 키를 누르는 순간 바로 홀드로 판정합니다.
-  더 빠르지만 굴려 치는 타건에서는 의도한 탭이 홀드가 될 수 있습니다.
-- Retro Tapping: Term을 넘겨 눌렀더라도 그 사이 다른 키를 누르지 않았다면
-  키를 뗄 때 탭을 입력합니다.
+- Permissive Hold: 다른 키를 눌렀다 뗄 때까지 탭·홀드 키를 계속 누르고 있으면 홀드로 판정합니다.
+- Hold On Other Key Press: 다른 키를 누르는 순간 바로 홀드로 판정합니다. 더 빠르지만 굴려 치는 타건에서는 의도한 탭이 홀드가 될 수 있습니다.
+- Retro Tapping: Term을 넘겨 눌렀더라도 그 사이 다른 키를 누르지 않았다면 키를 뗄 때 탭을 입력합니다.
 
 ■ MOUSE
 
-V261004R1부터 정수 단위 정밀 입력은 usekb.cc의 고급 설정에서 제공합니다.
-스톡 VIA는 가장 가까운 프리셋을 표시하며 조회만으로 정밀 값을 바꾸지 않습니다.
-휠 가속은 시간이 0이면 Off, 나머지는 목표 속도 기준으로 Mild/Strong을 표시합니다.
-프리셋을 선택하면 그 설정으로 변경됩니다.
+정수 단위 정밀 입력은 usekb.cc의 고급 설정에서 제공합니다. 공식 VIA는 가장 가까운 프리셋을 표시하며 조회만으로 정밀 값을 바꾸지 않습니다. 휠 가속은 시간이 0이면 Off, 나머지는 목표 속도 기준으로 Mild/Strong을 표시합니다. 프리셋을 선택하면 그 설정으로 변경됩니다.
 
-CONFIGURE -> FEATURE -> MOUSE에서 Mouse Key 동작을 조정합니다. 키맵에
-Mouse Key가 없으면 입력에 영향을 주지 않습니다. 값들이 서로 영향을 주므로
-한 번에 하나씩 조정하는 것을 권장합니다.
+CONFIGURE -> FEATURE -> MOUSE에서 Mouse Key 동작을 조정합니다. 키맵에 Mouse Key가 없으면 입력에 영향을 주지 않습니다. 값들이 서로 영향을 주므로 한 번에 하나씩 조정하십시오.
 
 - Cursor Acceleration: 시작 속도에서 최고 속도까지 가속하는 시간. Off면 고정 속도.
 - Cursor Start Speed / Top Speed: 가속 시작/종료 시 한 스텝 이동 거리.
@@ -136,20 +86,15 @@ Mouse Key가 없으면 입력에 영향을 주지 않습니다. 값들이 서로
 
 ■ ROLLOVER / NKRO
 
-CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. 기본값은 꺼짐(6KRO)이고,
-켜면 누른 키를 모두 보고합니다. 켠 뒤 오래된 BIOS/KVM이나 부팅 메뉴가
-키보드를 읽지 못하면 다시 끄십시오.
+CONFIGURE -> FEATURE -> NKRO에서 NKRO를 켜고 끕니다. 기본값은 꺼짐(6KRO)이고, 켜면 누른 키를 모두 보고합니다. 켠 뒤 오래된 BIOS/KVM이나 부팅 메뉴가 키보드를 읽지 못하면 다시 끄십시오.
 
 ■ LIGHTING
 
-CONFIGURE -> LIGHTING의 Per-Key RGB에서 밝기, 효과, 속도와 색을 조정합니다.
-Badge는 배지 LED의 역할을 정합니다.
+CONFIGURE -> LIGHTING의 Per-Key RGB에서 밝기, 효과, 속도와 색을 조정합니다. Badge는 배지 LED의 역할을 정합니다.
 
 - RGB-Only: 선택한 RGB 효과를 배지 영역에만 적용합니다.
-- Indicator: RGB Effect / Caps Lock / Scroll Lock / Num Lock 중 표시할 상태를
-  정합니다. RGB Effect면 배지는 RGB 효과를 그대로 표시합니다.
-- Indicator-Only: 배지 영역을 잠금 표시 전용으로 사용합니다. 일반 RGB 효과는
-  표시하지 않지만 링크·동기화의 임시 STATUS 알림은 표시될 수 있습니다.
+- Indicator: RGB Effect / Caps Lock / Scroll Lock / Num Lock 중 표시할 상태를 정합니다. RGB Effect면 배지는 RGB 효과를 그대로 표시합니다.
+- Indicator-Only: 배지 영역을 잠금 표시 전용으로 사용합니다. 일반 RGB 효과는 표시하지 않지만 링크·동기화의 임시 STATUS 알림은 표시될 수 있습니다.
 - Indicator Brightness / Indicator Color: Lock 표시의 밝기와 색을 정합니다.
 
 ■ SYSTEM
@@ -158,264 +103,167 @@ CONFIGURE -> SYSTEM에는 스플릿 전용 SYNC와 LINK, 그리고 SLEEP과 BOOT
 
 SYNC:
 세 항목은 모두 기본 On이며 서로 독립된 설정입니다.
-- EEPROM SYNC: 양쪽 유닛의 저장 설정을 동기화합니다. 동기화 작업이 보이는
-  동안 STATUS는 파란색입니다. INPUT SYNC와 RGB SYNC의 선행 조건은 아니지만,
-  양쪽의 키맵과 설정을 함께 유지하려면 켜 두는 것을 권장합니다.
-- INPUT SYNC: 양쪽 유닛을 모두 PC에 연결한 DUAL-HOST에서 레이어 상태와 키
-  입력 판정을 공유해 하나의 키보드처럼 동작하게 합니다.
+- EEPROM SYNC: 양쪽 유닛의 저장 설정을 동기화합니다. 동기화 작업이 보이는 동안 STATUS는 파란색입니다. INPUT SYNC와 RGB SYNC의 선행 조건은 아니지만, 양쪽의 키맵과 설정을 함께 유지하려면 켜 두는 것을 권장합니다.
+- INPUT SYNC: 양쪽 유닛을 모두 PC에 연결한 DUAL-HOST에서 레이어 상태와 키 입력 판정을 공유해 하나의 키보드처럼 동작하게 합니다.
 - RGB SYNC: DUAL-HOST에서 반응형 효과를 포함해 양쪽 유닛의 조명을 맞춥니다.
-INPUT SYNC와 RGB SYNC는 DUAL-HOST의 공유 범위를 제어합니다. 한쪽만 USB에
-연결한 HOST-PEER에서는 이 두 설정을 꺼도 입력과 조명 전달이 유지됩니다.
+INPUT SYNC와 RGB SYNC는 DUAL-HOST의 공유 범위를 제어합니다. 한쪽만 USB에 연결한 HOST-PEER에서는 이 두 설정을 꺼도 입력과 조명 전달이 유지됩니다.
 
 LINK:
 - High: 460800 bps / 1 ms (기본값)
 - Medium: 230400 bps / 2 ms
 - Low: 115200 bps / 4 ms
 
-현재 실행·저장 속도와 적용 결과는 usekb.cc Custom 앱에서 확인하십시오.
-공식 VIA의 LINK 선택값은 적용 완료를 뜻하지 않습니다.
-LINK 값을 고른 뒤 Apply를 사용합니다. 연결된 양쪽 유닛이 합의한 시점에
-함께 속도를 전환하며 키보드 재부팅이나 USB 연결 해제는 하지 않습니다.
+현재 실행·저장 속도와 적용 결과는 usekb.cc Custom 앱에서 확인하십시오. 공식 VIA의 LINK 선택값은 적용 완료를 뜻하지 않습니다. LINK 값을 고른 뒤 Apply를 사용합니다. 연결된 양쪽 유닛이 합의한 시점에 함께 속도를 전환하며 키보드 재부팅이나 USB 연결 해제는 하지 않습니다.
 
 TOMAK-TKL·TOMAK79H·TOMAK79S는 전체 RGB 영역에 임시 STATUS를 표시합니다.
-- 녹색 1회: 명령을 받은 유닛의 Apply 성공. 실행·저장 속도가 이미 일치하는
-  경우도 포함하며, 반대쪽 저장까지 확인했다는 뜻은 아닙니다.
+- 녹색 1회: 명령을 받은 유닛의 Apply 성공. 실행·저장 속도가 이미 일치하는 경우도 포함하며, 반대쪽 저장까지 확인했다는 뜻은 아닙니다.
 - 빨간색 1회: 요청 처리 불가·취소·실패.
 - 양쪽의 짧은 녹색 2회: 속도 탐색 후 링크 복구.
-- 긴 빨간색 3회: 링크 속도 실패에 따른 Low 복구 경고. 반복되면 케이블을
-  점검하거나 교체하십시오. 이 표시만으로 원인을 확정할 수는 없습니다.
+- 긴 빨간색 3회: 링크 속도 실패에 따른 Low 복구 경고. 반복되면 케이블을 점검하거나 교체하십시오. 이 표시만으로 원인을 확정할 수는 없습니다.
 - 파란색: EEPROM 동기화 작업.
-RGB 절전 중에는 STATUS를 표시하지 않습니다. 일반 잠금 인디케이터의
-사용자 지정 색상과 STATUS 색상은 별개의 의미입니다.
+RGB 절전 중에는 STATUS를 표시하지 않습니다. 일반 잠금 인디케이터의 사용자 지정 색상과 STATUS 색상은 별개의 의미입니다.
 
 SLEEP:
-RGB Sleep은 기본 On입니다. 끄면 유휴 시간뿐 아니라 USB 절전과 호스트 소실을
-포함한 자동 RGB 절전 전체가 비활성화됩니다. On일 때만 시간 설정이 보이며,
-마지막 입력 뒤 1/3/5/10/30/60분 중 선택합니다. 기본값은 10분입니다. 토글을
-꺼도 시간 값은 보존됩니다.
+RGB Sleep은 기본 On입니다. 끄면 유휴 시간뿐 아니라 USB 절전과 호스트 소실을 포함한 자동 RGB 절전 전체가 비활성화됩니다. On일 때만 시간 설정이 보이며, 마지막 입력 뒤 1/3/5/10/30/60분 중 선택합니다. 기본값은 10분입니다. 토글을 꺼도 시간 값은 보존됩니다.
 
 BOOT:
-Jump To BOOT를 켜면 현재 유닛의 부트로더 진입을 요청합니다. VIA의 후속
-처리와 응답 전송을 기다린 뒤 전환하며, 실행 후 항상 꺼진 값으로 보이는 것이
-정상입니다.
+Jump To BOOT를 켜면 현재 유닛의 부트로더 진입을 요청합니다. 실행 후 항상 꺼진 값으로 보이는 것이 정상입니다.
 
 ■ EEPROM CLEAN
 
-세 확인 토글에는 시간 제한이 없습니다. 켠 토글을 끄면 해당 확인만 취소되며,
-재부팅하면 확인 상태가 모두 지워집니다.
+세 확인 토글에는 시간 제한이 없습니다. 켠 토글을 끄면 해당 확인만 취소되며, 재부팅하면 확인 상태가 모두 지워집니다.
 
-CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 모두 켜면 CLEAN이
-요청됩니다. 서로 정상적으로 통신하는 양쪽 유닛은 합의를 거쳐 함께
-키맵·매크로·모든 설정을 초기화하고 재시작합니다. 떨어져 있는 유닛은 각각
-로컬 CLEAN을 수행합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
-
+CONFIGURE -> SYSTEM -> EEPROM에서 세 확인 토글을 모두 켜면 CLEAN이 요청됩니다. 서로 정상적으로 통신하는 양쪽 유닛은 합의를 거쳐 함께 키맵·매크로·모든 설정을 초기화하고 재시작합니다. 떨어져 있는 유닛은 각각 로컬 CLEAN을 수행합니다. 실행 전 VIA SAVE + LOAD로 키맵을 백업하십시오.
 
 ----------------------------------------------------------------------
 English
 ----------------------------------------------------------------------
 
-Stock VIA supports basic configuration. Use the Custom app at usekb.cc for
-advanced editing and automatically refreshed status.
+This document guides you through using official VIA (https://usevia.app) directly. For general configuration, advanced editing, and live-updating status displays, https://usekb.cc and Help next to each menu are recommended.
 
-■ Starting Official VIA
+■ Getting Started with Official VIA
 
-Use the JSON bundled with this release for the same maker and board.
-An older JSON for USB vendor ID 0x4552 does not match the new maker identity.
+Use the JSON inside the release ZIP that matches your keyboard.
 
 1. Open https://usevia.app.
-2. Enable Show Design tab in SETTINGS.
-3. In DESIGN -> Load Draft Definition, load the JSON for the unit connected by
-   USB. The L file is for the left unit and the R file for the right unit.
-4. For DUAL-HOST, where both units have their own USB connection, load both L
-   and R definitions.
-5. Use CONFIGURE for KEYMAP, LIGHTING, FEATURE, TAPDANCE, and SYSTEM.
+2. In SETTINGS, turn on Show Design tab.
+3. In DESIGN -> Load Draft Definition, load the VIA JSON for the half currently connected via USB. The L file is for the left half and the R file is for the right half.
+4. When connecting both halves via USB separately in DUAL-HOST mode, load both L/R JSON files.
+5. In CONFIGURE, configure KEYMAP, LIGHTING, FEATURE, TAPDANCE, and SYSTEM.
 
-See via_keycodes.txt in the same folder when entering keycodes directly into
-TAPDANCE fields. Use VIA SAVE + LOAD to back up a keymap you want to keep.
+When entering a keycode directly into a TAPDANCE input field, refer to via_keycodes.txt in the same folder. To back up your keymap, use SAVE + LOAD in VIA.
+
+A standard update preserves valid settings of the same storage format, but a storage format change or invalid saved data may trigger a reset. Reset.uf2 is not a standard update; it is a full-featured firmware that erases all current settings once on the first run after installation. Continue using it as is after the reset, and new settings are kept across reboots. Reinstalling the same file resets settings again. You must disconnect the cable and reset both halves. Follow readme.txt in the release ZIP for backup and recovery procedures.
 
 ■ VERSION
 
-CONFIGURE -> SYSTEM -> VERSION shows the firmware version of the unit currently
-connected by USB in YYMMDDRn form. The year, month, day, and revision are read
-from the unit and cannot be changed in VIA. Both units must run the same version.
+CONFIGURE -> SYSTEM -> VERSION displays the firmware version of the half currently connected via USB in YYMMDDRn format and cannot be modified in VIA. Both halves must use the same version.
 
 ■ MATRIX TEST
 
-VIA firmware from 260916R1 onward reports the physical matrix composed by the
-currently USB-connected unit to VIA Matrix Test. A host program with access to
-VIA Raw HID can therefore query currently pressed matrix positions. Use the
-keyboard with trusted host software.
+Matrix Test in VIA shows physical matrix presses configured for the current USB half. Because host programs with VIA Raw HID access can query currently pressed matrix positions, use it on a trusted PC.
 
 ■ TAPDANCE
 
-Configure TD0 through TD7 in CONFIGURE -> TAPDANCE, then place the matching
-TD number on the desired key in KEYMAP. The configured actions do nothing until
-that TD key is actually placed somewhere you can press it.
+Configure TD0~TD7 in CONFIGURE -> TAPDANCE, then place the corresponding TD number on the desired key position in KEYMAP. Configured actions will not run until the TD key is placed on the actual keymap.
 
-- On Tap: keycode for a short tap
-- On Hold: keycode for a held press
-- On Double Tap: keycode for two taps inside Term
-- Tap+Hold: keycode for a tap followed by a hold
-- Term: decision time; official VIA offers 100..500 ms in 20 ms steps.
+- On Tap: keycode sent on a quick tap
+- On Hold: keycode sent when held down
+- On Double Tap: keycode sent when tapped twice within Term
+- Tap+Hold: keycode sent when tapped once and immediately held down
+- Term: time window used to distinguish multiple input actions. In official VIA, select from 100~500ms in 20ms steps.
 
-In Legacy mode, a slot with On Double Tap and Tap+Hold left empty sends the tap the moment
-the key is released, and Term then decides only the hold. With On Double
-Tap set, the second tap is sent the moment it is released.
+In Legacy mode, a slot with On Double Tap and Tap+Hold left blank sends a tap as soon as the key is released, and Term is used only for hold detection. When On Double Tap is set, it registers as soon as the second tap is released.
 
-Official VIA edits only the basic actions and Term of slots in Legacy mode.
-Advanced and unknown-mode slots show only the usekb.cc guidance.
-Basic actions are also read-only in these states.
-
-Use the Custom app at https://usekb.cc to change input mode, independent hold
-time or hold-on-other-key settings. Opening official VIA or loading a
-definition does not change a slot's mode or
-configured actions.
+Official VIA edits only basic actions and Term in Legacy mode. For slots using advanced modes or unknown mode values, it displays only a notice to use usekb.cc and does not edit basic actions. Use https://usekb.cc to change input modes, set an independent hold time, or configure hold on other key press. Merely opening official VIA or loading a definition does not change a slot's mode or actions.
 
 ■ SOCD
 
-Assign each opposing key pair (left/right, up/down) in CONFIGURE -> FEATURE ->
-SOCD, then choose in Mode what reaches the computer while both keys are held.
+In CONFIGURE -> FEATURE -> SOCD, assign two opposing keys (left/right, up/down) and select in Mode which key to send to the PC while both keys are held down together.
 
-- Last Input: only the key pressed later is sent. Releasing it sends the key
-  still held again at once (snap tap). This is the default.
-- Neutral: neither key is sent.
-- First Input: the key pressed first stays.
-- Left/Up Priority, Right/Down Priority: the chosen side is sent regardless of
-  press order.
+- Last Input: Sends only the key pressed later. When that key is released, the other key still held down is sent again immediately (Snap Tap). This is the default.
+- Neutral: Sends neither key.
+- First Input: Keeps the key pressed first.
+- Left/Up Priority, Right/Down Priority: Sends the designated side regardless of press order.
 
-Use ordinary keyboard or modifier keycodes. SOCD judges the keys going to the
-computer, so it also applies to keys sent by Tap Dance or a macro. A pair with
-the same key in both slots does nothing. If both pairs are enabled with valid
-keys and share a key, neither pair runs. A disabled pair does not block the
-other pair. In
-DUAL-HOST each unit reports on its own, so both keys of a pair must be on the
-same unit. Some games and tournaments restrict SOCD; check their rules.
+Assign standard keys or modifier keys. Because evaluation is based on keys sent to the PC, it also applies to keys produced by Tap Dance or macros. Putting the same key in both slots of a pair will not work, and if two enabled pairs share the same valid key, neither pair will work. Key assignments in a disabled pair do not block other pairs. In DUAL-HOST mode, because both halves send keys to the PC independently, both keys of a pair must be on the same half for SOCD to apply. Some games and tournaments restrict SOCD use, so check the rules.
 
 ■ KKUK
 
-Use CONFIGURE -> FEATURE -> KKUK. While two or more ordinary keys remain held,
-KKUK periodically releases the held group and presses it again according to
-Delay/Repeat. For example, holding A, S, and D usually produces "asdasdasd..."
-instead of the ordinary "asdddd..." auto-repeat. This is neither a string macro
-nor matrix ghosting prevention. Only keys in enabled, valid, non-overlapping
-SOCD pairs are excluded. Keys in disabled, invalid or conflicting pairs are not.
+Configured in CONFIGURE -> FEATURE -> KKUK. Holding down two or more standard keys periodically releases and re-presses the held key group according to the Delay/Repeat settings. For example, holding A, S, and D types "asdasdasd..." instead of normal "asdddd..." auto-repeat. It is not a string macro or matrix anti-ghosting feature. Only keys in an enabled, valid, non-overlapping SOCD pair are excluded from repeating; keys in disabled, invalid, or conflicting pairs are not excluded.
 
 ■ DEBOUNCE
 
-Adjust switch-chatter filtering in CONFIGURE -> FEATURE -> DEBOUNCE. The
-default is Balanced, 5 ms. If one physical press sometimes produces multiple
-inputs, increase the relevant delay a little at a time. If there is no chatter,
-keeping the default settings is recommended.
+Adjust the switch chatter filter in CONFIGURE -> FEATURE -> DEBOUNCE. The default is Balanced, 5 ms. Increase the relevant time slightly only if a single press registers multiple times, and keep the default setting if there is no issue.
 
 ■ TAPPING
 
-Adjust Mod-Tap/Layer-Tap tap-hold decisions in CONFIGURE -> FEATURE -> TAPPING.
-The default Tapping Term is 200 ms. Shorter makes holds trigger sooner but can
-turn fast typing into accidental holds; longer is safer but makes the hold
-arrive later.
+Adjust tap/hold detection for Mod-Tap and Layer-Tap keys in CONFIGURE -> FEATURE -> TAPPING. The default Tapping Term is 200 ms. Shorter values trigger holds faster but may cause fast typing to register as unintended holds; longer values are more stable but delay hold activation.
 
-- Permissive Hold: while the tap-hold key is still held, pressing and releasing
-  another key makes it a hold.
-- Hold On Other Key Press: another key press makes it a hold immediately. This
-  is earlier, but rolling key presses can turn intended taps into holds.
-- Retro Tapping: if the key is held past Term and released without another key
-  press, the release still sends the tap.
+- Permissive Hold: Registers a hold if you keep holding the tap/hold key while pressing and releasing another key.
+- Hold On Other Key Press: Registers a hold immediately the moment another key is pressed. It responds faster, but rolling keystrokes may turn an intended tap into a hold.
+- Retro Tapping: Sends a tap on release even if held past Term, provided no other key was pressed in the meantime.
 
 ■ MOUSE
 
-From V261004R1, integer precision is available through Advanced settings at usekb.cc.
-Stock VIA displays the nearest preset; reads never change precise settings.
-Wheel acceleration shows Off for zero ramp, otherwise Mild/Strong by the nearest
-target speed, ignoring duration (ties choose Mild). Selecting a preset writes it.
+Exact integer input is available in the advanced settings on usekb.cc. Official VIA displays the nearest preset and does not alter exact values merely by viewing them. For wheel acceleration, a time of 0 shows Off, while other values show Mild/Strong based on target speed. Selecting a preset changes the setting to that preset.
 
-Configure Mouse Keys in CONFIGURE -> FEATURE -> MOUSE. These settings do not
-affect typing unless Mouse Key keycodes are present in the keymap. The values
-affect one another, so adjusting one at a time is recommended.
+Adjust Mouse Key behavior in CONFIGURE -> FEATURE -> MOUSE. It has no effect on input unless Mouse Keys are placed on the keymap. Because these values interact with one another, adjust them one at a time.
 
-- Cursor Acceleration: time from start speed to top speed; Off uses fixed speed.
-- Cursor Start Speed / Top Speed: distance per step at start/end of acceleration.
-- Cursor Speed: distance per step while Acceleration is Off.
-- Cursor Steps Per Second: cursor movement steps per second.
-- Wheel Rate: scroll steps per second.
-- Wheel Acceleration: how strongly scrolling accelerates while held.
+- Cursor Acceleration: Time to accelerate from start speed to top speed. Fixed speed when Off.
+- Cursor Start Speed / Top Speed: Movement distance per step at the start/end of acceleration.
+- Cursor Speed: Movement distance per step when Acceleration is Off.
+- Cursor Steps Per Second: Number of cursor movement steps per second.
+- Wheel Rate: Number of scroll steps per second.
+- Wheel Acceleration: Degree of scroll acceleration while held.
 
 ■ ROLLOVER / NKRO
 
-Turn NKRO on or off in CONFIGURE -> FEATURE -> NKRO. It is off by default
-(6KRO); turned on, every held key is reported. If an old BIOS, KVM or boot menu
-then cannot read the keyboard, turn it off again.
+Turn NKRO on or off in CONFIGURE -> FEATURE -> NKRO. The default is off (6KRO); when turned on, all pressed keys are reported. Turn it back off if an older BIOS/KVM or boot menu cannot read the keyboard after enabling it.
 
 ■ LIGHTING
 
-Use CONFIGURE -> LIGHTING -> Per-Key RGB for brightness, effect, speed, and
-colour. Badge controls the badge LED role.
+In Per-Key RGB under CONFIGURE -> LIGHTING, adjust brightness, effect, speed, and color. Badge sets the role of the badge LEDs.
 
-- RGB-Only: apply the selected RGB effect only to the badge area.
-- Indicator: choose RGB Effect, Caps Lock, Scroll Lock, or Num Lock. With RGB
-  Effect the badge keeps showing the RGB effect.
-- Indicator-Only: reserve the badge for the selected lock indicator. Normal
-  RGB effects do not use it; temporary link/synchronization STATUS can appear.
-- Indicator Brightness / Indicator Color: brightness and colour of the Lock indication.
+- RGB-Only: Applies the selected RGB effect only to the badge area.
+- Indicator: Selects which state to display among RGB Effect / Caps Lock / Scroll Lock / Num Lock. With RGB Effect, the badge displays the RGB effect as is.
+- Indicator-Only: Uses the badge area exclusively for lock indication. General RGB effects are not displayed, but temporary link/sync STATUS notifications may still be shown.
+- Indicator Brightness / Indicator Color: Sets the brightness and color of the Lock indicator.
 
 ■ SYSTEM
 
-CONFIGURE -> SYSTEM includes split-specific SYNC and LINK, plus SLEEP and BOOT.
+CONFIGURE -> SYSTEM includes split-specific SYNC and LINK, as well as SLEEP and BOOT.
 
 SYNC:
-All three are on by default and are independent settings.
-- EEPROM SYNC: synchronizes stored settings between the halves. STATUS is blue
-  while synchronization work is visibly active. It is not a prerequisite for
-  INPUT SYNC or RGB SYNC, but keeping it on is recommended to maintain matching
-  keymaps and settings on both units.
-- INPUT SYNC: with both units plugged into the PC in DUAL-HOST, they share layer
-  state and key decisions so they act as one keyboard.
-- RGB SYNC: aligns lighting across both units in DUAL-HOST, reactive effects
-  included.
-INPUT SYNC and RGB SYNC control sharing in DUAL-HOST. With only one unit connected
-by USB in HOST-PEER, input and lighting forwarding remain active even when these
-two settings are off.
+All three items default to On and are independent settings.
+- EEPROM SYNC: Synchronizes saved settings between both halves. STATUS is blue while synchronization is visible. It is not a prerequisite for INPUT SYNC or RGB SYNC, but keeping it on is recommended to maintain matching keymaps and settings across both halves.
+- INPUT SYNC: Shares layer state and key input evaluation in DUAL-HOST mode when both halves are connected to the PC, allowing them to operate as one keyboard.
+- RGB SYNC: Synchronizes lighting across both halves in DUAL-HOST mode, including reactive effects.
+INPUT SYNC and RGB SYNC control sharing scope in DUAL-HOST mode. In HOST-PEER mode with only one half connected via USB, key input and lighting forwarding continue even if these two settings are turned off.
 
 LINK:
-Use the Custom app at usekb.cc to inspect runtime/saved speed and Apply results.
-The stock LINK selection does not confirm completion.
 - High: 460800 bps / 1 ms (default)
 - Medium: 230400 bps / 2 ms
 - Low: 115200 bps / 4 ms
 
-Choose a LINK value and use Apply. Connected halves switch at the agreed
-instant without restarting the keyboard or disconnecting USB.
+Check the current active/saved speeds and application results in the usekb.cc Custom app. The selected LINK value in official VIA does not indicate that application has completed. Select a LINK value and then use Apply. Both connected halves switch speeds together at an agreed point without rebooting the keyboard or disconnecting USB.
 
-TOMAK-TKL, TOMAK79H and TOMAK79S temporarily use the whole RGB area for STATUS.
-- One green flash: Apply succeeded on the unit receiving the command, including
-  an already matching running and saved speed. This does not confirm storage
-  on the other half.
-- One red flash: the request was busy, cancelled or failed.
-- Two short green flashes on both halves: link recovery after a speed search.
-- Three long red flashes: link-speed failure and recovery to Low. If repeated,
-  check or replace the cable; the signal alone does not identify the cause.
-- Blue: EEPROM synchronization work.
-STATUS is hidden during RGB sleep. These STATUS colours have separate meanings
-from the user-selected colours of ordinary lock indicators.
+TOMAK-TKL, TOMAK79H, and TOMAK79S display temporary STATUS across the full RGB area.
+- Green 1 time: Apply succeeded on the half that received the command. This includes cases where the active and saved speeds already match, and does not confirm that saving completed on the other half.
+- Red 1 time: Request could not be processed, was canceled, or failed.
+- Short green 2 times on both halves: Link recovered after speed probing.
+- Long red 3 times: Warning of fallback to Low after a link speed failure. If this repeats, inspect or replace the cable. This indicator alone cannot confirm the exact cause.
+- Blue: EEPROM synchronization in progress.
+STATUS is not displayed during RGB sleep. Custom colors for standard lock indicators and STATUS colors have separate meanings.
 
 SLEEP:
-RGB Sleep is on by default. Turning it off disables automatic RGB sleep as a
-whole: idle timeout, USB suspend, and host loss. The timeout control is shown
-only while RGB Sleep is on. Choose 1/3/5/10/30/60 minutes of inactivity; the
-default is 10 minutes. Turning RGB Sleep off keeps that timeout for the next
-time you turn it on.
+RGB Sleep defaults to On. Turning it off disables all automatic RGB sleep, including idle timeout, USB suspend, and host loss. The timeout setting appears only when On; select from 1/3/5/10/30/60 minutes after the last input. The default is 10 minutes. The timeout value is preserved even when the toggle is turned off.
 
 BOOT:
-Switching on Jump To BOOT requests bootloader entry on the current unit.
-The transition waits for VIA follow-up processing and response transmission;
-the control normally reads back off after the action.
+Turning on Jump To BOOT requests bootloader entry for the current half. It is normal for it to always appear off after execution.
 
 ■ EEPROM CLEAN
 
-The three confirmation toggles have no time limit. Turning a toggle off cancels
-only that confirmation; restarting the keyboard clears all confirmations.
+The three confirmation toggles have no time limit. Turning off an enabled toggle cancels only that confirmation, and rebooting clears all confirmation states.
 
-Turn on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM
-to request CLEAN. Units communicating normally agree to erase all keymaps,
-macros and settings and restart together; separated units perform local CLEAN
-independently. Back up the keymap with
-VIA SAVE + LOAD before running CLEAN.
+Turning on all three confirmation toggles in CONFIGURE -> SYSTEM -> EEPROM requests CLEAN. When both halves are communicating normally, they agree to reset saved keymaps, macros, and all settings together and restart. Disconnected halves perform a local CLEAN independently. Back up your keymap with VIA SAVE + LOAD before running it.
