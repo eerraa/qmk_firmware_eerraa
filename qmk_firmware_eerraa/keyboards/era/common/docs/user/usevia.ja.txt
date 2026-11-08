@@ -1,0 +1,137 @@
+======================================================================
+Official VIA Guide
+======================================================================
+
+この文書は公式 VIA（https://usevia.app）を直接使用するときの案内です。通常の設定や高度な編集、自動更新されるステータス表示には https://usekb.cc と各メニュー横の Help を推奨します。
+
+■ 公式 VIA の開始
+
+ご使用中のキーボードに合った配布 ZIP 内の JSON を使用してください。
+
+1. https://usevia.app にアクセスします。
+2. SETTINGS で Show Design tab をオンにします。
+3. DESIGN -> Load Draft Definition でこのキーボードの VIA JSON を読み込みます。
+   L/R ファイルがある場合は現在の USB ユニットに合ったものを使用し、左右をそれぞれ USB で接続するときは両方の JSON を読み込みます。
+4. CONFIGURE の Authorize device で接続を許可した後、KEYMAP、LIGHTING、FEATURE、TAPDANCE、SYSTEM を設定します。
+
+TAPDANCE 入力欄に直接 keycode を入力するときは、同じフォルダーの via_keycodes.txt を参照してください。公式 VIA の SAVE + LOAD はキーマップとマクロのみをバックアップし、すべてのメニュー設定はバックアップしないため、他の設定は別途控えておいてください。
+
+通常のアップデートでは同じ保存形式の有効な設定が維持されますが、保存形式の変更や無効な保存データによって初期化されることがあります。Reset.uf2 は通常のアップデートではなく、インストール後の初回に一度だけ現在の設定をすべて消去する全機能ファームウェアです。初期化後はそのまま使用でき、新しい設定は再起動後も維持されます。同じファイルを再度インストールすると再び初期化されます。バックアップと復旧の手順は配布 ZIP の readme.txt に従ってください。
+
+■ VERSION
+
+CONFIGURE -> SYSTEM -> VERSION はキーボードのファームウェアバージョンを YYMMDDRn 形式で表示し、VIA から変更することはできません。問題を報告する際はこの値もあわせて記載してください。
+
+■ MATRIX TEST
+
+VIA の Matrix Test は物理マトリックスの押下状態を表示します。VIA Raw HID を使用できるホストプログラムは現在押されているマトリックス位置を取得できるため、信頼できる PC で使用してください。
+
+■ TAPDANCE
+
+CONFIGURE -> TAPDANCE で TD0~TD7 を設定した後、KEYMAP で同じ TD 番号を希望の位置に配置します。TD キーを実際のキーマップに配置するまでは、設定した動作は実行されません。
+
+- On Tap：短くタップしたときの keycode
+- On Hold：長く押したときの keycode
+- On Double Tap：Term 内に二回タップしたときの keycode
+- Tap+Hold：一回タップした後に続けて長く押したときの keycode
+- Term：複数の入力動作を判定する時間。公式 VIA では 100~500ms を 20ms 単位で選択します。
+
+Legacy で On Double Tap と Tap+Hold を空欄にしたスロットは、キーを離した瞬間にタップが入力され、Term はホールド判定にのみ使われます。On Double Tap を設定すると、二回目のタップを離した瞬間に入力されます。
+
+公式 VIA は Legacy モードの基本動作と Term のみを編集します。高度なモードや不明なモード値のスロットには usekb.cc の案内のみを表示し、基本動作も編集しません。入力モードの変更、独立したホールド時間、別のキー押下時のホールド設定は https://usekb.cc で使用してください。公式 VIA を開いたり定義を読み込んだりしただけでスロットのモードや動作が変わることはありません。
+
+■ SOCD
+
+CONFIGURE -> FEATURE -> SOCD で反対方向の二つのキー（左/右、上/下）を指定し、二つのキーを一緒に押しているときに PC へ送るキーを Mode で選びます。
+
+- Last Input：後から押したキーのみを送ります。そのキーを離すと、まだ押しているもう一方のキーがすぐに再入力されます（スナップタップ）。初期値です。
+- Neutral：どちらのキーも送りません。
+- First Input：先に押したキーを維持します。
+- Left/Up Priority, Right/Down Priority：押した順序に関係なく、指定した側を送ります。
+
+キーには通常キーまたは modifier キーを指定してください。PC へ出力されるキーを基準に判定するため、Tap Dance やマクロが出力したキーにも適用されます。一組の二つの欄に同じキーを入れると動作せず、オンになっている二組が有効な同じキーを共有すると両方の組とも動作しません。オフになっている組のキー指定は他の組を妨げません。一部のゲームや大会では SOCD の使用が制限されているため、規定を確認してください。
+
+■ KKUK
+
+CONFIGURE -> FEATURE -> KKUK で使用します。通常キーを二つ以上押し続けると、押されているキーのまとまりを Delay/Repeat 設定に従って周期的に離して押し直します。たとえば A、S、D を押し続けると、通常の「asdddd...」という自動リピートではなく「asdasdasd...」のように入力されます。文字列マクロやマトリックスの ghosting 防止機能ではありません。オンになっていて有効かつ他の組と重ならない SOCD ペアのキーのみが繰り返し対象から除外され、オフの組や無効・競合している組のキーは除外されません。
+
+■ DEBOUNCE
+
+CONFIGURE -> FEATURE -> DEBOUNCE でスイッチのチャタリングフィルターを調整します。初期値は Balanced、5 ms です。一回押したのに複数回入力される症状があるときだけ関連する時間を少しずつ増やし、問題がなければ初期設定を維持してください。
+
+■ TAPPING
+
+CONFIGURE -> FEATURE -> TAPPING で Mod-Tap/Layer-Tap のタップ・ホールド判定を調整します。Tapping Term の初期値は 200 ms です。短いほどホールドが早くかかりますが速いタイピングが意図しないホールドと判定されることがあり、長いほど安定しますがホールドの反応は遅くなります。
+
+- Permissive Hold：別のキーを押して離すまでタップ・ホールドキーを押し続けていると、ホールドと判定します。
+- Hold On Other Key Press：別のキーを押した瞬間にすぐホールドと判定します。より高速ですが、ロールオーバー打ち（前のキーを離す前に次のキーを押す打鍵）では意図したタップがホールドになることがあります。
+- Retro Tapping：Term を超えて押していても、そのあいだに別のキーを押さなければ、キーを離したときにタップを入力します。
+
+■ MOUSE
+
+整数単位の精密な入力は usekb.cc の詳細設定で提供しています。公式 VIA は最も近いプリセットを表示し、参照しただけで精密な値を変えることはありません。ホイール加速は時間が 0 のとき Off、それ以外は目標速度を基準に Mild/Strong を表示します。プリセットを選択するとその設定に変更されます。
+
+CONFIGURE -> FEATURE -> MOUSE で Mouse Key の動作を調整します。キーマップに Mouse Key がなければ入力には影響しません。各値が互いに影響するため、一度に一つずつ調整してください。
+
+- Cursor Acceleration：開始速度から最高速度まで加速する時間。Off のときは固定速度。
+- Cursor Start Speed / Top Speed：加速開始/終了時のワンステップあたりの移動距離。
+- Cursor Speed：Acceleration が Off のときのワンステップあたりの移動距離。
+- Cursor Steps Per Second：秒あたりのカーソル移動ステップ数。
+- Wheel Rate：秒あたりのスクロールステップ数。
+- Wheel Acceleration：押しているあいだのスクロール加速の度合い。
+
+■ ROLLOVER / NKRO
+
+CONFIGURE -> FEATURE -> NKRO で NKRO のオン・オフを切り替えます。初期値はオフ（6KRO）で、オンにすると押したキーをすべてレポートします。オンにした後に古い BIOS/KVM やブートメニューがキーボードを認識しない場合は、再度オフにしてください。
+
+■ LIGHTING
+
+CONFIGURE -> LIGHTING で画面に表示されるライティング項目の明るさ、エフェクト、色を設定します。エフェクトの速度や周期は、該当エフェクトに用意されたオプションで調整します。
+
+Backlight Pulse に対応する基板のエフェクト名は次のとおりです。
+
+- Steady
+- Breathing
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
+- Pulse On Press (Hold)
+
+Breathing を選択すると Breathing Period（1~10）で明滅周期を調節でき、値が小さいほど速くなります。Pulse Speed は Pulse でのみ表示され、パルス長は 5 + 値 ms です（0 は 5 ms、255 は 260 ms、初期値 15 は 20 ms）。Hold エフェクトはパルス時間が終わってもそのエフェクトで新しく押した物理キーが残っていれば維持されますが、エフェクトを選ぶ前から押していたキーは維持対象になりません。エフェクトを選び直すか、ライティングをオフにするか、スリープに入ると進行中の Pulse は終了し、スリープ中に押したキーは Pulse を発生させません。
+
+RGBLight ライティング（Underglow、Badge、RGB LEDs）には、Effect 一覧の Twinkle 6 の後に同じ四つの Pulse エフェクトがあります。Effect Speed はこの四つのエフェクトでのみ表示され、同じ方式でパルス長を調節します。通常の Breathing 1~4 などの速度は Effect の番号で選択し、対応エフェクトでは Velocikey によって入力速度に反応させることができます。
+
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
+- Pulse On Press (Hold)
+
+Indicators は Caps/Scroll/Num Lock の状態表示です。表示する状態は Indicator（複数ある場合は Indicator 1, 2 …）で選びます。0 番の値は、表示 LED を RGB エフェクトと兼用する基板では RGB Effect（エフェクトがそのまま見える）、専用 LED 基板では Off です。表示対象と画面に用意されている明るさ・色のオプションを選択してください。
+
+- RGB Effect
+- Caps Lock
+- Scroll Lock
+- Num Lock
+
+RGB Effect を選んだ LED は通常の RGB エフェクトに引き続き参加します。Lock を選んだ LED は該当 Lock がオンのときにその Indicator の Brightness と Color を使用します。Indicator-Only をオンにすると、Lock がオフの表示 LED は消灯し、RGB Effect の LED は引き続き RGB エフェクトを表示します。Brightness/Color は Indicator 1/2/3 ごとに独立して設定します。
+
+■ SYSTEM
+
+画面に SYNC と LINK が用意されている場合は次のように使用します。EEPROM SYNC は保存設定を同期します。INPUT SYNC と RGB SYNC は左右をそれぞれ USB に接続した DUAL-HOST で入力判定とライティングを共有します。三つの設定は独立しており、初期値は On です。片側のみを USB に接続した HOST-PEER では、INPUT SYNC と RGB SYNC をオフにしても入力とライティングの伝達は維持されます。
+
+LINK は High（460800 bps / 1 ms、初期値）、Medium（230400 bps / 2 ms）、Low（115200 bps / 4 ms）から選択した後に Apply します。接続されている左右は合意したタイミングで再起動や USB 切断なしに一緒に切り替わります。公式 VIA の選択値は適用完了を意味しないため、実行・保存速度と結果は usekb.cc Custom で確認してください。
+
+SYSTEM -> SLEEP で RGB とバックライトの自動スリープを別々に設定します。キーボードに搭載されているライティングの項目のみが表示されます。
+
+- RGB Sleep, Backlight Sleep：初期値は On です。Off に変更すると、そのライティングはアイドル時間、USB スリープ、ホスト喪失のいずれの場合でも消灯しません。
+- RGB Sleep Timeout, Backlight Sleep Timeout：該当スリープが On のときのみ表示され、最後の入力から 1/3/5/10/30/60 分のなかから選びます。初期値は 10 分で、トグルをオフにしても値は保持されます。
+
+スリープはライティング出力のみをオフにし、設定は変更しません。入力や正常なホスト復帰で再び点灯しますが、ユーザーがオフにしたライティングを自動で点灯させることはありません。バックライトがロック表示灯を兼ねるキーボードでは、バックライトのスリープ中は表示灯も消灯します。
+
+SYSTEM -> BOOT の Jump To BOOT をオンにするとブートローダーへの進入を要求します。実行後にトグルが常にオフの値で見えるのは正常です。
+
+■ EEPROM CLEAN
+
+三つの確認トグルには時間制限がありません。オンにしたトグルをオフにすると該当の確認のみが取り消され、再起動すると確認状態はすべて消去されます。
+
+CONFIGURE -> SYSTEM -> EEPROM で三つの確認トグルをすべてオンにすると、保存されているキーマップ・マクロ・すべての設定を初期化して再起動します。実行前に VIA SAVE + LOAD でバックアップし、他の設定を控えておいてください。スプリットは正常に通信中であれば左右が合意して一緒に初期化し、切り離されているユニットはそれぞれローカル CLEAN を実行します。

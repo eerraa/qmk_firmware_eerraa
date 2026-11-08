@@ -1,0 +1,137 @@
+======================================================================
+Official VIA Guide
+======================================================================
+
+本文档为直接使用官方 VIA（https://usevia.app）时的说明。日常设置、高级编辑以及自动刷新的状态显示，推荐使用 https://usekb.cc 及各菜单旁的 Help。
+
+■ 开始使用官方 VIA
+
+请使用与当前键盘匹配的发布 ZIP 内的 JSON 文件。
+
+1. 访问 https://usevia.app 。
+2. 在 SETTINGS 中开启 Show Design tab。
+3. 在 DESIGN -> Load Draft Definition 中加载此键盘的 VIA JSON。
+   如果有 L/R 文件，请使用与当前 USB 单元匹配的文件；当左右两侧分别通过 USB 连接时，请同时加载两个 JSON。
+4. 在 CONFIGURE 中通过 Authorize device 授权连接后，配置 KEYMAP、LIGHTING、FEATURE、TAPDANCE、SYSTEM。
+
+在 TAPDANCE 输入框中直接填写 keycode 时，请参考同一文件夹下的 via_keycodes.txt。官方 VIA 的 SAVE + LOAD 仅备份按键布局和宏，不会备份所有菜单设置，请另行记录其他设置。
+
+常规更新会保留相同存储格式下的有效设置，但存储格式变更或无效的存储数据可能会导致重置。Reset.uf2 并非用于常规更新，而是仅在安装后首次启动时清除所有当前设置的全功能固件。重置后可直接使用，新设置在重启后也会保留；再次安装同一文件则会再次重置。备份与恢复步骤请遵循发布 ZIP 中的 readme.txt。
+
+■ VERSION
+
+CONFIGURE -> SYSTEM -> VERSION 以 YYMMDDRn 格式显示键盘固件版本，无法在 VIA 中修改。反馈问题时请一并提供该数值。
+
+■ MATRIX TEST
+
+VIA 的 Matrix Test 显示物理矩阵的按下状态。可使用 VIA Raw HID 的主机程序能够查询当前按下的矩阵位置，请在受信任的电脑上使用。
+
+■ TAPDANCE
+
+在 CONFIGURE -> TAPDANCE 中设置 TD0~TD7 后，在 KEYMAP 中将相同的 TD 编号放置到所需位置。在将 TD 键实际放置到按键布局之前，所设定的动作不会执行。
+
+- On Tap：短按轻点时的 keycode
+- On Hold：长按时的 keycode
+- On Double Tap：在 Term 时间内双击轻点时的 keycode
+- Tap+Hold：轻点一次后紧接着长按时的 keycode
+- Term：判定不同输入动作的时间。在官方 VIA 中以 20ms 为单位在 100~500ms 之间选择。
+
+在 Legacy 模式下，若将 On Double Tap 和 Tap+Hold 留空，该槽位会在松开按键的瞬间输入轻点，Term 仅用于长按判定。若设置了 On Double Tap，则在第二次轻点松开的瞬间输入。
+
+官方 VIA 仅编辑 Legacy 模式的基础动作和 Term。对于使用高级模式或未知模式值的槽位，仅显示 usekb.cc 提示且不编辑基础动作。更改输入模式、独立长按时间以及按下其他键时触发长按等设置，请前往 https://usekb.cc 使用。仅打开官方 VIA 或加载定义不会改变槽位的模式或动作。
+
+■ SOCD
+
+在 CONFIGURE -> FEATURE -> SOCD 中指定两个相反方向的按键（左/右、上/下），并在 Mode 中选择同时按住这两个按键时要发送给电脑的按键。
+
+- Last Input：仅发送后按下的按键。松开该键后，仍按住的另一个按键会立即恢复输入（快速切换）。此为默认值。
+- Neutral：两个按键均不发送。
+- First Input：保持发送先按下的按键。
+- Left/Up Priority, Right/Down Priority：无论按下顺序如何，始终发送指定方向的按键。
+
+请将按键指定为普通键或修饰键（modifier）。由于按发送给电脑的按键进行判定，因此同样适用于由 Tap Dance 或宏输出的按键。若在同一对的两个栏位中填入相同按键将不会生效；若已开启的两对共用了同一个有效按键，则这两对都不会生效。已关闭配对的按键设置不会影响其他配对。部分游戏和赛事限制使用 SOCD，请先确认相关规则。
+
+■ KKUK
+
+在 CONFIGURE -> FEATURE -> KKUK 中使用。持续按住两个以上普通键时，会根据 Delay/Repeat 设置周期性地松开并重新按下所按住的按键组合。例如持续按住 A、S、D 时，将输入类似“asdasdasd...”而非普通的“asdddd...”自动重复。此功能并非字符串宏或防矩阵鬼键（ghosting）功能。仅排除已开启、有效且未与其他配对冲突的 SOCD 配对按键；已关闭配对或无效、冲突配对的按键不会被排除。
+
+■ DEBOUNCE
+
+在 CONFIGURE -> FEATURE -> DEBOUNCE 中调整轴体连击抖动滤波。默认值为 Balanced、5 ms。仅在出现按一次却输入多次的现象时逐步调大相关时间；若无问题请保持默认设置。
+
+■ TAPPING
+
+在 CONFIGURE -> FEATURE -> TAPPING 中调整 Mod-Tap/Layer-Tap 的轻点与长按判定。Tapping Term 的默认值为 200 ms。数值越小长按触发越快，但快速打字时可能被误判为长按；数值越大越稳定，但长按触发会变慢。
+
+- Permissive Hold：在按下并松开其他按键期间一直按住轻点·长按双用键时，判定为长按。
+- Hold On Other Key Press：按下其他按键的瞬间立即判定为长按。响应更快，但在滚键输入（前键未松开就按下一键的连续敲击）时，原本意图的轻点可能会变成长按。
+- Retro Tapping：即使按住时间超过 Term，只要期间没有按过其他按键，松开按键时仍输入轻点。
+
+■ MOUSE
+
+整数精度的精细输入在 usekb.cc 的高级设置中提供。官方 VIA 显示最接近的预设档位，仅查询不会改变原有精细数值。滚轮加速在时间为 0 时显示 Off，其余情况根据目标速度显示 Mild/Strong。选择预设档位后将更改为对应设置。
+
+在 CONFIGURE -> FEATURE -> MOUSE 中调整 Mouse Key 动作。如果按键布局中没有配置 Mouse Key，则不会影响输入。由于各项数值相互影响，请每次只调整一项。
+
+- Cursor Acceleration：从起始速度加速到最高速度的时间。设为 Off 时为固定速度。
+- Cursor Start Speed / Top Speed：加速开始/结束时单步移动的距离。
+- Cursor Speed：Acceleration 设为 Off 时单步移动的距离。
+- Cursor Steps Per Second：每秒光标移动步数。
+- Wheel Rate：每秒滚动步数。
+- Wheel Acceleration：按住期间的滚动加速程度。
+
+■ ROLLOVER / NKRO
+
+在 CONFIGURE -> FEATURE -> NKRO 中开启或关闭 NKRO。默认值为关闭（6KRO），开启后会报告所有同时按下的按键。如果开启后旧版 BIOS/KVM 或启动菜单无法识别键盘，请将其重新关闭。
+
+■ LIGHTING
+
+在 CONFIGURE -> LIGHTING 中设置界面所显示灯光项目的亮度、灯效与颜色。灯效的速度或周期通过该灯效提供的选项进行调整。
+
+支持 Backlight Pulse 的键盘具有以下灯效名称：
+
+- Steady
+- Breathing
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
+- Pulse On Press (Hold)
+
+选择 Breathing 时，通过 Breathing Period（1~10）调节呼吸周期，数值越小速度越快。Pulse Speed 仅在 Pulse 灯效下显示，脉冲时长为 5 + 数值 ms（0 为 5 ms，255 为 260 ms，默认值 15 为 20 ms）。Hold 灯效在脉冲时间结束后，只要在该灯效下新按下的物理按键仍未松开就会保持，但在选择该灯效前就已按住的按键不在保持范围内。重新选择灯效、关闭灯光或进入睡眠都会结束正在进行的 Pulse，且睡眠期间按下的按键不会触发 Pulse。
+
+RGBLight 灯光（Underglow、Badge、RGB LEDs）在 Effect 列表的 Twinkle 6 之后提供相同的四种 Pulse 灯效。Effect Speed 仅在这四种灯效下显示，并以相同方式调节脉冲时长。普通 Breathing 1~4 等的速度通过 Effect 编号选择，在受支持的灯效下可通过 Velocikey 使其随打字速度变化。
+
+- Pulse Off Press
+- Pulse On Press
+- Pulse Off Press (Hold)
+- Pulse On Press (Hold)
+
+Indicators 用于显示 Caps/Scroll/Num Lock 状态。请在 Indicator（若有多个则为 Indicator 1, 2 …）中选择要显示的状态。0 号值在指示灯 LED 与 RGB 灯效共用的键盘上为 RGB Effect（原样显示灯效），在独立指示灯 LED 的键盘上为 Off。请选择指示目标以及界面提供的亮度与颜色选项。
+
+- RGB Effect
+- Caps Lock
+- Scroll Lock
+- Num Lock
+
+选择 RGB Effect 的 LED 会继续参与普通 RGB 灯效。选择 Lock 的 LED 会在对应 Lock 开启时使用该 Indicator 的 Brightness 和 Color。开启 Indicator-Only 后，Lock 关闭时对应的指示 LED 会熄灭，而设为 RGB Effect 的 LED 会继续显示 RGB 灯效。Brightness/Color 可针对 Indicator 1/2/3 分别独立设置。
+
+■ SYSTEM
+
+当界面提供 SYNC 和 LINK 时，按如下方式使用。EEPROM SYNC 用于同步已保存的设置。INPUT SYNC 和 RGB SYNC 在左右两侧分别通过 USB 连接的 DUAL-HOST 模式下共享输入判定与灯光。这三项设置彼此独立，默认均为 On。在仅一侧连接 USB 的 HOST-PEER 模式下，即使关闭 INPUT SYNC 和 RGB SYNC，输入与灯光的传递仍会保持。
+
+LINK 可在 High（460800 bps / 1 ms，默认值）、Medium（230400 bps / 2 ms）、Low（115200 bps / 4 ms）中选择后点击 Apply。已连接的左右两侧会在达成一致的时刻同步切换，无需重启或断开 USB 连接。官方 VIA 中的选择值并不代表已成功应用，实际运行与保存的速度及结果请在 usekb.cc Custom 中确认。
+
+在 SYSTEM -> SLEEP 中分别设置 RGB 和背光的自动睡眠。仅显示当前键盘所具备的灯光项目。
+
+- RGB Sleep, Backlight Sleep：默认值为 On。改为 Off 后，无论空闲超时、USB 睡眠还是主机断开，该灯光都不会自动关闭。
+- RGB Sleep Timeout, Backlight Sleep Timeout：仅在对应睡眠设为 On 时显示，可在最后一次输入后的 1/3/5/10/30/60 分钟之间选择。默认值为 10 分钟，关闭开关后该时间值仍会保留。
+
+睡眠仅关闭灯光输出，不会改变原有设置。有按键输入或主机正常恢复时会重新点亮，但不会自动点亮用户主动关闭的灯光。对于背光兼作锁定指示灯的键盘，背光睡眠期间指示灯也会一同关闭。
+
+开启 SYSTEM -> BOOT 中的 Jump To BOOT 会请求进入引导加载程序。执行后该开关始终显示为关闭状态属正常现象。
+
+■ EEPROM CLEAN
+
+三个确认开关没有时间限制。关闭已开启的开关仅取消该项确认，重启则会清除所有确认状态。
+
+在 CONFIGURE -> SYSTEM -> EEPROM 中将三个确认开关全部开启后，会重置已保存的按键布局、宏与所有设置并重启。执行前请通过 VIA SAVE + LOAD 备份，并记录其他设置。分体键盘在正常通信时会经两侧达成一致后一同重置，断开连接的单元则各自执行本地 CLEAN。
