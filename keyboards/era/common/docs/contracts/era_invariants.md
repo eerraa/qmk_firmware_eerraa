@@ -88,6 +88,14 @@ exchange: `era_route_contract.md`. Placement, vectors and flash carve-out:
 
 ## Boot Safety
 
+- ERA RP2040 Bootmagic recovery MUST run after platform/kernel initialization
+  and before storage mount/reset receipts, USB attach, VIA and feature loading.
+  It uses only the existing raw PIO sampler and physical handedness, with a
+  bounded confirmation window over fresh complete frames. A missing, partial,
+  stale or torn frame cannot authorize a jump. Entry preserves EEPROM and
+  uses `bootloader_jump()` to disarm double-tap state. Ordinary boot reuses the
+  sampler once; debounce, settings and Core1 keep their normal init order.
+  Source: `system/era_rp2040_matrix_pio.c` and `quantum/keyboard.c`.
 - Core1 MUST be hardware-halted at the entry to the pre-copy window that can
   destroy the image or state core1 is executing. Reset-cause enumeration is not
   an adequate substitute because debugger/SWD resets also rerun crt0. First

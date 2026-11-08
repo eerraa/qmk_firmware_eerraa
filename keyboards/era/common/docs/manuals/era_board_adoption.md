@@ -80,6 +80,13 @@ surface without adopting split transport. The matrix sampler owns PIO1 and two
 DMA channels; a board that needs PIO1 for another purpose is outside this
 backend's supported hardware boundary.
 
+Enabled RP2040 Bootmagic starts this sampler after platform initialization,
+before EEPROM and USB. A split board must supply `SPLIT_HAND_PIN`; EEPROM or
+USB-derived handedness cannot select pins in this phase. Other DMA clients
+must initialize after this probe: a confirmed recovery performs a terminal
+PIO1/DMA block reset before entering the ROM. Normal boot reuses the sampler;
+feature hooks and ordinary debounce stay in `matrix_init()`.
+
 The common VIA units are selected under
 `manuals/era_build_options.md` **The VIA surface and its gate**. SYNC remains
 a split-only surface.
