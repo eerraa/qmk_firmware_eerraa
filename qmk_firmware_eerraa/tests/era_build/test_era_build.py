@@ -194,19 +194,43 @@ class StatusTests(unittest.TestCase):
                 era.parse_porcelain(data)
 
     def test_repository_selected_by_cwd_and_main_checkout_name(self):
-        root = str(Path("linked edit").resolve())
-        main = str(Path("main-repository").resolve())
-        common = str(Path(main) / ".git")
-        outputs = [root.encode(), common.encode(), f"worktree {main}\0HEAD abc\0\0".encode(), b"a" * 40]
-        with patch.object(era.subprocess, "run", side_effect=[
-            subprocess.CompletedProcess([], 0, stdout=data, stderr=b"") for data in outputs
-        ]) as run:
-            repository = era.Repository.from_cwd()
-        self.assertEqual(repository.root, Path(root))
-        self.assertEqual(repository.name, "main-repository")
-        self.assertEqual(repository.common, Path(common))
-        self.assertEqual(run.call_args_list[0].args[0], ["git", "rev-parse", "--show-toplevel"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "linked edit"
+            main = Path(directory) / "main-repository"
+            common = main / ".git"
+            for component in (Path("qmk_firmware_eerraa"), Path(".")):
+                launcher = root / component / era.LAUNCHER
+                launcher.parent.mkdir(parents=True, exist_ok=True)
+                launcher.touch()
+                outputs = [str(root).encode(), str(common).encode(),
+                           f"worktree {main}\0HEAD abc\0\0".encode(), b"a" * 40]
+                with patch.object(era.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=data, stderr=b"") for data in outputs
+                ]) as run:
+                    repository = era.Repository.from_cwd()
+                self.assertEqual(repository.root, root.resolve())
+                self.assertEqual(repository.name, "main-repository")
+                self.assertEqual(repository.common, common.resolve())
+                self.assertEqual(repository.component, component)
+                self.assertEqual(run.call_args_list[0].args[0], ["git", "rev-parse", "--show-toplevel"])
+                launcher.unlink()
         self.assertEqual(era.parser().parse_args(["build", "era/sirind/tomak:via", "--show-options"]).variants, [])
+
+    def test_missing_or_ambiguous_firmware_layout_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = [str(root).encode(), str(root / ".git").encode(),
+                       f"worktree {root}\0HEAD abc\0\0".encode()]
+            for ambiguous in (False, True):
+                if ambiguous:
+                    for component in (Path("qmk_firmware_eerraa"), Path(".")):
+                        launcher = root / component / era.LAUNCHER
+                        launcher.parent.mkdir(parents=True, exist_ok=True)
+                        launcher.touch()
+                with patch.object(era.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=data, stderr=b"") for data in outputs
+                ]), self.assertRaisesRegex(era.BuildError, "expected one firmware launcher"):
+                    era.Repository.from_cwd()
 
 
 class PortableBackend:

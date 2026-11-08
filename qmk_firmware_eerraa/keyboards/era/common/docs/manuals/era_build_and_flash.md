@@ -75,7 +75,9 @@ system directories; it does not inherit shell-profile PATH additions.
 ### Backend and worktree contract
 
 The parent directory is the Git root; commands in this manual run from its
-qmk_firmware_eerraa component. The Git root owns submodule registration;
+qmk_firmware_eerraa component. Historical release worktrees may instead hold
+the firmware at the Git root. The frontend requires exactly one launcher in
+these two layouts and refuses missing or ambiguous source trees. The Git root owns submodule registration;
 the component-local .gitmodules retains QMK-relative dependency paths.
 Synchronization covers the entire Git tree,
 while the launcher, returned artifacts and the path printed by `sync` use
