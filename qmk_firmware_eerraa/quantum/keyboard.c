@@ -365,6 +365,11 @@ __attribute__((weak)) bool matrix_can_read(void) {
 void keyboard_setup(void) {
     print_set_sendchar(sendchar);
 #ifdef EEPROM_DRIVER
+#    ifdef ERA_SETTINGS_RESET_IMAGE
+    /* Recovery must finish before either storage backend mounts. */
+    extern void era_settings_reset_bootstrap(void);
+    era_settings_reset_bootstrap();
+#    endif
     eeprom_driver_init();
 #endif
     matrix_setup();

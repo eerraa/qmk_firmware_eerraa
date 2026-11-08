@@ -321,7 +321,11 @@ class Repository:
         main = os.fsdecode(worktrees[0][len(b"worktree "):])
         repository.main = Path(main).resolve()
         repository.name = repository.main.name
-        repository.component = Path("qmk_firmware_eerraa")
+        candidates = [component for component in (Path("qmk_firmware_eerraa"), Path("."))
+                      if (root / component / LAUNCHER).is_file()]
+        if len(candidates) != 1:
+            raise BuildError(f"expected one firmware launcher in the integrated or historical layout: {root}")
+        repository.component = candidates[0]
         repository.head = text(repository.git("rev-parse", "HEAD"))
         return repository
 

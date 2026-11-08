@@ -1076,3 +1076,13 @@ Core0 is inside synchronous NVM work. The two intentionally visible flash costs
 are a durable local record/Apply and, when maintenance has fallen behind,
 mandatory bank rotation. They are measured on device; source page counts are
 capacity evidence, not latency claims.
+
+## Explicit recovery images
+
+Bootmagic entry preserves settings. Only the Reset variant consumes an
+installation receipt before either historical EEPROM backend mounts. It erases
+and verifies the board's active storage region and records durable completion;
+subsequent boots preserve settings, and reinstalling the same UF2 rearms reset.
+The shipped storage geometry, format keys and physical placement do not change.
+Invalid metadata or failed I/O stops before settings mount or peer service.
+Reset both split units with the cable disconnected before reconnecting them.

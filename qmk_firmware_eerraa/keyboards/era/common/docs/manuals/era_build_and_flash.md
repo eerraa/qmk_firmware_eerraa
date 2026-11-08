@@ -279,3 +279,13 @@ bytes are not test records.
 TOMAK_TKL has RGB Matrix and its keyboard-channel indicator, but no RGBLight or
 Backlight. Those two domain checks belong on a board that actually enables
 them; looking for them on TOMAK_TKL or repeating this route cannot cover them.
+
+## Release-local recovery builds
+
+Invoke `keyboards/era/common/tools/era_build.py` from this edit worktree with
+the intended target and `standard reset` variants. The validated profile
+frontend supports both Git layouts and returns only manifest-selected files.
+The reset variant retains this release's full feature set and storage placement.
+Package its bytes as `Reset.uf2` beside the ordinary firmware and current guides.
+The pre-mount receipt gate owns one verified reset per successful installation;
+failed or torn metadata never admits settings parsing or split peer service.
