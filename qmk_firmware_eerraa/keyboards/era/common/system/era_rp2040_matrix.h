@@ -16,6 +16,8 @@
  * That is why this header looks like an abstraction over two backends and is
  * not one. The unit's name and its text are deliberately not given: they are in
  * neither the tree nor the history a reader of this file holds. */
+/* Start once per boot. Early recovery and matrix_init reuse the same sampler;
+ * normal debounce, feature hooks and engine state still initialize later. */
 void era_rp2040_matrix_init_pins(void);
 
 /* Decode the newest complete frame into raw_rows[] and report whether any raw

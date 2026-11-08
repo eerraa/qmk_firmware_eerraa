@@ -363,6 +363,10 @@ __attribute__((weak)) bool matrix_can_read(void) {
  * FIXME: needs doc
  */
 void keyboard_setup(void) {
+#if defined(BOOTMAGIC_ENABLE) && defined(ERA_BOOTMAGIC_EARLY)
+    /* ERA's raw sampler needs only platform_setup(), not EEPROM or USB. */
+    bootmagic();
+#endif
     print_set_sendchar(sendchar);
 #ifdef EEPROM_DRIVER
     eeprom_driver_init();
@@ -453,7 +457,7 @@ void quantum_init(void) {
     eeconfig_read_debug(&debug_config);
     eeconfig_read_keymap(&keymap_config);
 
-#ifdef BOOTMAGIC_ENABLE
+#if defined(BOOTMAGIC_ENABLE) && !defined(ERA_BOOTMAGIC_EARLY)
     bootmagic();
 #endif
 

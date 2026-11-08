@@ -48,6 +48,16 @@
 /* The register struct only: pico-sdk's hardware/timer.h clashes with the
    ChibiOS TIMER macro once hal.h is in. */
 #include "hardware/structs/timer.h"
+#if defined(BOOTMAGIC_ENABLE) && defined(ERA_BOOTMAGIC_EARLY)
+#    include "bootmagic.h"
+#    include "bootloader.h"
+#    ifdef SPLIT_KEYBOARD
+#        include "split_util.h"
+#        ifndef SPLIT_HAND_PIN
+#            error "Early ERA Bootmagic requires storage-independent SPLIT_HAND_PIN handedness."
+#        endif
+#    endif
+#endif
 
 #if !defined(ERA_RP2040_MATRIX_ENABLE)
 #    error "era_rp2040_matrix_pio.c must be built only when ERA_RP2040_MATRIX_ENABLE is set."
@@ -97,7 +107,7 @@
 #endif
 
 /* Bound on the wait for the first complete frame at init, well above one
-   frame at any board's geometry. bootmagic scans right after matrix_init(). */
+   frame at any board's geometry. No unfilled ring may be decoded. */
 #ifndef ERA_RP2040_MATRIX_PIO_FIRST_FRAME_TIMEOUT_US
 #    define ERA_RP2040_MATRIX_PIO_FIRST_FRAME_TIMEOUT_US 500
 #endif
@@ -177,6 +187,8 @@ typedef struct {
     uint32_t                last_write_addr;
     bool                    ready;
     bool                    first_frame_pending;
+    bool                    initialized;
+    bool                    left;
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
     uint32_t torn_retry_count;
     uint32_t rearm_count;
@@ -197,7 +209,7 @@ static void era_rp2040_matrix_pio_select_side(const pin_t **row_pins, const pin_
     *row_pins = era_rp2040_matrix_pio_row_pins_left;
     *col_pins = era_rp2040_matrix_pio_col_pins_left;
 #if defined(SPLIT_KEYBOARD) && defined(MATRIX_ROW_PINS_RIGHT) && defined(MATRIX_COL_PINS_RIGHT)
-    if (!is_keyboard_left()) {
+    if (!era_rp2040_matrix_pio_state.left) {
         *row_pins = era_rp2040_matrix_pio_row_pins_right;
         *col_pins = era_rp2040_matrix_pio_col_pins_right;
     }
@@ -325,8 +337,8 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
     era_rp2040_matrix_pio_channel_start(state->sample_channel, (const void *)&pio1->rxf[sm], era_rp2040_matrix_pio_sample_ring, era_rp2040_matrix_pio_sample_ctrl(sm));
     pio_sm_set_enabled(pio1, sm, true);
 
-    /* Bounded wait for the first complete frame, so the first matrix_scan()
-       after init -- bootmagic's -- reads a real sample rather than zeros. The
+    /* Bounded wait for the first complete frame, so the first consumer
+       after init reads a real sample rather than zeros. The
        transfer counter counts down from its reload, so words moved is a
        monotonic read that no ring wrap can fold. */
     state->last_write_addr     = 0;
@@ -345,6 +357,19 @@ static bool era_rp2040_matrix_pio_start(const pin_t *row_pins, const pin_t *col_
 }
 
 void era_rp2040_matrix_init_pins(void) {
+    era_rp2040_matrix_pio_state_t *state = &era_rp2040_matrix_pio_state;
+    /* The early probe and normal matrix_init share one hardware lifetime.
+     * A timed-out first frame can arrive later; allocation failure remains
+     * closed until reboot, without claiming more SMs/programs/channels. */
+    if (state->initialized) {
+        return;
+    }
+    state->initialized = true;
+#if defined(BOOTMAGIC_ENABLE) && defined(ERA_BOOTMAGIC_EARLY) && defined(SPLIT_KEYBOARD)
+    state->left = split_hand_pin_is_left();
+#else
+    state->left = is_keyboard_left();
+#endif
     const pin_t *row_pins;
     const pin_t *col_pins;
     era_rp2040_matrix_pio_select_side(&row_pins, &col_pins);
@@ -363,9 +388,9 @@ void era_rp2040_matrix_init_pins(void) {
     (void)era_rp2040_matrix_pio_start(row_pins, col_pins);
 }
 
-/* One pass: the newest complete frame, decoded into raw_rows[]. Returns
-   whether any raw row changed against the previous pass, which is what the
-   debounce runtime takes as its `changed` argument.
+/* One pass: the newest complete frame, decoded into raw_rows[]. Success is
+   separate from `changed`: a held recovery key needs fresh unchanged frames.
+   Force inline so the runtime caller pays no frame-identity bookkeeping.
 
    Two steps, in this order for a reason: the frame's row words are first
    copied out of the ring -- a handful of loads, so the window in which the
@@ -377,7 +402,7 @@ void era_rp2040_matrix_init_pins(void) {
    deliberately (the trip count is a constant, the build is -Os and does not
    unroll on its own): rolled, Cortex-M0+ spilled the pointers and the bound
    to the stack on every row. Check the ELF after touching this. */
-bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
+static inline __attribute__((always_inline)) bool era_rp2040_matrix_read_raw_rows(matrix_row_t raw_rows[], bool *changed, uint32_t *frame_number) {
     era_rp2040_matrix_pio_state_t *state = &era_rp2040_matrix_pio_state;
     if (!state->ready) {
         if (!state->first_frame_pending ||
@@ -402,6 +427,12 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
            pointer read and this counter must not age an unchecked frame. */
         write_addr                  = sample->WRITE_ADDR;
         uint32_t        offset       = era_rp2040_matrix_pio_latest_complete_frame_offset(write_addr, base, frame_shift, ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES - 1U, words_shift);
+        uint32_t complete_frames = (0xFFFFFFFFU - count_before) >> words_shift;
+        if (frame_number && (complete_frames == 0 || offset != (((complete_frames - 1U) & (ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES - 1U)) << words_shift))) {
+            /* The DMA crossed a frame boundary between the counter and
+             * pointer reads. Do not attach a fresh identity to an old frame. */
+            continue;
+        }
         /* DMA owns these words. Keep each SRAM load ordered with the
            volatile peripheral reads bracketing this attempt. */
         const volatile uint32_t *frame = &era_rp2040_matrix_pio_sample_ring[offset];
@@ -412,6 +443,9 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
         uint32_t count_after = sample->TRANS_COUNT;
         if (!era_rp2040_matrix_pio_copy_torn(count_before - count_after, ERA_RP2040_MATRIX_PIO_FRAME_WORDS, ERA_RP2040_MATRIX_PIO_SAMPLE_RING_FRAMES)) {
             frame_valid = true;
+            if (frame_number) {
+                *frame_number = complete_frames;
+            }
             break;
         }
         /* The writer moved far enough during the copy to have reached the
@@ -445,15 +479,98 @@ bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
         return false;
     }
 
-    bool changed = false;
+    *changed = false;
     ERA_RP2040_MATRIX_PIO_UNROLL(MATRIX_ROWS_PER_HAND)
     for (uint8_t row = 0; row < MATRIX_ROWS_PER_HAND; row++) {
         matrix_row_t value = era_rp2040_matrix_pio_decode_row(era_rp2040_matrix_pio_decode_tables, samples[row]);
-        changed |= value != raw_rows[row];
+        *changed |= value != raw_rows[row];
         raw_rows[row] = value;
     }
+    return true;
+}
+
+bool era_rp2040_matrix_update_raw_rows(matrix_row_t raw_rows[]) {
+    bool changed = false;
+    (void)era_rp2040_matrix_read_raw_rows(raw_rows, &changed, NULL);
     return changed;
 }
+
+#if defined(BOOTMAGIC_ENABLE) && defined(ERA_BOOTMAGIC_EARLY)
+enum {
+    ERA_BOOTMAGIC_CONFIRM_US = 5000,
+    ERA_BOOTMAGIC_TIMEOUT_US = 10000,
+    ERA_BOOTMAGIC_FRAME_GAP_US = 500,
+    ERA_BOOTMAGIC_POLL_US = 100,
+};
+
+/* Independent of stored typing debounce and QMK's not-yet-initialized epoch.
+ * Only fresh complete frames qualify. Released keys return immediately;
+ * stalled/invalid input can never extend this confirmation window. */
+void bootmagic_scan(void) {
+    era_rp2040_matrix_init_pins();
+    era_rp2040_matrix_pio_state_t *state = &era_rp2040_matrix_pio_state;
+    if (!state->ready && !state->first_frame_pending) {
+        return;
+    }
+
+    uint8_t row = BOOTMAGIC_ROW;
+    uint8_t col = BOOTMAGIC_COLUMN;
+#    if defined(SPLIT_KEYBOARD)
+#        if defined(BOOTMAGIC_ROW_RIGHT) && defined(BOOTMAGIC_COLUMN_RIGHT)
+    if (!state->left) {
+        row = BOOTMAGIC_ROW_RIGHT;
+        col = BOOTMAGIC_COLUMN_RIGHT;
+    }
+#        endif
+    uint8_t row_offset = state->left ? 0 : MATRIX_ROWS_PER_HAND;
+    if (row < row_offset) {
+        return;
+    }
+    row -= row_offset;
+#    endif
+    if (row >= MATRIX_ROWS_PER_HAND || col >= MATRIX_COLS) {
+        return;
+    }
+
+    matrix_row_t rows[MATRIX_ROWS_PER_HAND] = {0};
+    uint32_t start_us = timer_hw->timerawl;
+    uint32_t held_since_us = start_us, last_fresh_us = start_us, last_frame = 0;
+    bool held = false;
+    while ((uint32_t)(timer_hw->timerawl - start_us) < ERA_BOOTMAGIC_TIMEOUT_US) {
+        uint32_t frame = 0;
+        bool changed;
+        bool valid = era_rp2040_matrix_read_raw_rows(rows, &changed, &frame);
+        uint32_t now_us = timer_hw->timerawl;
+        if ((uint32_t)(now_us - start_us) >= ERA_BOOTMAGIC_TIMEOUT_US) {
+            return;
+        }
+        if (!valid || (uint32_t)(now_us - last_fresh_us) >= ERA_BOOTMAGIC_FRAME_GAP_US) {
+            held = false;
+        }
+        if (valid && frame != last_frame) {
+            last_frame = frame;
+            last_fresh_us = now_us;
+            if (!(rows[row] & ((matrix_row_t)1U << col))) {
+                return;
+            }
+            if (!held) {
+                held = true;
+                held_since_us = now_us;
+            } else if ((uint32_t)(now_us - held_since_us) >= ERA_BOOTMAGIC_CONFIRM_US) {
+                /* No EEPROM reset: recovery must work even when storage
+                 * cannot mount. Stop the sampler before the ROM reboot. */
+                /* This is before every other DMA client, and terminal. A
+                 * block reset stops outstanding writes without an unbounded
+                 * CHAN_ABORT wait; never use this for a runtime jump. */
+                hal_lld_peripheral_reset(RESETS_ALLREG_PIO1 | RESETS_ALLREG_DMA);
+                bootloader_jump();
+                return;
+            }
+        }
+        wait_us(ERA_BOOTMAGIC_POLL_US);
+    }
+}
+#endif
 
 #ifdef ERA_SPLIT_WIRE_DIAGNOSTICS_ENABLE
 void era_rp2040_matrix_pio_get_diagnostics(era_rp2040_matrix_pio_diagnostics_t *snapshot) {

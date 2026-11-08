@@ -82,8 +82,11 @@ The order below is load-bearing:
    survives the destructive copy/clear window.
 2. crt0 copies the live vector table and runtime image, clears the ordinary
    runtime regions, and retargets VTOR as defined by the linker/vendor crt0.
-3. `keyboard_setup()` consumes the install-reset receipt if that build profile
-   is enabled, then mounts ERA NVM. The split pre-init path reads the hardware
+3. After `platform_setup()` completes, `keyboard_setup()` first probes enabled
+   Bootmagic recovery without storage or USB. A confirmed key stops the raw
+   sampler and exits through `bootloader_jump()`. Otherwise it consumes the
+   install-reset receipt if that build profile is enabled, then mounts ERA NVM.
+   The split pre-init path reads the hardware
    unique ID before the first possible Core1 launch. An unfinished/invalid
    reset cannot pass this gate into settings parsing or peer service.
 4. The first Core1 launch occurs only from the post-init path after those boot
