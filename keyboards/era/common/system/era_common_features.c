@@ -58,6 +58,9 @@
 #    include "bootloader.h"
 #endif
 
+/* Bootloader entry preserves settings; only explicit recovery resets them. */
+void bootmagic_reset_eeprom(void) {}
+
 void era_common_features_init(void) {
 #ifdef ERA_MACRO_ENABLE
     era_macro_cancel();

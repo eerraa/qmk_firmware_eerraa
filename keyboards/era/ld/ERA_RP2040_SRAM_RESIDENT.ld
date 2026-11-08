@@ -139,6 +139,10 @@ SECTIONS
         __era_boot_core1_halt_base__ = .;
         */era/common/system/era_boot_core1_halt.o(.text .text.* .rodata .rodata.*)
         __era_boot_core1_halt_end__ = .;
+        . = ALIGN(DEFINED(era_settings_reset_bootstrap) ? 256 : 4);
+        __era_install_reset_receipt_base__ = .;
+        KEEP(*(.era_install_reset_receipt))
+        __era_install_reset_receipt_end__ = .;
         __flash_startup_end__ = .;
     } > flash1
 
@@ -362,3 +366,10 @@ ASSERT(LENGTH(flash1) >= 128k,
        "ERA: effective flash range is too small for the reserved 128-KiB NVM")
 ASSERT(__flash_binary_end <= __era_nvm_region_base__,
        "ERA: firmware load image overlaps the reserved final 128-KiB ERA NVM region")
+
+ASSERT(__era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 0 ||
+       __era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 256,
+       "ERA: install-reset receipt must be absent or exactly one program page")
+ASSERT(DEFINED(era_settings_reset_bootstrap) ==
+       (__era_install_reset_receipt_end__ - __era_install_reset_receipt_base__ == 256),
+       "ERA: install-reset bootstrap and receipt must be present together")

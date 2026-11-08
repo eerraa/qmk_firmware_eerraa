@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 SPLIT_KEYBOARD ?= yes
+MCU_SERIES ?= RP2040
 include keyboards/era/common/system/era_build_variant_rules.mk
 
 .PHONY: print
