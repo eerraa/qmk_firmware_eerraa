@@ -42,6 +42,8 @@ def write(name, text):
 via=src('quantum/via.h')
 write('stub/via.h',via)
 record('quantum/via.h',mode='exact header copy')
+# The copied via.h includes keycodes.h by its quantum/ name.
+write('stub/keycodes.h','#pragma once\n#include "quantum/keycodes.h"\n')
 write('stub/action.h','#pragma once\n#include "quantum.h"\n')
 write('stub/quantum.h',r'''
 #pragma once

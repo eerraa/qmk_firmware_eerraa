@@ -71,7 +71,10 @@ suspend deadline bridge run
 `python3 -m unittest discover -s tests/era_boot_sequence -v`.
 The fixture connects the production QMK/Bootmagic/matrix/scheduler/owner call
 chain with simulated authority and hardware boundaries; its negative controls
-must compile and fail at runtime. Physical RUN windows, first wire baud,
+must compile and fail at runtime. Early recovery additionally checks production
+PIO frame freshness, a bounded confirmation window, physical handedness,
+single sampler initialization, and exit before storage/USB/feature work.
+Physical RUN windows, first wire baud,
 USB/HID readiness and first LED output still need device evidence.
 
 Build-variant identity is the exception worth spelling out:
