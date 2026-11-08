@@ -1732,8 +1732,9 @@ void era_split_transport_scheduler_init(void) {
  * era_sram_residency_contract.md (no core1 launch before the ERA NVM mount and
  * the hardware-id read) holds with a margin instead of by accident.
  *
- * Bootmagic runs matrix scans inside keyboard_init(). The scan and queue
- * ensure_core1() calls may only repair an already assigned initiator lease;
+ * Early ERA Bootmagic uses only the raw sampler, without entering this
+ * scheduler. Scan and queue ensure_core1() calls may only repair an already
+ * assigned initiator lease, including any pre-init caller;
  * they cannot acquire one from NONE. The role transfer below is therefore
  * the first place that can open the wire, after Low has reached the backend.
  *

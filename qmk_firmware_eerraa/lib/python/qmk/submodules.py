@@ -1,5 +1,7 @@
 """Functions for working with QMK's submodules.
 """
+from pathlib import PurePosixPath
+
 from milc import cli
 
 
@@ -20,6 +22,12 @@ def status():
 
     status is None when the submodule doesn't exist, False when it's out of date, and True when it's current
     """
+    prefix = cli.run(['git', 'rev-parse', '--show-prefix'], check=True).stdout.strip()
+
+    def component_path(path):
+        # foreach's sm_path is repository-relative; status and the list are local.
+        return PurePosixPath(path).relative_to(prefix).as_posix()
+
     submodules = {}
     gitmodule_config = cli.run(['git', 'config', '-f', '.gitmodules', '-l'], timeout=30)
     for line in gitmodule_config.stdout.splitlines():
@@ -45,7 +53,7 @@ def status():
     submodule_logs = cli.run(['git', 'submodule', '-q', 'foreach', 'git --no-pager log --no-show-signature --pretty=format:"$sm_path%x01%h%x01%ad%x01%s%x0A" --date=iso -n1'])
     for log_line in submodule_logs.stdout.splitlines():
         r = log_line.split('\x01')
-        submodule = r[0]
+        submodule = component_path(r[0])
         submodules[submodule]['shorthash'] = r[1] if len(r) > 1 else ''
         submodules[submodule]['last_log_timestamp'] = r[2] if len(r) > 2 else ''
         submodules[submodule]['last_log_message'] = r[3] if len(r) > 3 else ''
@@ -53,7 +61,7 @@ def status():
     submodule_tags = cli.run(['git', 'submodule', '-q', 'foreach', '\'echo $sm_path `git describe --tags`\''])
     for log_line in submodule_tags.stdout.splitlines():
         r = log_line.split()
-        submodule = r[0]
+        submodule = component_path(r[0])
         submodules[submodule]['describe'] = r[1] if len(r) > 1 else ''
 
     return submodules
