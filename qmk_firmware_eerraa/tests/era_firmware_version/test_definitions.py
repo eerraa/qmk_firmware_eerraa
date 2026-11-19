@@ -513,11 +513,14 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
 
     def test_clinch65_indicators_lead_one_shared_per_key_chain(self) -> None:
         # CLINCH65S has two indicator LEDs ahead of the per-key chain, CLINCH65H one;
-        # the 67 per-key LEDs are the same on both.
+        # the 67 per-key LEDs light the same keys in the same order on both. Their
+        # x/y are each PCB's own LED positions, which differ between the two boards.
         s65 = self.board_metadata["sirind/clinch65s"]["rgb_matrix"]["layout"]
         h65 = self.board_metadata["sirind/clinch65h"]["rgb_matrix"]["layout"]
         self.assertEqual((len(s65), len(h65)), (69, 68))
-        self.assertEqual(s65[2:], h65[1:])
+        def keys(chain):
+            return [(led.get("matrix"), led["flags"]) for led in chain]
+        self.assertEqual(keys(s65[2:]), keys(h65[1:]))
         self.assertEqual([led["flags"] for led in s65[:2] + h65[:1]], [8, 8, 8])
         self.assertNotIn(8, {led["flags"] for led in h65[1:]})
 
