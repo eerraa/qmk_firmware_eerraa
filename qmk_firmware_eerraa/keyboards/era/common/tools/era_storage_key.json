@@ -3,7 +3,7 @@
     "QMK_BUILDDATE": "2024-04-23-11:29:54",
     "ERA_EEPROM_RESET_KEY": "0x45524109UL"
   },
-  "reason": "Macro options v2 rejects unreleased v1 through its table version; four-byte records retain the table base and macro marker. Schema 4 adds the options portable domain and allocates guarded eight-domain local recency in previously unused bytes after options. Retired seven-domain metadata is not imported; invalid new metadata forces conservative arbitration. Existing config/keymap/macro addresses, reset key and VIA date remain unchanged.",
+  "reason": "Adds the CLINCH65S and CLINCH65H targets only: their board and keycode groups are new and no earlier image of either board stored bytes; every existing group, offset, size, signature, reset key and VIA date is unchanged; no reset required.",
   "groups": {
     "board keyboards/era/classicd/classicd_a1/config.h": "0c2900fec6c6c9d8",
     "board keyboards/era/classicd/classicd_a1/keyboard.json": "9a58d21a4c7a779e",
@@ -51,6 +51,10 @@
     "board keyboards/era/sirind/brick65s/keyboard.json": "6723b5302a2c9725",
     "board keyboards/era/sirind/chickpad/config.h": "0c2900fec6c6c9d8",
     "board keyboards/era/sirind/chickpad/keyboard.json": "4eee15a89995e572",
+    "board keyboards/era/sirind/clinch65h/config.h": "0c2900fec6c6c9d8",
+    "board keyboards/era/sirind/clinch65h/keyboard.json": "868b30e32867dc0c",
+    "board keyboards/era/sirind/clinch65s/config.h": "0c2900fec6c6c9d8",
+    "board keyboards/era/sirind/clinch65s/keyboard.json": "868b30e32867dc0c",
     "board keyboards/era/sirind/divine/config.h": "0c2900fec6c6c9d8",
     "board keyboards/era/sirind/divine/keyboard.json": "54a9227979750c54",
     "board keyboards/era/sirind/klein_hs/config.h": "0c2900fec6c6c9d8",
@@ -86,6 +90,8 @@
     "keycodes keyboards/era/shared/n8x/n8x.h": "34f62fb17ea75d4b",
     "keycodes keyboards/era/sirind/brick65s/brick65s.h": "d2ab7c33bb730a9b",
     "keycodes keyboards/era/sirind/chickpad/chickpad.h": "71b6f84174b5e3bc",
+    "keycodes keyboards/era/sirind/clinch65h/clinch65h.h": "5cf4deaec4921bb1",
+    "keycodes keyboards/era/sirind/clinch65s/clinch65s.h": "c6d87af77b2d465b",
     "keycodes keyboards/era/sirind/common/tomak_common.h": "877da73083beabb7",
     "keycodes keyboards/era/sirind/divine/divine.h": "ce9aac65e0d285a8",
     "keycodes keyboards/era/sirind/klein_hs/klein_hs.h": "8be985c0ce0203c3",

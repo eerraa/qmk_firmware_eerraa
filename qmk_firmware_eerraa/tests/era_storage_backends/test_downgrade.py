@@ -12,7 +12,7 @@ BOARDS = (
     "classicd/classicd_coreless classicd/classicd_core classicd/classicd_a1_ug "
     "classicd/classicd_a1 sirind/klein_hs sirind/klein_sd newone/odessey60s "
     "sirind/brick65s sirind/chickpad newone/odessey60h newone/h1 newone/a1 "
-    "comm/riley comm/et_tkl comm/7b75"
+    "comm/riley comm/et_tkl comm/7b75 sirind/clinch65s sirind/clinch65h"
 ).split()
 
 

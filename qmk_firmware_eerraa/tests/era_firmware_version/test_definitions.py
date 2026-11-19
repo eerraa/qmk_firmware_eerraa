@@ -50,6 +50,10 @@ USB_IDENTITIES = {
     "sirind/tomak79s": ("SR Industry", 0x0009),
     "sirind/tomak79h": ("SR Industry", 0x000A),
     "sirind/chickpad": ("SR Industry", 0x000B),
+    # 0x000C-0x000E are SR Industry's H7S boards and 0x000F-0x0013 TOMAK TRIA's
+    # identities, both allocated in their own firmware repositories.
+    "sirind/clinch65s": ("SR Industry", 0x0014),
+    "sirind/clinch65h": ("SR Industry", 0x0015),
     "shared/n8x/linworks": ("LINWORKS", 0x0001),
     "shared/n86/linworks": ("LINWORKS", 0x0002),
     "shared/n87/linworks": ("LINWORKS", 0x0003),
@@ -83,7 +87,8 @@ LEGACY_LIGHTING_LABELS = {
 BUILTIN_LIGHTING_MENUS = {"qmk_rgb_matrix", "qmk_rgblight", "qmk_backlight", "qmk_backlight_rgblight"}
 # Value 0 of a lock-indicator dropdown: the LED shows the RGB effect when it is shared, or goes dark when dedicated.
 SHARED_INDICATOR_BOARDS = {
-    "comm/riley", "linworks/fave65s", "shared/n86", "shared/n87", "sirind/tomak", "sirind/tomak79h", "sirind/tomak79s",
+    "comm/riley", "linworks/fave65s", "shared/n86", "shared/n87", "sirind/clinch65h", "sirind/clinch65s", "sirind/tomak",
+    "sirind/tomak79h", "sirind/tomak79s",
 }
 DEDICATED_INDICATOR_BOARDS = {"newone/odessey60h", "newone/odessey60s", "sirind/brick65s"}
 
@@ -113,6 +118,20 @@ INDICATOR_COMMANDS = {
         ["id_qmk_custom_ind_2_select", 0, 10],
         ["id_qmk_custom_ind_2_brightness", 0, 11],
         ["id_qmk_custom_ind_2_color", 0, 12],
+    ],
+    "sirind/clinch65s": [
+        ["id_qmk_custom_ind_enable", 0, 6],
+        ["id_qmk_custom_ind_1_select", 0, 7],
+        ["id_qmk_custom_ind_1_brightness", 0, 8],
+        ["id_qmk_custom_ind_1_color", 0, 9],
+        ["id_qmk_custom_ind_2_select", 0, 10],
+        ["id_qmk_custom_ind_2_brightness", 0, 11],
+        ["id_qmk_custom_ind_2_color", 0, 12],
+    ],
+    "sirind/clinch65h": [
+        ["id_qmk_custom_ind_1_select", 0, 7],
+        ["id_qmk_custom_ind_1_brightness", 0, 8],
+        ["id_qmk_custom_ind_1_color", 0, 9],
     ],
 }
 
@@ -270,14 +289,14 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             cls.board_definitions[board] = stock_definitions(board_dir)
 
     def test_inventory_count_and_brick65_exclusion(self) -> None:
-        self.assertEqual(len(self.board_jsons), 31)
-        self.assertEqual(len(self.board_definitions), 31)
-        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 34)
+        self.assertEqual(len(self.board_jsons), 33)
+        self.assertEqual(len(self.board_definitions), 33)
+        self.assertEqual(sum(len(paths) for paths in self.board_definitions.values()), 36)
 
         rp2040_boards = [board for board, metadata in self.board_metadata.items() if metadata.get("processor") == "RP2040"]
-        self.assertEqual(len(rp2040_boards), 30)
+        self.assertEqual(len(rp2040_boards), 32)
         self.assertEqual(set(self.board_metadata) - set(rp2040_boards), {BRICK65_BOARD})
-        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 33)
+        self.assertEqual(sum(len(self.board_definitions[board]) for board in rp2040_boards), 35)
 
         for board, paths in self.board_definitions.items():
             split = bool(self.board_metadata[board].get("split", {}).get("enabled"))
@@ -292,7 +311,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 with self.subTest(path=path.relative_to(ROOT).as_posix()):
                     validate_stock_tapdance(load_json(path))
                     checked += 1
-        self.assertEqual(checked, 33)
+        self.assertEqual(checked, 35)
 
     def test_official_tapdance_guard_rejects_broken_fixtures(self) -> None:
         original = load_json(self.board_definitions["sirind/tomak"][0])
@@ -355,7 +374,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual(matching_controls, [VERSION_CONTROL], path.as_posix())
                 checked += 1
 
-        self.assertEqual(checked, 33)
+        self.assertEqual(checked, 35)
 
     def test_layout_option_inventory_and_choice_tags(self) -> None:
         # A valid VIA definition can silently lose every optional layout label.
@@ -380,6 +399,8 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
             "shared/n87": [2, 2],
             "shared/n8x": [2, 2, 2, 2, 2],
             "sirind/chickpad": [],
+            "sirind/clinch65h": [2, 2],
+            "sirind/clinch65s": [2, 2],
             "sirind/divine": [2, 2],
             "sirind/klein_hs": [2, 3],
             "sirind/klein_sd": [2, 3],
@@ -464,6 +485,41 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual(len(selected), 65 + choice)
                 self.assertEqual(len(selected), len(coordinates))
                 self.assertEqual(coordinates, expected)
+
+    def test_clinch65_layout_choices_match_the_four_firmware_layouts(self) -> None:
+        # Both boards share one switch matrix; the two VIA choices span QMK's four
+        # 65% ANSI blocker layouts, keyed here by (split backspace, 7U bottom row).
+        names = {
+            (0, 0): "LAYOUT_65_ansi_blocker",
+            (1, 0): "LAYOUT_65_ansi_blocker_split_bs",
+            (0, 1): "LAYOUT_65_ansi_blocker_tsangan",
+            (1, 1): "LAYOUT_65_ansi_blocker_tsangan_split_bs",
+        }
+        for board in ("sirind/clinch65s", "sirind/clinch65h"):
+            [path] = self.board_definitions[board]
+            layout = load_json(path)["layouts"]
+            self.assertEqual(layout["labels"], ["Split Backspace", ["Bottom Row", "6.25U", "7U"]])
+            keys = [key.split("\n") for row in layout["keymap"] for key in row if isinstance(key, str)]
+            for choices, name in names.items():
+                selected = [
+                    key[0] for key in keys
+                    if len(key) <= 3 or choices[int(key[3].split(",")[0])] == int(key[3].split(",")[1])
+                ]
+                coordinates = {tuple(map(int, key.split(","))) for key in selected}
+                expected = {tuple(key["matrix"]) for key in self.board_metadata[board]["layouts"][name]["layout"]}
+                with self.subTest(board=board, layout=name):
+                    self.assertEqual(len(selected), len(coordinates))
+                    self.assertEqual(coordinates, expected)
+
+    def test_clinch65_indicators_lead_one_shared_per_key_chain(self) -> None:
+        # CLINCH65S has two indicator LEDs ahead of the per-key chain, CLINCH65H one;
+        # the 67 per-key LEDs are the same on both.
+        s65 = self.board_metadata["sirind/clinch65s"]["rgb_matrix"]["layout"]
+        h65 = self.board_metadata["sirind/clinch65h"]["rgb_matrix"]["layout"]
+        self.assertEqual((len(s65), len(h65)), (69, 68))
+        self.assertEqual(s65[2:], h65[1:])
+        self.assertEqual([led["flags"] for led in s65[:2] + h65[:1]], [8, 8, 8])
+        self.assertNotIn(8, {led["flags"] for led in h65[1:]})
 
     def test_riley_layout_choices_cover_all_firmware_switches_without_duplicates(self) -> None:
         [path] = self.board_definitions["comm/riley"]
@@ -760,7 +816,7 @@ class EraFirmwareVersionDefinitions(unittest.TestCase):
                 self.assertEqual([option[1] for option in options], list(range(len(options))), path.as_posix())
                 self.assertEqual([effect_key(option[0]) for option in options], expected, path.as_posix())
                 checked += 1
-        self.assertEqual(checked, 15)
+        self.assertEqual(checked, 17)
 
     def test_shared_board_bodies_leave_only_the_identity_to_each_maker_target(self) -> None:
         # QMK merges a parent info.json over the keyboard.json below it and the parent
